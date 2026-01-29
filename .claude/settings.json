@@ -1,0 +1,23 @@
+{
+    "permissions": {
+        "allow": [
+            "Read(./**)",
+            "Edit(./**)",
+            "Write(./**)",
+            "Glob(./**)",
+            "Grep(./**)",
+            "Read(~/.gitconfig)"
+        ],
+        "deny": [
+            "Read(./.env)",
+            "Read(./.env.*)",
+            "Read(./secrets/**)",
+            "Bash(rm -rf:*)",
+            "Bash(sudo:*)"
+        ],
+        "ask": [
+            "Bash(git push:*)"
+        ]
+    }
+}
+
