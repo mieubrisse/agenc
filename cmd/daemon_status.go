@@ -3,6 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -27,12 +29,13 @@ func init() {
 }
 
 type daemonStatusOutput struct {
-	Version              string `json:"version"`
-	DaemonRunning        bool   `json:"daemon_running"`
-	DaemonPID            int    `json:"daemon_pid"`
-	LogFilepath          string `json:"log_filepath"`
-	DescriptionsGenerated int   `json:"descriptions_generated"`
-	DescriptionsPending   int   `json:"descriptions_pending"`
+	Version               string `json:"version"`
+	DaemonVersion         string `json:"daemon_version"`
+	DaemonRunning         bool   `json:"daemon_running"`
+	DaemonPID             int    `json:"daemon_pid"`
+	LogFilepath           string `json:"log_filepath"`
+	DescriptionsGenerated int    `json:"descriptions_generated"`
+	DescriptionsPending   int    `json:"descriptions_pending"`
 }
 
 func runDaemonStatus(cmd *cobra.Command, args []string) error {
@@ -45,6 +48,15 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	running := pid > 0 && daemon.IsProcessRunning(pid)
+
+	daemonVersion := ""
+	if running {
+		versionFilepath := config.GetDaemonVersionFilepath(agencDirpath)
+		raw, err := os.ReadFile(versionFilepath)
+		if err == nil {
+			daemonVersion = strings.TrimSpace(string(raw))
+		}
+	}
 
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
@@ -61,6 +73,7 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	if daemonStatusJSON {
 		output := daemonStatusOutput{
 			Version:               version.Version,
+			DaemonVersion:         daemonVersion,
 			DaemonRunning:         running,
 			DaemonPID:             pid,
 			LogFilepath:           logFilepath,
@@ -77,7 +90,7 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Version:      %s\n", version.Version)
 	if running {
-		fmt.Printf("Daemon:       running (PID %d)\n", pid)
+		fmt.Printf("Daemon:       running (PID %d, version %s)\n", pid, daemonVersion)
 	} else {
 		fmt.Println("Daemon:       stopped")
 	}

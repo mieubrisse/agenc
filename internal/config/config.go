@@ -20,6 +20,7 @@ const (
 	DaemonDirname         = "daemon"
 	DaemonPIDFilename     = "daemon.pid"
 	DaemonLogFilename     = "daemon.log"
+	DaemonVersionFilename = "daemon.version"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -114,6 +115,11 @@ func GetDaemonPIDFilepath(agencDirpath string) string {
 // GetDaemonLogFilepath returns the path to the daemon log file.
 func GetDaemonLogFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, DaemonDirname, DaemonLogFilename)
+}
+
+// GetDaemonVersionFilepath returns the path to the daemon version file.
+func GetDaemonVersionFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, DaemonDirname, DaemonVersionFilename)
 }
 
 // GetDatabaseFilepath returns the path to the SQLite database file.

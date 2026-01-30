@@ -15,6 +15,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/version"
 )
 
 var daemonStartCmd = &cobra.Command{
@@ -43,6 +44,11 @@ func runDaemonLoop() error {
 	// but this ensures accuracy if started directly)
 	if err := os.WriteFile(pidFilepath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write PID file")
+	}
+
+	versionFilepath := config.GetDaemonVersionFilepath(agencDirpath)
+	if err := os.WriteFile(versionFilepath, []byte(version.Version), 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write version file")
 	}
 
 	logFilepath := config.GetDaemonLogFilepath(agencDirpath)
@@ -76,8 +82,9 @@ func runDaemonLoop() error {
 	d := daemon.NewDaemon(db, agencDirpath, logger)
 	d.Run(ctx)
 
-	// Clean up PID file on graceful shutdown
+	// Clean up PID and version files on graceful shutdown
 	os.Remove(pidFilepath)
+	os.Remove(versionFilepath)
 	logger.Println("Daemon exited")
 
 	return nil
