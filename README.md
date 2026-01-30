@@ -63,13 +63,15 @@ The `missions` directory contains workspaces for each mission. Each mission is i
 
 ```
 missions/
-└── 0f4edd01-c480-462d-a44e-c1bd48aaa5a6/
-    ├── CLAUDE.md              # Built by cat'ing global + agent-specific CLAUDE.md
-    ├── .mcp.json              # (optional) Built by merging global + agent-specific mcp.json
-    ├── .claude/
-    │   └── settings.json      # Built by merging global + agent-specific settings.json
-    └── workspace/
-        └── ...                # All files the agent creates or modifies
+├── 0f4edd01-c480-462d-a44e-c1bd48aaa5a6/
+│   ├── CLAUDE.md              # Built by cat'ing global + agent-specific CLAUDE.md
+│   ├── .mcp.json              # (optional) Built by merging global + agent-specific mcp.json
+│   ├── .claude/
+│   │   └── settings.json      # Built by merging global + agent-specific settings.json
+│   └── workspace/
+│       └── ...                # All files the agent creates or modifies
+└── ARCHIVE/                   # Archived missions (moved here by `agenc mission archive`)
+    └── ...
 ```
 
 The `workspace/` subdirectory is where the agent does its actual work — creating files, cloning Git repos, writing output, etc.
@@ -82,41 +84,35 @@ All `claude` instances launched by the AgenC have their `CLAUDE_CONFIG_DIR` envi
 
 The SQLite database currently tracks mission IDs. The schema will expand over time as needed.
 
-Doing Work
-----------
+CLI
+---
 
-Launching a mission follows this flow:
-
-1. The user tells the AgenC to launch a mission and, optionally, specifies which agent template to use.
-2. The AgenC creates a new mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config from `config/`.
-3. The mission directory is ready for a Claude Code session to operate in.
-
-CLI Usage
----------
-
-Launch a mission:
+The binary is called `agenc` and follows the `noun verb` pattern (similar to Kubernetes/Docker):
 
 ```
-agenc run "Refactor the authentication module in github.com/myorg/myapp"
+agenc <noun> <verb> [args...]
 ```
 
-Launch a mission with a specific agent template:
+### agenc mission new
 
-```
-agenc run --agent code-reviewer "Review the open PRs on github.com/myorg/myapp"
-```
+Creates a new mission. When run with no arguments, an interactive flow starts:
 
-Check status of all missions:
+1. The user is dropped into `fzf` to pick an agent template. The default option is `NONE` (no specific agent template).
+2. The user is dropped into `vim` to write the mission prompt — what they want the agent to accomplish.
+3. The AgenC creates the mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config from `config/`.
+4. The prompt the user wrote is sent as the first message to the `claude` instance running in the mission directory.
 
-```
-agenc status
-```
+### agenc mission ls
 
-View details for a specific mission:
+Lists all active missions.
 
-```
-agenc status <mission-id>
-```
+### agenc mission resume \<mission-id\>
+
+Resumes an existing mission by running `claude -c` in the mission's directory.
+
+### agenc mission archive \<mission-id\>
+
+Archives a mission by moving it to the `missions/ARCHIVE/` subdirectory.
 
 Example Workflows
 -----------------
