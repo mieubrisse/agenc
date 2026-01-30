@@ -8,6 +8,8 @@
             "Grep(./**)",
             "Read(~/.gitconfig)",
             "Read(~/.agenc/**)",
+            "Glob(~/.agenc/**)",
+            "Grep(~/.agenc/**)",
             "Bash(go:*)",
             "Bash(./agenc:*)"
         ],
