@@ -94,7 +94,7 @@ func ExecClaude(agencDirpath string, missionDirpath string, prompt string) error
 	env := os.Environ()
 	env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
 
-	args := []string{"claude", "-p", prompt}
+	args := []string{"claude", prompt}
 
 	if err := os.Chdir(workspaceDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to change directory to '%s'", workspaceDirpath)
