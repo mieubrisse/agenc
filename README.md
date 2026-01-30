@@ -1,78 +1,134 @@
-Agent Factory
-=============
+The AgenC
+=========
 
-An orchestrator for running many Claude Code agents in parallel, each working independently on assigned tasks. Feed it work via the CLI, and the factory spins up agents to get it done.
+_Pronounced "agency"._
+
+An orchestrator for running many Claude Code agents in parallel, each working independently on assigned missions. Feed it work via the CLI, and the AgenC spins up agents to get it done.
 
 Why
 ---
 
-A single Claude Code session is powerful, but some workloads benefit from parallelism — large refactors, bulk migrations, research across multiple topics, or just knocking out a backlog of unrelated tasks. Agent Factory manages a pool of Claude Code agents, distributes tasks across them, and collects results.
+A single Claude Code session is powerful, but some workloads benefit from parallelism — large refactors, bulk migrations, research across multiple topics, or just knocking out a backlog of unrelated tasks. The AgenC manages a pool of Claude Code agents, distributes missions across them, and collects results.
 
 Architecture
 ------------
 
-Agent Factory is a Go CLI tool built with [Cobra](https://github.com/spf13/cobra). It manages all state in a single working directory and uses SQLite to track agent work.
+The AgenC is a Go CLI tool built with [Cobra](https://github.com/spf13/cobra). It manages all state in a single root directory, uses SQLite to track missions, and runs each agent in its own tmux window within the `agenc` tmux session.
 
-### Working Directory
+### Root Directory
 
-All Agent Factory state lives under a single root directory, configured by the `AGENT_FACTORY_DIRPATH` environment variable. It defaults to `~/.agent-factory`.
+All AgenC state lives under a single root directory, configured by the `AGENC_DIRPATH` environment variable. It defaults to `~/.agenc`.
 
 ```
-~/.agent-factory/
-├── agent-factory.db        # SQLite database tracking tasks and agent state
-└── workspaces/             # One subdirectory per agent
-    ├── agent-abc123/
-    ├── agent-def456/
-    └── ...
+$AGENC_DIRPATH/
+├── config/           # Git repo containing all AgenC configuration
+├── claude/           # CLAUDE_CONFIG_DIR for all Claude instances run by AgenC
+├── missions/         # One subdirectory per mission (keyed by UUID)
+└── database.sqlite   # Tracks missions and their state
 ```
 
-### Agent Lifecycle
+### config
 
-1. A task is submitted via the CLI and recorded in the SQLite database.
-2. The factory assigns the task to a new agent and creates a workspace directory for it.
-3. A Claude Code session launches inside that workspace and executes the task.
-4. On completion (or failure), the agent's status is updated in the database.
+The `config` directory is a Git repo containing the configuration that governs the AgenC and its agents. It has the following structure:
 
-### Workspaces
+```
+config/
+├── claude/
+│   ├── CLAUDE.md              # Global CLAUDE.md included by all agents
+│   ├── mcp.json               # (optional) Global MCP server config
+│   ├── settings.json          # Global settings.json included by all agents
+│   └── skills/                # (optional) Skills applied to all agents
+│       ├── skill1/
+│       │   └── SKILL.md
+│       └── skill2/
+│           └── SKILL.md
+└── agent-templates/
+    ├── agent1/
+    │   ├── CLAUDE.md          # Instructions specific to agent1
+    │   ├── mcp.json           # (optional) Agent-specific MCP config
+    │   └── claude/
+    │       ├── secrets.env    # (optional) Secrets injected via 1Password
+    │       └── skills/        # (optional) Agent-specific skills
+    └── agent2/
+        └── ...
+```
 
-Each agent gets its own directory under `workspaces/`. This provides isolation — agents don't step on each other's files. For tasks that operate on external repositories, the agent clones or checks out the repo inside its workspace.
+**Global config** (`config/claude/`) is shared across all agents. It defines the baseline behavior, MCP servers, settings, and skills that every agent gets.
 
-### SQLite Database
+**Agent templates** (`config/agent-templates/`) define agent-specific overrides. Each template can add its own `CLAUDE.md` instructions, MCP servers, secrets, and skills on top of the global config. When a mission launches, the global and agent-specific configs are merged to produce the mission's environment.
 
-The `agent-factory.db` file tracks:
+### missions
 
-- **Tasks** — what was requested, current status, result summary
+The `missions` directory contains workspaces for each mission. Each mission is identified by a UUID:
+
+```
+missions/
+└── 0f4edd01-c480-462d-a44e-c1bd48aaa5a6/
+    ├── CLAUDE.md              # Built by cat'ing global + agent-specific CLAUDE.md
+    ├── .mcp.json              # (optional) Built by merging global + agent-specific mcp.json
+    ├── .claude/
+    │   └── settings.json      # Built by merging global + agent-specific settings.json
+    └── workspace/
+        └── ...                # All files the agent creates or modifies
+```
+
+The `workspace/` subdirectory is where the agent does its actual work — creating files, cloning Git repos, writing output, etc.
+
+### claude
+
+All `claude` instances launched by the AgenC have their `CLAUDE_CONFIG_DIR` environment variable set to `$AGENC_DIRPATH/claude`. This makes the AgenC fully self-contained and prevents it from interfering with any preexisting Claude Code installation on the machine.
+
+### database.sqlite
+
+The SQLite database tracks:
+
+- **Missions** — what was requested, which agent template was used, current status, result summary
 - **Agents** — which agent is working on what, when it started, when it finished
 - **Logs** — output and errors from each agent session
+
+Doing Work
+----------
+
+Launching a mission follows this flow:
+
+1. The user tells the AgenC to launch a mission and, optionally, specifies which agent template to use.
+2. The AgenC creates a new mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config from `config/`.
+3. Inside the mission directory, the AgenC creates a new tmux window in the `agenc` session running `claude`, ready for the user to interact with.
 
 CLI Usage
 ---------
 
-Submit a task:
+Launch a mission:
 
 ```
-agent-factory run "Refactor the authentication module in github.com/myorg/myapp"
+agenc run "Refactor the authentication module in github.com/myorg/myapp"
 ```
 
-Check status of all tasks:
+Launch a mission with a specific agent template:
 
 ```
-agent-factory status
+agenc run --agent code-reviewer "Review the open PRs on github.com/myorg/myapp"
 ```
 
-View details for a specific task:
+Check status of all missions:
 
 ```
-agent-factory status <task-id>
+agenc status
+```
+
+View details for a specific mission:
+
+```
+agenc status <mission-id>
 ```
 
 Example Workflows
 -----------------
 
-Agent Factory is general-purpose. Any task you could give to a Claude Code session, you can give to the factory. Some examples:
+The AgenC is general-purpose. Any task you could give to a Claude Code session, you can give to the AgenC. Some examples:
 
 - **Code changes** — "Clone github.com/myorg/api, add rate limiting to all public endpoints, and open a PR."
-- **Research** — "Research the top 5 Golang ORMs and write a comparison to /tmp/orm-comparison.md."
+- **Research** — "Research the top 5 Golang ORMs and write a comparison."
 - **Writing** — "In the substack repo, write a post about the future of AI agents and commit it."
 - **Calendar management** — "Add a weekly team sync every Tuesday at 10am to my Google Calendar."
 
@@ -81,16 +137,19 @@ Configuration
 
 | Variable | Default | Description |
 |---|---|---|
-| `AGENT_FACTORY_DIRPATH` | `~/.agent-factory` | Root directory for all Agent Factory state |
+| `AGENC_DIRPATH` | `~/.agenc` | Root directory for all AgenC state |
+
+The `agenc` tmux session is used for all agent windows. Each mission gets its own tmux window within this session.
 
 Design Goals
 ------------
 
-- **Parallel execution** — Run many agents concurrently, bounded by a configurable concurrency limit.
-- **Task isolation** — Each agent operates in its own workspace to avoid conflicts.
-- **Fault tolerance** — If an agent fails, the factory retries or reports the failure without blocking other agents.
-- **Observable** — Clear logging and status reporting so you can see what each agent is doing.
-- **Simple interface** — Submit a task via the CLI, get back results. Minimal ceremony.
+- **Parallel execution** — Run many agents concurrently, each in its own tmux window.
+- **Mission isolation** — Each mission operates in its own directory with a merged config tailored to its agent.
+- **Self-contained** — The AgenC uses its own `CLAUDE_CONFIG_DIR` and never touches the user's existing Claude Code setup.
+- **Configurable agents** — Agent templates let you define specialized agents with their own instructions, MCP servers, secrets, and skills.
+- **Observable** — Clear logging, SQLite tracking, and tmux windows you can attach to at any time.
+- **Simple interface** — Submit a mission via the CLI. The AgenC handles the rest.
 
 Status
 ------
