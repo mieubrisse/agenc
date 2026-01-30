@@ -48,3 +48,19 @@ grep -r "pattern" ~/.agenc/
 ```
 
 The native tools run without permission prompts and provide better-structured output. Reserve Bash for operations that genuinely require shell execution.
+
+Database Functions
+------------------
+
+Database functions should follow standard CRUD patterns — Create, Read, Update, Delete. Do not proliferate multiple Read functions for different filtering scenarios. Instead, use a single function with parameters that control filtering behavior.
+
+```go
+// Correct — one function with a parameter to control filtering
+func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error)
+
+// Wrong — duplicated Read functions that differ only in a WHERE clause
+func (db *DB) ListActiveMissions() ([]*Mission, error)
+func (db *DB) ListAllMissions() ([]*Mission, error)
+```
+
+When a new query variation is needed, first check whether an existing function can be extended with a parameter rather than creating a new function.
