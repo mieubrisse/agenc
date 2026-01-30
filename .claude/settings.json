@@ -7,7 +7,8 @@
             "Glob(./**)",
             "Grep(./**)",
             "Read(~/.gitconfig)",
-            "Bash(go:*)"
+            "Bash(go:*)",
+            "Bash(./agenc:*)"
         ],
         "deny": [
             "Read(./.env)",
