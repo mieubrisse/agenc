@@ -112,6 +112,19 @@ func (db *DB) ListActiveMissions() ([]*Mission, error) {
 	return scanMissions(rows)
 }
 
+// ListAllMissions returns all missions regardless of status.
+func (db *DB) ListAllMissions() ([]*Mission, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, agent_template, prompt, status, created_at, updated_at FROM missions ORDER BY created_at DESC",
+	)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to query all missions")
+	}
+	defer rows.Close()
+
+	return scanMissions(rows)
+}
+
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(

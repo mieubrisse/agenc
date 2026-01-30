@@ -12,6 +12,8 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 )
 
+var lsAllFlag bool
+
 var missionLsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List active missions",
@@ -19,6 +21,7 @@ var missionLsCmd = &cobra.Command{
 }
 
 func init() {
+	missionLsCmd.Flags().BoolVarP(&lsAllFlag, "all", "a", false, "include archived missions")
 	missionCmd.AddCommand(missionLsCmd)
 }
 
@@ -30,13 +33,22 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missions, err := db.ListActiveMissions()
+	var missions []*database.Mission
+	if lsAllFlag {
+		missions, err = db.ListAllMissions()
+	} else {
+		missions, err = db.ListActiveMissions()
+	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
 
 	if len(missions) == 0 {
-		fmt.Println("No active missions.")
+		if lsAllFlag {
+			fmt.Println("No missions.")
+		} else {
+			fmt.Println("No active missions.")
+		}
 		return nil
 	}
 
@@ -51,7 +63,11 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
+	if lsAllFlag {
+		fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
+	} else {
+		fmt.Fprintln(w, "ID\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
+	}
 	for _, m := range missions {
 		promptSnippet := m.Prompt
 		if len(promptSnippet) > 60 {
@@ -64,13 +80,24 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				descSnippet = descSnippet[:47] + "..."
 			}
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			m.ID,
-			displayAgentTemplate(m.AgentTemplate),
-			descSnippet,
-			promptSnippet,
-			m.CreatedAt.Format("2006-01-02 15:04"),
-		)
+		if lsAllFlag {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				m.ID,
+				m.Status,
+				displayAgentTemplate(m.AgentTemplate),
+				descSnippet,
+				promptSnippet,
+				m.CreatedAt.Format("2006-01-02 15:04"),
+			)
+		} else {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				m.ID,
+				displayAgentTemplate(m.AgentTemplate),
+				descSnippet,
+				promptSnippet,
+				m.CreatedAt.Format("2006-01-02 15:04"),
+			)
+		}
 	}
 	w.Flush()
 
