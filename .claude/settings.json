@@ -11,7 +11,8 @@
             "Glob(~/.agenc/**)",
             "Grep(~/.agenc/**)",
             "Bash(go:*)",
-            "Bash(./agenc:*)"
+            "Bash(./agenc:*)",
+            "Bash(tree:*)"
         ],
         "deny": [
             "Read(./.env)",
