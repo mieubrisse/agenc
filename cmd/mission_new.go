@@ -146,12 +146,14 @@ func getPromptFromEditor() (string, error) {
 		editor = "vim"
 	}
 
-	editorBinary, err := exec.LookPath(editor)
+	editorParts := strings.Fields(editor)
+	editorBinary, err := exec.LookPath(editorParts[0])
 	if err != nil {
-		return "", stacktrace.Propagate(err, "'%s' not found in PATH", editor)
+		return "", stacktrace.Propagate(err, "'%s' not found in PATH", editorParts[0])
 	}
 
-	editorCmd := exec.Command(editorBinary, tmpFilepath)
+	editorArgs := append(editorParts[1:], tmpFilepath)
+	editorCmd := exec.Command(editorBinary, editorArgs...)
 	editorCmd.Stdin = os.Stdin
 	editorCmd.Stdout = os.Stdout
 	editorCmd.Stderr = os.Stderr
