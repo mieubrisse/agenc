@@ -17,6 +17,9 @@ const (
 	MissionsDirname       = "missions"
 	ArchiveDirname        = "ARCHIVE"
 	AgentTemplatesDirname = "agent-templates"
+	DaemonDirname         = "daemon"
+	DaemonPIDFilename     = "daemon.pid"
+	DaemonLogFilename     = "daemon.log"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -41,6 +44,7 @@ func EnsureDirStructure(agencDirpath string) error {
 		filepath.Join(agencDirpath, ClaudeDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, MissionsDirname, ArchiveDirname),
+		filepath.Join(agencDirpath, DaemonDirname),
 	}
 	for _, dirpath := range dirs {
 		if err := os.MkdirAll(dirpath, 0755); err != nil {
@@ -90,6 +94,21 @@ func ListAgentTemplates(agencDirpath string) ([]string, error) {
 	}
 	sort.Strings(templateNames)
 	return templateNames, nil
+}
+
+// GetDaemonDirpath returns the path to the daemon directory.
+func GetDaemonDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, DaemonDirname)
+}
+
+// GetDaemonPIDFilepath returns the path to the daemon PID file.
+func GetDaemonPIDFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, DaemonDirname, DaemonPIDFilename)
+}
+
+// GetDaemonLogFilepath returns the path to the daemon log file.
+func GetDaemonLogFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, DaemonDirname, DaemonLogFilename)
 }
 
 // GetDatabaseFilepath returns the path to the SQLite database file.

@@ -30,6 +30,9 @@ func init() {
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
+	// Idempotently start the daemon so descriptions get generated
+	ensureDaemonRunning(agencDirpath)
+
 	agentTemplate := agentTemplateFlag
 
 	// If no --agent flag, interactively select with fzf

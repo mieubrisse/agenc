@@ -40,16 +40,34 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Batch-fetch descriptions for all listed missions
+	missionIDs := make([]string, len(missions))
+	for i, m := range missions {
+		missionIDs[i] = m.ID
+	}
+	descriptions, err := db.GetDescriptionsForMissions(missionIDs)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to fetch mission descriptions")
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tAGENT\tPROMPT\tCREATED")
+	fmt.Fprintln(w, "ID\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
 	for _, m := range missions {
 		promptSnippet := m.Prompt
 		if len(promptSnippet) > 60 {
 			promptSnippet = promptSnippet[:57] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		descSnippet := "(pending)"
+		if desc, ok := descriptions[m.ID]; ok {
+			descSnippet = desc
+			if len(descSnippet) > 50 {
+				descSnippet = descSnippet[:47] + "..."
+			}
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			m.ID,
 			displayAgentTemplate(m.AgentTemplate),
+			descSnippet,
 			promptSnippet,
 			m.CreatedAt.Format("2006-01-02 15:04"),
 		)
