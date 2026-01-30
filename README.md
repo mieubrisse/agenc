@@ -5,10 +5,43 @@ _Pronounced "agency"._
 
 An orchestrator for running many Claude Code agents in parallel, each working independently on assigned missions. Feed it work via the CLI, and the AgenC spins up agents to get it done.
 
-Why
----
+Why AgenC?
+----------
 
-A single Claude Code session is powerful, but some workloads benefit from parallelism — large refactors, bulk migrations, research across multiple topics, or just knocking out a backlog of unrelated tasks. The AgenC manages a pool of Claude Code agents, distributes missions across them, and collects results.
+People like me want to use Claude Code as their Everything Agent, including for non-coding things like Todoist. This has the following benefits:
+
+- Use my beloved Vim & tmux config for everything
+- **Ease-of-plumbing:** No copy-pasting to and from the Desktop app. Everything is read to and written from files, which Claude Code can work with without user intervention.
+- Scriptable (e.g. I can automate tmux to create workspaces open with the agents I use the most)
+- Granular control over MCP servers
+- Integrate secrets with 1Password via 1Password CLI
+
+However, this has several problems:
+
+- To do this securely (without `--dangerously-skip-permissions`), you have to do a BUNCH of settings.json management
+- It's on you to create the directory & version-control structure of agents
+- Often, these sorts of tasks are "do a bit of work for a bit, end", which works really well with sandbox directories. but...
+    - You have to set all the sandboxing up yourself
+    - Claude's really oriented around long-lived Git repos, and every time you add a new directory you have to tell Claude:
+        - to trust the directory
+        - set up the settings.json (which is painful given Claude's permission system is a bit wonky)
+        - optionally set up any .mcp.json
+- On top of all this, you need to wire up the 1Password stuff manually
+- During the course of the session, you'll often hit times where the agent doesn't behave the way you want (often, CLAUDE.md or settings.json need refining). Per the doctrine of [Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs) you'd like to roll fixes back into the agent so the entire agency gets better, but you then have to stop what you're doing, find the agent's CLAUDE.md, open a new claude window, update it, and then restart the original conversation to pick up the changes (especially with settings.json).
+
+AgenC solves all these:
+
+- You define **agent templates** inside a version-controlled AgenC config repo, with the Claude config you want (`CLAUDE.md` and `settings.json` and `.mcp.json` and `skills`)
+- You send agents on **missions**, which execute inside a sandbox directory created from the agent template
+- Agent templates can be registered with secrets from 1Password, which get automatically injected upon agent creation
+- When talking to any agent on a mission, with a simple hotkey you can switch to editing the template that created the agent to update the Inputs, making your AgenC better forever
+- Missions can be quickly and easily archived to keep things tidy
+
+In the future, AgenC will also:
+
+- Let you analyze mission results and proactively suggest fixes to agents
+- Analyze how effective each agent is
+- Execute missions inside Docker containers so `--dangerously-skip-permissions` is allowed
 
 Architecture
 ------------
@@ -95,12 +128,22 @@ agenc <noun> <verb> [args...]
 
 ### agenc mission new
 
-Creates a new mission. When run with no arguments, an interactive flow starts:
+Creates a new mission and drops the user into a Claude Code session.
+
+**Interactive mode** (no arguments):
 
 1. The user is dropped into `fzf` to pick an agent template. The default option is `NONE` (no specific agent template).
 2. The user is dropped into `vim` to write the mission prompt — what they want the agent to accomplish.
 3. The AgenC creates the mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config from `config/`.
-4. The prompt the user wrote is sent as the first message to the `claude` instance running in the mission directory.
+4. The AgenC execs into `claude` in the mission directory (foreground), sending the prompt as the first message.
+
+**Non-interactive mode** (for scripting):
+
+```
+agenc mission new --agent <template-name> "<prompt>"
+```
+
+Both `--agent` and the prompt are optional. If either is missing, the interactive flow fills in the gaps (e.g. omitting `--agent` triggers `fzf`, omitting the prompt triggers `vim`).
 
 ### agenc mission ls
 
@@ -108,7 +151,7 @@ Lists all active missions.
 
 ### agenc mission resume \<mission-id\>
 
-Resumes an existing mission by running `claude -c` in the mission's directory.
+Resumes an existing mission by running `claude -c` in the mission's directory. Since each mission is its own project directory, all conversations are scoped to that mission.
 
 ### agenc mission archive \<mission-id\>
 
