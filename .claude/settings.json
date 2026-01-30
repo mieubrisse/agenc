@@ -6,7 +6,8 @@
             "Write(./**)",
             "Glob(./**)",
             "Grep(./**)",
-            "Read(~/.gitconfig)"
+            "Read(~/.gitconfig)",
+            "Bash(go:*)"
         ],
         "deny": [
             "Read(./.env)",
