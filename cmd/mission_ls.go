@@ -33,12 +33,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	var missions []*database.Mission
-	if lsAllFlag {
-		missions, err = db.ListAllMissions()
-	} else {
-		missions, err = db.ListActiveMissions()
-	}
+	missions, err := db.ListMissions(lsAllFlag)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

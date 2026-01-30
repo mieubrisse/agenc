@@ -55,7 +55,7 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 }
 
 func selectMissionsToArchive(db *database.DB) ([]string, error) {
-	missions, err := db.ListActiveMissions()
+	missions, err := db.ListMissions(false)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to list active missions")
 	}

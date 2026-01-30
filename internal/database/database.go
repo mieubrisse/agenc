@@ -99,26 +99,18 @@ func (db *DB) CreateMission(agentTemplate string, prompt string) (*Mission, erro
 	}, nil
 }
 
-// ListActiveMissions returns all missions that are not archived.
-func (db *DB) ListActiveMissions() ([]*Mission, error) {
-	rows, err := db.conn.Query(
-		"SELECT id, agent_template, prompt, status, created_at, updated_at FROM missions WHERE status != 'archived' ORDER BY created_at DESC",
-	)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to query active missions")
+// ListMissions returns missions ordered by created_at DESC.
+// If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
+func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
+	query := "SELECT id, agent_template, prompt, status, created_at, updated_at FROM missions"
+	if !includeArchived {
+		query += " WHERE status != 'archived'"
 	}
-	defer rows.Close()
+	query += " ORDER BY created_at DESC"
 
-	return scanMissions(rows)
-}
-
-// ListAllMissions returns all missions regardless of status.
-func (db *DB) ListAllMissions() ([]*Mission, error) {
-	rows, err := db.conn.Query(
-		"SELECT id, agent_template, prompt, status, created_at, updated_at FROM missions ORDER BY created_at DESC",
-	)
+	rows, err := db.conn.Query(query)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to query all missions")
+		return nil, stacktrace.Propagate(err, "failed to query missions")
 	}
 	defer rows.Close()
 
