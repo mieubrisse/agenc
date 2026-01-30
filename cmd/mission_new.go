@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,7 +17,10 @@ import (
 	"github.com/odyssey/agenc/internal/mission"
 )
 
-var agentTemplateFlag string
+var (
+	agentTemplateFlag string
+	errEditorAborted  = errors.New("editor closed without saving")
+)
 
 var missionNewCmd = &cobra.Command{
 	Use:   "new [prompt]",
@@ -76,6 +80,10 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	} else {
 		var err error
 		prompt, err = getPromptFromEditor()
+		if errors.Is(err, errEditorAborted) {
+			fmt.Println("Aborted.")
+			return nil
+		}
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to get prompt from editor")
 		}
@@ -142,6 +150,11 @@ func getPromptFromEditor() (string, error) {
 	tmpFile.Close()
 	defer os.Remove(tmpFilepath)
 
+	initialStat, err := os.Stat(tmpFilepath)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to stat temp file")
+	}
+
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vim"
@@ -166,6 +179,15 @@ func getPromptFromEditor() (string, error) {
 
 	if err := editorCmd.Run(); err != nil {
 		return "", stacktrace.Propagate(err, "editor exited with error")
+	}
+
+	finalStat, err := os.Stat(tmpFilepath)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to stat temp file after editing")
+	}
+
+	if finalStat.ModTime().Equal(initialStat.ModTime()) {
+		return "", errEditorAborted
 	}
 
 	content, err := os.ReadFile(tmpFilepath)
