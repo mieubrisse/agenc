@@ -80,11 +80,7 @@ All `claude` instances launched by the AgenC have their `CLAUDE_CONFIG_DIR` envi
 
 ### database.sqlite
 
-The SQLite database tracks:
-
-- **Missions** — what was requested, which agent template was used, current status, result summary
-- **Agents** — which agent is working on what, when it started, when it finished
-- **Logs** — output and errors from each agent session
+The SQLite database currently tracks mission IDs. The schema will expand over time as needed.
 
 Doing Work
 ----------
