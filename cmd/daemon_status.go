@@ -9,6 +9,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/version"
 )
 
 var daemonStatusCmd = &cobra.Command{
@@ -22,6 +23,8 @@ func init() {
 }
 
 func runDaemonStatus(cmd *cobra.Command, args []string) error {
+	fmt.Printf("Version:      %s\n", version.Version)
+
 	pidFilepath := config.GetDaemonPIDFilepath(agencDirpath)
 	logFilepath := config.GetDaemonLogFilepath(agencDirpath)
 

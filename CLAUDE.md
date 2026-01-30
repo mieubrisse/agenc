@@ -1,6 +1,19 @@
 Agent Factory
 =============
 
+Building the Binary
+-------------------
+
+Always build via the Makefile — never run `go build` directly. The Makefile injects the version string via ldflags based on git state.
+
+```
+# Correct
+make build
+
+# Wrong — version will show "unknown"
+go build -o agenc .
+```
+
 Running the Binary
 ------------------
 
