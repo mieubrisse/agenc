@@ -13,20 +13,18 @@ import (
 )
 
 const (
-	claudeDirname   = ".claude"
-	workspaceDirname = "workspace"
-	claudeMDFilename    = "CLAUDE.md"
-	settingsFilename    = "settings.json"
-	mcpFilename         = ".mcp.json"
+	claudeDirname    = ".claude"
+	claudeMDFilename = "CLAUDE.md"
+	settingsFilename = "settings.json"
+	mcpFilename      = ".mcp.json"
 )
 
 // CreateMissionDir sets up the mission directory structure and merges config files.
 func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string) (string, error) {
 	missionDirpath := filepath.Join(config.GetMissionsDirpath(agencDirpath), missionID)
 	missionClaudeDirpath := filepath.Join(missionDirpath, claudeDirname)
-	workspaceDirpath := filepath.Join(missionDirpath, workspaceDirname)
 
-	for _, dirpath := range []string{missionDirpath, missionClaudeDirpath, workspaceDirpath} {
+	for _, dirpath := range []string{missionDirpath, missionClaudeDirpath} {
 		if err := os.MkdirAll(dirpath, 0755); err != nil {
 			return "", stacktrace.Propagate(err, "failed to create directory '%s'", dirpath)
 		}
@@ -81,14 +79,13 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 }
 
 // ExecClaude replaces the current process with claude, running in the
-// mission's workspace directory.
+// mission directory.
 func ExecClaude(agencDirpath string, missionDirpath string, prompt string) error {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
 
-	workspaceDirpath := filepath.Join(missionDirpath, workspaceDirname)
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
 	env := os.Environ()
@@ -96,22 +93,21 @@ func ExecClaude(agencDirpath string, missionDirpath string, prompt string) error
 
 	args := []string{"claude", prompt}
 
-	if err := os.Chdir(workspaceDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to change directory to '%s'", workspaceDirpath)
+	if err := os.Chdir(missionDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to change directory to '%s'", missionDirpath)
 	}
 
 	return syscall.Exec(claudeBinary, args, env)
 }
 
 // ExecClaudeResume replaces the current process with claude --continue,
-// running in the mission's workspace directory.
+// running in the mission directory.
 func ExecClaudeResume(agencDirpath string, missionDirpath string) error {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
 
-	workspaceDirpath := filepath.Join(missionDirpath, workspaceDirname)
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
 	env := os.Environ()
@@ -119,8 +115,8 @@ func ExecClaudeResume(agencDirpath string, missionDirpath string) error {
 
 	args := []string{"claude", "-c"}
 
-	if err := os.Chdir(workspaceDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to change directory to '%s'", workspaceDirpath)
+	if err := os.Chdir(missionDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to change directory to '%s'", missionDirpath)
 	}
 
 	return syscall.Exec(claudeBinary, args, env)
