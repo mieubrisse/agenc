@@ -13,7 +13,7 @@ A single Claude Code session is powerful, but some workloads benefit from parall
 Architecture
 ------------
 
-The AgenC is a Go CLI tool built with [Cobra](https://github.com/spf13/cobra). It manages all state in a single root directory, uses SQLite to track missions, and runs each agent in its own tmux window within the `agenc` tmux session.
+The AgenC is a Go CLI tool built with [Cobra](https://github.com/spf13/cobra). It manages all state in a single root directory and uses SQLite to track missions.
 
 ### Root Directory
 
@@ -89,7 +89,7 @@ Launching a mission follows this flow:
 
 1. The user tells the AgenC to launch a mission and, optionally, specifies which agent template to use.
 2. The AgenC creates a new mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config from `config/`.
-3. Inside the mission directory, the AgenC creates a new tmux window in the `agenc` session running `claude`, ready for the user to interact with.
+3. The mission directory is ready for a Claude Code session to operate in.
 
 CLI Usage
 ---------
@@ -135,16 +135,14 @@ Configuration
 |---|---|---|
 | `AGENC_DIRPATH` | `~/.agenc` | Root directory for all AgenC state |
 
-The `agenc` tmux session is used for all agent windows. Each mission gets its own tmux window within this session.
-
 Design Goals
 ------------
 
-- **Parallel execution** — Run many agents concurrently, each in its own tmux window.
+- **Mission management** — Create, track, and organize missions with a simple CLI.
 - **Mission isolation** — Each mission operates in its own directory with a merged config tailored to its agent.
 - **Self-contained** — The AgenC uses its own `CLAUDE_CONFIG_DIR` and never touches the user's existing Claude Code setup.
 - **Configurable agents** — Agent templates let you define specialized agents with their own instructions, MCP servers, secrets, and skills.
-- **Observable** — Clear logging, SQLite tracking, and tmux windows you can attach to at any time.
+- **Observable** — Clear logging and SQLite tracking for all missions.
 - **Simple interface** — Submit a mission via the CLI. The AgenC handles the rest.
 
 Status
