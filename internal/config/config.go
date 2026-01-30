@@ -64,6 +64,11 @@ func GetArchiveDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, MissionsDirname, ArchiveDirname)
 }
 
+// GetConfigDirpath returns the path to the config directory.
+func GetConfigDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ConfigDirname)
+}
+
 // GetAgentTemplatesDirpath returns the path to the agent-templates directory.
 func GetAgentTemplatesDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ConfigDirname, AgentTemplatesDirname)

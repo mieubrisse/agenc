@@ -73,7 +73,7 @@ func runDaemonLoop() error {
 		cancel()
 	}()
 
-	d := daemon.NewDaemon(db, logger)
+	d := daemon.NewDaemon(db, agencDirpath, logger)
 	d.Run(ctx)
 
 	// Clean up PID file on graceful shutdown
