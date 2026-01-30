@@ -5,7 +5,7 @@ import (
 	"maps"
 	"os"
 
-	"github.com/kurtosis-tech/stacktrace"
+	"github.com/mieubrisse/stacktrace"
 )
 
 // MergeCLAUDEMD concatenates the global CLAUDE.md and agent-template CLAUDE.md,

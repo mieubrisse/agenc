@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kurtosis-tech/stacktrace"
+	"github.com/mieubrisse/stacktrace"
 )
 
 const (

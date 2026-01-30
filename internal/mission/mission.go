@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/kurtosis-tech/stacktrace"
+	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/merge"
