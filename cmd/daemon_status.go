@@ -12,7 +12,6 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/version"
 )
 
 var daemonStatusJSON bool
@@ -30,7 +29,6 @@ func init() {
 
 type daemonStatusOutput struct {
 	Version               string `json:"version"`
-	DaemonVersion         string `json:"daemon_version"`
 	DaemonRunning         bool   `json:"daemon_running"`
 	DaemonPID             int    `json:"daemon_pid"`
 	LogFilepath           string `json:"log_filepath"`
@@ -72,8 +70,7 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 
 	if daemonStatusJSON {
 		output := daemonStatusOutput{
-			Version:               version.Version,
-			DaemonVersion:         daemonVersion,
+			Version:               daemonVersion,
 			DaemonRunning:         running,
 			DaemonPID:             pid,
 			LogFilepath:           logFilepath,
@@ -88,9 +85,9 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Version:      %s\n", version.Version)
 	if running {
-		fmt.Printf("Daemon:       running (PID %d, version %s)\n", pid, daemonVersion)
+		fmt.Printf("Daemon:       running (PID %d)\n", pid)
+		fmt.Printf("Version:      %s\n", daemonVersion)
 	} else {
 		fmt.Println("Daemon:       stopped")
 	}
