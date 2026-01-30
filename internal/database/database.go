@@ -238,6 +238,22 @@ func (db *DB) GetDescriptionsForMissions(missionIDs []string) (map[string]string
 	return result, nil
 }
 
+// CountDescriptionStats returns the number of active missions with and without descriptions.
+func (db *DB) CountDescriptionStats() (described int, pending int, err error) {
+	row := db.conn.QueryRow(`
+		SELECT
+			COUNT(md.mission_id),
+			COUNT(m.id) - COUNT(md.mission_id)
+		FROM missions m
+		LEFT JOIN mission_descriptions md ON m.id = md.mission_id
+		WHERE m.status = 'active'
+	`)
+	if err := row.Scan(&described, &pending); err != nil {
+		return 0, 0, stacktrace.Propagate(err, "failed to count description stats")
+	}
+	return described, pending, nil
+}
+
 func joinStrings(strs []string, sep string) string {
 	if len(strs) == 0 {
 		return ""
