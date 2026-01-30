@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -150,6 +151,11 @@ func getPromptFromEditor() (string, error) {
 	editorBinary, err := exec.LookPath(editorParts[0])
 	if err != nil {
 		return "", stacktrace.Propagate(err, "'%s' not found in PATH", editorParts[0])
+	}
+
+	editorName := filepath.Base(editorParts[0])
+	if editorName == "vim" || editorName == "nvim" {
+		editorParts = append(editorParts, "+startinsert")
 	}
 
 	editorArgs := append(editorParts[1:], tmpFilepath)
