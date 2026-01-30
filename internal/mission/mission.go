@@ -1,6 +1,7 @@
 package mission
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,6 +89,10 @@ func ExecClaude(agencDirpath string, missionDirpath string, prompt string) error
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
+	if err := ensureTrustAccepted(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to pre-accept trust dialog")
+	}
+
 	env := os.Environ()
 	env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
 
@@ -110,6 +115,10 @@ func ExecClaudeResume(agencDirpath string, missionDirpath string) error {
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
+	if err := ensureTrustAccepted(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to pre-accept trust dialog")
+	}
+
 	env := os.Environ()
 	env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
 
@@ -120,4 +129,37 @@ func ExecClaudeResume(agencDirpath string, missionDirpath string) error {
 	}
 
 	return syscall.Exec(claudeBinary, args, env)
+}
+
+// ensureTrustAccepted sets hasTrustDialogAccepted=true in Claude's .claude.json
+// state file so that Claude does not prompt the user to trust the directory.
+func ensureTrustAccepted(claudeConfigDirpath string) error {
+	stateFilepath := filepath.Join(claudeConfigDirpath, ".claude.json")
+
+	state := make(map[string]any)
+	data, err := os.ReadFile(stateFilepath)
+	if err == nil {
+		if err := json.Unmarshal(data, &state); err != nil {
+			return stacktrace.Propagate(err, "failed to parse '%s'", stateFilepath)
+		}
+	} else if !os.IsNotExist(err) {
+		return stacktrace.Propagate(err, "failed to read '%s'", stateFilepath)
+	}
+
+	if accepted, ok := state["hasTrustDialogAccepted"].(bool); ok && accepted {
+		return nil
+	}
+
+	state["hasTrustDialogAccepted"] = true
+
+	output, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal claude state")
+	}
+
+	if err := os.WriteFile(stateFilepath, output, 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write '%s'", stateFilepath)
+	}
+
+	return nil
 }
