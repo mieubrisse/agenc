@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/kurtosis-tech/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -172,18 +174,39 @@ func (d *Daemon) callClaude(ctx context.Context, prompt string) (string, error) 
 }
 
 // syncConfig force-pulls the latest main branch of the config repository.
-func (d *Daemon) syncConfig(ctx context.Context) {
+func (d *Daemon) syncConfig(_ context.Context) {
 	configDirpath := config.GetConfigDirpath(d.agencDirpath)
 
-	fetchCmd := exec.CommandContext(ctx, "git", "-C", configDirpath, "fetch", "origin")
-	if output, err := fetchCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Config sync: git fetch failed: %v: %s", err, string(output))
+	repo, err := git.PlainOpen(configDirpath)
+	if err != nil {
+		d.logger.Printf("Config sync: failed to open repo: %v", err)
 		return
 	}
 
-	resetCmd := exec.CommandContext(ctx, "git", "-C", configDirpath, "reset", "--hard", "origin/main")
-	if output, err := resetCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Config sync: git reset failed: %v: %s", err, string(output))
+	err = repo.Fetch(&git.FetchOptions{RemoteName: "origin"})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		d.logger.Printf("Config sync: fetch failed: %v", err)
+		return
+	}
+
+	originMain, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", "main"), true)
+	if err != nil {
+		d.logger.Printf("Config sync: failed to resolve origin/main: %v", err)
+		return
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		d.logger.Printf("Config sync: failed to get worktree: %v", err)
+		return
+	}
+
+	err = worktree.Reset(&git.ResetOptions{
+		Commit: originMain.Hash(),
+		Mode:   git.HardReset,
+	})
+	if err != nil {
+		d.logger.Printf("Config sync: hard reset failed: %v", err)
 		return
 	}
 
