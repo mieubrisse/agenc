@@ -1,27 +1,30 @@
 The AgenC
 =========
 AgenC (pronounced "agency") is:
+
 - An agent orchestrator for doing agentic work
 - A personal LLMOps system for refining & deploying your agents
 - A plugin system for sharing agents
 
+Think of it like Docker for agents.
+
 Why AgenC?
 ----------
-You want a swarm of infinite obedient agents, implementing your every thought.
+You want a swarm of infinite obedient robots, implementing your every thought.
 
-This requires a LOT of work, telling agents how you like things so they ever more read your mind.
+This requires a LOT of alignment work.
 
-Every time the agents don't get it right, you need to roll the lesson back into the agent config: the [Inputs, Not Outputs](TODO link to factory) doctrine.
+Every time the agents don't get it right, you need to capture the lesson back into your agent config: the [Inputs, Not Outputs](TODO link to factory) doctrine.
 
 But vanilla Claude is really bad at this.
 
-Every time you notice suboptimal output, it's on you to find the config file that contributed to the problem.
+Every time an agent gets it wrong, it's on you to find the config file that contributed to the problem.
 
 Then you have to update it (usually requiring another Claude window).
 
 Then, you have to find all your prompts using that config and restart them.
 
-And if you want to do any sort of retrospective on how well your prompts are performing overall... good luck.
+And if you want to do any sort of longitudinal retrospective on how well your prompts are performing overall... good luck.
 
 AgenC solves this:
 
