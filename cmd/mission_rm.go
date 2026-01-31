@@ -15,7 +15,7 @@ import (
 
 var missionRmCmd = &cobra.Command{
 	Use:   "rm [mission-id...]",
-	Short: "Permanently remove one or more missions",
+	Short: "Stop and permanently remove one or more missions",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runMissionRm,
 }

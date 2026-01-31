@@ -20,7 +20,7 @@ const (
 
 var missionStopCmd = &cobra.Command{
 	Use:   "stop <mission-id>",
-	Short: "Gracefully stop a running mission's wrapper",
+	Short: "Stop a mission's wrapper process (no-op if already stopped)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runMissionStop,
 }

@@ -15,7 +15,7 @@ import (
 
 var missionArchiveCmd = &cobra.Command{
 	Use:   "archive [mission-id...]",
-	Short: "Archive one or more missions",
+	Short: "Stop and archive one or more missions",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runMissionArchive,
 }

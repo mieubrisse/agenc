@@ -15,7 +15,7 @@ import (
 
 var missionResumeCmd = &cobra.Command{
 	Use:   "resume <mission-id>",
-	Short: "Resume an existing mission with claude --continue",
+	Short: "Unarchive (if needed) and resume a mission with claude --continue",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runMissionResume,
 }
