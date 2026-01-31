@@ -13,6 +13,7 @@ const (
 	defaultAgencDirname = ".agenc"
 
 	ClaudeDirname         = "claude"
+	UserClaudeDirname     = ".claude"
 	MissionsDirname       = "missions"
 	ArchiveDirname        = "ARCHIVE"
 	AgentTemplatesDirname = "agent-templates"
@@ -118,4 +119,14 @@ func GetDaemonVersionFilepath(agencDirpath string) string {
 // GetDatabaseFilepath returns the path to the SQLite database file.
 func GetDatabaseFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, "database.sqlite")
+}
+
+// GetUserClaudeDirpath returns the path to the user's standard Claude config
+// directory (~/.claude/).
+func GetUserClaudeDirpath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to determine home directory")
+	}
+	return filepath.Join(homeDir, UserClaudeDirname), nil
 }
