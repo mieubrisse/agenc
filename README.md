@@ -1,50 +1,54 @@
 The AgenC
 =========
-
-_Pronounced "agency"._
-
-An orchestrator for running many Claude Code agents in parallel, each working independently on assigned missions. Feed it work via the CLI, and the AgenC spins up agents to get it done.
+AgenC (pronounced "agency") is:
+- An agent orchestrator for doing agentic work
+- A personal LLMOps system for refining & deploying your agents
+- A plugin system for sharing agents
 
 Why AgenC?
 ----------
-TODO emphasizing Inputs Not Outputs
+You want a swarm of infinite obedient agents, implementing your every thought.
 
-People like me want to use Claude Code as their Everything Agent, including for non-coding things like Todoist. This has the following benefits:
+This requires a LOT of work, telling agents how you like things so they ever more read your mind.
 
-- Use my beloved Vim & tmux config for everything
-- **Ease-of-plumbing:** No copy-pasting to and from the Desktop app. Everything is read to and written from files, which Claude Code can work with without user intervention.
-- Scriptable (e.g. I can automate tmux to create workspaces open with the agents I use the most)
-- Granular control over MCP servers
-- Integrate secrets with 1Password via 1Password CLI
+Every time the agents don't get it right, you need to roll the lesson back into the agent config: the [Inputs, Not Outputs](TODO link to factory) doctrine.
 
-However, this has several problems:
+But vanilla Claude is really bad at this.
 
-- To do this securely (without `--dangerously-skip-permissions`), you have to do a BUNCH of settings.json management
-- It's on you to create the directory & version-control structure of agents
-- Often, these sorts of tasks are "do a bit of work for a bit, end", which works really well with sandbox directories. but...
-    - You have to set all the sandboxing up yourself
-    - Claude's really oriented around long-lived Git repos, and every time you add a new directory you have to tell Claude:
-        - to trust the directory
-        - set up the settings.json (which is painful given Claude's permission system is a bit wonky)
-        - optionally set up any .mcp.json
-- On top of all this, you need to wire up the 1Password stuff manually
-- During the course of the session, you'll often hit times where the agent doesn't behave the way you want (often, CLAUDE.md or settings.json need refining). Per the doctrine of [Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs) you'd like to roll fixes back into the agent so the entire agency gets better, but you then have to stop what you're doing, find the agent's CLAUDE.md, open a new claude window, update it, and then restart the original conversation to pick up the changes (especially with settings.json).
-- Whenever you upgrade the CLAUDE.md, or a new version of `claude` is released, you have to find and restart all your windows
+Every time you notice suboptimal output, it's on you to find the config file that contributed to the problem.
 
-AgenC solves all these:
+Then you have to update it (usually requiring another Claude window).
 
-- You define **agent templates** inside a version-controlled AgenC config repo, with the Claude config you want (`CLAUDE.md` and `settings.json` and `.mcp.json` and `skills`)
-- You send agents on **missions**, which execute inside a sandbox directory created from the agent template
-- Agent templates can be registered with secrets from 1Password, which get automatically injected upon agent creation
-- When talking to any agent on a mission, with a simple hotkey you can switch to editing the template that created the agent to update the Inputs, making your AgenC better forever
-- Missions can be quickly and easily archived to keep things tidy
-- The Claude for a mission is automatically restarted when its settings change (when it's idle; generation isn't interrupted)
+Then, you have to find all your prompts using that config and restart them.
 
-In the future, AgenC will also:
+And if you want to do any sort of retrospective on how well your prompts are performing overall... good luck.
 
+AgenC solves this:
+
+- All agent config is version-controlled
+- When using any agent, it's trivial to start a new Claude window editing the config
+- When an agent's config is updated, all agents using that config restart with the config the next time they're idle
+- All work is tracked for analysis: how well are the agents performing?
+
+How it works
+------------
+1. You create or install **agent template** repos containing the Claude config you want (CLAUDE.md, skills, MCP, and even 1Password secrets to inject)
+1. You send agents on **missions**, which execute inside a sandbox directory created from the agent template
+1. When talking to any agent on a mission, with a simple hotkey you can switch to editing the template, making your AgenC better forever
+1. When an agent's config changes, the agent is restarted the next time it's idle to use the new config
+1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
+
+Getting started
+---------------
+TODO brew installation instructions
+
+Future work
+-----------
 - Let you analyze mission results and proactively suggest fixes to agents
 - Analyze how effective each agent is
 - Execute missions inside Docker containers so `--dangerously-skip-permissions` is allowed
+- Build settings.json files for you with AI (even out in your filesystem)
+    - E.g. when you're starting a task, it will suggest settings.json's for you, so you don't have to give a bunch of "yes"s
 
 Architecture
 ------------
