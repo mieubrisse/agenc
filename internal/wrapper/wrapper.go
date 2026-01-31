@@ -3,7 +3,7 @@ package wrapper
 import (
 	"context"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -45,7 +45,7 @@ type Wrapper struct {
 
 	state     WrapperState
 	claudeCmd *exec.Cmd
-	logger    *log.Logger
+	logger    *slog.Logger
 
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
@@ -82,7 +82,7 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 		return stacktrace.Propagate(err, "failed to open wrapper log file")
 	}
 	defer logFile.Close()
-	w.logger = log.New(io.MultiWriter(os.Stdout, logFile), "[agenc] ", log.LstdFlags)
+	w.logger = slog.New(slog.NewTextHandler(io.MultiWriter(os.Stdout, logFile), nil))
 
 	// Write wrapper PID
 	pidFilepath := config.GetMissionPIDFilepath(w.agencDirpath, w.missionID)
@@ -147,7 +147,7 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 		case <-w.claudeExited:
 			if w.state == StateRestarting {
 				// Expected exit from our SIGINT -- relaunch with -c
-				w.logger.Println("Reloading Claude session after template update")
+				w.logger.Info("Reloading Claude session after template update")
 				w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.agentDirpath)
 				if err != nil {
 					return stacktrace.Propagate(err, "failed to respawn claude after restart")
@@ -164,7 +164,7 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 		case newHash := <-w.templateChanged:
 			// Template has changed -- rsync and decide whether to restart
 			if err := mission.RsyncTemplate(w.templateDirpath, w.agentDirpath); err != nil {
-				w.logger.Printf("Warning: failed to rsync template update: %v", err)
+				w.logger.Warn("Failed to rsync template update", "error", err)
 				continue
 			}
 			commitFilepath := config.GetMissionTemplateCommitFilepath(w.agencDirpath, w.missionID)
@@ -207,13 +207,13 @@ func (w *Wrapper) readClaudeState() string {
 func (w *Wrapper) watchClaudeState(ctx context.Context) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		w.logger.Printf("Warning: failed to create fsnotify watcher: %v", err)
+		w.logger.Warn("Failed to create fsnotify watcher", "error", err)
 		return
 	}
 	defer watcher.Close()
 
 	if err := watcher.Add(w.missionDirpath); err != nil {
-		w.logger.Printf("Warning: failed to watch mission directory: %v", err)
+		w.logger.Warn("Failed to watch mission directory", "error", err)
 		return
 	}
 
@@ -241,7 +241,7 @@ func (w *Wrapper) watchClaudeState(ctx context.Context) {
 			if !ok {
 				return
 			}
-			w.logger.Printf("Warning: fsnotify error: %v", err)
+			w.logger.Warn("fsnotify error", "error", err)
 		}
 	}
 }
