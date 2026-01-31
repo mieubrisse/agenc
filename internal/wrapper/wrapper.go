@@ -63,7 +63,7 @@ func NewWrapper(agencDirpath string, missionID string, agentTemplate string) *Wr
 		agentTemplate:   agentTemplate,
 		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
-		templateDirpath: config.GetAgentTemplateDirpath(agencDirpath, agentTemplate),
+		templateDirpath: config.GetRepoDirpath(agencDirpath, agentTemplate),
 		state:           StateRunning,
 		templateChanged: make(chan string, 1),
 		claudeStateIdle: make(chan struct{}, 1),

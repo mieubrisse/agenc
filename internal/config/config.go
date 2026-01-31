@@ -15,7 +15,7 @@ const (
 	ClaudeDirname         = "claude"
 	UserClaudeDirname     = ".claude"
 	MissionsDirname       = "missions"
-	AgentTemplatesDirname = "agent-templates"
+	ReposDirname = "repos"
 	DaemonDirname         = "daemon"
 	DaemonPIDFilename     = "daemon.pid"
 	DaemonLogFilename     = "daemon.log"
@@ -46,7 +46,7 @@ func GetAgencDirpath() (string, error) {
 // doesn't already exist.
 func EnsureDirStructure(agencDirpath string) error {
 	dirs := []string{
-		filepath.Join(agencDirpath, AgentTemplatesDirname),
+		filepath.Join(agencDirpath, ReposDirname),
 		filepath.Join(agencDirpath, ClaudeDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, DaemonDirname),
@@ -64,9 +64,9 @@ func GetMissionsDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, MissionsDirname)
 }
 
-// GetAgentTemplatesDirpath returns the path to the agent-templates directory.
-func GetAgentTemplatesDirpath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, AgentTemplatesDirname)
+// GetReposDirpath returns the path to the repos directory.
+func GetReposDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ReposDirname)
 }
 
 // GetGlobalClaudeDirpath returns the path to the global claude config directory.
@@ -74,26 +74,41 @@ func GetGlobalClaudeDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ClaudeDirname)
 }
 
-// ListAgentTemplates scans the agent-templates directory and returns a sorted
-// list of template names (subdirectory names).
-func ListAgentTemplates(agencDirpath string) ([]string, error) {
-	templatesDirpath := GetAgentTemplatesDirpath(agencDirpath)
-	entries, err := os.ReadDir(templatesDirpath)
+// ListRepos walks the repos/ directory 3 levels deep (host/owner/repo) and
+// returns a sorted list of "host/owner/repo" entries.
+func ListRepos(agencDirpath string) ([]string, error) {
+	reposDirpath := GetReposDirpath(agencDirpath)
+	hosts, err := os.ReadDir(reposDirpath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []string{}, nil
 		}
-		return nil, stacktrace.Propagate(err, "failed to read agent-templates directory")
+		return nil, stacktrace.Propagate(err, "failed to read repos directory")
 	}
 
-	var templateNames []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			templateNames = append(templateNames, entry.Name())
+	var repos []string
+	for _, host := range hosts {
+		if !host.IsDir() {
+			continue
+		}
+		hostDirpath := filepath.Join(reposDirpath, host.Name())
+		owners, _ := os.ReadDir(hostDirpath)
+		for _, owner := range owners {
+			if !owner.IsDir() {
+				continue
+			}
+			ownerDirpath := filepath.Join(hostDirpath, owner.Name())
+			entries, _ := os.ReadDir(ownerDirpath)
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				repos = append(repos, filepath.Join(host.Name(), owner.Name(), entry.Name()))
+			}
 		}
 	}
-	sort.Strings(templateNames)
-	return templateNames, nil
+	sort.Strings(repos)
+	return repos, nil
 }
 
 // GetDaemonDirpath returns the path to the daemon directory.
@@ -171,7 +186,7 @@ func GetMissionWorkspaceDirpath(agencDirpath string, missionID string) string {
 	return filepath.Join(GetMissionAgentDirpath(agencDirpath, missionID), WorkspaceDirname)
 }
 
-// GetAgentTemplateDirpath returns the path to a specific agent template directory.
-func GetAgentTemplateDirpath(agencDirpath string, templateName string) string {
-	return filepath.Join(GetAgentTemplatesDirpath(agencDirpath), templateName)
+// GetRepoDirpath returns the path to a specific repo directory.
+func GetRepoDirpath(agencDirpath string, repoName string) string {
+	return filepath.Join(GetReposDirpath(agencDirpath), repoName)
 }

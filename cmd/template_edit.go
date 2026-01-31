@@ -27,12 +27,12 @@ func init() {
 func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	templates, err := config.ListAgentTemplates(agencDirpath)
+	templates, err := config.ListRepos(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list agent templates")
 	}
 	if len(templates) == 0 {
-		fmt.Printf("No agent templates found. Create templates in: %s\n", config.GetAgentTemplatesDirpath(agencDirpath))
+		fmt.Printf("No agent templates found. Install templates with: agenc template install owner/repo\n")
 		return stacktrace.NewError("no agent templates available to edit")
 	}
 
@@ -56,6 +56,6 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 		templateName = selected
 	}
 
-	templateAbsDirpath := config.GetAgentTemplateDirpath(agencDirpath, templateName)
+	templateAbsDirpath := config.GetRepoDirpath(agencDirpath, templateName)
 	return createAndLaunchMission(agencDirpath, "", templateEditPromptFlag, templateAbsDirpath)
 }

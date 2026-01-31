@@ -44,7 +44,7 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 		return missionDirpath, nil
 	}
 
-	templateDirpath := config.GetAgentTemplateDirpath(agencDirpath, agentTemplate)
+	templateDirpath := config.GetRepoDirpath(agencDirpath, agentTemplate)
 
 	if err := RsyncTemplate(templateDirpath, agentDirpath); err != nil {
 		return "", stacktrace.Propagate(err, "failed to rsync template into agent directory")

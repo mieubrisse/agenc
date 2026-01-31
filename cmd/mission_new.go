@@ -39,7 +39,7 @@ func init() {
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	templates, err := config.ListAgentTemplates(agencDirpath)
+	templates, err := config.ListRepos(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list agent templates")
 	}
@@ -60,7 +60,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		agentTemplate = matchTemplatesSubstring(templates, args[0])[0]
 	} else if len(templates) == 0 {
 		fmt.Println("No agent templates found. Proceeding without a template.")
-		fmt.Printf("Create templates in: %s\n", config.GetAgentTemplatesDirpath(agencDirpath))
+		fmt.Printf("Install templates with: agenc template install owner/repo\n")
 	} else {
 		initialQuery := ""
 		if len(args) == 1 {

@@ -13,8 +13,8 @@ const (
 	templateUpdateInterval = 60 * time.Second
 )
 
-// runTemplateUpdateLoop periodically fetches and fast-forwards all agent
-// template repos to match their origin/main branch.
+// runTemplateUpdateLoop periodically fetches and fast-forwards agent template
+// repos that are referenced by running missions.
 func (d *Daemon) runTemplateUpdateLoop(ctx context.Context) {
 	d.runTemplateUpdateCycle(ctx)
 
@@ -32,39 +32,68 @@ func (d *Daemon) runTemplateUpdateLoop(ctx context.Context) {
 }
 
 func (d *Daemon) runTemplateUpdateCycle(ctx context.Context) {
-	templateNames, err := config.ListAgentTemplates(d.agencDirpath)
-	if err != nil {
-		d.logger.Printf("Template update: failed to list templates: %v", err)
-		return
-	}
-
-	for _, templateName := range templateNames {
+	repoNames := d.collectRunningMissionRepos()
+	for _, repoName := range repoNames {
 		if ctx.Err() != nil {
 			return
 		}
-		d.updateTemplate(ctx, templateName)
+		d.updateTemplate(ctx, repoName)
 	}
 }
 
-func (d *Daemon) updateTemplate(ctx context.Context, templateName string) {
-	templateDirpath := config.GetAgentTemplateDirpath(d.agencDirpath, templateName)
+// collectRunningMissionRepos returns the distinct repo names (agent templates)
+// referenced by missions whose wrapper PID is still alive.
+func (d *Daemon) collectRunningMissionRepos() []string {
+	missions, err := d.db.ListMissions(false)
+	if err != nil {
+		d.logger.Printf("Template update: failed to list missions: %v", err)
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var repoNames []string
+	for _, m := range missions {
+		if m.AgentTemplate == "" {
+			continue
+		}
+		if seen[m.AgentTemplate] {
+			continue
+		}
+
+		pidFilepath := config.GetMissionPIDFilepath(d.agencDirpath, m.ID)
+		pid, err := ReadPID(pidFilepath)
+		if err != nil || pid == 0 {
+			continue
+		}
+		if !IsProcessRunning(pid) {
+			continue
+		}
+
+		seen[m.AgentTemplate] = true
+		repoNames = append(repoNames, m.AgentTemplate)
+	}
+	return repoNames
+}
+
+func (d *Daemon) updateTemplate(ctx context.Context, repoName string) {
+	repoDirpath := config.GetRepoDirpath(d.agencDirpath, repoName)
 
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
-	fetchCmd.Dir = templateDirpath
+	fetchCmd.Dir = repoDirpath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Template update: git fetch failed for '%s': %v\n%s", templateName, err, string(output))
+		d.logger.Printf("Template update: git fetch failed for '%s': %v\n%s", repoName, err, string(output))
 		return
 	}
 
-	localHash, err := gitRevParse(ctx, templateDirpath, "main")
+	localHash, err := gitRevParse(ctx, repoDirpath, "main")
 	if err != nil {
-		d.logger.Printf("Template update: failed to rev-parse main for '%s': %v", templateName, err)
+		d.logger.Printf("Template update: failed to rev-parse main for '%s': %v", repoName, err)
 		return
 	}
 
-	remoteHash, err := gitRevParse(ctx, templateDirpath, "origin/main")
+	remoteHash, err := gitRevParse(ctx, repoDirpath, "origin/main")
 	if err != nil {
-		d.logger.Printf("Template update: failed to rev-parse origin/main for '%s': %v", templateName, err)
+		d.logger.Printf("Template update: failed to rev-parse origin/main for '%s': %v", repoName, err)
 		return
 	}
 
@@ -73,13 +102,13 @@ func (d *Daemon) updateTemplate(ctx context.Context, templateName string) {
 	}
 
 	resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", "origin/main")
-	resetCmd.Dir = templateDirpath
+	resetCmd.Dir = repoDirpath
 	if output, err := resetCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Template update: git reset failed for '%s': %v\n%s", templateName, err, string(output))
+		d.logger.Printf("Template update: git reset failed for '%s': %v\n%s", repoName, err, string(output))
 		return
 	}
 
-	d.logger.Printf("Template update: updated '%s' to %s", templateName, remoteHash[:8])
+	d.logger.Printf("Template update: updated '%s' to %s", repoName, remoteHash[:8])
 }
 
 // gitRevParse runs `git rev-parse <ref>` in the given directory and returns
