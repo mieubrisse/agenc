@@ -27,6 +27,7 @@ const (
 	PIDFilename            = "pid"
 	ClaudeStateFilename    = "claude-state"
 	TemplateCommitFilename = "template-commit"
+	WrapperLogFilename     = "wrapper.log"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -163,6 +164,12 @@ func GetMissionClaudeStateFilepath(agencDirpath string, missionID string) string
 // for a mission.
 func GetMissionTemplateCommitFilepath(agencDirpath string, missionID string) string {
 	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), TemplateCommitFilename)
+}
+
+// GetMissionWrapperLogFilepath returns the path to the wrapper log file for
+// a mission.
+func GetMissionWrapperLogFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), WrapperLogFilename)
 }
 
 // GetAgentTemplateDirpath returns the path to a specific agent template directory.
