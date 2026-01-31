@@ -30,8 +30,13 @@ func init() {
 }
 
 func runMissionStop(cmd *cobra.Command, args []string) error {
-	missionID := args[0]
+	return stopMissionWrapper(args[0])
+}
 
+// stopMissionWrapper gracefully stops a mission's wrapper process if it is
+// running. This is idempotent: if the wrapper is already stopped, it returns
+// nil without error.
+func stopMissionWrapper(missionID string) error {
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := daemon.ReadPID(pidFilepath)
 	if err != nil {
@@ -39,8 +44,9 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 	}
 
 	if pid == 0 || !daemon.IsProcessRunning(pid) {
+		// Already stopped — clean up stale PID file if present
 		os.Remove(pidFilepath)
-		return stacktrace.NewError("mission '%s' is not running", missionID)
+		return nil
 	}
 
 	process, err := os.FindProcess(pid)

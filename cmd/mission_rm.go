@@ -136,6 +136,11 @@ func removeMission(db *database.DB, missionID string) error {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
 
+	// Stop the wrapper if running (idempotent)
+	if err := stopMissionWrapper(missionID); err != nil {
+		return stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
+	}
+
 	// Remove the mission directory
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	if _, err := os.Stat(missionDirpath); err == nil {

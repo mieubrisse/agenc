@@ -130,6 +130,11 @@ func archiveMission(db *database.DB, missionID string) error {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
 
+	// Stop the wrapper if running (idempotent)
+	if err := stopMissionWrapper(missionID); err != nil {
+		return stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
+	}
+
 	if err := db.ArchiveMission(missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to archive mission in database")
 	}
