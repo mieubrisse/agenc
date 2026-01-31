@@ -23,6 +23,10 @@ var rootCmd = &cobra.Command{
 			return stacktrace.Propagate(err, "failed to ensure directory structure")
 		}
 
+		if !isUnderDaemonCmd(cmd) {
+			checkDaemonVersion(agencDirpath)
+		}
+
 		return nil
 	},
 }
