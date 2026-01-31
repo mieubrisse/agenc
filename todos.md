@@ -1,0 +1,2 @@
+- [ ] Implement global config syncer process on daemon
+- [ ] Implement mission agent restart upon agent template update
