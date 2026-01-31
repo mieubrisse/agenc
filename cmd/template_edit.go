@@ -66,6 +66,6 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 		templateName = selected
 	}
 
-	templateAbsDirpath := config.GetRepoDirpath(agencDirpath, templateName)
-	return createAndLaunchMission(agencDirpath, "", templateEditPromptFlag, templateAbsDirpath, false)
+	templateCloneDirpath := config.GetRepoDirpath(agencDirpath, templateName)
+	return createAndLaunchMission(agencDirpath, "", templateEditPromptFlag, templateName, templateCloneDirpath, false)
 }

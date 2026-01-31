@@ -32,7 +32,7 @@ var missionNewCmd = &cobra.Command{
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
-	missionNewCmd.Flags().StringVar(&worktreeFlag, "worktree", "", "path to git repo; workspace becomes a worktree")
+	missionNewCmd.Flags().StringVar(&worktreeFlag, "worktree", "", "local path or repo reference (owner/repo); workspace becomes a worktree")
 	missionNewCmd.Flags().BoolVar(&embeddedAgentFlag, "embedded-agent", false, "use agent config from the worktree repo instead of a template")
 	missionCmd.AddCommand(missionNewCmd)
 }
@@ -105,63 +105,33 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	var worktreeSourceAbsDirpath string
+	var worktreeRepoName string
+	var worktreeCloneDirpath string
 	if worktreeFlag != "" {
-		absPath, err := filepath.Abs(worktreeFlag)
+		repoName, cloneDirpath, err := resolveWorktreeFlag(agencDirpath, worktreeFlag)
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to resolve worktree path")
+			return err
 		}
-		worktreeSourceAbsDirpath = absPath
+		worktreeRepoName = repoName
+		worktreeCloneDirpath = cloneDirpath
 	}
 
-	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, worktreeSourceAbsDirpath, embeddedAgentFlag)
+	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, worktreeRepoName, worktreeCloneDirpath, embeddedAgentFlag)
 }
 
-// createAndLaunchMission validates the worktree (if any), creates the mission
-// record and directory, and launches the wrapper process.
+// createAndLaunchMission creates the mission record and directory, and
+// launches the wrapper process. worktreeRepoName is the canonical repo name
+// stored in the DB (e.g. "github.com/owner/repo"); worktreeCloneDirpath is
+// the filesystem path to the agenc-owned clone used for git operations. Both
+// are empty when no worktree is involved.
 func createAndLaunchMission(
 	agencDirpath string,
 	agentTemplate string,
 	prompt string,
-	worktreeSourceAbsDirpath string,
+	worktreeRepoName string,
+	worktreeCloneDirpath string,
 	embeddedAgent bool,
 ) error {
-	// worktreeSource is what gets stored in the DB. For new missions with a
-	// worktree, this becomes "github.com/owner/repo" (the repo name).
-	// cloneDirpath is the filesystem path used for all git operations.
-	var worktreeSource string
-	var cloneDirpath string
-
-	if worktreeSourceAbsDirpath != "" {
-		// Validate the user's local repo
-		if err := mission.ValidateWorktreeRepo(worktreeSourceAbsDirpath); err != nil {
-			return stacktrace.Propagate(err, "invalid worktree repository")
-		}
-
-		// Extract GitHub repo name from the user's local repo
-		repoName, err := mission.ExtractGitHubRepoName(worktreeSourceAbsDirpath)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to extract GitHub repo name")
-		}
-
-		// Read the clone URL from the user's repo (preserves SSH vs HTTPS)
-		cloneURLCmd := exec.Command("git", "remote", "get-url", "origin")
-		cloneURLCmd.Dir = worktreeSourceAbsDirpath
-		cloneURLOutput, err := cloneURLCmd.Output()
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read origin remote URL")
-		}
-		cloneURL := strings.TrimSpace(string(cloneURLOutput))
-
-		// Clone into ~/.agenc/repos/ (idempotent)
-		cloneDirpath, err = mission.EnsureWorktreeClone(agencDirpath, repoName, cloneURL)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to ensure worktree clone")
-		}
-
-		worktreeSource = repoName
-	}
-
 	// Open database and create mission record
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
@@ -170,15 +140,15 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeSource, embeddedAgent)
+	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeRepoName, embeddedAgent)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
 
 	// Validate worktree branch doesn't already exist (needs mission ID for branch name)
-	if cloneDirpath != "" {
+	if worktreeCloneDirpath != "" {
 		branchName := mission.GetWorktreeBranchName(missionRecord.ID)
-		if err := mission.ValidateWorktreeBranch(cloneDirpath, branchName); err != nil {
+		if err := mission.ValidateWorktreeBranch(worktreeCloneDirpath, branchName); err != nil {
 			// Roll back the DB record
 			_ = db.DeleteMission(missionRecord.ID)
 			return stacktrace.Propagate(err, "worktree branch conflict")
@@ -190,9 +160,9 @@ func createAndLaunchMission(
 	// Create mission directory structure
 	var missionDirpath string
 	if embeddedAgent {
-		missionDirpath, err = mission.CreateEmbeddedAgentMissionDir(agencDirpath, missionRecord.ID, cloneDirpath)
+		missionDirpath, err = mission.CreateEmbeddedAgentMissionDir(agencDirpath, missionRecord.ID, worktreeCloneDirpath)
 	} else {
-		missionDirpath, err = mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, cloneDirpath)
+		missionDirpath, err = mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, worktreeCloneDirpath)
 	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")
@@ -203,6 +173,79 @@ func createAndLaunchMission(
 
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, embeddedAgent)
 	return w.Run(prompt, false)
+}
+
+// resolveWorktreeFlag resolves a --worktree flag value into a canonical repo
+// name and the filesystem path to the agenc-owned clone. The flag can be a
+// local filesystem path (starts with /, ., or ~) or a repo reference
+// ("owner/repo" or "github.com/owner/repo").
+func resolveWorktreeFlag(agencDirpath string, worktreeFlag string) (repoName string, cloneDirpath string, err error) {
+	if isLocalPath(worktreeFlag) {
+		return resolveWorktreeFlagFromLocalPath(agencDirpath, worktreeFlag)
+	}
+	return resolveWorktreeFlagFromRepoRef(agencDirpath, worktreeFlag)
+}
+
+// resolveWorktreeFlagFromLocalPath handles --worktree when it points to a
+// local git repository. It validates the repo, extracts the GitHub remote URL,
+// and clones into ~/.agenc/repos/.
+func resolveWorktreeFlagFromLocalPath(agencDirpath string, localPath string) (string, string, error) {
+	absDirpath, err := filepath.Abs(localPath)
+	if err != nil {
+		return "", "", stacktrace.Propagate(err, "failed to resolve worktree path")
+	}
+
+	if err := mission.ValidateWorktreeRepo(absDirpath); err != nil {
+		return "", "", stacktrace.Propagate(err, "invalid worktree repository")
+	}
+
+	repoName, err := mission.ExtractGitHubRepoName(absDirpath)
+	if err != nil {
+		return "", "", stacktrace.Propagate(err, "failed to extract GitHub repo name")
+	}
+
+	// Read the clone URL from the user's repo (preserves SSH vs HTTPS)
+	cloneURLCmd := exec.Command("git", "remote", "get-url", "origin")
+	cloneURLCmd.Dir = absDirpath
+	cloneURLOutput, err := cloneURLCmd.Output()
+	if err != nil {
+		return "", "", stacktrace.Propagate(err, "failed to read origin remote URL")
+	}
+	cloneURL := strings.TrimSpace(string(cloneURLOutput))
+
+	cloneDirpath, err := mission.EnsureWorktreeClone(agencDirpath, repoName, cloneURL)
+	if err != nil {
+		return "", "", stacktrace.Propagate(err, "failed to ensure worktree clone")
+	}
+
+	return repoName, cloneDirpath, nil
+}
+
+// resolveWorktreeFlagFromRepoRef handles --worktree when it's a repo reference
+// like "owner/repo" or "github.com/owner/repo". Clones via HTTPS into
+// ~/.agenc/repos/ and validates the result.
+func resolveWorktreeFlagFromRepoRef(agencDirpath string, ref string) (string, string, error) {
+	repoName, cloneURL, err := mission.ParseRepoReference(ref)
+	if err != nil {
+		return "", "", stacktrace.Propagate(err, "invalid --worktree value '%s'", ref)
+	}
+
+	cloneDirpath, err := mission.EnsureWorktreeClone(agencDirpath, repoName, cloneURL)
+	if err != nil {
+		return "", "", stacktrace.Propagate(err, "failed to clone '%s'", repoName)
+	}
+
+	if err := mission.ValidateWorktreeRepo(cloneDirpath); err != nil {
+		return "", "", stacktrace.Propagate(err, "cloned repository is not valid")
+	}
+
+	return repoName, cloneDirpath, nil
+}
+
+// isLocalPath returns true if the string looks like a filesystem path rather
+// than a repo reference.
+func isLocalPath(s string) bool {
+	return strings.HasPrefix(s, "/") || strings.HasPrefix(s, ".") || strings.HasPrefix(s, "~")
 }
 
 // selectWithFzf presents templates in fzf and returns the selected repo name.

@@ -166,6 +166,36 @@ func EnsureWorktreeClone(agencDirpath string, repoName string, cloneURL string) 
 	return cloneDirpath, nil
 }
 
+// ParseRepoReference parses a repository reference in the format "owner/repo"
+// or "github.com/owner/repo" into the canonical repo name and an HTTPS clone
+// URL. If the host is omitted, github.com is assumed.
+func ParseRepoReference(ref string) (repoName string, cloneURL string, err error) {
+	parts := strings.Split(ref, "/")
+
+	var owner, repo string
+	switch len(parts) {
+	case 2:
+		// owner/repo → github.com/owner/repo
+		owner, repo = parts[0], parts[1]
+	case 3:
+		// github.com/owner/repo
+		if parts[0] != "github.com" {
+			return "", "", stacktrace.NewError("unsupported host '%s'; only github.com is supported", parts[0])
+		}
+		owner, repo = parts[1], parts[2]
+	default:
+		return "", "", stacktrace.NewError("invalid repo reference '%s'; expected 'owner/repo' or 'github.com/owner/repo'", ref)
+	}
+
+	if owner == "" || repo == "" {
+		return "", "", stacktrace.NewError("invalid repo reference '%s'; owner and repo must be non-empty", ref)
+	}
+
+	repoName = fmt.Sprintf("github.com/%s/%s", owner, repo)
+	cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
+	return repoName, cloneURL, nil
+}
+
 // ResolveWorktreeRepoDirpath returns the agenc-owned clone path for a
 // worktree_source value. Handles both old-format (absolute path) and
 // new-format (github.com/owner/repo) values.
