@@ -155,6 +155,28 @@ func (db *DB) ArchiveMission(id string) error {
 	return nil
 }
 
+// DeleteMission permanently removes a mission and its description from the database.
+func (db *DB) DeleteMission(id string) error {
+	// Delete description first (child record)
+	if _, err := db.conn.Exec("DELETE FROM mission_descriptions WHERE mission_id = ?", id); err != nil {
+		return stacktrace.Propagate(err, "failed to delete description for mission '%s'", id)
+	}
+
+	result, err := db.conn.Exec("DELETE FROM missions WHERE id = ?", id)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to delete mission '%s'", id)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check rows affected")
+	}
+	if rowsAffected == 0 {
+		return stacktrace.NewError("mission '%s' not found", id)
+	}
+	return nil
+}
+
 // CreateMissionDescription inserts a description for a mission.
 func (db *DB) CreateMissionDescription(missionID string, description string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
