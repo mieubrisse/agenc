@@ -66,7 +66,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 {
 			initialQuery = args[0]
 		}
-		selected, err := selectWithFzf(templates, initialQuery)
+		selected, err := selectWithFzf(templates, initialQuery, true)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to select agent template")
 		}
@@ -75,7 +75,6 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Validate --worktree flag if provided
 	var worktreeSourceAbsDirpath string
 	if worktreeFlag != "" {
 		absPath, err := filepath.Abs(worktreeFlag)
@@ -83,6 +82,20 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to resolve worktree path")
 		}
 		worktreeSourceAbsDirpath = absPath
+	}
+
+	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, worktreeSourceAbsDirpath)
+}
+
+// createAndLaunchMission validates the worktree (if any), creates the mission
+// record and directory, and launches the wrapper process.
+func createAndLaunchMission(
+	agencDirpath string,
+	agentTemplate string,
+	prompt string,
+	worktreeSourceAbsDirpath string,
+) error {
+	if worktreeSourceAbsDirpath != "" {
 		if err := mission.ValidateWorktreeRepo(worktreeSourceAbsDirpath); err != nil {
 			return stacktrace.Propagate(err, "invalid worktree repository")
 		}
@@ -96,7 +109,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, promptFlag, worktreeSourceAbsDirpath)
+	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeSourceAbsDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
@@ -123,11 +136,16 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	fmt.Println("Launching claude...")
 
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate)
-	return w.Run(promptFlag, false)
+	return w.Run(prompt, false)
 }
 
-func selectWithFzf(templates []string, initialQuery string) (string, error) {
-	options := append([]string{"NONE"}, templates...)
+func selectWithFzf(templates []string, initialQuery string, allowNone bool) (string, error) {
+	var options []string
+	if allowNone {
+		options = append([]string{"NONE"}, templates...)
+	} else {
+		options = append([]string{}, templates...)
+	}
 	input := strings.Join(options, "\n")
 
 	fzfBinary, err := exec.LookPath("fzf")
