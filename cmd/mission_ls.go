@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -59,9 +60,9 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	if lsAllFlag {
-		fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
+		fmt.Fprintln(w, "ID\tSTATUS\tRUNNING\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
 	} else {
-		fmt.Fprintln(w, "ID\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
+		fmt.Fprintln(w, "ID\tRUNNING\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
 	}
 	for _, m := range missions {
 		promptSnippet := m.Prompt
@@ -75,18 +76,21 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				descSnippet = descSnippet[:47] + "..."
 			}
 		}
+		running := getMissionRunningStatus(m.ID)
 		if lsAllFlag {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				m.ID,
 				m.Status,
+				running,
 				displayAgentTemplate(m.AgentTemplate),
 				descSnippet,
 				promptSnippet,
 				m.CreatedAt.Format("2006-01-02 15:04"),
 			)
 		} else {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				m.ID,
+				running,
 				displayAgentTemplate(m.AgentTemplate),
 				descSnippet,
 				promptSnippet,
@@ -104,4 +108,18 @@ func displayAgentTemplate(template string) string {
 		return "(none)"
 	}
 	return template
+}
+
+// getMissionRunningStatus checks the wrapper PID file to determine if a
+// mission's wrapper process is currently running.
+func getMissionRunningStatus(missionID string) string {
+	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
+	pid, err := daemon.ReadPID(pidFilepath)
+	if err != nil || pid == 0 {
+		return "stopped"
+	}
+	if daemon.IsProcessRunning(pid) {
+		return "running"
+	}
+	return "stopped"
 }
