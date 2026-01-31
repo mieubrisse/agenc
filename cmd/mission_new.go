@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -42,6 +43,9 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 && slices.Contains(templates, args[0]) {
 		// Exact match — use it directly
 		agentTemplate = args[0]
+	} else if len(args) == 1 && len(matchTemplatesGlob(templates, args[0])) == 1 {
+		// Single glob match — use it directly
+		agentTemplate = matchTemplatesGlob(templates, args[0])[0]
 	} else if len(templates) == 0 {
 		fmt.Println("No agent templates found. Proceeding without a template.")
 		fmt.Printf("Create templates in: %s\n", config.GetAgentTemplatesDirpath(agencDirpath))
@@ -111,5 +115,17 @@ func selectWithFzf(templates []string, initialQuery string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// matchTemplatesGlob returns the subset of template names that match the given
+// glob pattern. Invalid glob patterns return no matches.
+func matchTemplatesGlob(templates []string, pattern string) []string {
+	var matches []string
+	for _, name := range templates {
+		if matched, _ := filepath.Match(pattern, name); matched {
+			matches = append(matches, name)
+		}
+	}
+	return matches
 }
 
