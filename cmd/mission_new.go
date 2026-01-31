@@ -37,7 +37,6 @@ func init() {
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
-	// Idempotently start the daemon so descriptions get generated
 	ensureDaemonRunning(agencDirpath)
 
 	templates, err := config.ListAgentTemplates(agencDirpath)

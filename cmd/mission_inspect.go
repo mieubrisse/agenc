@@ -46,17 +46,9 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	description, err := db.GetMissionDescription(missionID)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get mission description")
-	}
-
 	fmt.Printf("ID:          %s\n", mission.ID)
 	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
 	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate))
-	if description != nil {
-		fmt.Printf("Description: %s\n", description.Description)
-	}
 	if mission.WorktreeSource != "" {
 		fmt.Printf("Worktree:    %s\n", mission.WorktreeSource)
 	}

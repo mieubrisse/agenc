@@ -11,14 +11,13 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
-	"github.com/odyssey/agenc/internal/database"
 )
 
 var daemonStatusJSON bool
 
 var daemonStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show daemon status and description stats",
+	Short: "Show daemon status",
 	RunE:  runDaemonStatus,
 }
 
@@ -28,12 +27,10 @@ func init() {
 }
 
 type daemonStatusOutput struct {
-	Version               string `json:"version"`
-	DaemonRunning         bool   `json:"daemon_running"`
-	DaemonPID             int    `json:"daemon_pid"`
-	LogFilepath           string `json:"log_filepath"`
-	DescriptionsGenerated int    `json:"descriptions_generated"`
-	DescriptionsPending   int    `json:"descriptions_pending"`
+	Version       string `json:"version"`
+	DaemonRunning bool   `json:"daemon_running"`
+	DaemonPID     int    `json:"daemon_pid"`
+	LogFilepath   string `json:"log_filepath"`
 }
 
 func runDaemonStatus(cmd *cobra.Command, args []string) error {
@@ -56,26 +53,12 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
-
-	described, pending, err := db.CountDescriptionStats()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get description stats")
-	}
-
 	if daemonStatusJSON {
 		output := daemonStatusOutput{
-			Version:               daemonVersion,
-			DaemonRunning:         running,
-			DaemonPID:             pid,
-			LogFilepath:           logFilepath,
-			DescriptionsGenerated: described,
-			DescriptionsPending:   pending,
+			Version:       daemonVersion,
+			DaemonRunning: running,
+			DaemonPID:     pid,
+			LogFilepath:   logFilepath,
 		}
 		encoded, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
@@ -92,7 +75,6 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 		fmt.Println("Daemon:       stopped")
 	}
 	fmt.Printf("Log file:     %s\n", logFilepath)
-	fmt.Printf("Descriptions: %d generated, %d pending\n", described, pending)
 
 	return nil
 }

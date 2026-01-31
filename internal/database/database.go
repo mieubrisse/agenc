@@ -22,13 +22,7 @@ CREATE TABLE IF NOT EXISTS missions (
 );
 `
 
-const createMissionDescriptionsTableSQL = `
-CREATE TABLE IF NOT EXISTS mission_descriptions (
-	mission_id TEXT PRIMARY KEY,
-	description TEXT NOT NULL,
-	created_at TEXT NOT NULL
-);
-`
+const dropMissionDescriptionsTableSQL = `DROP TABLE IF EXISTS mission_descriptions;`
 
 const addWorktreeSourceColumnSQL = `ALTER TABLE missions ADD COLUMN worktree_source TEXT NOT NULL DEFAULT '';`
 
@@ -41,13 +35,6 @@ type Mission struct {
 	WorktreeSource string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
-}
-
-// MissionDescription represents a row in the mission_descriptions table.
-type MissionDescription struct {
-	MissionID   string
-	Description string
-	CreatedAt   time.Time
 }
 
 // DB wraps a sql.DB connection to the agenc SQLite database.
@@ -64,7 +51,7 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to open database at '%s'", dbFilepath)
 	}
 
-	migrations := []string{createMissionsTableSQL, createMissionDescriptionsTableSQL}
+	migrations := []string{createMissionsTableSQL}
 	for _, migrationSQL := range migrations {
 		if _, err := conn.Exec(migrationSQL); err != nil {
 			conn.Close()
@@ -75,6 +62,12 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := runMigrationIgnoreDuplicate(conn, addWorktreeSourceColumnSQL); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to run worktree_source migration")
+	}
+
+	// Drop legacy mission_descriptions table
+	if _, err := conn.Exec(dropMissionDescriptionsTableSQL); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to drop mission_descriptions table")
 	}
 
 	return &DB{conn: conn}, nil
@@ -196,13 +189,8 @@ func (db *DB) UnarchiveMission(id string) error {
 	return nil
 }
 
-// DeleteMission permanently removes a mission and its description from the database.
+// DeleteMission permanently removes a mission from the database.
 func (db *DB) DeleteMission(id string) error {
-	// Delete description first (child record)
-	if _, err := db.conn.Exec("DELETE FROM mission_descriptions WHERE mission_id = ?", id); err != nil {
-		return stacktrace.Propagate(err, "failed to delete description for mission '%s'", id)
-	}
-
 	result, err := db.conn.Exec("DELETE FROM missions WHERE id = ?", id)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to delete mission '%s'", id)
@@ -216,121 +204,6 @@ func (db *DB) DeleteMission(id string) error {
 		return stacktrace.NewError("mission '%s' not found", id)
 	}
 	return nil
-}
-
-// CreateMissionDescription inserts a description for a mission.
-func (db *DB) CreateMissionDescription(missionID string, description string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.conn.Exec(
-		"INSERT OR REPLACE INTO mission_descriptions (mission_id, description, created_at) VALUES (?, ?, ?)",
-		missionID, description, now,
-	)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to insert mission description for '%s'", missionID)
-	}
-	return nil
-}
-
-// GetMissionDescription returns the description for a mission, or nil if none exists.
-func (db *DB) GetMissionDescription(missionID string) (*MissionDescription, error) {
-	row := db.conn.QueryRow(
-		"SELECT mission_id, description, created_at FROM mission_descriptions WHERE mission_id = ?",
-		missionID,
-	)
-	var md MissionDescription
-	var createdAt string
-	if err := row.Scan(&md.MissionID, &md.Description, &createdAt); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, stacktrace.Propagate(err, "failed to get mission description for '%s'", missionID)
-	}
-	md.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	return &md, nil
-}
-
-// ListMissionsWithoutDescription returns active missions that have no description
-// and were created more than 10 seconds ago.
-func (db *DB) ListMissionsWithoutDescription() ([]*Mission, error) {
-	cutoff := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
-	rows, err := db.conn.Query(
-		`SELECT m.id, m.agent_template, m.prompt, m.status, m.worktree_source, m.created_at, m.updated_at
-		FROM missions m
-		LEFT JOIN mission_descriptions md ON m.id = md.mission_id
-		WHERE m.status = 'active' AND md.mission_id IS NULL AND m.created_at <= ?
-		ORDER BY m.created_at ASC`,
-		cutoff,
-	)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to query missions without descriptions")
-	}
-	defer rows.Close()
-
-	return scanMissions(rows)
-}
-
-// GetDescriptionsForMissions returns a map of mission_id -> description for the given IDs.
-func (db *DB) GetDescriptionsForMissions(missionIDs []string) (map[string]string, error) {
-	result := make(map[string]string)
-	if len(missionIDs) == 0 {
-		return result, nil
-	}
-
-	placeholders := make([]string, len(missionIDs))
-	queryArgs := make([]any, len(missionIDs))
-	for i, id := range missionIDs {
-		placeholders[i] = "?"
-		queryArgs[i] = id
-	}
-
-	query := "SELECT mission_id, description FROM mission_descriptions WHERE mission_id IN (" +
-		joinStrings(placeholders, ",") + ")"
-
-	rows, err := db.conn.Query(query, queryArgs...)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to batch-fetch mission descriptions")
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var missionID, description string
-		if err := rows.Scan(&missionID, &description); err != nil {
-			return nil, stacktrace.Propagate(err, "failed to scan mission description row")
-		}
-		result[missionID] = description
-	}
-	if err := rows.Err(); err != nil {
-		return nil, stacktrace.Propagate(err, "error iterating mission description rows")
-	}
-
-	return result, nil
-}
-
-// CountDescriptionStats returns the number of active missions with and without descriptions.
-func (db *DB) CountDescriptionStats() (described int, pending int, err error) {
-	row := db.conn.QueryRow(`
-		SELECT
-			COUNT(md.mission_id),
-			COUNT(m.id) - COUNT(md.mission_id)
-		FROM missions m
-		LEFT JOIN mission_descriptions md ON m.id = md.mission_id
-		WHERE m.status = 'active'
-	`)
-	if err := row.Scan(&described, &pending); err != nil {
-		return 0, 0, stacktrace.Propagate(err, "failed to count description stats")
-	}
-	return described, pending, nil
-}
-
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for _, s := range strs[1:] {
-		result += sep + s
-	}
-	return result
 }
 
 func scanMissions(rows *sql.Rows) ([]*Mission, error) {
