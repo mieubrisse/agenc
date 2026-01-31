@@ -79,8 +79,9 @@ Component 2: Mission Updater
 For each active (non-archived) mission in the database:
 
 1. Look up the mission's agent template name.
-2. Rsync the template directory into the mission's `agent/` subdirectory, excluding `workspace/`. This overwrites all template-owned files and removes any files that no longer exist in the template. The `workspace/` directory is never touched.
-3. If any files were updated:
+2. Rsync the template directory into the mission's `agent/` subdirectory, excluding `workspace/`, using the `--itemize-changes` flag. This overwrites all template-owned files and removes any files that no longer exist in the template. The `workspace/` directory is never touched.
+3. Check the rsync output: if it is empty, no files changed -- skip to the next mission.
+4. If any files were updated (non-empty output):
    a. Read the `pid` file from the mission directory.
    b. If a PID exists and the process is alive, send `SIGUSR1` to it.
    c. If no PID file or the process is dead, do nothing (the mission will pick up changes on next launch).
