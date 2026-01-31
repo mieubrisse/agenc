@@ -70,11 +70,12 @@ The `agent-templates` directory contains one subdirectory per agent template. Ea
 ```
 agent-templates/
 ├── agent1/
-│   ├── CLAUDE.md          # Instructions specific to agent1
-│   ├── mcp.json           # (optional) Agent-specific MCP config
-│   └── claude/
-│       ├── secrets.env    # (optional) Secrets injected via 1Password
-│       └── skills/        # (optional) Agent-specific skills
+│   ├── CLAUDE.md              # Instructions specific to agent1
+│   ├── .mcp.json              # (optional) Agent-specific MCP config
+│   └── .claude/
+│       ├── settings.json      # (optional) Agent-specific settings
+│       ├── secrets.env        # (optional) Secrets injected via 1Password
+│       └── skills/            # (optional) Agent-specific skills
 └── agent2/
     └── ...
 ```

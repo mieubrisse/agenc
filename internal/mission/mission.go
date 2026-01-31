@@ -49,7 +49,7 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 
 	// Merge settings.json
 	globalSettingsFilepath := filepath.Join(globalClaudeDirpath, settingsFilename)
-	agentSettingsFilepath := filepath.Join(agentTemplateDirpath, settingsFilename)
+	agentSettingsFilepath := filepath.Join(agentTemplateDirpath, claudeDirname, settingsFilename)
 	mergedSettings, err := merge.MergeSettingsJSON(globalSettingsFilepath, agentSettingsFilepath)
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to merge settings.json")
