@@ -47,7 +47,7 @@ func runMissionNuke(cmd *cobra.Command, args []string) error {
 
 	if !nukeForceFlag {
 		fmt.Printf("WARNING: This will permanently remove ALL %d mission(s).\n", len(missions))
-		fmt.Print("Type 'yes' to confirm: ")
+		fmt.Print("Continue? [y/N] ")
 
 		reader := bufio.NewReader(os.Stdin)
 		input, err := reader.ReadString('\n')
@@ -55,7 +55,7 @@ func runMissionNuke(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to read confirmation")
 		}
 
-		if strings.TrimSpace(input) != "yes" {
+		if strings.TrimSpace(input) != "y" {
 			fmt.Println("Aborted.")
 			return nil
 		}
