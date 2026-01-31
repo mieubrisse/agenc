@@ -8,11 +8,12 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 )
 
-// Daemon runs background loops for config sync and template updates.
+// Daemon runs background loops for config sync and repo updates.
 type Daemon struct {
-	db           *database.DB
-	agencDirpath string
-	logger       *log.Logger
+	db                    *database.DB
+	agencDirpath          string
+	logger                *log.Logger
+	repoUpdateCycleCount  int
 }
 
 // NewDaemon creates a new Daemon instance.

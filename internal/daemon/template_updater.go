@@ -31,13 +31,22 @@ func (d *Daemon) runRepoUpdateLoop(ctx context.Context) {
 	}
 }
 
+const (
+	// refreshDefaultBranchInterval controls how often (in cycles) the daemon
+	// runs "git remote set-head origin --auto" to keep origin/HEAD current.
+	refreshDefaultBranchInterval = 10
+)
+
 func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
+	d.repoUpdateCycleCount++
+	refreshDefaultBranch := d.repoUpdateCycleCount%refreshDefaultBranchInterval == 0
+
 	repoNames := d.collectRunningMissionRepos()
 	for _, repoName := range repoNames {
 		if ctx.Err() != nil {
 			return
 		}
-		d.updateRepo(ctx, repoName)
+		d.updateRepo(ctx, repoName, refreshDefaultBranch)
 	}
 }
 
@@ -79,7 +88,7 @@ func (d *Daemon) collectRunningMissionRepos() []string {
 	return repoNames
 }
 
-func (d *Daemon) updateRepo(ctx context.Context, repoName string) {
+func (d *Daemon) updateRepo(ctx context.Context, repoName string, refreshDefaultBranch bool) {
 	repoDirpath := config.GetRepoDirpath(d.agencDirpath, repoName)
 
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin")
@@ -89,15 +98,31 @@ func (d *Daemon) updateRepo(ctx context.Context, repoName string) {
 		return
 	}
 
-	localHash, err := gitRevParse(ctx, repoDirpath, "main")
+	// Periodically refresh origin/HEAD so we track the remote's default branch
+	if refreshDefaultBranch {
+		setHeadCmd := exec.CommandContext(ctx, "git", "remote", "set-head", "origin", "--auto")
+		setHeadCmd.Dir = repoDirpath
+		if output, err := setHeadCmd.CombinedOutput(); err != nil {
+			d.logger.Printf("Repo update: git remote set-head failed for '%s': %v\n%s", repoName, err, string(output))
+		}
+	}
+
+	defaultBranch, err := getDefaultBranch(ctx, repoDirpath)
 	if err != nil {
-		d.logger.Printf("Repo update: failed to rev-parse main for '%s': %v", repoName, err)
+		d.logger.Printf("Repo update: failed to determine default branch for '%s': %v", repoName, err)
 		return
 	}
 
-	remoteHash, err := gitRevParse(ctx, repoDirpath, "origin/main")
+	localHash, err := gitRevParse(ctx, repoDirpath, defaultBranch)
 	if err != nil {
-		d.logger.Printf("Repo update: failed to rev-parse origin/main for '%s': %v", repoName, err)
+		d.logger.Printf("Repo update: failed to rev-parse %s for '%s': %v", defaultBranch, repoName, err)
+		return
+	}
+
+	remoteRef := "origin/" + defaultBranch
+	remoteHash, err := gitRevParse(ctx, repoDirpath, remoteRef)
+	if err != nil {
+		d.logger.Printf("Repo update: failed to rev-parse %s for '%s': %v", remoteRef, repoName, err)
 		return
 	}
 
@@ -105,14 +130,28 @@ func (d *Daemon) updateRepo(ctx context.Context, repoName string) {
 		return
 	}
 
-	resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", "origin/main")
+	resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", remoteRef)
 	resetCmd.Dir = repoDirpath
 	if output, err := resetCmd.CombinedOutput(); err != nil {
 		d.logger.Printf("Repo update: git reset failed for '%s': %v\n%s", repoName, err, string(output))
 		return
 	}
 
-	d.logger.Printf("Repo update: updated '%s' to %s", repoName, remoteHash[:8])
+	d.logger.Printf("Repo update: updated '%s' (%s) to %s", repoName, defaultBranch, remoteHash[:8])
+}
+
+// getDefaultBranch reads the default branch name from origin/HEAD. Returns
+// just the branch name (e.g. "main", "master"), not the full ref.
+func getDefaultBranch(ctx context.Context, repoDirpath string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = repoDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	// Output is like "refs/remotes/origin/main" — extract the branch name
+	ref := strings.TrimSpace(string(output))
+	return strings.TrimPrefix(ref, "refs/remotes/origin/"), nil
 }
 
 // gitRevParse runs `git rev-parse <ref>` in the given directory and returns
