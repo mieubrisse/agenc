@@ -94,12 +94,13 @@ Component 3: Mission Wrapper
 ### Lifecycle
 
 1. Perform mission setup (DB record, directory creation, rsync template files into `agent/` subdirectory).
-2. Write the wrapper's own PID to the `pid` file in the mission directory.
-3. Start watching the `claude-state` file with fsnotify for state change notifications.
-4. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`, with the working directory set to the `agent/` subdirectory. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
-5. Enter the main loop: wait for either the child to exit or a signal to arrive.
-6. On natural exit (user typed `/exit` or Claude terminated), clean up and exit the wrapper.
-7. On wrapper exit, remove the `pid` file.
+2. Write the wrapper's own PID to the `pid` file in the mission directory (overwrites any stale value).
+3. Write `busy` to the `claude-state` file (overwrites any stale value from a previous run).
+4. Start watching the `claude-state` file with fsnotify for state change notifications.
+5. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`, with the working directory set to the `agent/` subdirectory. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
+6. Enter the main loop: wait for either the child to exit or a signal to arrive.
+7. On natural exit (user typed `/exit` or Claude terminated), clean up and exit the wrapper.
+8. On wrapper exit, remove the `pid` file.
 
 ### Key implementation detail
 
@@ -147,10 +148,10 @@ PID File
 
 Each mission has a `pid` file at `~/.agenc/missions/<uuid>/pid` containing the PID of the wrapper process.
 
-- Written by the wrapper on startup.
-- Removed by the wrapper on exit.
+- Overwritten unconditionally by the wrapper on startup (any previous value from a stale or crashed wrapper is replaced).
+- Removed by the wrapper on graceful exit.
 - Read by the mission updater to send SIGUSR1.
-- If the process at the stored PID is dead (stale entry), the mission updater ignores it. The wrapper should remove a stale `pid` file on startup if one exists for its mission.
+- If the process at the stored PID is dead, the mission updater ignores it.
 
 No database schema changes are needed for PID tracking.
 
@@ -164,7 +165,7 @@ Claude Code prompts "do you trust this directory?" when launched in a new direct
 Config File Merging
 -------------------
 
-The current implementation merges a global config with an agent template config when creating a mission. Under this new architecture, **there is no merging**. The template is the sole source of truth. The entire template directory is rsynced into the mission's `agent/` subdirectory (excluding `workspace/`). Global config will be addressed separately in the future.
+There is no merging of config files. The template is the sole source of truth. The entire template directory is rsynced into the mission's `agent/` subdirectory (excluding `workspace/`). Global config will be addressed separately in the future.
 
 
 What Does NOT Change
