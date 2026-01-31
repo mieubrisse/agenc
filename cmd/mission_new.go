@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -17,10 +15,7 @@ import (
 	"github.com/odyssey/agenc/internal/mission"
 )
 
-var (
-	agentTemplateFlag string
-	errEditorAborted  = errors.New("editor closed without saving")
-)
+var agentTemplateFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   "new [prompt]",
@@ -73,24 +68,8 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get prompt from args or interactively via vim
-	var prompt string
-	if len(args) > 0 {
-		prompt = strings.Join(args, " ")
-	} else {
-		var err error
-		prompt, err = getPromptFromEditor()
-		if errors.Is(err, errEditorAborted) {
-			fmt.Println("Aborted.")
-			return nil
-		}
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to get prompt from editor")
-		}
-		if strings.TrimSpace(prompt) == "" {
-			return stacktrace.NewError("prompt cannot be empty")
-		}
-	}
+	// Get prompt from args (if provided); otherwise Claude opens in interactive mode
+	prompt := strings.Join(args, " ")
 
 	// Open database and create mission record
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
@@ -141,59 +120,3 @@ func selectWithFzf(templates []string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-func getPromptFromEditor() (string, error) {
-	tmpFile, err := os.CreateTemp("", "agenc-prompt-*.md")
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to create temp file for prompt")
-	}
-	tmpFilepath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpFilepath)
-
-	initialStat, err := os.Stat(tmpFilepath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to stat temp file")
-	}
-
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vim"
-	}
-
-	editorParts := strings.Fields(editor)
-	editorBinary, err := exec.LookPath(editorParts[0])
-	if err != nil {
-		return "", stacktrace.Propagate(err, "'%s' not found in PATH", editorParts[0])
-	}
-
-	editorName := filepath.Base(editorParts[0])
-	if editorName == "vim" || editorName == "nvim" {
-		editorParts = append(editorParts, "+startinsert")
-	}
-
-	editorArgs := append(editorParts[1:], tmpFilepath)
-	editorCmd := exec.Command(editorBinary, editorArgs...)
-	editorCmd.Stdin = os.Stdin
-	editorCmd.Stdout = os.Stdout
-	editorCmd.Stderr = os.Stderr
-
-	if err := editorCmd.Run(); err != nil {
-		return "", stacktrace.Propagate(err, "editor exited with error")
-	}
-
-	finalStat, err := os.Stat(tmpFilepath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to stat temp file after editing")
-	}
-
-	if finalStat.ModTime().Equal(initialStat.ModTime()) {
-		return "", errEditorAborted
-	}
-
-	content, err := os.ReadFile(tmpFilepath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to read prompt file")
-	}
-
-	return string(content), nil
-}
