@@ -26,19 +26,24 @@ A template repo contains the config files that Claude Code needs (e.g., `CLAUDE.
 Mission Directory Structure
 ----------------------------
 
-When a mission is created, all files from the template are copied into the mission directory. The mission directory is a plain directory -- not a Git repo. Claude has no awareness that a template exists.
-
-Everything outside `workspace/` is owned by the template and will be overwritten on sync. Claude must do all its work inside `workspace/`. The template's CLAUDE.md should enforce this rule.
+Each mission lives in `~/.agenc/missions/<uuid>/`. The directory contains agenc control files at the top level, and an `agent/` subdirectory that is the Claude Code project root.
 
 ```
 ~/.agenc/missions/<uuid>/
-    CLAUDE.md                    # owned by template
-    .claude/
-        settings.json            # owned by template
-    .mcp.json                    # owned by template
-    workspace/                   # owned by Claude -- never overwritten by sync
-        ... (anything Claude creates during the mission)
+    pid                          # PID of the agenc wrapper process running this mission
+    claude-state                 # 'idle' or 'busy', written by Claude hooks
+    agent/                       # Claude Code project root
+        CLAUDE.md                # owned by template, rsynced
+        .claude/
+            settings.json        # owned by template, rsynced
+        .mcp.json                # owned by template, rsynced
+        workspace/               # owned by Claude -- never overwritten by rsync
+            ... (anything Claude creates during the mission)
 ```
+
+The `agent/` subdirectory is where Claude is launched. Everything inside `agent/` except `workspace/` is owned by the template and will be overwritten on sync. Claude must do all its work inside `workspace/`. The template's CLAUDE.md should enforce this rule.
+
+The `pid` and `claude-state` files live outside `agent/` so they are invisible to Claude and unaffected by template syncs.
 
 
 Component 1: Template Updater
@@ -74,11 +79,11 @@ Component 2: Mission Updater
 For each active (non-archived) mission in the database:
 
 1. Look up the mission's agent template name.
-2. Rsync the template directory into the mission directory, excluding `workspace/`. This overwrites all template-owned files and removes any files that no longer exist in the template. The `workspace/` directory is never touched.
+2. Rsync the template directory into the mission's `agent/` subdirectory, excluding `workspace/`. This overwrites all template-owned files and removes any files that no longer exist in the template. The `workspace/` directory is never touched.
 3. If any files were updated:
-   a. Look up `wrapper_pid` from the database for this mission.
+   a. Read the `pid` file from the mission directory.
    b. If a PID exists and the process is alive, send `SIGUSR1` to it.
-   c. If no PID or the process is dead, do nothing (the mission will pick up changes on next launch).
+   c. If no PID file or the process is dead, do nothing (the mission will pick up changes on next launch).
 
 
 Component 3: Mission Wrapper
@@ -88,13 +93,13 @@ Component 3: Mission Wrapper
 
 ### Lifecycle
 
-1. Perform mission setup (DB record, directory creation, rsync template files into mission directory).
-2. Write the wrapper's own PID to the `wrapper_pid` column in the missions DB table.
-3. Configure Claude hooks for state tracking (see below).
-4. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
+1. Perform mission setup (DB record, directory creation, rsync template files into `agent/` subdirectory).
+2. Write the wrapper's own PID to the `pid` file in the mission directory.
+3. Start watching the `claude-state` file with fsnotify for state change notifications.
+4. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`, with the working directory set to the `agent/` subdirectory. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
 5. Enter the main loop: wait for either the child to exit or a signal to arrive.
 6. On natural exit (user typed `/exit` or Claude terminated), clean up and exit the wrapper.
-7. On wrapper exit, clear `wrapper_pid` in the database.
+7. On wrapper exit, remove the `pid` file.
 
 ### Key implementation detail
 
@@ -102,21 +107,21 @@ The wrapper must use `os/exec.Command` to spawn Claude, **not** `syscall.Exec`. 
 
 ### State tracking via Claude hooks
 
-The wrapper tracks Claude's idle/busy state in memory. Two hooks in the mission's `.claude/settings.json` notify the wrapper of state changes (these should be included in the template's settings.json):
+Two Claude hooks write the current state to the `claude-state` file in the mission directory (above `agent/`, invisible to Claude). These hooks are configured in the agenc-global `~/.claude/settings.json`, not in the per-mission settings:
 
-- **`Stop` hook:** Fires when Claude finishes responding and is about to wait for user input. Notifies the wrapper that Claude is idle.
-- **`UserPromptSubmit` hook:** Fires when the user submits a prompt. Notifies the wrapper that Claude is busy.
+- **`Stop` hook:** Fires when Claude finishes responding and is about to wait for user input. Writes `idle` to the `claude-state` file.
+- **`UserPromptSubmit` hook:** Fires when the user submits a prompt. Writes `busy` to the `claude-state` file.
 
-The exact mechanism for the hooks to communicate with the wrapper (e.g., sending a signal, writing to a pipe) is an implementation detail. The wrapper maintains the current state as an in-memory variable -- no state file is written to the mission directory.
+The wrapper watches the `claude-state` file using fsnotify (kqueue on macOS, inotify on Linux) for instant notification of state changes without polling.
 
 ### Signal handling
 
 The wrapper listens for `SIGUSR1`. When received:
 
 1. Set an internal `restart_pending` flag.
-2. Check Claude's current state (in memory).
+2. Read the current state from the `claude-state` file.
 3. If idle, restart immediately.
-4. If busy, wait. When the wrapper receives the idle notification from the Stop hook, restart.
+4. If busy, wait. When fsnotify reports the `claude-state` file changed to `idle`, restart.
 
 ### Restart procedure
 
@@ -137,15 +142,17 @@ The wrapper must distinguish between:
 Implementation: the wrapper sets a boolean flag before sending SIGINT. When the child process exits, check the flag to decide whether to relaunch or exit.
 
 
-Database Changes
-----------------
+PID File
+--------
 
-Add a `wrapper_pid` column (nullable integer) to the `missions` table.
+Each mission has a `pid` file at `~/.agenc/missions/<uuid>/pid` containing the PID of the wrapper process.
 
-- Set to the wrapper's PID when the wrapper starts.
-- Cleared (set to NULL) when the wrapper exits.
+- Written by the wrapper on startup.
+- Removed by the wrapper on exit.
 - Read by the mission updater to send SIGUSR1.
-- If the process at the stored PID is dead (stale entry), the mission updater ignores it. The wrapper should clear stale PIDs on startup if one exists for its mission.
+- If the process at the stored PID is dead (stale entry), the mission updater ignores it. The wrapper should remove a stale `pid` file on startup if one exists for its mission.
+
+No database schema changes are needed for PID tracking.
 
 
 Trust Dialog
@@ -157,13 +164,13 @@ Claude Code prompts "do you trust this directory?" when launched in a new direct
 Config File Merging
 -------------------
 
-The current implementation merges a global config with an agent template config when creating a mission. Under this new architecture, **there is no merging**. The template is the sole source of truth. The entire template directory is rsynced into the mission directory (excluding `workspace/`). Global config will be addressed separately in the future.
+The current implementation merges a global config with an agent template config when creating a mission. Under this new architecture, **there is no merging**. The template is the sole source of truth. The entire template directory is rsynced into the mission's `agent/` subdirectory (excluding `workspace/`). Global config will be addressed separately in the future.
 
 
 What Does NOT Change
 --------------------
 
-- The SQLite database and its existing schema (aside from the new `wrapper_pid` column).
+- The SQLite database and its existing schema.
 - The `agenc mission archive` command and its behavior.
 - The `agenc mission ls` command and its behavior.
 - The daemon's existing description-generation functionality.
