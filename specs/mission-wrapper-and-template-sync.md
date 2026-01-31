@@ -167,6 +167,16 @@ Two Claude hooks write the current state to the `claude-state` file in the missi
 
 The wrapper watches the `claude-state` file using fsnotify (kqueue on macOS, inotify on Linux) for instant notification of state changes without polling.
 
+### Wrapper states
+
+The wrapper is a state machine. At any point it is in exactly one of three states:
+
+- **Running** -- Claude is alive, no restart needed. The wrapper waits for either the child to exit (natural exit → wrapper exits) or a template change to be detected.
+- **Restart pending** -- A template change has been detected, but Claude is busy. The wrapper waits for `claude-state` to become `idle`, then transitions to Restarting.
+- **Restarting** -- The wrapper is actively killing and relaunching Claude. It sends SIGINT, waits for the child to exit, then spawns `claude -c`.
+
+Because the wrapper always knows which state it is in, there is no ambiguity when the child process exits. If the wrapper is in the Restarting state, the exit was caused by the wrapper's own SIGINT -- relaunch with `claude -c`. Otherwise, the user quit naturally -- the wrapper exits.
+
 ### Template change detection
 
 The wrapper runs a background goroutine that polls the template repo for changes:
@@ -177,30 +187,21 @@ The wrapper runs a background goroutine that polls the template repo for changes
 4. If the hashes differ:
    a. Rsync the template directory into the mission's `agent/` subdirectory, excluding `workspace/`. This overwrites all template-owned files and removes any files that no longer exist in the template.
    b. Write the new commit hash to the `template-commit` file.
-   c. Set an internal `restart_pending` flag.
-   d. Read the current state from the `claude-state` file.
-   e. If idle, restart immediately.
-   f. If busy, wait. When fsnotify reports the `claude-state` file changed to `idle`, restart.
+   c. If Claude is idle, transition to Restarting immediately.
+   d. If Claude is busy, transition to Restart pending. When fsnotify reports the `claude-state` file changed to `idle`, transition to Restarting.
 
 The 10-second poll interval is cheap because it only reads a local Git ref -- no network I/O. The daemon's template updater (Component 1) handles all network operations on a 60-second cycle. The wrapper just watches for the local ref to advance.
 
 ### Restart procedure
 
+When the wrapper enters the Restarting state:
+
 1. Send `SIGINT` to the Claude child process.
 2. Wait for the child to exit.
 3. Spawn `claude -c` as a new child process (continues from the last completed conversation turn).
-4. Clear the `restart_pending` flag.
+4. Transition back to Running.
 
 Because the wrapper only restarts when Claude is idle (finished responding, waiting for user input), no generation is interrupted and no work is lost. `claude -c` resumes with the full conversation history intact.
-
-### Distinguishing restart-exit from natural-exit
-
-The wrapper must distinguish between:
-
-- **Restart-triggered exit:** The wrapper sent SIGINT because of a pending restart. Action: relaunch with `claude -c`.
-- **Natural exit:** The user quit Claude (e.g., `/exit`, Ctrl-C). Action: wrapper exits.
-
-Implementation: the wrapper sets a boolean flag before sending SIGINT. When the child process exits, check the flag to decide whether to relaunch or exit.
 
 
 PID File
