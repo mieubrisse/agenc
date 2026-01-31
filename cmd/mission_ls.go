@@ -59,11 +59,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	if lsAllFlag {
-		fmt.Fprintln(w, "ID\tSTATUS\tRUNNING\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
-	} else {
-		fmt.Fprintln(w, "ID\tRUNNING\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
-	}
+	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tDESCRIPTION\tPROMPT\tCREATED")
 	for _, m := range missions {
 		promptSnippet := m.Prompt
 		if len(promptSnippet) > 60 {
@@ -76,27 +72,15 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				descSnippet = descSnippet[:47] + "..."
 			}
 		}
-		running := getMissionRunningStatus(m.ID)
-		if lsAllFlag {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				m.ID,
-				m.Status,
-				running,
-				displayAgentTemplate(m.AgentTemplate),
-				descSnippet,
-				promptSnippet,
-				m.CreatedAt.Format("2006-01-02 15:04"),
-			)
-		} else {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				m.ID,
-				running,
-				displayAgentTemplate(m.AgentTemplate),
-				descSnippet,
-				promptSnippet,
-				m.CreatedAt.Format("2006-01-02 15:04"),
-			)
-		}
+		status := getMissionStatus(m.ID, m.Status)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			m.ID,
+			status,
+			displayAgentTemplate(m.AgentTemplate),
+			descSnippet,
+			promptSnippet,
+			m.CreatedAt.Format("2006-01-02 15:04"),
+		)
 	}
 	w.Flush()
 
@@ -110,16 +94,16 @@ func displayAgentTemplate(template string) string {
 	return template
 }
 
-// getMissionRunningStatus checks the wrapper PID file to determine if a
-// mission's wrapper process is currently running.
-func getMissionRunningStatus(missionID string) string {
+// getMissionStatus returns the unified status for a mission: Running, Stopped,
+// or Archived. Archived missions are never checked for a running wrapper.
+func getMissionStatus(missionID string, dbStatus string) string {
+	if dbStatus == "archived" {
+		return "Archived"
+	}
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := daemon.ReadPID(pidFilepath)
-	if err != nil || pid == 0 {
-		return "stopped"
+	if err == nil && pid != 0 && daemon.IsProcessRunning(pid) {
+		return "Running"
 	}
-	if daemon.IsProcessRunning(pid) {
-		return "running"
-	}
-	return "stopped"
+	return "Stopped"
 }

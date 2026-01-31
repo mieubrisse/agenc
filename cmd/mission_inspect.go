@@ -56,8 +56,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("ID:          %s\n", mission.ID)
-	fmt.Printf("Status:      %s\n", mission.Status)
-	fmt.Printf("Running:     %s\n", getMissionRunningStatus(missionID))
+	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
 	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate))
 	if description != nil {
 		fmt.Printf("Description: %s\n", description.Description)
