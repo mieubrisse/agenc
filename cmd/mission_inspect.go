@@ -50,7 +50,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("ID:          %s\n", mission.ID)
 	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
-	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate, nicknames))
+	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate, mission.EmbeddedAgent, nicknames))
 	if mission.WorktreeSource != "" {
 		fmt.Printf("Worktree:    %s\n", mission.WorktreeSource)
 	}

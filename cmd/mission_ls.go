@@ -62,7 +62,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			m.ID,
 			status,
-			displayAgentTemplate(m.AgentTemplate, nicknames),
+			displayAgentTemplate(m.AgentTemplate, m.EmbeddedAgent, nicknames),
 			promptSnippet,
 			m.CreatedAt.Format("2006-01-02 15:04"),
 		)
@@ -72,8 +72,11 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func displayAgentTemplate(repo string, nicknames map[string]string) string {
+func displayAgentTemplate(repo string, embeddedAgent bool, nicknames map[string]string) string {
 	if repo == "" {
+		if embeddedAgent {
+			return "(embedded)"
+		}
 		return "(none)"
 	}
 	if nick, ok := nicknames[repo]; ok {

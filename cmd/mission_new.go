@@ -19,6 +19,7 @@ import (
 var agentFlag string
 var promptFlag string
 var worktreeFlag string
+var embeddedAgentFlag bool
 
 var missionNewCmd = &cobra.Command{
 	Use:   "new [agent-template]",
@@ -32,11 +33,25 @@ func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
 	missionNewCmd.Flags().StringVar(&worktreeFlag, "worktree", "", "path to git repo; workspace becomes a worktree")
+	missionNewCmd.Flags().BoolVar(&embeddedAgentFlag, "embedded-agent", false, "use agent config from the worktree repo instead of a template")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
+
+	// Validate --embedded-agent flag constraints
+	if embeddedAgentFlag {
+		if worktreeFlag == "" {
+			return stacktrace.NewError("--worktree is required when using --embedded-agent")
+		}
+		if agentFlag != "" {
+			return stacktrace.NewError("--embedded-agent and --agent are mutually exclusive")
+		}
+		if len(args) > 0 {
+			return stacktrace.NewError("--embedded-agent and positional [agent-template] argument are mutually exclusive")
+		}
+	}
 
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
@@ -45,44 +60,48 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	templateRecords, err := db.ListAgentTemplates()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to list agent templates")
-	}
-
 	var agentTemplate string
 
-	if agentFlag != "" {
-		// --agent flag: match by repo or nickname
-		resolved, resolveErr := resolveTemplate(templateRecords, agentFlag)
-		if resolveErr != nil {
-			return stacktrace.NewError("agent template '%s' not found", agentFlag)
+	if embeddedAgentFlag {
+		// Skip template selection entirely for embedded-agent missions
+	} else {
+		templateRecords, err := db.ListAgentTemplates()
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to list agent templates")
 		}
-		agentTemplate = resolved
-	} else if len(templateRecords) == 0 {
-		fmt.Println("No agent templates found. Proceeding without a template.")
-		fmt.Printf("Install templates with: agenc template install owner/repo\n")
-	} else if len(args) == 1 {
-		resolved, resolveErr := resolveTemplate(templateRecords, args[0])
-		if resolveErr != nil {
-			// No match found — fall through to fzf with initial query
-			selected, fzfErr := selectWithFzf(templateRecords, args[0], true)
+
+		if agentFlag != "" {
+			// --agent flag: match by repo or nickname
+			resolved, resolveErr := resolveTemplate(templateRecords, agentFlag)
+			if resolveErr != nil {
+				return stacktrace.NewError("agent template '%s' not found", agentFlag)
+			}
+			agentTemplate = resolved
+		} else if len(templateRecords) == 0 {
+			fmt.Println("No agent templates found. Proceeding without a template.")
+			fmt.Printf("Install templates with: agenc template install owner/repo\n")
+		} else if len(args) == 1 {
+			resolved, resolveErr := resolveTemplate(templateRecords, args[0])
+			if resolveErr != nil {
+				// No match found — fall through to fzf with initial query
+				selected, fzfErr := selectWithFzf(templateRecords, args[0], true)
+				if fzfErr != nil {
+					return stacktrace.Propagate(fzfErr, "failed to select agent template")
+				}
+				if selected != "" {
+					agentTemplate = selected
+				}
+			} else {
+				agentTemplate = resolved
+			}
+		} else {
+			selected, fzfErr := selectWithFzf(templateRecords, "", true)
 			if fzfErr != nil {
 				return stacktrace.Propagate(fzfErr, "failed to select agent template")
 			}
 			if selected != "" {
 				agentTemplate = selected
 			}
-		} else {
-			agentTemplate = resolved
-		}
-	} else {
-		selected, fzfErr := selectWithFzf(templateRecords, "", true)
-		if fzfErr != nil {
-			return stacktrace.Propagate(fzfErr, "failed to select agent template")
-		}
-		if selected != "" {
-			agentTemplate = selected
 		}
 	}
 
@@ -95,7 +114,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		worktreeSourceAbsDirpath = absPath
 	}
 
-	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, worktreeSourceAbsDirpath)
+	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, worktreeSourceAbsDirpath, embeddedAgentFlag)
 }
 
 // createAndLaunchMission validates the worktree (if any), creates the mission
@@ -105,6 +124,7 @@ func createAndLaunchMission(
 	agentTemplate string,
 	prompt string,
 	worktreeSourceAbsDirpath string,
+	embeddedAgent bool,
 ) error {
 	if worktreeSourceAbsDirpath != "" {
 		if err := mission.ValidateWorktreeRepo(worktreeSourceAbsDirpath); err != nil {
@@ -120,7 +140,7 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeSourceAbsDirpath)
+	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeSourceAbsDirpath, embeddedAgent)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
@@ -138,7 +158,12 @@ func createAndLaunchMission(
 	fmt.Printf("Created mission: %s\n", missionRecord.ID)
 
 	// Create mission directory structure
-	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, worktreeSourceAbsDirpath)
+	var missionDirpath string
+	if embeddedAgent {
+		missionDirpath, err = mission.CreateEmbeddedAgentMissionDir(agencDirpath, missionRecord.ID, worktreeSourceAbsDirpath)
+	} else {
+		missionDirpath, err = mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, worktreeSourceAbsDirpath)
+	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")
 	}
@@ -146,7 +171,7 @@ func createAndLaunchMission(
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching claude...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, embeddedAgent)
 	return w.Run(prompt, false)
 }
 

@@ -62,6 +62,26 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 	return missionDirpath, nil
 }
 
+// CreateEmbeddedAgentMissionDir sets up the mission directory structure for an
+// embedded-agent mission. The worktree is created directly at the agent/
+// directory (no workspace/ subdirectory). No template is synced or tracked.
+// Returns the mission root directory path.
+func CreateEmbeddedAgentMissionDir(agencDirpath string, missionID string, worktreeSource string) (string, error) {
+	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+
+	if err := os.MkdirAll(missionDirpath, 0755); err != nil {
+		return "", stacktrace.Propagate(err, "failed to create directory '%s'", missionDirpath)
+	}
+
+	branchName := GetWorktreeBranchName(missionID)
+	if err := CreateWorktree(worktreeSource, agentDirpath, branchName); err != nil {
+		return "", stacktrace.Propagate(err, "failed to create git worktree at agent directory")
+	}
+
+	return missionDirpath, nil
+}
+
 // RsyncTemplate rsyncs a template directory into the agent directory,
 // excluding the workspace/ subdirectory, .git/ metadata, and
 // .claude/settings.local.json (mission-local overrides). Uses --delete

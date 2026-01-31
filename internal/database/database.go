@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS agent_templates (
 const dropMissionDescriptionsTableSQL = `DROP TABLE IF EXISTS mission_descriptions;`
 
 const addWorktreeSourceColumnSQL = `ALTER TABLE missions ADD COLUMN worktree_source TEXT NOT NULL DEFAULT '';`
+const addEmbeddedAgentColumnSQL = `ALTER TABLE missions ADD COLUMN embedded_agent INTEGER NOT NULL DEFAULT 0;`
 
 // Mission represents a row in the missions table.
 type Mission struct {
@@ -41,6 +42,7 @@ type Mission struct {
 	Prompt         string
 	Status         string
 	WorktreeSource string
+	EmbeddedAgent  bool
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
@@ -72,6 +74,11 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to run worktree_source migration")
 	}
 
+	if err := runMigrationIgnoreDuplicate(conn, addEmbeddedAgentColumnSQL); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to run embedded_agent migration")
+	}
+
 	// Drop legacy mission_descriptions table
 	if _, err := conn.Exec(dropMissionDescriptionsTableSQL); err != nil {
 		conn.Close()
@@ -97,13 +104,18 @@ func (db *DB) Close() error {
 }
 
 // CreateMission inserts a new mission and returns it.
-func (db *DB) CreateMission(agentTemplate string, prompt string, worktreeSource string) (*Mission, error) {
+func (db *DB) CreateMission(agentTemplate string, prompt string, worktreeSource string, embeddedAgent bool) (*Mission, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	embeddedAgentInt := 0
+	if embeddedAgent {
+		embeddedAgentInt = 1
+	}
+
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, agent_template, prompt, worktree_source, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
-		id, agentTemplate, prompt, worktreeSource, now, now,
+		"INSERT INTO missions (id, agent_template, prompt, worktree_source, embedded_agent, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
+		id, agentTemplate, prompt, worktreeSource, embeddedAgentInt, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -114,6 +126,7 @@ func (db *DB) CreateMission(agentTemplate string, prompt string, worktreeSource 
 		AgentTemplate:  agentTemplate,
 		Prompt:         prompt,
 		WorktreeSource: worktreeSource,
+		EmbeddedAgent:  embeddedAgent,
 		Status:         "active",
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
@@ -123,7 +136,7 @@ func (db *DB) CreateMission(agentTemplate string, prompt string, worktreeSource 
 // ListMissions returns missions ordered by created_at DESC.
 // If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
 func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
-	query := "SELECT id, agent_template, prompt, status, worktree_source, created_at, updated_at FROM missions"
+	query := "SELECT id, agent_template, prompt, status, worktree_source, embedded_agent, created_at, updated_at FROM missions"
 	if !includeArchived {
 		query += " WHERE status != 'archived'"
 	}
@@ -141,7 +154,7 @@ func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, agent_template, prompt, status, worktree_source, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, agent_template, prompt, status, worktree_source, embedded_agent, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -359,9 +372,11 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	for rows.Next() {
 		var m Mission
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &createdAt, &updatedAt); err != nil {
+		var embeddedAgentInt int
+		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &embeddedAgentInt, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
+		m.EmbeddedAgent = embeddedAgentInt != 0
 		m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 		missions = append(missions, &m)
@@ -375,9 +390,11 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &createdAt, &updatedAt); err != nil {
+	var embeddedAgentInt int
+	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &embeddedAgentInt, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
+	m.EmbeddedAgent = embeddedAgentInt != 0
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	return &m, nil

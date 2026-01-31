@@ -80,7 +80,7 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Resuming mission: %s\n", missionID)
 	fmt.Println("Launching claude --continue...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.EmbeddedAgent)
 	return w.Run("", true)
 }
 
@@ -104,7 +104,7 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		if len(promptSnippet) > 60 {
 			promptSnippet = promptSnippet[:57] + "..."
 		}
-		agent := displayAgentTemplate(m.AgentTemplate, nicknames)
+		agent := displayAgentTemplate(m.AgentTemplate, m.EmbeddedAgent, nicknames)
 		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", m.ID, agent, promptSnippet))
 	}
 
