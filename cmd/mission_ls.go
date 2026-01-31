@@ -94,16 +94,16 @@ func displayAgentTemplate(template string) string {
 	return template
 }
 
-// getMissionStatus returns the unified status for a mission: Running, Stopped,
-// or Archived. Archived missions are never checked for a running wrapper.
+// getMissionStatus returns the unified status for a mission: RUNNING, STOPPED,
+// or ARCHIVED. Archived missions are never checked for a running wrapper.
 func getMissionStatus(missionID string, dbStatus string) string {
 	if dbStatus == "archived" {
-		return "Archived"
+		return "ARCHIVED"
 	}
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := daemon.ReadPID(pidFilepath)
 	if err == nil && pid != 0 && daemon.IsProcessRunning(pid) {
-		return "Running"
+		return "RUNNING"
 	}
-	return "Stopped"
+	return "STOPPED"
 }

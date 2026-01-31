@@ -155,6 +155,27 @@ func (db *DB) ArchiveMission(id string) error {
 	return nil
 }
 
+// UnarchiveMission sets the mission status back to 'active'.
+func (db *DB) UnarchiveMission(id string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := db.conn.Exec(
+		"UPDATE missions SET status = 'active', updated_at = ? WHERE id = ?",
+		now, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to unarchive mission '%s'", id)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check rows affected")
+	}
+	if rowsAffected == 0 {
+		return stacktrace.NewError("mission '%s' not found", id)
+	}
+	return nil
+}
+
 // DeleteMission permanently removes a mission and its description from the database.
 func (db *DB) DeleteMission(id string) error {
 	// Delete description first (child record)
