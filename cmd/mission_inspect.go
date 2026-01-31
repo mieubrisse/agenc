@@ -57,6 +57,9 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 	if description != nil {
 		fmt.Printf("Description: %s\n", description.Description)
 	}
+	if mission.WorktreeSource != "" {
+		fmt.Printf("Worktree:    %s\n", mission.WorktreeSource)
+	}
 	fmt.Printf("Prompt:      %s\n", mission.Prompt)
 	fmt.Printf("Directory:   %s\n", missionDirpath)
 	fmt.Printf("Created:     %s\n", mission.CreatedAt.Format("2006-01-02 15:04:05"))

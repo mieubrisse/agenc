@@ -11,6 +11,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/mission"
 )
 
 var missionRmCmd = &cobra.Command{
@@ -130,8 +131,8 @@ func selectMissionsToRemove(db *database.DB) ([]string, error) {
 // removeMission tears down a mission in the reverse order of `mission new`:
 // mission new creates DB record then directory, so we remove directory then DB record.
 func removeMission(db *database.DB, missionID string) error {
-	// Verify mission exists
-	_, err := db.GetMission(missionID)
+	// Fetch mission record (needed for worktree cleanup)
+	missionRecord, err := db.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
@@ -139,6 +140,25 @@ func removeMission(db *database.DB, missionID string) error {
 	// Stop the wrapper if running (idempotent)
 	if err := stopMissionWrapper(missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
+	}
+
+	// Clean up worktree and branch before removing the directory
+	if missionRecord.WorktreeSource != "" {
+		workspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
+		branchName := mission.GetWorktreeBranchName(missionID)
+
+		// Remove the worktree (best-effort)
+		if err := mission.RemoveWorktree(missionRecord.WorktreeSource, workspaceDirpath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up git worktree: %v\n", err)
+		}
+
+		// Delete the branch if fully merged into main; preserve if unmerged
+		deleted, err := mission.DeleteWorktreeBranchIfMerged(missionRecord.WorktreeSource, branchName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to check worktree branch: %v\n", err)
+		} else if !deleted {
+			fmt.Printf("Branch '%s' preserved in %s (has unmerged changes)\n", branchName, missionRecord.WorktreeSource)
+		}
 	}
 
 	// Remove the mission directory

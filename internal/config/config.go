@@ -165,6 +165,12 @@ func GetMissionWrapperLogFilepath(agencDirpath string, missionID string) string 
 	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), WrapperLogFilename)
 }
 
+// GetMissionWorkspaceDirpath returns the path to the workspace/ subdirectory
+// within a mission's agent directory.
+func GetMissionWorkspaceDirpath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionAgentDirpath(agencDirpath, missionID), WorkspaceDirname)
+}
+
 // GetAgentTemplateDirpath returns the path to a specific agent template directory.
 func GetAgentTemplateDirpath(agencDirpath string, templateName string) string {
 	return filepath.Join(GetAgentTemplatesDirpath(agencDirpath), templateName)

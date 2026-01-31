@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,14 +30,17 @@ CREATE TABLE IF NOT EXISTS mission_descriptions (
 );
 `
 
+const addWorktreeSourceColumnSQL = `ALTER TABLE missions ADD COLUMN worktree_source TEXT NOT NULL DEFAULT '';`
+
 // Mission represents a row in the missions table.
 type Mission struct {
-	ID            string
-	AgentTemplate string
-	Prompt        string
-	Status        string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID             string
+	AgentTemplate  string
+	Prompt         string
+	Status         string
+	WorktreeSource string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // MissionDescription represents a row in the mission_descriptions table.
@@ -68,7 +72,22 @@ func Open(dbFilepath string) (*DB, error) {
 		}
 	}
 
+	if err := runMigrationIgnoreDuplicate(conn, addWorktreeSourceColumnSQL); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to run worktree_source migration")
+	}
+
 	return &DB{conn: conn}, nil
+}
+
+// runMigrationIgnoreDuplicate executes a migration SQL statement, ignoring
+// "duplicate column" errors for idempotent ALTER TABLE ADD COLUMN migrations.
+func runMigrationIgnoreDuplicate(conn *sql.DB, migrationSQL string) error {
+	_, err := conn.Exec(migrationSQL)
+	if err != nil && strings.Contains(err.Error(), "duplicate column") {
+		return nil
+	}
+	return err
 }
 
 // Close closes the database connection.
@@ -77,32 +96,33 @@ func (db *DB) Close() error {
 }
 
 // CreateMission inserts a new mission and returns it.
-func (db *DB) CreateMission(agentTemplate string, prompt string) (*Mission, error) {
+func (db *DB) CreateMission(agentTemplate string, prompt string, worktreeSource string) (*Mission, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, agent_template, prompt, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
-		id, agentTemplate, prompt, now, now,
+		"INSERT INTO missions (id, agent_template, prompt, worktree_source, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+		id, agentTemplate, prompt, worktreeSource, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
 	}
 
 	return &Mission{
-		ID:            id,
-		AgentTemplate: agentTemplate,
-		Prompt:        prompt,
-		Status:        "active",
-		CreatedAt:     time.Now().UTC(),
-		UpdatedAt:     time.Now().UTC(),
+		ID:             id,
+		AgentTemplate:  agentTemplate,
+		Prompt:         prompt,
+		WorktreeSource: worktreeSource,
+		Status:         "active",
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
 	}, nil
 }
 
 // ListMissions returns missions ordered by created_at DESC.
 // If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
 func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
-	query := "SELECT id, agent_template, prompt, status, created_at, updated_at FROM missions"
+	query := "SELECT id, agent_template, prompt, status, worktree_source, created_at, updated_at FROM missions"
 	if !includeArchived {
 		query += " WHERE status != 'archived'"
 	}
@@ -120,7 +140,7 @@ func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, agent_template, prompt, status, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, agent_template, prompt, status, worktree_source, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -234,7 +254,7 @@ func (db *DB) GetMissionDescription(missionID string) (*MissionDescription, erro
 func (db *DB) ListMissionsWithoutDescription() ([]*Mission, error) {
 	cutoff := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
 	rows, err := db.conn.Query(
-		`SELECT m.id, m.agent_template, m.prompt, m.status, m.created_at, m.updated_at
+		`SELECT m.id, m.agent_template, m.prompt, m.status, m.worktree_source, m.created_at, m.updated_at
 		FROM missions m
 		LEFT JOIN mission_descriptions md ON m.id = md.mission_id
 		WHERE m.status = 'active' AND md.mission_id IS NULL AND m.created_at <= ?
@@ -318,7 +338,7 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	for rows.Next() {
 		var m Mission
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
@@ -334,7 +354,7 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)

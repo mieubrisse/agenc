@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -18,6 +19,7 @@ import (
 
 var agentFlag string
 var promptFlag string
+var worktreeFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   "new [agent-template]",
@@ -30,6 +32,7 @@ var missionNewCmd = &cobra.Command{
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
+	missionNewCmd.Flags().StringVar(&worktreeFlag, "worktree", "", "path to git repo; workspace becomes a worktree")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -73,6 +76,19 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Validate --worktree flag if provided
+	var worktreeSourceAbsDirpath string
+	if worktreeFlag != "" {
+		absPath, err := filepath.Abs(worktreeFlag)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve worktree path")
+		}
+		worktreeSourceAbsDirpath = absPath
+		if err := mission.ValidateWorktreeRepo(worktreeSourceAbsDirpath); err != nil {
+			return stacktrace.Propagate(err, "invalid worktree repository")
+		}
+	}
+
 	// Open database and create mission record
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
@@ -81,15 +97,25 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, promptFlag)
+	missionRecord, err := db.CreateMission(agentTemplate, promptFlag, worktreeSourceAbsDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
+	}
+
+	// Validate worktree branch doesn't already exist (needs mission ID for branch name)
+	if worktreeSourceAbsDirpath != "" {
+		branchName := mission.GetWorktreeBranchName(missionRecord.ID)
+		if err := mission.ValidateWorktreeBranch(worktreeSourceAbsDirpath, branchName); err != nil {
+			// Roll back the DB record
+			_ = db.DeleteMission(missionRecord.ID)
+			return stacktrace.Propagate(err, "worktree branch conflict")
+		}
 	}
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ID)
 
 	// Create mission directory structure
-	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate)
+	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, worktreeSourceAbsDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")
 	}

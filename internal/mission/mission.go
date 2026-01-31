@@ -3,7 +3,6 @@ package mission
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -12,16 +11,32 @@ import (
 )
 
 // CreateMissionDir sets up the mission directory structure and rsyncs config
-// files from the agent template into the agent/ subdirectory. Returns the
-// mission root directory path (not the agent/ subdirectory).
-func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string) (string, error) {
+// files from the agent template into the agent/ subdirectory. When
+// worktreeSource is non-empty, the workspace/ directory is created as a Git
+// worktree of the specified repository. Returns the mission root directory
+// path (not the agent/ subdirectory).
+func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string, worktreeSource string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
-	workspaceDirpath := filepath.Join(agentDirpath, config.WorkspaceDirname)
+	workspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
 
-	for _, dirpath := range []string{missionDirpath, agentDirpath, workspaceDirpath} {
+	// Always create mission and agent directories
+	for _, dirpath := range []string{missionDirpath, agentDirpath} {
 		if err := os.MkdirAll(dirpath, 0755); err != nil {
 			return "", stacktrace.Propagate(err, "failed to create directory '%s'", dirpath)
+		}
+	}
+
+	if worktreeSource != "" {
+		// Create workspace as a Git worktree
+		branchName := GetWorktreeBranchName(missionID)
+		if err := CreateWorktree(worktreeSource, workspaceDirpath, branchName); err != nil {
+			return "", stacktrace.Propagate(err, "failed to create git worktree")
+		}
+	} else {
+		// Create a plain workspace directory
+		if err := os.MkdirAll(workspaceDirpath, 0755); err != nil {
+			return "", stacktrace.Propagate(err, "failed to create directory '%s'", workspaceDirpath)
 		}
 	}
 
