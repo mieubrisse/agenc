@@ -126,10 +126,40 @@ func createAndLaunchMission(
 	worktreeSourceAbsDirpath string,
 	embeddedAgent bool,
 ) error {
+	// worktreeSource is what gets stored in the DB. For new missions with a
+	// worktree, this becomes "github.com/owner/repo" (the repo name).
+	// cloneDirpath is the filesystem path used for all git operations.
+	var worktreeSource string
+	var cloneDirpath string
+
 	if worktreeSourceAbsDirpath != "" {
+		// Validate the user's local repo
 		if err := mission.ValidateWorktreeRepo(worktreeSourceAbsDirpath); err != nil {
 			return stacktrace.Propagate(err, "invalid worktree repository")
 		}
+
+		// Extract GitHub repo name from the user's local repo
+		repoName, err := mission.ExtractGitHubRepoName(worktreeSourceAbsDirpath)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to extract GitHub repo name")
+		}
+
+		// Read the clone URL from the user's repo (preserves SSH vs HTTPS)
+		cloneURLCmd := exec.Command("git", "remote", "get-url", "origin")
+		cloneURLCmd.Dir = worktreeSourceAbsDirpath
+		cloneURLOutput, err := cloneURLCmd.Output()
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read origin remote URL")
+		}
+		cloneURL := strings.TrimSpace(string(cloneURLOutput))
+
+		// Clone into ~/.agenc/repos/ (idempotent)
+		cloneDirpath, err = mission.EnsureWorktreeClone(agencDirpath, repoName, cloneURL)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to ensure worktree clone")
+		}
+
+		worktreeSource = repoName
 	}
 
 	// Open database and create mission record
@@ -140,15 +170,15 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeSourceAbsDirpath, embeddedAgent)
+	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeSource, embeddedAgent)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
 
 	// Validate worktree branch doesn't already exist (needs mission ID for branch name)
-	if worktreeSourceAbsDirpath != "" {
+	if cloneDirpath != "" {
 		branchName := mission.GetWorktreeBranchName(missionRecord.ID)
-		if err := mission.ValidateWorktreeBranch(worktreeSourceAbsDirpath, branchName); err != nil {
+		if err := mission.ValidateWorktreeBranch(cloneDirpath, branchName); err != nil {
 			// Roll back the DB record
 			_ = db.DeleteMission(missionRecord.ID)
 			return stacktrace.Propagate(err, "worktree branch conflict")
@@ -160,9 +190,9 @@ func createAndLaunchMission(
 	// Create mission directory structure
 	var missionDirpath string
 	if embeddedAgent {
-		missionDirpath, err = mission.CreateEmbeddedAgentMissionDir(agencDirpath, missionRecord.ID, worktreeSourceAbsDirpath)
+		missionDirpath, err = mission.CreateEmbeddedAgentMissionDir(agencDirpath, missionRecord.ID, cloneDirpath)
 	} else {
-		missionDirpath, err = mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, worktreeSourceAbsDirpath)
+		missionDirpath, err = mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, cloneDirpath)
 	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")

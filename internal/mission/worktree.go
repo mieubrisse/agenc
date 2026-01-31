@@ -1,10 +1,15 @@
 package mission
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
+
+	"github.com/odyssey/agenc/internal/config"
 )
 
 // GetWorktreeBranchName returns the branch name for a mission's worktree,
@@ -89,4 +94,84 @@ func DeleteWorktreeBranchIfMerged(repoDirpath string, branchName string) (bool, 
 		return false, stacktrace.Propagate(err, "failed to delete branch '%s': %s", branchName, outputStr)
 	}
 	return true, nil
+}
+
+// githubSSHRegex matches git@github.com:owner/repo or git@github.com:owner/repo.git
+var githubSSHRegex = regexp.MustCompile(`^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$`)
+
+// githubHTTPSRegex matches https://github.com/owner/repo or https://github.com/owner/repo.git
+var githubHTTPSRegex = regexp.MustCompile(`^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$`)
+
+// githubSSHProtoRegex matches ssh://git@github.com/owner/repo or ssh://git@github.com/owner/repo.git
+var githubSSHProtoRegex = regexp.MustCompile(`^ssh://git@github\.com/([^/]+)/([^/]+?)(?:\.git)?$`)
+
+// ParseGitHubRemoteURL parses a GitHub remote URL (SSH or HTTPS) into
+// "github.com/owner/repo" format.
+func ParseGitHubRemoteURL(remoteURL string) (string, error) {
+	remoteURL = strings.TrimSpace(remoteURL)
+
+	if m := githubSSHRegex.FindStringSubmatch(remoteURL); m != nil {
+		return fmt.Sprintf("github.com/%s/%s", m[1], m[2]), nil
+	}
+	if m := githubHTTPSRegex.FindStringSubmatch(remoteURL); m != nil {
+		return fmt.Sprintf("github.com/%s/%s", m[1], m[2]), nil
+	}
+	if m := githubSSHProtoRegex.FindStringSubmatch(remoteURL); m != nil {
+		return fmt.Sprintf("github.com/%s/%s", m[1], m[2]), nil
+	}
+
+	return "", stacktrace.NewError("remote URL '%s' is not a GitHub URL; only GitHub repositories are supported", remoteURL)
+}
+
+// ExtractGitHubRepoName reads the origin remote URL from the given git repo
+// and parses it into "github.com/owner/repo" format.
+// Errors if origin is not a GitHub URL.
+func ExtractGitHubRepoName(repoDirpath string) (string, error) {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = repoDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to read origin remote URL from '%s'", repoDirpath)
+	}
+
+	return ParseGitHubRemoteURL(strings.TrimSpace(string(output)))
+}
+
+// EnsureWorktreeClone clones the repo into ~/.agenc/repos/ if not already
+// present. Uses the provided cloneURL for the clone. Returns the clone
+// directory path.
+func EnsureWorktreeClone(agencDirpath string, repoName string, cloneURL string) (string, error) {
+	cloneDirpath := config.GetRepoDirpath(agencDirpath, repoName)
+
+	// If already cloned, return immediately
+	if _, err := os.Stat(cloneDirpath); err == nil {
+		return cloneDirpath, nil
+	}
+
+	// Create intermediate directories then remove the leaf so git clone can create it
+	if err := os.MkdirAll(cloneDirpath, 0755); err != nil {
+		return "", stacktrace.Propagate(err, "failed to create directory '%s'", cloneDirpath)
+	}
+	if err := os.Remove(cloneDirpath); err != nil {
+		return "", stacktrace.Propagate(err, "failed to remove placeholder directory '%s'", cloneDirpath)
+	}
+
+	gitCmd := exec.Command("git", "clone", cloneURL, cloneDirpath)
+	gitCmd.Stdout = os.Stdout
+	gitCmd.Stderr = os.Stderr
+	if err := gitCmd.Run(); err != nil {
+		return "", stacktrace.Propagate(err, "failed to clone '%s'", cloneURL)
+	}
+
+	return cloneDirpath, nil
+}
+
+// ResolveWorktreeRepoDirpath returns the agenc-owned clone path for a
+// worktree_source value. Handles both old-format (absolute path) and
+// new-format (github.com/owner/repo) values.
+func ResolveWorktreeRepoDirpath(agencDirpath string, worktreeSource string) string {
+	if strings.HasPrefix(worktreeSource, "/") {
+		return worktreeSource // old format: raw filesystem path
+	}
+	return config.GetRepoDirpath(agencDirpath, worktreeSource) // new format: repo name
 }

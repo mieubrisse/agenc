@@ -40,7 +40,7 @@ func (d *Daemon) Run(ctx context.Context) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		d.runTemplateUpdateLoop(ctx)
+		d.runRepoUpdateLoop(ctx)
 	}()
 
 	wg.Wait()

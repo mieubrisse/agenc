@@ -131,16 +131,23 @@ func removeMission(db *database.DB, missionID string) error {
 
 	// Clean up worktree and branch before removing the directory
 	if missionRecord.WorktreeSource != "" {
-		workspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
+		var worktreeDirpath string
+		if missionRecord.EmbeddedAgent {
+			worktreeDirpath = config.GetMissionAgentDirpath(agencDirpath, missionID)
+		} else {
+			worktreeDirpath = config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
+		}
+
+		repoDirpath := mission.ResolveWorktreeRepoDirpath(agencDirpath, missionRecord.WorktreeSource)
 		branchName := mission.GetWorktreeBranchName(missionID)
 
 		// Remove the worktree (best-effort)
-		if err := mission.RemoveWorktree(missionRecord.WorktreeSource, workspaceDirpath); err != nil {
+		if err := mission.RemoveWorktree(repoDirpath, worktreeDirpath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to clean up git worktree: %v\n", err)
 		}
 
 		// Delete the branch if fully merged into main; preserve if unmerged
-		deleted, err := mission.DeleteWorktreeBranchIfMerged(missionRecord.WorktreeSource, branchName)
+		deleted, err := mission.DeleteWorktreeBranchIfMerged(repoDirpath, branchName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to check worktree branch: %v\n", err)
 		} else if !deleted {
