@@ -108,10 +108,15 @@ func RsyncTemplate(templateDirpath string, agentDirpath string) error {
 	return nil
 }
 
-// ReadTemplateCommitHash reads the current commit hash of the main branch
+// ReadTemplateCommitHash reads the current commit hash of the default branch
 // in the given template repository directory.
 func ReadTemplateCommitHash(templateDirpath string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "main")
+	defaultBranch, err := GetDefaultBranch(templateDirpath)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to determine default branch in '%s'", templateDirpath)
+	}
+
+	cmd := exec.Command("git", "rev-parse", defaultBranch)
 	cmd.Dir = templateDirpath
 	output, err := cmd.Output()
 	if err != nil {

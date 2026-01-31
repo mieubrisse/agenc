@@ -18,8 +18,21 @@ func GetWorktreeBranchName(missionID string) string {
 	return "agenc-" + missionID[:7]
 }
 
+// GetDefaultBranch returns the default branch name for a repository by reading
+// origin/HEAD. Returns just the branch name (e.g. "main", "master").
+func GetDefaultBranch(repoDirpath string) (string, error) {
+	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = repoDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", stacktrace.NewError("failed to determine default branch in '%s' (origin/HEAD not set)", repoDirpath)
+	}
+	ref := strings.TrimSpace(string(output))
+	return strings.TrimPrefix(ref, "refs/remotes/origin/"), nil
+}
+
 // ValidateWorktreeRepo checks that the given directory is a Git repository
-// with a "main" branch.
+// whose default branch (per origin/HEAD) exists locally.
 func ValidateWorktreeRepo(repoDirpath string) error {
 	// Check it's a git repo
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
@@ -28,11 +41,17 @@ func ValidateWorktreeRepo(repoDirpath string) error {
 		return stacktrace.NewError("'%s' is not a git repository: %s", repoDirpath, strings.TrimSpace(string(output)))
 	}
 
-	// Check that "main" branch exists
-	cmd = exec.Command("git", "rev-parse", "--verify", "main")
+	// Determine the default branch from origin/HEAD
+	defaultBranch, err := GetDefaultBranch(repoDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "cannot determine default branch for '%s'", repoDirpath)
+	}
+
+	// Check that the default branch exists locally
+	cmd = exec.Command("git", "rev-parse", "--verify", defaultBranch)
 	cmd.Dir = repoDirpath
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return stacktrace.NewError("repository '%s' has no 'main' branch: %s", repoDirpath, strings.TrimSpace(string(output)))
+		return stacktrace.NewError("repository '%s' has no '%s' branch: %s", repoDirpath, defaultBranch, strings.TrimSpace(string(output)))
 	}
 
 	return nil
@@ -50,9 +69,14 @@ func ValidateWorktreeBranch(repoDirpath string, branchName string) error {
 }
 
 // CreateWorktree creates a new Git worktree at workspaceDirpath on a new
-// branch based off "main".
+// branch based off the repository's default branch.
 func CreateWorktree(repoDirpath string, workspaceDirpath string, branchName string) error {
-	cmd := exec.Command("git", "worktree", "add", "-b", branchName, workspaceDirpath, "main")
+	defaultBranch, err := GetDefaultBranch(repoDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine default branch")
+	}
+
+	cmd := exec.Command("git", "worktree", "add", "-b", branchName, workspaceDirpath, defaultBranch)
 	cmd.Dir = repoDirpath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -74,7 +98,7 @@ func RemoveWorktree(repoDirpath string, workspaceDirpath string) error {
 }
 
 // DeleteWorktreeBranchIfMerged deletes the branch if it has been fully merged
-// into main. Returns (true, nil) if the branch was deleted, (false, nil) if
+// into the default branch. Returns (true, nil) if the branch was deleted, (false, nil) if
 // the branch has unmerged commits and was preserved, or (false, err) on
 // unexpected failure.
 func DeleteWorktreeBranchIfMerged(repoDirpath string, branchName string) (bool, error) {
