@@ -1,2 +1,8 @@
-- [ ] Implement mission agent restart upon agent template update
 - [ ] Implement better agent template organizational structure
+- [ ] Add Bash aliases so you can `cd` to an agent's workdir
+- [ ] Add tmux fanciness so that when opening a new pane from an existing agent session, it opens it in the MISSION_DIRPATH
+- [ ] Add tmux fanciness: a popup window that allows jumping to anything (new repo, new agent, open a Git worktree on an existing project, whatever)
+- [ ] Reload when global Claude config reloads
+- [ ] Add `--no-separation` flag (or similar) so that when using Git worktrees, the repo's own agent can be used
+    - This will check out the Git worktree in the `agent` directory
+    - For now, disable the live-reloading logic (though can implement it later)

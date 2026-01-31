@@ -2,8 +2,8 @@ The AgenC
 =========
 AgenC (pronounced "agency") is:
 
-- An agent orchestrator for doing agentic work
-- A personal LLMOps system for refining & deploying your agents
+- An agentic work runtime with sandboxing
+- A personal LLMOps system for refining your own agents
 - A plugin system for sharing agents
 
 Think of it like Docker for agents.
@@ -28,6 +28,7 @@ And if you want to do any sort of longitudinal retrospective on how well your pr
 
 AgenC solves this:
 
+- All agent conversations are navigable in one place
 - All agent config is version-controlled
 - When using any agent, it's trivial to start a new Claude window editing the config
 - When an agent's config is updated, all agents using that config restart with the config the next time they're idle
