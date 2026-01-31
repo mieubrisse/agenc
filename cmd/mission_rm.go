@@ -128,6 +128,8 @@ func selectMissionsToRemove(db *database.DB) ([]string, error) {
 	return selectedIDs, nil
 }
 
+// removeMission tears down a mission in the reverse order of `mission new`:
+// mission new creates DB record then directory, so we remove directory then DB record.
 func removeMission(db *database.DB, missionID string) error {
 	// Verify mission exists
 	_, err := db.GetMission(missionID)
