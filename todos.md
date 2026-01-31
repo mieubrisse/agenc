@@ -6,3 +6,4 @@
 - [ ] Add `--no-separation` flag (or similar) so that when using Git worktrees, the repo's own agent can be used
     - This will check out the Git worktree in the `agent` directory
     - For now, disable the live-reloading logic (though can implement it later)
+- [ ] Add crons with scheduled work tracker (dump work into the queue, cron picks it up)
