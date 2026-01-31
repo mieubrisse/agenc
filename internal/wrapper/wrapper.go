@@ -91,9 +91,9 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 	}
 	defer os.Remove(pidFilepath)
 
-	// Write initial claude-state as "busy"
+	// Write initial claude-state as "idle" (Claude hasn't started processing yet)
 	claudeStateFilepath := config.GetMissionClaudeStateFilepath(w.agencDirpath, w.missionID)
-	if err := os.WriteFile(claudeStateFilepath, []byte("busy"), 0644); err != nil {
+	if err := os.WriteFile(claudeStateFilepath, []byte("idle"), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write initial claude-state")
 	}
 
