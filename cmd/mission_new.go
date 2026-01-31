@@ -16,6 +16,8 @@ import (
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
+var promptFlag string
+
 var missionNewCmd = &cobra.Command{
 	Use:   "new [agent-template]",
 	Short: "Create a new mission and launch claude",
@@ -25,6 +27,7 @@ var missionNewCmd = &cobra.Command{
 }
 
 func init() {
+	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -70,7 +73,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, "")
+	missionRecord, err := db.CreateMission(agentTemplate, promptFlag)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
@@ -87,7 +90,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	fmt.Println("Launching claude...")
 
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate)
-	return w.Run("", false)
+	return w.Run(promptFlag, false)
 }
 
 func selectWithFzf(templates []string, initialQuery string) (string, error) {
