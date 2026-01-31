@@ -16,17 +16,15 @@ import (
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
-var agentTemplateFlag string
-
 var missionNewCmd = &cobra.Command{
-	Use:   "new [prompt]",
+	Use:   "new [agent-template]",
 	Short: "Create a new mission and launch claude",
-	Long:  "Create a new mission, optionally selecting an agent template, and launch claude with the given prompt.",
+	Long:  "Create a new mission with an agent template and launch claude. If the template name matches exactly, it is used directly; otherwise an interactive selector is shown.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runMissionNew,
 }
 
 func init() {
-	missionNewCmd.Flags().StringVar(&agentTemplateFlag, "agent", "", "agent template name to use")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -34,43 +32,28 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	// Idempotently start the daemon so descriptions get generated
 	ensureDaemonRunning(agencDirpath)
 
-	agentTemplate := agentTemplateFlag
-
-	// If no --agent flag, interactively select with fzf
-	if agentTemplate == "" {
-		templates, err := config.ListAgentTemplates(agencDirpath)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to list agent templates")
-		}
-
-		if len(templates) == 0 {
-			fmt.Println("No agent templates found. Proceeding without a template.")
-			fmt.Printf("Create templates in: %s\n", config.GetAgentTemplatesDirpath(agencDirpath))
-			agentTemplate = ""
-		} else {
-			selected, err := selectWithFzf(templates)
-			if err != nil {
-				return stacktrace.Propagate(err, "failed to select agent template")
-			}
-			if selected == "NONE" {
-				agentTemplate = ""
-			} else {
-				agentTemplate = selected
-			}
-		}
-	} else {
-		// Validate the provided template exists
-		templates, err := config.ListAgentTemplates(agencDirpath)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to list agent templates")
-		}
-		if !slices.Contains(templates, agentTemplate) {
-			return stacktrace.NewError("agent template '%s' not found", agentTemplate)
-		}
+	templates, err := config.ListAgentTemplates(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list agent templates")
 	}
 
-	// Get prompt from args (if provided); otherwise Claude opens in interactive mode
-	prompt := strings.Join(args, " ")
+	var agentTemplate string
+
+	if len(args) == 1 && slices.Contains(templates, args[0]) {
+		// Exact match — use it directly
+		agentTemplate = args[0]
+	} else if len(templates) == 0 {
+		fmt.Println("No agent templates found. Proceeding without a template.")
+		fmt.Printf("Create templates in: %s\n", config.GetAgentTemplatesDirpath(agencDirpath))
+	} else {
+		selected, err := selectWithFzf(templates)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to select agent template")
+		}
+		if selected != "NONE" {
+			agentTemplate = selected
+		}
+	}
 
 	// Open database and create mission record
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
@@ -80,7 +63,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, prompt)
+	missionRecord, err := db.CreateMission(agentTemplate, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
@@ -97,7 +80,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	fmt.Println("Launching claude...")
 
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate)
-	return w.Run(prompt, false)
+	return w.Run("", false)
 }
 
 func selectWithFzf(templates []string) (string, error) {
@@ -106,7 +89,7 @@ func selectWithFzf(templates []string) (string, error) {
 
 	fzfBinary, err := exec.LookPath("fzf")
 	if err != nil {
-		return "", stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or use --agent flag")
+		return "", stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the template name as an argument")
 	}
 
 	fzfCmd := exec.Command(fzfBinary, "--prompt", "Select agent template: ")
