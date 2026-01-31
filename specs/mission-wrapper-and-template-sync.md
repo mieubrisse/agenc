@@ -20,27 +20,24 @@ Agent Templates
 
 Each agent template is a Git repository cloned into `~/.agenc/config/agent-templates/<name>/`. Templates are the single source of truth for mission configuration files. They are hosted on GitHub and managed entirely outside of agenc -- agenc only consumes them.
 
-A template repo contains the config files that Claude Code needs:
-
-- `CLAUDE.md`
-- `.claude/settings.json`
-- `.mcp.json`
-
-The exact set of files may evolve, but these are the known config files today.
+A template repo contains the config files that Claude Code needs (e.g., `CLAUDE.md`, `.claude/settings.json`, `.mcp.json`). The set of files in the template repo defines what gets synced into mission directories -- there is no hardcoded file list in agenc.
 
 
 Mission Directory Structure
 ----------------------------
 
-When a mission is created, the known config files are copied from the template into the mission directory. The mission directory is a plain directory -- not a Git repo. Claude has no awareness that a template exists.
+When a mission is created, all files from the template are copied into the mission directory. The mission directory is a plain directory -- not a Git repo. Claude has no awareness that a template exists.
+
+Everything outside `workspace/` is owned by the template and will be overwritten on sync. Claude must do all its work inside `workspace/`. The template's CLAUDE.md should enforce this rule.
 
 ```
 ~/.agenc/missions/<uuid>/
-    CLAUDE.md                    # copied from template
+    CLAUDE.md                    # owned by template
     .claude/
-        settings.json            # copied from template
-    .mcp.json                    # copied from template
-    ... (anything Claude creates during the mission)
+        settings.json            # owned by template
+    .mcp.json                    # owned by template
+    workspace/                   # owned by Claude -- never overwritten by sync
+        ... (anything Claude creates during the mission)
 ```
 
 
@@ -77,10 +74,7 @@ Component 2: Mission Updater
 For each active (non-archived) mission in the database:
 
 1. Look up the mission's agent template name.
-2. For each known config file (CLAUDE.md, `.claude/settings.json`, `.mcp.json`):
-   a. Compare the file in the mission directory against the file in the template directory.
-   b. If they differ, copy the template file into the mission directory (overwrite).
-   c. If the template file does not exist, remove it from the mission directory if present.
+2. Rsync the template directory into the mission directory, excluding `workspace/`. This overwrites all template-owned files and removes any files that no longer exist in the template. The `workspace/` directory is never touched.
 3. If any files were updated:
    a. Look up `wrapper_pid` from the database for this mission.
    b. If a PID exists and the process is alive, send `SIGUSR1` to it.
@@ -94,7 +88,7 @@ Component 3: Mission Wrapper
 
 ### Lifecycle
 
-1. Perform mission setup (DB record, directory creation, config file copying from template).
+1. Perform mission setup (DB record, directory creation, rsync template files into mission directory).
 2. Write the wrapper's own PID to the `wrapper_pid` column in the missions DB table.
 3. Configure Claude hooks for state tracking (see below).
 4. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
@@ -108,50 +102,21 @@ The wrapper must use `os/exec.Command` to spawn Claude, **not** `syscall.Exec`. 
 
 ### State tracking via Claude hooks
 
-The wrapper configures two hooks in the mission's `.claude/settings.json` (these should be included in the template's settings.json):
+The wrapper tracks Claude's idle/busy state in memory. Two hooks in the mission's `.claude/settings.json` notify the wrapper of state changes (these should be included in the template's settings.json):
 
-- **`Stop` hook:** Fires when Claude finishes responding and is about to wait for user input. The hook writes `idle` to a state file at `<mission-dir>/.agenc-state`.
-- **`UserPromptSubmit` hook:** Fires when the user submits a prompt. The hook writes `busy` to the same state file.
+- **`Stop` hook:** Fires when Claude finishes responding and is about to wait for user input. Notifies the wrapper that Claude is idle.
+- **`UserPromptSubmit` hook:** Fires when the user submits a prompt. Notifies the wrapper that Claude is busy.
 
-Hook configuration in `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo idle > \"$CLAUDE_PROJECT_DIR/.agenc-state\""
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo busy > \"$CLAUDE_PROJECT_DIR/.agenc-state\""
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The wrapper monitors this file to know whether Claude is idle or busy.
+The exact mechanism for the hooks to communicate with the wrapper (e.g., sending a signal, writing to a pipe) is an implementation detail. The wrapper maintains the current state as an in-memory variable -- no state file is written to the mission directory.
 
 ### Signal handling
 
 The wrapper listens for `SIGUSR1`. When received:
 
 1. Set an internal `restart_pending` flag.
-2. Check Claude's current state by reading `.agenc-state`.
+2. Check Claude's current state (in memory).
 3. If idle, restart immediately.
-4. If busy, wait. When the state file changes to `idle`, restart.
+4. If busy, wait. When the wrapper receives the idle notification from the Stop hook, restart.
 
 ### Restart procedure
 
@@ -192,7 +157,7 @@ Claude Code prompts "do you trust this directory?" when launched in a new direct
 Config File Merging
 -------------------
 
-The current implementation merges a global config with an agent template config when creating a mission. Under this new architecture, **there is no merging**. The template is the sole source of truth. Config files are copied directly from the template into the mission directory. Global config will be addressed separately in the future.
+The current implementation merges a global config with an agent template config when creating a mission. Under this new architecture, **there is no merging**. The template is the sole source of truth. The entire template directory is rsynced into the mission directory (excluding `workspace/`). Global config will be addressed separately in the future.
 
 
 What Does NOT Change
