@@ -6,9 +6,11 @@ Overview
 
 This spec describes three cooperating components that enable live-updating of Claude Code mission configurations:
 
-1. **Template updater** -- a background process that keeps local agent-template Git repos in sync with their GitHub remotes.
-2. **Mission updater** -- a background process that propagates template changes into active mission directories and signals running wrappers.
-3. **Mission wrapper** -- the `agenc` process that supervises a `claude` child process, tracking its idle/busy state and gracefully restarting it when signaled.
+1. **Template updater** -- a background goroutine in the `agenc` daemon that keeps local agent-template Git repos in sync with their GitHub remotes.
+2. **Mission updater** -- a background goroutine in the `agenc` daemon that propagates template changes into active mission directories and signals running wrappers.
+3. **Mission wrapper** -- the foreground `agenc` process (one per mission) that supervises a `claude` child process, tracking its idle/busy state and gracefully restarting it when signaled.
+
+The template updater and mission updater both run inside the existing `agenc` daemon alongside its current description-generation functionality. The mission wrapper is a separate foreground process -- one per active mission -- invoked by the user.
 
 Together, these components allow a user to push changes to an agent-template repo on GitHub and have all running missions using that template automatically pick up the changes without interrupting in-progress work.
 
