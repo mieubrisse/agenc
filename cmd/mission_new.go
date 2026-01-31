@@ -39,9 +39,21 @@ func init() {
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	templates, err := config.ListRepos(agencDirpath)
+	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open database")
+	}
+	defer db.Close()
+
+	templateRecords, err := db.ListAgentTemplates()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list agent templates")
+	}
+
+	templates := make([]string, len(templateRecords))
+	for i, t := range templateRecords {
+		templates[i] = t.Repo
 	}
 
 	var agentTemplate string

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 var templateEditPromptFlag string
@@ -27,10 +28,23 @@ func init() {
 func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	templates, err := config.ListRepos(agencDirpath)
+	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open database")
+	}
+	defer db.Close()
+
+	templateRecords, err := db.ListAgentTemplates()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list agent templates")
 	}
+
+	templates := make([]string, len(templateRecords))
+	for i, t := range templateRecords {
+		templates[i] = t.Repo
+	}
+
 	if len(templates) == 0 {
 		fmt.Printf("No agent templates found. Install templates with: agenc template install owner/repo\n")
 		return stacktrace.NewError("no agent templates available to edit")

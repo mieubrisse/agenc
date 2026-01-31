@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 var templateInstallCmd = &cobra.Command{
@@ -54,6 +55,18 @@ func runTemplateInstall(cmd *cobra.Command, args []string) error {
 
 	if err := gitCmd.Run(); err != nil {
 		return stacktrace.Propagate(err, "failed to clone repository '%s'", ownerRepo)
+	}
+
+	// Register as an agent template in the database
+	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open database")
+	}
+	defer db.Close()
+
+	if _, err := db.CreateAgentTemplate(repoName); err != nil {
+		return stacktrace.Propagate(err, "failed to register agent template in database")
 	}
 
 	fmt.Printf("Installed template '%s' from %s\n", repoName, cloneURL)

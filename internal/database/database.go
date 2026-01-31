@@ -22,6 +22,14 @@ CREATE TABLE IF NOT EXISTS missions (
 );
 `
 
+const createAgentTemplatesTableSQL = `
+CREATE TABLE IF NOT EXISTS agent_templates (
+	repo TEXT PRIMARY KEY,
+	nickname TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+`
+
 const dropMissionDescriptionsTableSQL = `DROP TABLE IF EXISTS mission_descriptions;`
 
 const addWorktreeSourceColumnSQL = `ALTER TABLE missions ADD COLUMN worktree_source TEXT NOT NULL DEFAULT '';`
@@ -51,7 +59,7 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to open database at '%s'", dbFilepath)
 	}
 
-	migrations := []string{createMissionsTableSQL}
+	migrations := []string{createMissionsTableSQL, createAgentTemplatesTableSQL}
 	for _, migrationSQL := range migrations {
 		if _, err := conn.Exec(migrationSQL); err != nil {
 			conn.Close()
@@ -202,6 +210,89 @@ func (db *DB) DeleteMission(id string) error {
 	}
 	if rowsAffected == 0 {
 		return stacktrace.NewError("mission '%s' not found", id)
+	}
+	return nil
+}
+
+// AgentTemplate represents a row in the agent_templates table.
+type AgentTemplate struct {
+	Repo      string
+	Nickname  string
+	CreatedAt time.Time
+}
+
+// CreateAgentTemplate inserts a new agent template record.
+func (db *DB) CreateAgentTemplate(repo string) (*AgentTemplate, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	_, err := db.conn.Exec(
+		"INSERT INTO agent_templates (repo, nickname, created_at) VALUES (?, '', ?)",
+		repo, now,
+	)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to insert agent template '%s'", repo)
+	}
+
+	return &AgentTemplate{
+		Repo:      repo,
+		Nickname:  "",
+		CreatedAt: time.Now().UTC(),
+	}, nil
+}
+
+// ListAgentTemplates returns all agent templates ordered by repo name.
+func (db *DB) ListAgentTemplates() ([]*AgentTemplate, error) {
+	rows, err := db.conn.Query("SELECT repo, nickname, created_at FROM agent_templates ORDER BY repo")
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to query agent templates")
+	}
+	defer rows.Close()
+
+	var templates []*AgentTemplate
+	for rows.Next() {
+		var t AgentTemplate
+		var createdAt string
+		if err := rows.Scan(&t.Repo, &t.Nickname, &createdAt); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to scan agent template row")
+		}
+		t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		templates = append(templates, &t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, stacktrace.Propagate(err, "error iterating agent template rows")
+	}
+	return templates, nil
+}
+
+// GetAgentTemplate returns a single agent template by repo name.
+func (db *DB) GetAgentTemplate(repo string) (*AgentTemplate, error) {
+	row := db.conn.QueryRow("SELECT repo, nickname, created_at FROM agent_templates WHERE repo = ?", repo)
+
+	var t AgentTemplate
+	var createdAt string
+	if err := row.Scan(&t.Repo, &t.Nickname, &createdAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, stacktrace.NewError("agent template '%s' not found", repo)
+		}
+		return nil, stacktrace.Propagate(err, "failed to get agent template '%s'", repo)
+	}
+	t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	return &t, nil
+}
+
+// DeleteAgentTemplate removes an agent template record by repo name.
+func (db *DB) DeleteAgentTemplate(repo string) error {
+	result, err := db.conn.Exec("DELETE FROM agent_templates WHERE repo = ?", repo)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to delete agent template '%s'", repo)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check rows affected")
+	}
+	if rowsAffected == 0 {
+		return stacktrace.NewError("agent template '%s' not found", repo)
 	}
 	return nil
 }

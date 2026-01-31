@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/mieubrisse/stacktrace"
 )
@@ -73,43 +72,6 @@ func GetReposDirpath(agencDirpath string) string {
 // GetGlobalClaudeDirpath returns the path to the global claude config directory.
 func GetGlobalClaudeDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ClaudeDirname)
-}
-
-// ListRepos walks the repos/ directory 3 levels deep (host/owner/repo) and
-// returns a sorted list of "host/owner/repo" entries.
-func ListRepos(agencDirpath string) ([]string, error) {
-	reposDirpath := GetReposDirpath(agencDirpath)
-	hosts, err := os.ReadDir(reposDirpath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, stacktrace.Propagate(err, "failed to read repos directory")
-	}
-
-	var repos []string
-	for _, host := range hosts {
-		if !host.IsDir() {
-			continue
-		}
-		hostDirpath := filepath.Join(reposDirpath, host.Name())
-		owners, _ := os.ReadDir(hostDirpath)
-		for _, owner := range owners {
-			if !owner.IsDir() {
-				continue
-			}
-			ownerDirpath := filepath.Join(hostDirpath, owner.Name())
-			entries, _ := os.ReadDir(ownerDirpath)
-			for _, entry := range entries {
-				if !entry.IsDir() {
-					continue
-				}
-				repos = append(repos, filepath.Join(host.Name(), owner.Name(), entry.Name()))
-			}
-		}
-	}
-	sort.Strings(repos)
-	return repos, nil
 }
 
 // GetDaemonDirpath returns the path to the daemon directory.

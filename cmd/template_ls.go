@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 var templateLsCmd = &cobra.Command{
@@ -19,18 +20,25 @@ func init() {
 }
 
 func runTemplateLs(cmd *cobra.Command, args []string) error {
-	repos, err := config.ListRepos(agencDirpath)
+	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	templates, err := db.ListAgentTemplates()
 	if err != nil {
 		return err
 	}
 
-	if len(repos) == 0 {
+	if len(templates) == 0 {
 		fmt.Println("No agent templates installed.")
 		return nil
 	}
 
-	for _, name := range repos {
-		fmt.Println(name)
+	for _, t := range templates {
+		fmt.Println(t.Repo)
 	}
 
 	return nil
