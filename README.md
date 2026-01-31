@@ -1,16 +1,30 @@
 The AgenC
 =========
-AgenC (pronounced "agency") is:
+AgenC (pronounced "agency") is like Docker for your multi-agent vibeworking. It's:
 
-- An agentic work runtime with sandboxing
+- An agentic work factory with sandboxing
 - A personal LLMOps system for refining your own agents
 - A plugin system for sharing agents
 
-Think of it like Docker for agents.
+> ⚠️ Addiction Warning
+>
+> Like other agentic work factories, AgenC makes thought -> implemented reality nearly instantaneous.
+>
+> This is breathtaking, like going from Minecraft Survival -> Creative Mode. But there's a real danger to watch out for.
+>
+> The system goes as fast as you can tell it what to do, so suddenly the limiting factor is your ability to make decisions.
+>
+> Meaning, your head is going to be buzzing with a dozen threads at once, constantly deciding, constantly building with no downtime. It's like the deepest flow state you've ever had.
+>
+> This leaves you really activated, always wanting to implement one more thing. And it's really bad for sleep.
+>
+> This isn't just AgenC. [Across the board, agentic work factories seem to have this effect](https://steve-yegge.medium.com/steveys-birthday-blog-34f437139cb5#:~:text=This%20week%20the,Even%20for%20him.).
+> 
+> So please stop for breaks, and remember to make some wind-down time for sleep!
 
 Why AgenC?
 ----------
-You want a swarm of infinite obedient robots, implementing your every thought.
+You want a swarm of infinite obedient robots, making your every whim a reality.
 
 This requires a LOT of alignment work.
 
@@ -42,9 +56,18 @@ How it works
 1. When an agent's config changes, the agent is restarted the next time it's idle to use the new config
 1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
 
+
 Getting started
 ---------------
 TODO brew installation instructions
+
+Conceptual models
+-----------------
+**Agent templates** instantiate **agents**.
+
+Think of agents as functions, `f(context, agent_config) -> output`, whose output is good some % of the time.
+
+When the agents don't produce good output, lessons should be rolled back into the agent config.
 
 Future work
 -----------

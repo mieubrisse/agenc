@@ -1,3 +1,6 @@
+- [x] Add worktrees as a first-class concept
+    - [x] Worktrees can get checked out at the `agent` root
+    - [ ] Worktree repos get tracked for fetching
 - [ ] Implement better agent template organizational structure
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Add tmux fanciness so that when opening a new pane from an existing agent session, it opens it in the MISSION_DIRPATH
