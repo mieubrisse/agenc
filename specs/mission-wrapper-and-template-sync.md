@@ -7,10 +7,10 @@ Overview
 This spec describes three cooperating components that enable live-updating of Claude Code mission configurations:
 
 1. **Template updater** -- a background goroutine in the `agenc` daemon that keeps local agent-template Git repos in sync with their GitHub remotes.
-2. **Claude config sync** -- a background goroutine in the `agenc` daemon that maintains agenc's Claude config directory, merging the user's Claude settings with agenc-specific hooks.
+2. **Claude config sync** _(already implemented)_ -- a background goroutine in the `agenc` daemon that maintains agenc's Claude config directory, merging the user's Claude settings with agenc-specific hooks.
 3. **Mission wrapper** -- the foreground `agenc` process (one per mission) that supervises a `claude` child process, detects template changes, syncs them into the mission directory, and gracefully restarts Claude when idle.
 
-The template updater and Claude config sync run inside the existing `agenc` daemon alongside its current description-generation functionality. The mission wrapper is a separate foreground process -- one per active mission -- invoked by the user.
+The template updater and Claude config sync run inside the existing `agenc` daemon alongside its current description-generation functionality. The Claude config sync is already implemented in `internal/daemon/claude_config_sync.go`. The mission wrapper is a separate foreground process -- one per active mission -- invoked by the user.
 
 Together, these components allow a user to push changes to an agent-template repo on GitHub and have all running missions using that template automatically pick up the changes without interrupting in-progress work. The daemon pulls changes from GitHub into the local template repos, and each wrapper independently detects those changes and applies them to its own mission directory.
 
@@ -68,12 +68,14 @@ For each agent-template directory under `~/.agenc/agent-templates/`:
 GitHub allows 5000 authenticated API requests per hour. Each `git fetch` counts as one request. Polling 10 templates every 60 seconds = 600 requests/hour, well within limits. The poll interval should be configurable for users with many templates.
 
 
-Component 2: Claude Config Sync
----------------------------------
+Component 2: Claude Config Sync (already implemented)
+-------------------------------------------------------
 
 **Runs as:** Background goroutine in the agenc daemon.
 
 **Cycle:** Every 5 minutes.
+
+**Implementation:** `internal/daemon/claude_config_sync.go`
 
 **Purpose:** Agenc needs Claude instances to run with agenc-specific hooks (for state tracking), but the user's own Claude config in `~/.claude/` should otherwise be preserved. This component maintains an agenc-specific Claude config directory that merges the user's config with agenc's additions.
 
@@ -235,3 +237,4 @@ What Does NOT Change
 - The `agenc mission archive` command and its behavior.
 - The `agenc mission ls` command and its behavior.
 - The daemon's existing description-generation functionality.
+- The Claude config sync daemon goroutine (`internal/daemon/claude_config_sync.go`).
