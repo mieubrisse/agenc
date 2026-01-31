@@ -222,12 +222,18 @@ type AgentTemplate struct {
 }
 
 // CreateAgentTemplate inserts a new agent template record.
-func (db *DB) CreateAgentTemplate(repo string) (*AgentTemplate, error) {
+func (db *DB) CreateAgentTemplate(repo string, nickname string) (*AgentTemplate, error) {
+	if nickname != "" {
+		if err := db.checkDuplicateNickname(nickname, ""); err != nil {
+			return nil, err
+		}
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.conn.Exec(
-		"INSERT INTO agent_templates (repo, nickname, created_at) VALUES (?, '', ?)",
-		repo, now,
+		"INSERT INTO agent_templates (repo, nickname, created_at) VALUES (?, ?, ?)",
+		repo, nickname, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert agent template '%s'", repo)
@@ -235,9 +241,60 @@ func (db *DB) CreateAgentTemplate(repo string) (*AgentTemplate, error) {
 
 	return &AgentTemplate{
 		Repo:      repo,
-		Nickname:  "",
+		Nickname:  nickname,
 		CreatedAt: time.Now().UTC(),
 	}, nil
+}
+
+// UpdateAgentTemplateNickname updates the nickname for the given repo.
+func (db *DB) UpdateAgentTemplateNickname(repo string, nickname string) error {
+	if nickname != "" {
+		if err := db.checkDuplicateNickname(nickname, repo); err != nil {
+			return err
+		}
+	}
+
+	result, err := db.conn.Exec(
+		"UPDATE agent_templates SET nickname = ? WHERE repo = ?",
+		nickname, repo,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update nickname for agent template '%s'", repo)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check rows affected")
+	}
+	if rowsAffected == 0 {
+		return stacktrace.NewError("agent template '%s' not found", repo)
+	}
+	return nil
+}
+
+// checkDuplicateNickname returns an error if another template (other than
+// excludeRepo) already uses the given nickname.
+func (db *DB) checkDuplicateNickname(nickname string, excludeRepo string) error {
+	var count int
+	var err error
+	if excludeRepo == "" {
+		err = db.conn.QueryRow(
+			"SELECT COUNT(*) FROM agent_templates WHERE nickname = ?",
+			nickname,
+		).Scan(&count)
+	} else {
+		err = db.conn.QueryRow(
+			"SELECT COUNT(*) FROM agent_templates WHERE nickname = ? AND repo != ?",
+			nickname, excludeRepo,
+		).Scan(&count)
+	}
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check for duplicate nickname")
+	}
+	if count > 0 {
+		return stacktrace.NewError("nickname '%s' is already in use by another template", nickname)
+	}
+	return nil
 }
 
 // ListAgentTemplates returns all agent templates ordered by repo name.

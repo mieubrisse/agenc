@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/mieubrisse/stacktrace"
@@ -48,6 +49,8 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	nicknames := buildNicknameMap(db)
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tPROMPT\tCREATED")
 	for _, m := range missions {
@@ -59,7 +62,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			m.ID,
 			status,
-			displayAgentTemplate(m.AgentTemplate),
+			displayAgentTemplate(m.AgentTemplate, nicknames),
 			promptSnippet,
 			m.CreatedAt.Format("2006-01-02 15:04"),
 		)
@@ -69,11 +72,44 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func displayAgentTemplate(template string) string {
-	if template == "" {
+func displayAgentTemplate(repo string, nicknames map[string]string) string {
+	if repo == "" {
 		return "(none)"
 	}
-	return template
+	if nick, ok := nicknames[repo]; ok {
+		return nick
+	}
+	return repo
+}
+
+// buildNicknameMap creates a map from repo -> nickname for all templates
+// that have a nickname set.
+func buildNicknameMap(db *database.DB) map[string]string {
+	templates, err := db.ListAgentTemplates()
+	if err != nil {
+		return nil
+	}
+	m := make(map[string]string)
+	for _, t := range templates {
+		if t.Nickname != "" {
+			m[t.Repo] = t.Nickname
+		}
+	}
+	return m
+}
+
+func formatTemplateFzfLine(t *database.AgentTemplate) string {
+	if t.Nickname != "" {
+		return fmt.Sprintf("%s  (%s)", t.Nickname, t.Repo)
+	}
+	return t.Repo
+}
+
+func extractRepoFromFzfLine(line string) string {
+	if idx := strings.LastIndex(line, "  ("); idx != -1 {
+		return strings.TrimSuffix(line[idx+3:], ")")
+	}
+	return line
 }
 
 // getMissionStatus returns the unified status for a mission: RUNNING, STOPPED,

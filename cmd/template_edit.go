@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -40,32 +39,29 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to list agent templates")
 	}
 
-	templates := make([]string, len(templateRecords))
-	for i, t := range templateRecords {
-		templates[i] = t.Repo
-	}
-
-	if len(templates) == 0 {
+	if len(templateRecords) == 0 {
 		fmt.Printf("No agent templates found. Install templates with: agenc template install owner/repo\n")
 		return stacktrace.NewError("no agent templates available to edit")
 	}
 
 	var templateName string
 
-	if len(args) == 1 && slices.Contains(templates, args[0]) {
-		// Exact match
-		templateName = args[0]
-	} else if len(args) == 1 && len(matchTemplatesSubstring(templates, args[0])) == 1 {
-		// Single substring match
-		templateName = matchTemplatesSubstring(templates, args[0])[0]
-	} else {
-		initialQuery := ""
-		if len(args) == 1 {
-			initialQuery = args[0]
+	if len(args) == 1 {
+		resolved, resolveErr := resolveTemplate(templateRecords, args[0])
+		if resolveErr != nil {
+			// No match — fall through to fzf with initial query
+			selected, fzfErr := selectWithFzf(templateRecords, args[0], false)
+			if fzfErr != nil {
+				return stacktrace.Propagate(fzfErr, "failed to select agent template")
+			}
+			templateName = selected
+		} else {
+			templateName = resolved
 		}
-		selected, err := selectWithFzf(templates, initialQuery, false)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to select agent template")
+	} else {
+		selected, fzfErr := selectWithFzf(templateRecords, "", false)
+		if fzfErr != nil {
+			return stacktrace.Propagate(fzfErr, "failed to select agent template")
 		}
 		templateName = selected
 	}

@@ -38,7 +38,11 @@ func runTemplateLs(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, t := range templates {
-		fmt.Println(t.Repo)
+		if t.Nickname != "" {
+			fmt.Println(t.Nickname)
+		} else {
+			fmt.Println(t.Repo)
+		}
 	}
 
 	return nil

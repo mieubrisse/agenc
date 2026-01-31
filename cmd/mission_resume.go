@@ -92,6 +92,8 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		return "", stacktrace.Propagate(err, "failed to list missions")
 	}
 
+	nicknames := buildNicknameMap(db)
+
 	// Filter to stopped missions only (already ordered by created_at DESC)
 	var lines []string
 	for _, m := range missions {
@@ -102,7 +104,7 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		if len(promptSnippet) > 60 {
 			promptSnippet = promptSnippet[:57] + "..."
 		}
-		agent := displayAgentTemplate(m.AgentTemplate)
+		agent := displayAgentTemplate(m.AgentTemplate, nicknames)
 		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", m.ID, agent, promptSnippet))
 	}
 
