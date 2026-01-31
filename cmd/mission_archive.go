@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -131,20 +130,6 @@ func archiveMission(db *database.DB, missionID string) error {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
 
-	// Move the mission directory to archive
-	missionsDirpath := config.GetMissionsDirpath(agencDirpath)
-	archiveDirpath := config.GetArchiveDirpath(agencDirpath)
-
-	srcDirpath := filepath.Join(missionsDirpath, missionID)
-	destDirpath := filepath.Join(archiveDirpath, missionID)
-
-	if _, err := os.Stat(srcDirpath); err == nil {
-		if err := os.Rename(srcDirpath, destDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to move mission directory to archive")
-		}
-	}
-
-	// Update status in database
 	if err := db.ArchiveMission(missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to archive mission in database")
 	}

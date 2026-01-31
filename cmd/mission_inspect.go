@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -41,9 +40,6 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 	}
 
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
-	if mission.Status == "archived" {
-		missionDirpath = filepath.Join(config.GetArchiveDirpath(agencDirpath), missionID)
-	}
 
 	if inspectDirFlag {
 		fmt.Println(missionDirpath)

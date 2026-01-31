@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -137,16 +136,11 @@ func removeMission(db *database.DB, missionID string) error {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
 
-	// Remove the mission directory (could be in active or archive location)
-	missionsDirpath := config.GetMissionsDirpath(agencDirpath)
-	archiveDirpath := config.GetArchiveDirpath(agencDirpath)
-
-	for _, parentDirpath := range []string{missionsDirpath, archiveDirpath} {
-		dirpath := filepath.Join(parentDirpath, missionID)
-		if _, err := os.Stat(dirpath); err == nil {
-			if err := os.RemoveAll(dirpath); err != nil {
-				return stacktrace.Propagate(err, "failed to remove mission directory '%s'", dirpath)
-			}
+	// Remove the mission directory
+	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
+	if _, err := os.Stat(missionDirpath); err == nil {
+		if err := os.RemoveAll(missionDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to remove mission directory '%s'", missionDirpath)
 		}
 	}
 

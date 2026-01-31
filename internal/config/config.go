@@ -15,7 +15,6 @@ const (
 	ClaudeDirname         = "claude"
 	UserClaudeDirname     = ".claude"
 	MissionsDirname       = "missions"
-	ArchiveDirname        = "ARCHIVE"
 	AgentTemplatesDirname = "agent-templates"
 	DaemonDirname         = "daemon"
 	DaemonPIDFilename     = "daemon.pid"
@@ -50,7 +49,6 @@ func EnsureDirStructure(agencDirpath string) error {
 		filepath.Join(agencDirpath, AgentTemplatesDirname),
 		filepath.Join(agencDirpath, ClaudeDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
-		filepath.Join(agencDirpath, MissionsDirname, ArchiveDirname),
 		filepath.Join(agencDirpath, DaemonDirname),
 	}
 	for _, dirpath := range dirs {
@@ -64,11 +62,6 @@ func EnsureDirStructure(agencDirpath string) error {
 // GetMissionsDirpath returns the path to the missions directory.
 func GetMissionsDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, MissionsDirname)
-}
-
-// GetArchiveDirpath returns the path to the archive directory.
-func GetArchiveDirpath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, MissionsDirname, ArchiveDirname)
 }
 
 // GetAgentTemplatesDirpath returns the path to the agent-templates directory.

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -41,18 +40,6 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	}
 
 	if missionRecord.Status == "archived" {
-		// Move directory back from archive to missions
-		archiveDirpath := config.GetArchiveDirpath(agencDirpath)
-		missionsDirpath := config.GetMissionsDirpath(agencDirpath)
-		srcDirpath := filepath.Join(archiveDirpath, missionID)
-		destDirpath := filepath.Join(missionsDirpath, missionID)
-
-		if _, err := os.Stat(srcDirpath); err == nil {
-			if err := os.Rename(srcDirpath, destDirpath); err != nil {
-				return stacktrace.Propagate(err, "failed to move mission directory out of archive")
-			}
-		}
-
 		if err := db.UnarchiveMission(missionID); err != nil {
 			return stacktrace.Propagate(err, "failed to unarchive mission")
 		}
