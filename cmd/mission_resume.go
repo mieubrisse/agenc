@@ -2,14 +2,14 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
+	"os"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/mission"
+	"github.com/odyssey/agenc/internal/wrapper"
 )
 
 var missionResumeCmd = &cobra.Command{
@@ -42,10 +42,19 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("mission '%s' is archived; cannot resume", missionID)
 	}
 
-	missionDirpath := filepath.Join(config.GetMissionsDirpath(agencDirpath), missionID)
+	// Check for old-format mission (no agent/ subdirectory)
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+	if _, err := os.Stat(agentDirpath); os.IsNotExist(err) {
+		return stacktrace.NewError(
+			"mission '%s' uses the old directory format (no agent/ subdirectory); "+
+				"please archive it with 'agenc mission archive %s' and create a new mission",
+			missionID, missionID,
+		)
+	}
 
 	fmt.Printf("Resuming mission: %s\n", missionID)
 	fmt.Println("Launching claude --continue...")
 
-	return mission.ExecClaudeResume(agencDirpath, missionDirpath)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate)
+	return w.Run("", true)
 }

@@ -55,6 +55,12 @@ func (d *Daemon) Run(ctx context.Context) {
 		d.runConfigSyncLoop(ctx)
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runTemplateUpdateLoop(ctx)
+	}()
+
 	wg.Wait()
 	d.logger.Println("Daemon stopping")
 }

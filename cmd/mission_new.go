@@ -13,6 +13,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
+	"github.com/odyssey/agenc/internal/wrapper"
 )
 
 var agentTemplateFlag string
@@ -95,8 +96,8 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching claude...")
 
-	// Exec into claude (replaces this process)
-	return mission.ExecClaude(agencDirpath, missionDirpath, prompt)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate)
+	return w.Run(prompt, false)
 }
 
 func selectWithFzf(templates []string) (string, error) {

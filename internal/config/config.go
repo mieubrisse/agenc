@@ -21,6 +21,12 @@ const (
 	DaemonPIDFilename     = "daemon.pid"
 	DaemonLogFilename     = "daemon.log"
 	DaemonVersionFilename = "daemon.version"
+
+	AgentDirname           = "agent"
+	WorkspaceDirname       = "workspace"
+	PIDFilename            = "pid"
+	ClaudeStateFilename    = "claude-state"
+	TemplateCommitFilename = "template-commit"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -129,4 +135,37 @@ func GetUserClaudeDirpath() (string, error) {
 		return "", stacktrace.Propagate(err, "failed to determine home directory")
 	}
 	return filepath.Join(homeDir, UserClaudeDirname), nil
+}
+
+// GetMissionDirpath returns the path to a specific mission directory.
+func GetMissionDirpath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionsDirpath(agencDirpath), missionID)
+}
+
+// GetMissionAgentDirpath returns the path to the agent/ subdirectory within
+// a mission. This is the Claude Code project root.
+func GetMissionAgentDirpath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), AgentDirname)
+}
+
+// GetMissionPIDFilepath returns the path to the wrapper PID file for a mission.
+func GetMissionPIDFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), PIDFilename)
+}
+
+// GetMissionClaudeStateFilepath returns the path to the claude-state file for
+// a mission.
+func GetMissionClaudeStateFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), ClaudeStateFilename)
+}
+
+// GetMissionTemplateCommitFilepath returns the path to the template-commit file
+// for a mission.
+func GetMissionTemplateCommitFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), TemplateCommitFilename)
+}
+
+// GetAgentTemplateDirpath returns the path to a specific agent template directory.
+func GetAgentTemplateDirpath(agencDirpath string, templateName string) string {
+	return filepath.Join(GetAgentTemplatesDirpath(agencDirpath), templateName)
 }

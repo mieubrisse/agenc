@@ -1,31 +1,25 @@
 package mission
 
 import (
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
 )
 
-const (
-	claudeDirname    = ".claude"
-	claudeMDFilename = "CLAUDE.md"
-	settingsFilename = "settings.json"
-	mcpFilename      = ".mcp.json"
-)
-
-// CreateMissionDir sets up the mission directory structure and copies config
-// files from the agent template.
+// CreateMissionDir sets up the mission directory structure and rsyncs config
+// files from the agent template into the agent/ subdirectory. Returns the
+// mission root directory path (not the agent/ subdirectory).
 func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string) (string, error) {
-	missionDirpath := filepath.Join(config.GetMissionsDirpath(agencDirpath), missionID)
-	missionClaudeDirpath := filepath.Join(missionDirpath, claudeDirname)
+	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+	workspaceDirpath := filepath.Join(agentDirpath, config.WorkspaceDirname)
 
-	for _, dirpath := range []string{missionDirpath, missionClaudeDirpath} {
+	for _, dirpath := range []string{missionDirpath, agentDirpath, workspaceDirpath} {
 		if err := os.MkdirAll(dirpath, 0755); err != nil {
 			return "", stacktrace.Propagate(err, "failed to create directory '%s'", dirpath)
 		}
@@ -35,102 +29,109 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 		return missionDirpath, nil
 	}
 
-	agentTemplateDirpath := filepath.Join(config.GetAgentTemplatesDirpath(agencDirpath), agentTemplate)
+	templateDirpath := config.GetAgentTemplateDirpath(agencDirpath, agentTemplate)
 
-	// Copy CLAUDE.md
-	if err := copyFileIfExists(
-		filepath.Join(agentTemplateDirpath, claudeMDFilename),
-		filepath.Join(missionDirpath, claudeMDFilename),
-	); err != nil {
-		return "", stacktrace.Propagate(err, "failed to copy CLAUDE.md")
+	if err := RsyncTemplate(templateDirpath, agentDirpath); err != nil {
+		return "", stacktrace.Propagate(err, "failed to rsync template into agent directory")
 	}
 
-	// Copy .claude/settings.json
-	if err := copyFileIfExists(
-		filepath.Join(agentTemplateDirpath, claudeDirname, settingsFilename),
-		filepath.Join(missionClaudeDirpath, settingsFilename),
-	); err != nil {
-		return "", stacktrace.Propagate(err, "failed to copy settings.json")
+	commitHash, err := ReadTemplateCommitHash(templateDirpath)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to read template commit hash")
 	}
-
-	// Copy .mcp.json
-	if err := copyFileIfExists(
-		filepath.Join(agentTemplateDirpath, mcpFilename),
-		filepath.Join(missionDirpath, mcpFilename),
-	); err != nil {
-		return "", stacktrace.Propagate(err, "failed to copy .mcp.json")
+	commitFilepath := config.GetMissionTemplateCommitFilepath(agencDirpath, missionID)
+	if err := os.WriteFile(commitFilepath, []byte(commitHash), 0644); err != nil {
+		return "", stacktrace.Propagate(err, "failed to write template-commit file")
 	}
 
 	return missionDirpath, nil
 }
 
-// copyFileIfExists copies src to dst. If src does not exist, it does nothing.
-func copyFileIfExists(srcFilepath string, dstFilepath string) error {
-	srcFile, err := os.Open(srcFilepath)
+// RsyncTemplate rsyncs a template directory into the agent directory,
+// excluding the workspace/ subdirectory and .git/ metadata. Uses --delete
+// to remove files no longer in the template.
+func RsyncTemplate(templateDirpath string, agentDirpath string) error {
+	srcPath := templateDirpath + "/"
+	dstPath := agentDirpath + "/"
+
+	cmd := exec.Command("rsync",
+		"-a",
+		"--delete",
+		"--exclude", config.WorkspaceDirname+"/",
+		"--exclude", ".git/",
+		srcPath,
+		dstPath,
+	)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return stacktrace.Propagate(err, "failed to open source file '%s'", srcFilepath)
+		return stacktrace.Propagate(err, "rsync failed: %s", string(output))
 	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dstFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to create destination file '%s'", dstFilepath)
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return stacktrace.Propagate(err, "failed to copy '%s' to '%s'", srcFilepath, dstFilepath)
-	}
-
 	return nil
 }
 
-// ExecClaude replaces the current process with claude, running in the
-// mission directory.
-func ExecClaude(agencDirpath string, missionDirpath string, prompt string) error {
+// ReadTemplateCommitHash reads the current commit hash of the main branch
+// in the given template repository directory.
+func ReadTemplateCommitHash(templateDirpath string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "main")
+	cmd.Dir = templateDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to read git commit hash in '%s'", templateDirpath)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// SpawnClaude starts claude as a child process in the given agent directory
+// with the given prompt. Returns the running command. The caller is
+// responsible for calling cmd.Wait().
+func SpawnClaude(agencDirpath string, agentDirpath string, prompt string) (*exec.Cmd, error) {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
-		return stacktrace.Propagate(err, "'claude' binary not found in PATH")
+		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
-	env := os.Environ()
-	env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
-
-	args := []string{"claude"}
+	args := []string{claudeBinary}
 	if prompt != "" {
 		args = append(args, prompt)
 	}
 
-	if err := os.Chdir(missionDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to change directory to '%s'", missionDirpath)
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = agentDirpath
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
+
+	if err := cmd.Start(); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to start claude")
 	}
 
-	return syscall.Exec(claudeBinary, args, env)
+	return cmd, nil
 }
 
-// ExecClaudeResume replaces the current process with claude --continue,
-// running in the mission directory.
-func ExecClaudeResume(agencDirpath string, missionDirpath string) error {
+// SpawnClaudeResume starts claude -c as a child process in the given agent
+// directory. Returns the running command. The caller is responsible for
+// calling cmd.Wait().
+func SpawnClaudeResume(agencDirpath string, agentDirpath string) (*exec.Cmd, error) {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
-		return stacktrace.Propagate(err, "'claude' binary not found in PATH")
+		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
-	env := os.Environ()
-	env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
+	cmd := exec.Command(claudeBinary, "-c")
+	cmd.Dir = agentDirpath
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
 
-	args := []string{"claude", "-c"}
-
-	if err := os.Chdir(missionDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to change directory to '%s'", missionDirpath)
+	if err := cmd.Start(); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to start claude -c")
 	}
 
-	return syscall.Exec(claudeBinary, args, env)
+	return cmd, nil
 }
