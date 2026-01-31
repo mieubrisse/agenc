@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
@@ -40,6 +41,16 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 
 	if missionRecord.Status == "archived" {
 		return stacktrace.NewError("mission '%s' is archived; cannot resume", missionID)
+	}
+
+	// Check if the wrapper is already running for this mission
+	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
+	pid, err := daemon.ReadPID(pidFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read mission PID file")
+	}
+	if daemon.IsProcessRunning(pid) {
+		return stacktrace.NewError("mission '%s' is already running (wrapper PID %d)", missionID, pid)
 	}
 
 	// Check for old-format mission (no agent/ subdirectory)
