@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -14,9 +16,9 @@ import (
 )
 
 var missionResumeCmd = &cobra.Command{
-	Use:   "resume <mission-id>",
+	Use:   "resume [mission-id]",
 	Short: "Unarchive (if needed) and resume a mission with claude --continue",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runMissionResume,
 }
 
@@ -25,14 +27,23 @@ func init() {
 }
 
 func runMissionResume(cmd *cobra.Command, args []string) error {
-	missionID := args[0]
-
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to open database")
 	}
 	defer db.Close()
+
+	var missionID string
+	if len(args) == 1 {
+		missionID = args[0]
+	} else {
+		selected, err := selectStoppedMissionWithFzf(db)
+		if err != nil {
+			return err
+		}
+		missionID = selected
+	}
 
 	missionRecord, err := db.GetMission(missionID)
 	if err != nil {
@@ -71,4 +82,52 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate)
 	return w.Run("", true)
+}
+
+// selectStoppedMissionWithFzf queries stopped missions and presents them in fzf.
+// Returns the selected mission ID.
+func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
+	missions, err := db.ListMissions(false)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to list missions")
+	}
+
+	// Filter to stopped missions only (already ordered by created_at DESC)
+	var lines []string
+	for _, m := range missions {
+		if getMissionStatus(m.ID, m.Status) != "STOPPED" {
+			continue
+		}
+		promptSnippet := m.Prompt
+		if len(promptSnippet) > 60 {
+			promptSnippet = promptSnippet[:57] + "..."
+		}
+		agent := displayAgentTemplate(m.AgentTemplate)
+		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", m.ID, agent, promptSnippet))
+	}
+
+	if len(lines) == 0 {
+		return "", stacktrace.NewError("no stopped missions to resume")
+	}
+
+	input := strings.Join(lines, "\n")
+
+	fzfBinary, err := exec.LookPath("fzf")
+	if err != nil {
+		return "", stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the mission ID as an argument")
+	}
+
+	fzfCmd := exec.Command(fzfBinary, "--prompt", "Select mission to resume: ")
+	fzfCmd.Stdin = strings.NewReader(input)
+	fzfCmd.Stderr = os.Stderr
+
+	output, err := fzfCmd.Output()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "fzf selection failed")
+	}
+
+	selected := strings.TrimSpace(string(output))
+	// Extract mission ID from the first tab-separated field
+	missionID, _, _ := strings.Cut(selected, "\t")
+	return missionID, nil
 }
