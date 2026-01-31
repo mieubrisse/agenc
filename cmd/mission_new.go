@@ -46,7 +46,11 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		fmt.Println("No agent templates found. Proceeding without a template.")
 		fmt.Printf("Create templates in: %s\n", config.GetAgentTemplatesDirpath(agencDirpath))
 	} else {
-		selected, err := selectWithFzf(templates)
+		initialQuery := ""
+		if len(args) == 1 {
+			initialQuery = args[0]
+		}
+		selected, err := selectWithFzf(templates, initialQuery)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to select agent template")
 		}
@@ -83,7 +87,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	return w.Run("", false)
 }
 
-func selectWithFzf(templates []string) (string, error) {
+func selectWithFzf(templates []string, initialQuery string) (string, error) {
 	options := append([]string{"NONE"}, templates...)
 	input := strings.Join(options, "\n")
 
@@ -92,7 +96,12 @@ func selectWithFzf(templates []string) (string, error) {
 		return "", stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the template name as an argument")
 	}
 
-	fzfCmd := exec.Command(fzfBinary, "--prompt", "Select agent template: ")
+	fzfArgs := []string{"--prompt", "Select agent template: "}
+	if initialQuery != "" {
+		fzfArgs = append(fzfArgs, "--query", initialQuery)
+	}
+
+	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
 	fzfCmd.Stdin = strings.NewReader(input)
 	fzfCmd.Stderr = os.Stderr
 
