@@ -93,7 +93,7 @@ Component 3: Claude Config Sync
 
 **Runs as:** Background goroutine in the agenc daemon.
 
-**Cycle:** Every 60 seconds.
+**Cycle:** Every 5 minutes.
 
 **Purpose:** Agenc needs Claude instances to run with agenc-specific hooks (for state tracking), but the user's own Claude config in `~/.claude/` should otherwise be preserved. This component maintains an agenc-specific Claude config directory that merges the user's config with agenc's additions.
 
@@ -116,7 +116,7 @@ Component 3: Claude Config Sync
 1. For each of `CLAUDE.md`, `skills/`, `commands/`, `agents/`, `plugins/`:
    a. If the item exists in `~/.claude/`, ensure a symlink exists in `~/.agenc/claude-config/` pointing to it.
    b. If the item does not exist in `~/.claude/`, remove the symlink from `~/.agenc/claude-config/` if present.
-2. Read `~/.claude/settings.json` and merge in the agenc-specific hooks (Stop and UserPromptSubmit). Write the result to `~/.agenc/claude-config/settings.json`.
+2. Read `~/.claude/settings.json` and merge in the agenc-specific hooks (Stop and UserPromptSubmit). Write the result to a temporary file, then compare it to the existing `~/.agenc/claude-config/settings.json`. Only overwrite if the contents differ (to preserve the modification time when nothing has changed).
 
 **Hook configuration merged into settings.json:**
 
