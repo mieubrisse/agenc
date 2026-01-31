@@ -230,8 +230,8 @@ Trust Dialog
 Claude Code prompts "do you trust this directory?" when launched in a new directory. There is no clean programmatic way to skip this prompt without `--dangerously-skip-permissions`. For now, the user presses Enter once per mission to accept the trust dialog. This is a known Claude Code limitation (GitHub issues #9113, #12227, #9256) and may be resolved upstream in the future.
 
 
-Config File Merging
--------------------
+Config Files
+------------
 
 There are two levels of config:
 

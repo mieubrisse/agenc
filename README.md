@@ -80,7 +80,7 @@ agent-templates/
     └── ...
 ```
 
-**Agent templates** define agent-specific overrides. Each template can add its own `CLAUDE.md` instructions, MCP servers, secrets, and skills on top of the global config. When a mission launches, the global and agent-specific configs are merged to produce the mission's environment.
+**Agent templates** define the full Claude configuration for an agent. Each template can include its own `CLAUDE.md` instructions, MCP servers, settings, secrets, and skills. When a mission launches, the template's config files are copied as-is into the mission directory.
 
 ### missions
 
@@ -89,10 +89,10 @@ The `missions` directory contains workspaces for each mission. Each mission is i
 ```
 missions/
 ├── 0f4edd01-c480-462d-a44e-c1bd48aaa5a6/
-│   ├── CLAUDE.md              # Built by cat'ing global + agent-specific CLAUDE.md
-│   ├── .mcp.json              # (optional) Built by merging global + agent-specific mcp.json
+│   ├── CLAUDE.md              # Copied from agent template
+│   ├── .mcp.json              # (optional) Copied from agent template
 │   ├── .claude/
-│   │   └── settings.json      # Built by merging global + agent-specific settings.json
+│   │   └── settings.json      # Copied from agent template
 │   └── workspace/
 │       └── ...                # All files the agent creates or modifies
 └── ARCHIVE/                   # Archived missions (moved here by `agenc mission archive`)
@@ -126,7 +126,7 @@ Creates a new mission and drops the user into a Claude Code session.
 
 1. The user is dropped into `fzf` to pick an agent template. The default option is `NONE` (no specific agent template).
 2. The user is dropped into `vim` to write the mission prompt — what they want the agent to accomplish.
-3. The AgenC creates the mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config.
+3. The AgenC creates the mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by copying config files from the agent template.
 4. The AgenC execs into `claude` in the mission directory (foreground), sending the prompt as the first message.
 
 **Non-interactive mode** (for scripting):
@@ -170,7 +170,7 @@ Design Goals
 ------------
 
 - **Mission management** — Create, track, and organize missions with a simple CLI.
-- **Mission isolation** — Each mission operates in its own directory with a merged config tailored to its agent.
+- **Mission isolation** — Each mission operates in its own directory with config copied from its agent template.
 - **Self-contained** — The AgenC uses its own `CLAUDE_CONFIG_DIR` and never touches the user's existing Claude Code setup.
 - **Configurable agents** — Agent templates let you define specialized agents with their own instructions, MCP servers, secrets, and skills.
 - **Observable** — Clear logging and SQLite tracking for all missions.

@@ -1,6 +1,7 @@
 package mission
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,7 +10,6 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/merge"
 )
 
 const (
@@ -19,7 +19,8 @@ const (
 	mcpFilename      = ".mcp.json"
 )
 
-// CreateMissionDir sets up the mission directory structure and merges config files.
+// CreateMissionDir sets up the mission directory structure and copies config
+// files from the agent template.
 func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string) (string, error) {
 	missionDirpath := filepath.Join(config.GetMissionsDirpath(agencDirpath), missionID)
 	missionClaudeDirpath := filepath.Join(missionDirpath, claudeDirname)
@@ -30,52 +31,61 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 		}
 	}
 
-	globalClaudeDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
+	if agentTemplate == "" {
+		return missionDirpath, nil
+	}
+
 	agentTemplateDirpath := filepath.Join(config.GetAgentTemplatesDirpath(agencDirpath), agentTemplate)
 
-	// Merge CLAUDE.md
-	globalClaudeMDFilepath := filepath.Join(globalClaudeDirpath, claudeMDFilename)
-	agentClaudeMDFilepath := filepath.Join(agentTemplateDirpath, claudeMDFilename)
-	mergedClaudeMD, err := merge.MergeCLAUDEMD(globalClaudeMDFilepath, agentClaudeMDFilepath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to merge CLAUDE.md")
-	}
-	if mergedClaudeMD != "" {
-		outputFilepath := filepath.Join(missionDirpath, claudeMDFilename)
-		if err := os.WriteFile(outputFilepath, []byte(mergedClaudeMD), 0644); err != nil {
-			return "", stacktrace.Propagate(err, "failed to write merged CLAUDE.md")
-		}
+	// Copy CLAUDE.md
+	if err := copyFileIfExists(
+		filepath.Join(agentTemplateDirpath, claudeMDFilename),
+		filepath.Join(missionDirpath, claudeMDFilename),
+	); err != nil {
+		return "", stacktrace.Propagate(err, "failed to copy CLAUDE.md")
 	}
 
-	// Merge settings.json
-	globalSettingsFilepath := filepath.Join(globalClaudeDirpath, settingsFilename)
-	agentSettingsFilepath := filepath.Join(agentTemplateDirpath, claudeDirname, settingsFilename)
-	mergedSettings, err := merge.MergeSettingsJSON(globalSettingsFilepath, agentSettingsFilepath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to merge settings.json")
-	}
-	if mergedSettings != nil {
-		outputFilepath := filepath.Join(missionClaudeDirpath, settingsFilename)
-		if err := os.WriteFile(outputFilepath, mergedSettings, 0644); err != nil {
-			return "", stacktrace.Propagate(err, "failed to write merged settings.json")
-		}
+	// Copy .claude/settings.json
+	if err := copyFileIfExists(
+		filepath.Join(agentTemplateDirpath, claudeDirname, settingsFilename),
+		filepath.Join(missionClaudeDirpath, settingsFilename),
+	); err != nil {
+		return "", stacktrace.Propagate(err, "failed to copy settings.json")
 	}
 
-	// Merge .mcp.json
-	globalMCPFilepath := filepath.Join(globalClaudeDirpath, mcpFilename)
-	agentMCPFilepath := filepath.Join(agentTemplateDirpath, mcpFilename)
-	mergedMCP, err := merge.MergeMCPJSON(globalMCPFilepath, agentMCPFilepath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to merge .mcp.json")
-	}
-	if mergedMCP != nil {
-		outputFilepath := filepath.Join(missionDirpath, mcpFilename)
-		if err := os.WriteFile(outputFilepath, mergedMCP, 0644); err != nil {
-			return "", stacktrace.Propagate(err, "failed to write merged .mcp.json")
-		}
+	// Copy .mcp.json
+	if err := copyFileIfExists(
+		filepath.Join(agentTemplateDirpath, mcpFilename),
+		filepath.Join(missionDirpath, mcpFilename),
+	); err != nil {
+		return "", stacktrace.Propagate(err, "failed to copy .mcp.json")
 	}
 
 	return missionDirpath, nil
+}
+
+// copyFileIfExists copies src to dst. If src does not exist, it does nothing.
+func copyFileIfExists(srcFilepath string, dstFilepath string) error {
+	srcFile, err := os.Open(srcFilepath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return stacktrace.Propagate(err, "failed to open source file '%s'", srcFilepath)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dstFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to create destination file '%s'", dstFilepath)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return stacktrace.Propagate(err, "failed to copy '%s' to '%s'", srcFilepath, dstFilepath)
+	}
+
+	return nil
 }
 
 // ExecClaude replaces the current process with claude, running in the
