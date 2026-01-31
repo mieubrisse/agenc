@@ -16,6 +16,7 @@ import (
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
+var agentFlag string
 var promptFlag string
 
 var missionNewCmd = &cobra.Command{
@@ -27,6 +28,7 @@ var missionNewCmd = &cobra.Command{
 }
 
 func init() {
+	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
 	missionCmd.AddCommand(missionNewCmd)
 }
@@ -42,7 +44,13 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 
 	var agentTemplate string
 
-	if len(args) == 1 && slices.Contains(templates, args[0]) {
+	if agentFlag != "" {
+		// --agent flag: must match exactly
+		if !slices.Contains(templates, agentFlag) {
+			return stacktrace.NewError("agent template '%s' not found", agentFlag)
+		}
+		agentTemplate = agentFlag
+	} else if len(args) == 1 && slices.Contains(templates, args[0]) {
 		// Exact match — use it directly
 		agentTemplate = args[0]
 	} else if len(args) == 1 && len(matchTemplatesSubstring(templates, args[0])) == 1 {
