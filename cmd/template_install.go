@@ -35,8 +35,22 @@ func runTemplateInstall(cmd *cobra.Command, args []string) error {
 	repoName := "github.com/" + ownerRepo
 	targetDirpath := config.GetRepoDirpath(agencDirpath, repoName)
 
+	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open database")
+	}
+	defer db.Close()
+
 	if _, err := os.Stat(targetDirpath); err == nil {
-		return stacktrace.NewError("template '%s' already exists at %s", repoName, targetDirpath)
+		// Repo already cloned — ensure it's registered in the DB
+		if _, dbErr := db.GetAgentTemplate(repoName); dbErr != nil {
+			if _, createErr := db.CreateAgentTemplate(repoName); createErr != nil {
+				return stacktrace.Propagate(createErr, "failed to register agent template in database")
+			}
+		}
+		fmt.Printf("Template '%s' already installed\n", repoName)
+		return nil
 	}
 
 	// Create intermediate directories (repos/github.com/owner/)
@@ -56,14 +70,6 @@ func runTemplateInstall(cmd *cobra.Command, args []string) error {
 	if err := gitCmd.Run(); err != nil {
 		return stacktrace.Propagate(err, "failed to clone repository '%s'", ownerRepo)
 	}
-
-	// Register as an agent template in the database
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
 
 	if _, err := db.CreateAgentTemplate(repoName); err != nil {
 		return stacktrace.Propagate(err, "failed to register agent template in database")
