@@ -19,7 +19,7 @@ Together, these components allow a user to push changes to an agent-template rep
 Agent Templates
 ---------------
 
-Each agent template is a Git repository cloned into `~/.agenc/config/agent-templates/<name>/`. Templates are the single source of truth for mission configuration files. They are hosted on GitHub and managed entirely outside of agenc -- agenc only consumes them.
+Each agent template is a Git repository cloned into `~/.agenc/agent-templates/<name>/`. Templates are the single source of truth for mission configuration files. They are hosted on GitHub and managed entirely outside of agenc -- agenc only consumes them.
 
 A template repo contains the config files that Claude Code needs (e.g., `CLAUDE.md`, `.claude/settings.json`, `.mcp.json`). The set of files in the template repo defines what gets synced into mission directories -- there is no hardcoded file list in agenc.
 
@@ -56,7 +56,7 @@ Component 1: Template Updater
 
 **Behavior:**
 
-For each agent-template directory under `~/.agenc/config/agent-templates/`:
+For each agent-template directory under `~/.agenc/agent-templates/`:
 
 1. Run `git fetch origin` in the template directory.
 2. Compare the local `main` ref against `origin/main`.

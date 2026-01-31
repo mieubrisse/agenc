@@ -12,7 +12,6 @@ const (
 	agencDirpathEnvVar  = "AGENC_DIRPATH"
 	defaultAgencDirname = ".agenc"
 
-	ConfigDirname         = "config"
 	ClaudeDirname         = "claude"
 	MissionsDirname       = "missions"
 	ArchiveDirname        = "ARCHIVE"
@@ -40,8 +39,7 @@ func GetAgencDirpath() (string, error) {
 // doesn't already exist.
 func EnsureDirStructure(agencDirpath string) error {
 	dirs := []string{
-		filepath.Join(agencDirpath, ConfigDirname),
-		filepath.Join(agencDirpath, ConfigDirname, AgentTemplatesDirname),
+		filepath.Join(agencDirpath, AgentTemplatesDirname),
 		filepath.Join(agencDirpath, ClaudeDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, MissionsDirname, ArchiveDirname),
@@ -65,14 +63,9 @@ func GetArchiveDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, MissionsDirname, ArchiveDirname)
 }
 
-// GetConfigDirpath returns the path to the config directory.
-func GetConfigDirpath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, ConfigDirname)
-}
-
 // GetAgentTemplatesDirpath returns the path to the agent-templates directory.
 func GetAgentTemplatesDirpath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, ConfigDirname, AgentTemplatesDirname)
+	return filepath.Join(agencDirpath, AgentTemplatesDirname)
 }
 
 // GetGlobalClaudeDirpath returns the path to the global claude config directory.

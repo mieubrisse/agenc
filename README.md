@@ -7,6 +7,7 @@ An orchestrator for running many Claude Code agents in parallel, each working in
 
 Why AgenC?
 ----------
+TODO emphasizing Inputs Not Outputs
 
 People like me want to use Claude Code as their Everything Agent, including for non-coding things like Todoist. This has the following benefits:
 
@@ -28,6 +29,7 @@ However, this has several problems:
         - optionally set up any .mcp.json
 - On top of all this, you need to wire up the 1Password stuff manually
 - During the course of the session, you'll often hit times where the agent doesn't behave the way you want (often, CLAUDE.md or settings.json need refining). Per the doctrine of [Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs) you'd like to roll fixes back into the agent so the entire agency gets better, but you then have to stop what you're doing, find the agent's CLAUDE.md, open a new claude window, update it, and then restart the original conversation to pick up the changes (especially with settings.json).
+- Whenever you upgrade the CLAUDE.md, or a new version of `claude` is released, you have to find and restart all your windows
 
 AgenC solves all these:
 
@@ -36,6 +38,7 @@ AgenC solves all these:
 - Agent templates can be registered with secrets from 1Password, which get automatically injected upon agent creation
 - When talking to any agent on a mission, with a simple hotkey you can switch to editing the template that created the agent to update the Inputs, making your AgenC better forever
 - Missions can be quickly and easily archived to keep things tidy
+- The Claude for a mission is automatically restarted when its settings change (when it's idle; generation isn't interrupted)
 
 In the future, AgenC will also:
 
@@ -54,41 +57,29 @@ All AgenC state lives under a single root directory, configured by the `AGENC_DI
 
 ```
 $AGENC_DIRPATH/
-├── config/           # Git repo containing all AgenC configuration
+├── agent-templates/  # One subdirectory per agent template
 ├── claude/           # CLAUDE_CONFIG_DIR for all Claude instances run by AgenC
 ├── missions/         # One subdirectory per mission (keyed by UUID)
 └── database.sqlite   # Tracks missions and their state
 ```
 
-### config
+### agent-templates
 
-The `config` directory is a Git repo containing the configuration that governs the AgenC and its agents. It has the following structure:
+The `agent-templates` directory contains one subdirectory per agent template. Each template defines the Claude configuration for a specific type of agent:
 
 ```
-config/
-├── claude/
-│   ├── CLAUDE.md              # Global CLAUDE.md included by all agents
-│   ├── mcp.json               # (optional) Global MCP server config
-│   ├── settings.json          # Global settings.json included by all agents
-│   └── skills/                # (optional) Skills applied to all agents
-│       ├── skill1/
-│       │   └── SKILL.md
-│       └── skill2/
-│           └── SKILL.md
-└── agent-templates/
-    ├── agent1/
-    │   ├── CLAUDE.md          # Instructions specific to agent1
-    │   ├── mcp.json           # (optional) Agent-specific MCP config
-    │   └── claude/
-    │       ├── secrets.env    # (optional) Secrets injected via 1Password
-    │       └── skills/        # (optional) Agent-specific skills
-    └── agent2/
-        └── ...
+agent-templates/
+├── agent1/
+│   ├── CLAUDE.md          # Instructions specific to agent1
+│   ├── mcp.json           # (optional) Agent-specific MCP config
+│   └── claude/
+│       ├── secrets.env    # (optional) Secrets injected via 1Password
+│       └── skills/        # (optional) Agent-specific skills
+└── agent2/
+    └── ...
 ```
 
-**Global config** (`config/claude/`) is shared across all agents. It defines the baseline behavior, MCP servers, settings, and skills that every agent gets.
-
-**Agent templates** (`config/agent-templates/`) define agent-specific overrides. Each template can add its own `CLAUDE.md` instructions, MCP servers, secrets, and skills on top of the global config. When a mission launches, the global and agent-specific configs are merged to produce the mission's environment.
+**Agent templates** define agent-specific overrides. Each template can add its own `CLAUDE.md` instructions, MCP servers, secrets, and skills on top of the global config. When a mission launches, the global and agent-specific configs are merged to produce the mission's environment.
 
 ### missions
 
@@ -134,7 +125,7 @@ Creates a new mission and drops the user into a Claude Code session.
 
 1. The user is dropped into `fzf` to pick an agent template. The default option is `NONE` (no specific agent template).
 2. The user is dropped into `vim` to write the mission prompt — what they want the agent to accomplish.
-3. The AgenC creates the mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config from `config/`.
+3. The AgenC creates the mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by merging the global and agent-specific config.
 4. The AgenC execs into `claude` in the mission directory (foreground), sending the prompt as the first message.
 
 **Non-interactive mode** (for scripting):

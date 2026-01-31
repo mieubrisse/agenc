@@ -8,23 +8,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/mieubrisse/stacktrace"
 
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
 
 const (
 	scanInterval           = 10 * time.Second
-	configSyncInterval     = 5 * time.Minute
 	maxPromptLen           = 2000
 	descriptionSystemPrompt = "Generate a one-line summary (max 80 chars) of what this mission prompt is asking for. Output ONLY the summary, no quotes, no prefix."
 )
 
-// Daemon runs background loops for mission description generation and config
-// repository synchronization.
+// Daemon runs background loops for mission description generation.
 type Daemon struct {
 	db            *database.DB
 	agencDirpath  string
@@ -54,12 +49,6 @@ func (d *Daemon) Run(ctx context.Context) {
 		d.runDescriptionLoop(ctx)
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		d.runConfigSyncLoop(ctx)
-	}()
-
 	wg.Wait()
 	d.logger.Println("Daemon stopping")
 }
@@ -77,23 +66,6 @@ func (d *Daemon) runDescriptionLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.runDescriptionCycle(ctx)
-		}
-	}
-}
-
-// runConfigSyncLoop force-pulls the latest main branch of the config repo.
-func (d *Daemon) runConfigSyncLoop(ctx context.Context) {
-	d.syncConfig(ctx)
-
-	ticker := time.NewTicker(configSyncInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			d.syncConfig(ctx)
 		}
 	}
 }
@@ -173,42 +145,3 @@ func (d *Daemon) callClaude(ctx context.Context, prompt string) (string, error) 
 	return string(output), nil
 }
 
-// syncConfig force-pulls the latest main branch of the config repository.
-func (d *Daemon) syncConfig(_ context.Context) {
-	configDirpath := config.GetConfigDirpath(d.agencDirpath)
-
-	repo, err := git.PlainOpen(configDirpath)
-	if err != nil {
-		d.logger.Printf("Config sync: failed to open repo: %v", err)
-		return
-	}
-
-	err = repo.Fetch(&git.FetchOptions{RemoteName: "origin"})
-	if err != nil && err != git.NoErrAlreadyUpToDate {
-		d.logger.Printf("Config sync: fetch failed: %v", err)
-		return
-	}
-
-	originMain, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", "main"), true)
-	if err != nil {
-		d.logger.Printf("Config sync: failed to resolve origin/main: %v", err)
-		return
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		d.logger.Printf("Config sync: failed to get worktree: %v", err)
-		return
-	}
-
-	err = worktree.Reset(&git.ResetOptions{
-		Commit: originMain.Hash(),
-		Mode:   git.HardReset,
-	})
-	if err != nil {
-		d.logger.Printf("Config sync: hard reset failed: %v", err)
-		return
-	}
-
-	d.logger.Println("Config sync: pulled latest origin/main")
-}
