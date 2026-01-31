@@ -27,6 +27,7 @@ const (
 	ClaudeStateFilename    = "claude-state"
 	TemplateCommitFilename = "template-commit"
 	WrapperLogFilename     = "wrapper.log"
+	SettingsLocalFilename  = "settings.local.json"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from

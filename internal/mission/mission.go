@@ -63,17 +63,21 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 }
 
 // RsyncTemplate rsyncs a template directory into the agent directory,
-// excluding the workspace/ subdirectory and .git/ metadata. Uses --delete
+// excluding the workspace/ subdirectory, .git/ metadata, and
+// .claude/settings.local.json (mission-local overrides). Uses --delete
 // to remove files no longer in the template.
 func RsyncTemplate(templateDirpath string, agentDirpath string) error {
 	srcPath := templateDirpath + "/"
 	dstPath := agentDirpath + "/"
+
+	settingsLocalRelFilepath := config.UserClaudeDirname + "/" + config.SettingsLocalFilename
 
 	cmd := exec.Command("rsync",
 		"-a",
 		"--delete",
 		"--exclude", config.WorkspaceDirname+"/",
 		"--exclude", ".git/",
+		"--exclude", settingsLocalRelFilepath,
 		srcPath,
 		dstPath,
 	)
