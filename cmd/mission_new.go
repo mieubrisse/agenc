@@ -127,8 +127,8 @@ func createAndLaunchMission(
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ID)
 
-	// Create mission directory structure (workspace gets a full repo copy)
-	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, gitCloneDirpath)
+	// Create mission directory structure (repo goes inside workspace/)
+	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, gitCloneDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")
 	}

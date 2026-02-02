@@ -3,6 +3,7 @@ package mission
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -12,30 +13,29 @@ import (
 
 // CreateMissionDir sets up the mission directory structure and rsyncs config
 // files from the agent template into the agent/ subdirectory. When
-// gitRepoSource is non-empty, the workspace/ directory is created as a copy
-// of the specified repository. Returns the mission root directory path (not
-// the agent/ subdirectory).
-func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string, gitRepoSource string) (string, error) {
+// gitRepoSource is non-empty, the repository is copied into a subdirectory
+// of workspace/ named after the repo (e.g. workspace/some-repo/). gitRepoName
+// is the canonical name (e.g. "github.com/owner/repo") used to derive the
+// subdirectory name. Returns the mission root directory path (not the agent/
+// subdirectory).
+func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string, gitRepoName string, gitRepoSource string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 	workspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
 
-	// Always create mission and agent directories
-	for _, dirpath := range []string{missionDirpath, agentDirpath} {
+	// Always create mission, agent, and workspace directories
+	for _, dirpath := range []string{missionDirpath, agentDirpath, workspaceDirpath} {
 		if err := os.MkdirAll(dirpath, 0755); err != nil {
 			return "", stacktrace.Propagate(err, "failed to create directory '%s'", dirpath)
 		}
 	}
 
 	if gitRepoSource != "" {
-		// Create workspace as a full copy of the git repo
-		if err := CopyRepo(gitRepoSource, workspaceDirpath); err != nil {
+		// Copy the repo into workspace/<repo-short-name>/
+		repoShortName := filepath.Base(gitRepoName)
+		repoDirpath := filepath.Join(workspaceDirpath, repoShortName)
+		if err := CopyRepo(gitRepoSource, repoDirpath); err != nil {
 			return "", stacktrace.Propagate(err, "failed to copy git repo into workspace")
-		}
-	} else {
-		// Create a plain workspace directory
-		if err := os.MkdirAll(workspaceDirpath, 0755); err != nil {
-			return "", stacktrace.Propagate(err, "failed to create directory '%s'", workspaceDirpath)
 		}
 	}
 
