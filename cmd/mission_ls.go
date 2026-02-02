@@ -88,7 +88,7 @@ func displayGitRepo(gitRepo string) string {
 	if gitRepo == "" {
 		return "--"
 	}
-	return gitRepo
+	return strings.TrimPrefix(gitRepo, "github.com/")
 }
 
 // buildNicknameMap creates a map from repo -> nickname for all templates

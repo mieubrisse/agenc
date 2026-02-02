@@ -109,7 +109,8 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 			promptSnippet = promptSnippet[:57] + "..."
 		}
 		agent := displayAgentTemplate(m.AgentTemplate, nicknames)
-		lines = append(lines, fmt.Sprintf("%s\t%s\t%s", m.ID, agent, promptSnippet))
+		repo := displayGitRepo(m.GitRepo)
+		lines = append(lines, fmt.Sprintf("%s\t%s\t%s\t%s", m.ID, agent, repo, promptSnippet))
 	}
 
 	if len(lines) == 0 {
