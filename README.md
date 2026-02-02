@@ -94,102 +94,6 @@ Future work
 - Build settings.json files for you with AI (even out in your filesystem)
     - E.g. when you're starting a task, it will suggest settings.json's for you, so you don't have to give a bunch of "yes"s
 
-Architecture
-------------
-
-The AgenC is a Go CLI tool built with [Cobra](https://github.com/spf13/cobra). It manages all state in a single root directory and uses SQLite to track missions.
-
-### Root Directory
-
-All AgenC state lives under a single root directory, configured by the `AGENC_DIRPATH` environment variable. It defaults to `~/.agenc`.
-
-```
-$AGENC_DIRPATH/
-├── agent-templates/  # One subdirectory per agent template
-├── claude/           # CLAUDE_CONFIG_DIR for all Claude instances run by AgenC
-├── missions/         # One subdirectory per mission (keyed by UUID)
-└── database.sqlite   # Tracks missions and their state
-```
-
-### agent-templates
-
-The `agent-templates` directory contains one subdirectory per agent template. Each template defines the Claude configuration for a specific type of agent:
-
-```
-agent-templates/
-├── agent1/
-│   ├── CLAUDE.md              # Instructions specific to agent1
-│   ├── .mcp.json              # (optional) Agent-specific MCP config
-│   └── .claude/
-│       ├── settings.json      # (optional) Agent-specific settings
-│       ├── secrets.env        # (optional) Secrets injected via 1Password
-│       └── skills/            # (optional) Agent-specific skills
-└── agent2/
-    └── ...
-```
-
-**Agent templates** define the full Claude configuration for an agent. Each template can include its own `CLAUDE.md` instructions, MCP servers, settings, secrets, and skills. When a mission launches, the template's config files are copied as-is into the mission directory.
-
-### missions
-
-The `missions` directory contains workspaces for each mission. Each mission is identified by a UUID:
-
-```
-missions/
-├── 0f4edd01-c480-462d-a44e-c1bd48aaa5a6/
-│   ├── CLAUDE.md              # Copied from agent template
-│   ├── .mcp.json              # (optional) Copied from agent template
-│   ├── .claude/
-│   │   └── settings.json      # Copied from agent template
-│   └── workspace/
-│       └── ...                # All files the agent creates or modifies
-└── ARCHIVE/                   # Archived missions (moved here by `agenc mission archive`)
-    └── ...
-```
-
-The `workspace/` subdirectory is where the agent does its actual work — creating files, cloning Git repos, writing output, etc.
-
-### claude
-
-All `claude` instances launched by the AgenC have their `CLAUDE_CONFIG_DIR` environment variable set to `$AGENC_DIRPATH/claude`. This makes the AgenC fully self-contained and prevents it from interfering with any preexisting Claude Code installation on the machine.
-
-### database.sqlite
-
-The SQLite database currently tracks mission IDs. The schema will expand over time as needed.
-
-CLI
----
-
-The binary is called `agenc` and follows the `noun verb` pattern (similar to Kubernetes/Docker):
-
-```
-agenc <noun> <verb> [args...]
-```
-
-### agenc mission new
-
-Creates a new mission and drops the user into a Claude Code session. The agent template is selected automatically from the `defaultAgents` config (see Configuration below), or can be overridden with `--agent`.
-
-```
-agenc mission new [--agent <template-name>] [--git <repo>] [-p "<prompt>"]
-```
-
-- `--agent` — Override the default agent template selection with a specific template name
-- `--git` — Clone a git repo into the mission workspace (local path, `owner/repo`, or GitHub URL)
-- `-p` / `--prompt` — Initial prompt to send to Claude
-
-### agenc mission ls
-
-Lists all active missions.
-
-### agenc mission resume \<mission-id\>
-
-Resumes an existing mission by running `claude -c` in the mission's directory. Since each mission is its own project directory, all conversations are scoped to that mission.
-
-### agenc mission archive \<mission-id\>
-
-Archives a mission by moving it to the `missions/ARCHIVE/` subdirectory.
-
 Example Workflows
 -----------------
 
@@ -227,6 +131,25 @@ defaultAgents:
 All three subkeys are optional. Values must be in canonical format (`github.com/owner/repo`) and reference an installed agent template. If the referenced template is not installed, a warning is printed and no agent template is used.
 
 The `--agent` flag always overrides `defaultAgents`.
+
+#### syncedRepos
+
+A list of repositories the daemon keeps continuously up-to-date (fetched and fast-forwarded every 60 seconds). Agent templates are always synced; use `syncedRepos` for non-template repos you also want kept fresh.
+
+```yaml
+syncedRepos:
+  - github.com/owner/dotfiles
+  - github.com/owner/my-project
+```
+
+Manage the list via the CLI:
+
+```
+agenc repo add owner/repo --sync   # clone and add to syncedRepos
+agenc repo rm owner/repo           # remove from disk and syncedRepos
+```
+
+Values must be in canonical format (`github.com/owner/repo`).
 
 Design Goals
 ------------
