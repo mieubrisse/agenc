@@ -31,20 +31,12 @@ The wrapper watches this file using `fsnotify` on the parent directory (not the 
 Change Detection
 ----------------
 
-There are two mission types, each with different change detection strategies:
-
-### Template-based missions
-
 The agent config lives in a separate GitHub repo (the "template"). The daemon fetches the template repo from GitHub every 60 seconds. The wrapper polls the local clone's commit hash every 10 seconds and compares it to the stored hash from the last sync. Total worst-case latency from push to detection: ~70 seconds.
 
 When a change is detected, the wrapper rsyncs the template into the mission's `agent/` directory. The rsync excludes:
 - `workspace/` — Claude's work area is never overwritten
 - `.git/` — git metadata
 - `.claude/settings.local.json` — mission-local settings overrides
-
-### Embedded-agent missions
-
-The agent config lives directly in the worktree (e.g., `CLAUDE.md`, `.mcp.json`, `.claude/`). No template repo is involved. The wrapper uses `fsnotify` (kqueue on macOS) to directly watch for filesystem changes to these config files. A 500ms debounce timer batches rapid edits into a single reload signal.
 
 State Machine
 -------------
@@ -66,7 +58,7 @@ Restart Procedure
 -----------------
 
 1. Config change detected.
-2. For template missions: rsync updated template into `agent/`.
+2. Rsync updated template into `agent/`.
 3. Check `claude-state`. If busy, transition to `StateRestartPending` and wait.
 4. When idle: send `SIGINT` to the Claude child process.
 5. Wait for the process to exit.
