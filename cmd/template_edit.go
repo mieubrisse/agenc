@@ -32,7 +32,7 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(cfg.AgentTemplates) == 0 {
-		fmt.Printf("No agent templates found. Install templates with: agenc template install owner/repo\n")
+		fmt.Printf("No agent templates found. Add templates with: agenc template add owner/repo\n")
 		return stacktrace.NewError("no agent templates available to edit")
 	}
 
