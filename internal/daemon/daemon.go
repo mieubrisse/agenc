@@ -4,22 +4,18 @@ import (
 	"context"
 	"log"
 	"sync"
-
-	"github.com/odyssey/agenc/internal/database"
 )
 
 // Daemon runs background loops for config sync and repo updates.
 type Daemon struct {
-	db                    *database.DB
-	agencDirpath          string
-	logger                *log.Logger
-	repoUpdateCycleCount  int
+	agencDirpath         string
+	logger               *log.Logger
+	repoUpdateCycleCount int
 }
 
 // NewDaemon creates a new Daemon instance.
-func NewDaemon(db *database.DB, agencDirpath string, logger *log.Logger) *Daemon {
+func NewDaemon(agencDirpath string, logger *log.Logger) *Daemon {
 	return &Daemon{
-		db:           db,
 		agencDirpath: agencDirpath,
 		logger:       logger,
 	}
@@ -47,4 +43,3 @@ func (d *Daemon) Run(ctx context.Context) {
 	wg.Wait()
 	d.logger.Println("Daemon stopping")
 }
-

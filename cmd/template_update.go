@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
 )
 
 var templateUpdateNicknameFlag string
@@ -26,25 +25,35 @@ func init() {
 }
 
 func runTemplateUpdate(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	cfg, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
-
-	templateRecords, err := db.ListAgentTemplates()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to list agent templates")
+		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	repo, err := resolveTemplate(templateRecords, args[0])
+	repo, err := resolveTemplate(cfg.AgentTemplates, args[0])
 	if err != nil {
 		return err
 	}
 
-	if err := db.UpdateAgentTemplateNickname(repo, templateUpdateNicknameFlag); err != nil {
-		return stacktrace.Propagate(err, "failed to update nickname")
+	// Check nickname uniqueness
+	if templateUpdateNicknameFlag != "" {
+		for _, entry := range cfg.AgentTemplates {
+			if entry.Nickname == templateUpdateNicknameFlag && entry.Repo != repo {
+				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateUpdateNicknameFlag, entry.Repo)
+			}
+		}
+	}
+
+	// Update the entry
+	for i, entry := range cfg.AgentTemplates {
+		if entry.Repo == repo {
+			cfg.AgentTemplates[i].Nickname = templateUpdateNicknameFlag
+			break
+		}
+	}
+
+	if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
+		return stacktrace.Propagate(err, "failed to write config")
 	}
 
 	if templateUpdateNicknameFlag == "" {

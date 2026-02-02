@@ -21,6 +21,7 @@ const (
 	DaemonPIDFilename     = "daemon.pid"
 	DaemonLogFilename     = "daemon.log"
 	DaemonVersionFilename = "daemon.version"
+	ConfigFilename        = "config.yml"
 
 	AgentDirname           = "agent"
 	WorkspaceDirname       = "workspace"
@@ -62,6 +63,10 @@ func EnsureDirStructure(agencDirpath string) error {
 
 	if err := EnsureClaudeModificationsFiles(agencDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to seed claude-modifications files")
+	}
+
+	if err := EnsureConfigFile(agencDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to seed config file")
 	}
 
 	return nil

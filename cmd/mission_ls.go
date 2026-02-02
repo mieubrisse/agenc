@@ -49,7 +49,12 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	nicknames := buildNicknameMap(db)
+	cfg, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read config")
+	}
+
+	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tPROMPT\tCREATED")
@@ -84,11 +89,7 @@ func displayAgentTemplate(repo string, nicknames map[string]string) string {
 
 // buildNicknameMap creates a map from repo -> nickname for all templates
 // that have a nickname set.
-func buildNicknameMap(db *database.DB) map[string]string {
-	templates, err := db.ListAgentTemplates()
-	if err != nil {
-		return nil
-	}
+func buildNicknameMap(templates []config.AgentTemplateEntry) map[string]string {
 	m := make(map[string]string)
 	for _, t := range templates {
 		if t.Nickname != "" {
@@ -98,7 +99,7 @@ func buildNicknameMap(db *database.DB) map[string]string {
 	return m
 }
 
-func formatTemplateFzfLine(t *database.AgentTemplate) string {
+func formatTemplateFzfLine(t config.AgentTemplateEntry) string {
 	if t.Nickname != "" {
 		return fmt.Sprintf("%s  (%s)", t.Nickname, t.Repo)
 	}

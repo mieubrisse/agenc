@@ -2,24 +2,27 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/mission"
 )
 
 var templateInstallNicknameFlag string
 
 var templateInstallCmd = &cobra.Command{
-	Use:   "install owner/repo-name",
+	Use:   "install <repo>",
 	Short: "Install an agent template from a GitHub repository",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTemplateInstall,
+	Long: `Install an agent template from a GitHub repository.
+
+Accepts any of these formats:
+  owner/repo
+  github.com/owner/repo
+  https://github.com/owner/repo`,
+	Args: cobra.ExactArgs(1),
+	RunE: runTemplateInstall,
 }
 
 func init() {
@@ -28,54 +31,42 @@ func init() {
 }
 
 func runTemplateInstall(cmd *cobra.Command, args []string) error {
-	ownerRepo := args[0]
-
-	parts := strings.SplitN(ownerRepo, "/", 3)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return stacktrace.NewError("argument must be in the format 'owner/repo-name'")
-	}
-
-	repoName := "github.com/" + ownerRepo
-	targetDirpath := config.GetRepoDirpath(agencDirpath, repoName)
-
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	repoName, cloneURL, err := mission.ParseRepoReference(args[0])
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
+		return stacktrace.Propagate(err, "invalid repo reference")
 	}
-	defer db.Close()
 
-	if _, err := os.Stat(targetDirpath); err == nil {
-		// Repo already cloned — ensure it's registered in the DB
-		if _, dbErr := db.GetAgentTemplate(repoName); dbErr != nil {
-			if _, createErr := db.CreateAgentTemplate(repoName, templateInstallNicknameFlag); createErr != nil {
-				return stacktrace.Propagate(createErr, "failed to register agent template in database")
+	cfg, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read config")
+	}
+
+	for _, entry := range cfg.AgentTemplates {
+		if entry.Repo == repoName {
+			fmt.Printf("Template '%s' already installed\n", repoName)
+			return nil
+		}
+	}
+
+	if _, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL); err != nil {
+		return stacktrace.Propagate(err, "failed to clone repository '%s'", repoName)
+	}
+
+	if templateInstallNicknameFlag != "" {
+		for _, entry := range cfg.AgentTemplates {
+			if entry.Nickname == templateInstallNicknameFlag {
+				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateInstallNicknameFlag, entry.Repo)
 			}
 		}
-		fmt.Printf("Template '%s' already installed\n", repoName)
-		return nil
 	}
 
-	// Create intermediate directories (repos/github.com/owner/)
-	if err := os.MkdirAll(targetDirpath, 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to create directory '%s'", targetDirpath)
-	}
-	// Remove the final directory so git clone can create it
-	if err := os.Remove(targetDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to remove placeholder directory")
-	}
+	cfg.AgentTemplates = append(cfg.AgentTemplates, config.AgentTemplateEntry{
+		Repo:     repoName,
+		Nickname: templateInstallNicknameFlag,
+	})
 
-	cloneURL := fmt.Sprintf("https://github.com/%s.git", ownerRepo)
-	gitCmd := exec.Command("git", "clone", cloneURL, targetDirpath)
-	gitCmd.Stdout = os.Stdout
-	gitCmd.Stderr = os.Stderr
-
-	if err := gitCmd.Run(); err != nil {
-		return stacktrace.Propagate(err, "failed to clone repository '%s'", ownerRepo)
-	}
-
-	if _, err := db.CreateAgentTemplate(repoName, templateInstallNicknameFlag); err != nil {
-		return stacktrace.Propagate(err, "failed to register agent template in database")
+	if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
+		return stacktrace.Propagate(err, "failed to write config")
 	}
 
 	fmt.Printf("Installed template '%s' from %s\n", repoName, cloneURL)

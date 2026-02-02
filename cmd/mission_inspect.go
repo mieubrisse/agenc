@@ -46,7 +46,11 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	nicknames := buildNicknameMap(db)
+	cfg, cfgErr := config.ReadAgencConfig(agencDirpath)
+	if cfgErr != nil {
+		return stacktrace.Propagate(cfgErr, "failed to read config")
+	}
+	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
 	fmt.Printf("ID:          %s\n", mission.ID)
 	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))

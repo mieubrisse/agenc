@@ -3,10 +3,10 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
 )
 
 var templateLsCmd = &cobra.Command{
@@ -20,28 +20,21 @@ func init() {
 }
 
 func runTemplateLs(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	cfg, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	templates, err := db.ListAgentTemplates()
-	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	if len(templates) == 0 {
+	if len(cfg.AgentTemplates) == 0 {
 		fmt.Println("No agent templates installed.")
 		return nil
 	}
 
-	for _, t := range templates {
-		if t.Nickname != "" {
-			fmt.Println(t.Nickname)
+	for _, entry := range cfg.AgentTemplates {
+		if entry.Nickname != "" {
+			fmt.Println(entry.Nickname)
 		} else {
-			fmt.Println(t.Repo)
+			fmt.Println(entry.Repo)
 		}
 	}
 

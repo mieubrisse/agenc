@@ -14,7 +14,6 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
-	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/version"
 )
 
@@ -60,13 +59,6 @@ func runDaemonLoop() error {
 
 	logger := log.New(logFile, "", log.LstdFlags)
 
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -79,7 +71,7 @@ func runDaemonLoop() error {
 		cancel()
 	}()
 
-	d := daemon.NewDaemon(db, agencDirpath, logger)
+	d := daemon.NewDaemon(agencDirpath, logger)
 	d.Run(ctx)
 
 	// Clean up PID and version files on graceful shutdown

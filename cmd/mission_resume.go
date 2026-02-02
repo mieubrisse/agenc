@@ -92,7 +92,11 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		return "", stacktrace.Propagate(err, "failed to list missions")
 	}
 
-	nicknames := buildNicknameMap(db)
+	cfg, cfgErr := config.ReadAgencConfig(agencDirpath)
+	if cfgErr != nil {
+		return "", stacktrace.Propagate(cfgErr, "failed to read config")
+	}
+	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
 	// Filter to stopped missions only (already ordered by created_at DESC)
 	var lines []string

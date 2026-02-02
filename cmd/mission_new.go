@@ -38,35 +38,28 @@ func init() {
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	cfg, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
+		return stacktrace.Propagate(err, "failed to read config")
 	}
-	defer db.Close()
 
 	var agentTemplate string
 
-	templateRecords, err := db.ListAgentTemplates()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to list agent templates")
-	}
-
 	if agentFlag != "" {
 		// --agent flag: match by repo or nickname
-		resolved, resolveErr := resolveTemplate(templateRecords, agentFlag)
+		resolved, resolveErr := resolveTemplate(cfg.AgentTemplates, agentFlag)
 		if resolveErr != nil {
 			return stacktrace.NewError("agent template '%s' not found", agentFlag)
 		}
 		agentTemplate = resolved
-	} else if len(templateRecords) == 0 {
+	} else if len(cfg.AgentTemplates) == 0 {
 		fmt.Println("No agent templates found. Proceeding without a template.")
 		fmt.Printf("Install templates with: agenc template install owner/repo\n")
 	} else if len(args) == 1 {
-		resolved, resolveErr := resolveTemplate(templateRecords, args[0])
+		resolved, resolveErr := resolveTemplate(cfg.AgentTemplates, args[0])
 		if resolveErr != nil {
 			// No match found — fall through to fzf with initial query
-			selected, fzfErr := selectWithFzf(templateRecords, args[0], true)
+			selected, fzfErr := selectWithFzf(cfg.AgentTemplates, args[0], true)
 			if fzfErr != nil {
 				return stacktrace.Propagate(fzfErr, "failed to select agent template")
 			}
@@ -77,7 +70,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 			agentTemplate = resolved
 		}
 	} else {
-		selected, fzfErr := selectWithFzf(templateRecords, "", true)
+		selected, fzfErr := selectWithFzf(cfg.AgentTemplates, "", true)
 		if fzfErr != nil {
 			return stacktrace.Propagate(fzfErr, "failed to select agent template")
 		}
@@ -217,7 +210,7 @@ func isLocalPath(s string) bool {
 // selectWithFzf presents templates in fzf and returns the selected repo name.
 // If allowNone is true, a "NONE" option is prepended. Returns empty string if
 // NONE is selected.
-func selectWithFzf(templates []*database.AgentTemplate, initialQuery string, allowNone bool) (string, error) {
+func selectWithFzf(templates []config.AgentTemplateEntry, initialQuery string, allowNone bool) (string, error) {
 	var lines []string
 	if allowNone {
 		lines = append(lines, "NONE")
@@ -255,8 +248,8 @@ func selectWithFzf(templates []*database.AgentTemplate, initialQuery string, all
 
 // matchTemplatesSubstring returns templates whose Repo or Nickname contain the
 // given substring (case-sensitive).
-func matchTemplatesSubstring(templates []*database.AgentTemplate, substr string) []*database.AgentTemplate {
-	var matches []*database.AgentTemplate
+func matchTemplatesSubstring(templates []config.AgentTemplateEntry, substr string) []config.AgentTemplateEntry {
+	var matches []config.AgentTemplateEntry
 	for _, t := range templates {
 		if strings.Contains(t.Repo, substr) || strings.Contains(t.Nickname, substr) {
 			matches = append(matches, t)
@@ -268,7 +261,7 @@ func matchTemplatesSubstring(templates []*database.AgentTemplate, substr string)
 // resolveTemplate attempts to find exactly one template matching the given
 // query. It tries exact match on repo, then exact match on nickname, then
 // single substring match on either field.
-func resolveTemplate(templates []*database.AgentTemplate, query string) (string, error) {
+func resolveTemplate(templates []config.AgentTemplateEntry, query string) (string, error) {
 	// Exact match by repo
 	for _, t := range templates {
 		if t.Repo == query {

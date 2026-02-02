@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/mission"
 )
 
 const (
@@ -14,7 +16,7 @@ const (
 )
 
 // runRepoUpdateLoop periodically fetches and fast-forwards repos
-// (agent templates and git repo clones) referenced by running missions.
+// for all agent templates listed in config.yml.
 func (d *Daemon) runRepoUpdateLoop(ctx context.Context) {
 	d.runRepoUpdateCycle(ctx)
 
@@ -41,51 +43,57 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 	d.repoUpdateCycleCount++
 	refreshDefaultBranch := d.repoUpdateCycleCount%refreshDefaultBranchInterval == 0
 
-	repoNames := d.collectRunningMissionRepos()
-	for _, repoName := range repoNames {
+	cfg, err := config.ReadAgencConfig(d.agencDirpath)
+	if err != nil {
+		d.logger.Printf("Repo update: failed to read config: %v", err)
+		return
+	}
+
+	for _, entry := range cfg.AgentTemplates {
 		if ctx.Err() != nil {
 			return
 		}
+
+		repoName, cloneURL, err := mission.ParseRepoReference(entry.Repo)
+		if err != nil {
+			d.logger.Printf("Repo update: invalid repo '%s': %v", entry.Repo, err)
+			continue
+		}
+
+		if err := d.ensureRepoCloned(ctx, repoName, cloneURL); err != nil {
+			d.logger.Printf("Repo update: clone failed for '%s': %v", repoName, err)
+			continue
+		}
+
 		d.updateRepo(ctx, repoName, refreshDefaultBranch)
 	}
 }
 
-// collectRunningMissionRepos returns the distinct repo names (agent templates
-// and git repo clones) referenced by missions whose wrapper PID is still
-// alive. Old-format git repo values (absolute paths) are skipped.
-func (d *Daemon) collectRunningMissionRepos() []string {
-	missions, err := d.db.ListMissions(false)
-	if err != nil {
-		d.logger.Printf("Repo update: failed to list missions: %v", err)
+// ensureRepoCloned clones the repo if it doesn't already exist. Unlike
+// mission.EnsureRepoClone, this uses CombinedOutput and logs instead of
+// writing to stdout/stderr.
+func (d *Daemon) ensureRepoCloned(ctx context.Context, repoName string, cloneURL string) error {
+	cloneDirpath := config.GetRepoDirpath(d.agencDirpath, repoName)
+
+	if _, err := os.Stat(cloneDirpath); err == nil {
 		return nil
 	}
 
-	seen := make(map[string]bool)
-	var repoNames []string
-	for _, m := range missions {
-		// Check if the mission's wrapper is running before collecting repos
-		pidFilepath := config.GetMissionPIDFilepath(d.agencDirpath, m.ID)
-		pid, err := ReadPID(pidFilepath)
-		if err != nil || pid == 0 {
-			continue
-		}
-		if !IsProcessRunning(pid) {
-			continue
-		}
-
-		// Collect agent template repo
-		if m.AgentTemplate != "" && !seen[m.AgentTemplate] {
-			seen[m.AgentTemplate] = true
-			repoNames = append(repoNames, m.AgentTemplate)
-		}
-
-		// Collect git repo clone (new-format only: github.com/owner/repo)
-		if m.GitRepo != "" && !strings.HasPrefix(m.GitRepo, "/") && !seen[m.GitRepo] {
-			seen[m.GitRepo] = true
-			repoNames = append(repoNames, m.GitRepo)
-		}
+	if err := os.MkdirAll(cloneDirpath, 0755); err != nil {
+		return err
 	}
-	return repoNames
+	if err := os.Remove(cloneDirpath); err != nil {
+		return err
+	}
+
+	gitCmd := exec.CommandContext(ctx, "git", "clone", cloneURL, cloneDirpath)
+	if output, err := gitCmd.CombinedOutput(); err != nil {
+		d.logger.Printf("Repo update: git clone output for '%s': %s", repoName, strings.TrimSpace(string(output)))
+		return err
+	}
+
+	d.logger.Printf("Repo update: cloned '%s' from %s", repoName, cloneURL)
+	return nil
 }
 
 func (d *Daemon) updateRepo(ctx context.Context, repoName string, refreshDefaultBranch bool) {
