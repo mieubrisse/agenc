@@ -229,8 +229,8 @@ const ansiLightBlue = "\033[94m"
 const ansiReset = "\033[0m"
 
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
-// Agent templates show a 🤖 emoji; regular repos show 📦. The canonical
-// repo name is colored light blue.
+// Agent templates are prefixed with 🤖; regular repos have no prefix.
+// The canonical repo name is colored light blue.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
 	coloredRepo := ansiLightBlue + entry.RepoName + ansiReset
 	if entry.IsTemplate {
@@ -239,7 +239,7 @@ func formatLibraryFzfLine(entry repoLibraryEntry) string {
 		}
 		return fmt.Sprintf("🤖 %s", coloredRepo)
 	}
-	return fmt.Sprintf("📦 %s", coloredRepo)
+	return fmt.Sprintf("   %s", coloredRepo)
 }
 
 // stripAnsi removes ANSI escape sequences from a string.
@@ -263,12 +263,8 @@ func parseLibraryFzfLine(line string) (repoName string, isTemplate bool) {
 		return rest, isTemplate
 	}
 
-	if strings.HasPrefix(line, "📦") {
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "📦"))
-		return rest, false
-	}
-
-	return line, false
+	// Non-template repos have no emoji prefix, just whitespace
+	return strings.TrimSpace(line), false
 }
 
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
