@@ -53,25 +53,33 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	// Remove from syncedRepos if present
-	configChanged := false
-	if idx := slices.Index(cfg.SyncedRepos, repoName); idx >= 0 {
-		cfg.SyncedRepos = slices.Delete(cfg.SyncedRepos, idx, idx+1)
-		configChanged = true
-	}
+	// Check whether the repo exists (on disk or in config) before removing
+	repoDirpath := config.GetRepoDirpath(agencDirpath, repoName)
+	_, statErr := os.Stat(repoDirpath)
+	existsOnDisk := statErr == nil
+	existsInConfig := slices.Contains(cfg.SyncedRepos, repoName)
 
-	if configChanged {
+	// Remove from syncedRepos if present
+	if existsInConfig {
+		idx := slices.Index(cfg.SyncedRepos, repoName)
+		cfg.SyncedRepos = slices.Delete(cfg.SyncedRepos, idx, idx+1)
+
 		if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
 			return stacktrace.Propagate(err, "failed to write config")
 		}
 	}
 
 	// Remove cloned repo from disk
-	repoDirpath := config.GetRepoDirpath(agencDirpath, repoName)
-	if err := os.RemoveAll(repoDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to remove repo directory '%s'", repoDirpath)
+	if existsOnDisk {
+		if err := os.RemoveAll(repoDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to remove repo directory '%s'", repoDirpath)
+		}
 	}
 
-	fmt.Printf("Removed '%s'\n", repoName)
+	if existsOnDisk || existsInConfig {
+		fmt.Printf("Removed '%s'\n", repoName)
+	} else {
+		fmt.Printf("'%s' not found\n", repoName)
+	}
 	return nil
 }
