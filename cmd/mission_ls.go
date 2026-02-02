@@ -58,18 +58,13 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tPROMPT\tCREATED")
+	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tCREATED")
 	for _, m := range missions {
-		promptSnippet := m.Prompt
-		if len(promptSnippet) > 60 {
-			promptSnippet = promptSnippet[:57] + "..."
-		}
 		status := getMissionStatus(m.ID, m.Status)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			m.ID,
-			status,
+			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
-			promptSnippet,
 			m.CreatedAt.Format("2006-01-02 15:04"),
 		)
 	}
@@ -122,6 +117,18 @@ func extractRepoFromFzfLine(line string) string {
 		return strings.TrimSuffix(line[idx+3:], ")")
 	}
 	return line
+}
+
+// colorizeStatus wraps a status string with ANSI color codes.
+func colorizeStatus(status string) string {
+	switch status {
+	case "RUNNING":
+		return "\033[32m" + status + "\033[0m"
+	case "ARCHIVED":
+		return "\033[33m" + status + "\033[0m"
+	default:
+		return status
+	}
 }
 
 // getMissionStatus returns the unified status for a mission: RUNNING, STOPPED,
