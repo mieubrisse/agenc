@@ -31,7 +31,7 @@ var missionNewCmd = &cobra.Command{
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
-	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "local path, repo reference (owner/repo), or GitHub URL; workspace gets a full repo copy")
+	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or https://github.com/owner/repo/...)")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
