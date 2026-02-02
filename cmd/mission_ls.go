@@ -58,13 +58,14 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tCREATED")
+	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tREPO\tCREATED")
 	for _, m := range missions {
 		status := getMissionStatus(m.ID, m.Status)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			m.ID,
 			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
+			displayGitRepo(m.GitRepo),
 			m.CreatedAt.Format("2006-01-02 15:04"),
 		)
 	}
@@ -81,6 +82,13 @@ func displayAgentTemplate(repo string, nicknames map[string]string) string {
 		return nick
 	}
 	return repo
+}
+
+func displayGitRepo(gitRepo string) string {
+	if gitRepo == "" {
+		return "--"
+	}
+	return gitRepo
 }
 
 // buildNicknameMap creates a map from repo -> nickname for all templates
