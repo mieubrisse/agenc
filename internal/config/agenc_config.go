@@ -20,6 +20,7 @@ type AgentTemplateProperties struct {
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
 	AgentTemplates map[string]AgentTemplateProperties `yaml:"agentTemplates"`
+	SyncedRepos    []string                           `yaml:"syncedRepos,omitempty"`
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -56,6 +57,15 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
 		if !canonicalRepoRegex.MatchString(repo) {
 			return nil, stacktrace.NewError(
 				"invalid agentTemplates key '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				repo, configFilepath,
+			)
+		}
+	}
+
+	for _, repo := range cfg.SyncedRepos {
+		if !canonicalRepoRegex.MatchString(repo) {
+			return nil, stacktrace.NewError(
+				"invalid syncedRepos entry '%s' in %s; must be in canonical format 'github.com/owner/repo'",
 				repo, configFilepath,
 			)
 		}

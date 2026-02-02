@@ -49,7 +49,16 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		return
 	}
 
+	// Collect all unique repos to sync: agent templates + synced repos
+	reposToSync := make(map[string]bool)
 	for repo := range cfg.AgentTemplates {
+		reposToSync[repo] = true
+	}
+	for _, repo := range cfg.SyncedRepos {
+		reposToSync[repo] = true
+	}
+
+	for repo := range reposToSync {
 		if ctx.Err() != nil {
 			return
 		}
