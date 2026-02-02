@@ -31,7 +31,7 @@ var missionNewCmd = &cobra.Command{
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
-	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "local path or repo reference (owner/repo); workspace gets a full repo copy")
+	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "local path, repo reference (owner/repo), or GitHub URL; workspace gets a full repo copy")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -142,8 +142,9 @@ func createAndLaunchMission(
 
 // resolveGitFlag resolves a --git flag value into a canonical repo
 // name and the filesystem path to the agenc-owned clone. The flag can be a
-// local filesystem path (starts with /, ., or ~) or a repo reference
-// ("owner/repo" or "github.com/owner/repo").
+// local filesystem path (starts with /, ., or ~), a repo reference
+// ("owner/repo" or "github.com/owner/repo"), or a GitHub URL
+// (https://github.com/owner/repo/...).
 func resolveGitFlag(agencDirpath string, flag string) (repoName string, cloneDirpath string, err error) {
 	if isLocalPath(flag) {
 		return resolveGitFlagFromLocalPath(agencDirpath, flag)

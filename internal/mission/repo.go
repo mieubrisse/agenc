@@ -140,10 +140,26 @@ func EnsureRepoClone(agencDirpath string, repoName string, cloneURL string) (str
 	return cloneDirpath, nil
 }
 
-// ParseRepoReference parses a repository reference in the format "owner/repo"
-// or "github.com/owner/repo" into the canonical repo name and an HTTPS clone
-// URL. If the host is omitted, github.com is assumed.
+// ParseRepoReference parses a repository reference in the format "owner/repo",
+// "github.com/owner/repo", or a full GitHub URL
+// (https://github.com/owner/repo/...) into the canonical repo name and an
+// HTTPS clone URL. If the host is omitted, github.com is assumed. Extra path
+// segments after owner/repo in a URL are ignored.
 func ParseRepoReference(ref string) (repoName string, cloneURL string, err error) {
+	// Normalize GitHub URLs to github.com/owner/repo
+	const githubURLPrefix = "https://github.com/"
+	if strings.HasPrefix(ref, githubURLPrefix) {
+		ref = strings.TrimPrefix(ref, "https://")
+		// Strip trailing slash and any .git suffix before splitting
+		ref = strings.TrimRight(ref, "/")
+		ref = strings.TrimSuffix(ref, ".git")
+		// Keep only github.com/owner/repo (first 3 segments)
+		segments := strings.SplitN(ref, "/", 4)
+		if len(segments) >= 3 {
+			ref = strings.Join(segments[:3], "/")
+		}
+	}
+
 	parts := strings.Split(ref, "/")
 
 	var owner, repo string
@@ -158,7 +174,7 @@ func ParseRepoReference(ref string) (repoName string, cloneURL string, err error
 		}
 		owner, repo = parts[1], parts[2]
 	default:
-		return "", "", stacktrace.NewError("invalid repo reference '%s'; expected 'owner/repo' or 'github.com/owner/repo'", ref)
+		return "", "", stacktrace.NewError("invalid repo reference '%s'; expected 'owner/repo', 'github.com/owner/repo', or a GitHub URL", ref)
 	}
 
 	if owner == "" || repo == "" {
