@@ -11,11 +11,12 @@ const (
 	agencDirpathEnvVar  = "AGENC_DIRPATH"
 	defaultAgencDirname = ".agenc"
 
-	ClaudeDirname         = "claude"
-	UserClaudeDirname     = ".claude"
-	MissionsDirname       = "missions"
-	ReposDirname = "repos"
-	DaemonDirname         = "daemon"
+	ClaudeDirname              = "claude"
+	ClaudeModificationsDirname = "claude-modifications"
+	UserClaudeDirname          = ".claude"
+	MissionsDirname            = "missions"
+	ReposDirname               = "repos"
+	DaemonDirname              = "daemon"
 	DaemonPIDFilename     = "daemon.pid"
 	DaemonLogFilename     = "daemon.log"
 	DaemonVersionFilename = "daemon.version"
@@ -48,6 +49,7 @@ func EnsureDirStructure(agencDirpath string) error {
 	dirs := []string{
 		filepath.Join(agencDirpath, ReposDirname),
 		filepath.Join(agencDirpath, ClaudeDirname),
+		filepath.Join(agencDirpath, ClaudeModificationsDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, DaemonDirname),
 	}
@@ -56,6 +58,11 @@ func EnsureDirStructure(agencDirpath string) error {
 			return stacktrace.Propagate(err, "failed to create directory '%s'", dirpath)
 		}
 	}
+
+	if err := EnsureClaudeModificationsFiles(agencDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to seed claude-modifications files")
+	}
+
 	return nil
 }
 
@@ -152,4 +159,34 @@ func GetMissionWorkspaceDirpath(agencDirpath string, missionID string) string {
 // GetRepoDirpath returns the path to a specific repo directory.
 func GetRepoDirpath(agencDirpath string, repoName string) string {
 	return filepath.Join(GetReposDirpath(agencDirpath), repoName)
+}
+
+// GetClaudeModificationsDirpath returns the path to the claude-modifications
+// directory where agenc-specific CLAUDE.md and settings.json overrides live.
+func GetClaudeModificationsDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ClaudeModificationsDirname)
+}
+
+// EnsureClaudeModificationsFiles creates seed files inside the
+// claude-modifications directory if they don't already exist:
+//   - CLAUDE.md (empty, 0 bytes)
+//   - settings.json (contains "{}\n")
+func EnsureClaudeModificationsFiles(agencDirpath string) error {
+	modsDirpath := GetClaudeModificationsDirpath(agencDirpath)
+
+	claudeMdFilepath := filepath.Join(modsDirpath, "CLAUDE.md")
+	if _, err := os.Stat(claudeMdFilepath); os.IsNotExist(err) {
+		if err := os.WriteFile(claudeMdFilepath, []byte{}, 0644); err != nil {
+			return stacktrace.Propagate(err, "failed to create '%s'", claudeMdFilepath)
+		}
+	}
+
+	settingsFilepath := filepath.Join(modsDirpath, "settings.json")
+	if _, err := os.Stat(settingsFilepath); os.IsNotExist(err) {
+		if err := os.WriteFile(settingsFilepath, []byte("{}\n"), 0644); err != nil {
+			return stacktrace.Propagate(err, "failed to create '%s'", settingsFilepath)
+		}
+	}
+
+	return nil
 }

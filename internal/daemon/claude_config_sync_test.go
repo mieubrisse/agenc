@@ -9,9 +9,9 @@ import (
 
 func TestMergeSettingsWithAgencHooks(t *testing.T) {
 	tests := []struct {
-		name          string
-		inputJSON     string
-		checkMerged   func(t *testing.T, settings map[string]json.RawMessage)
+		name        string
+		inputJSON   string
+		checkMerged func(t *testing.T, settings map[string]json.RawMessage)
 	}{
 		{
 			name:      "empty settings gets agenc hooks",
@@ -209,9 +209,6 @@ func TestSyncSymlinks(t *testing.T) {
 	agencDir := t.TempDir()
 
 	// Create some source items in userDir
-	if err := os.WriteFile(filepath.Join(userDir, "CLAUDE.md"), []byte("# Claude"), 0644); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.MkdirAll(filepath.Join(userDir, "skills"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -221,8 +218,7 @@ func TestSyncSymlinks(t *testing.T) {
 		t.Fatalf("syncSymlinks failed: %v", err)
 	}
 
-	// CLAUDE.md and skills should be symlinked
-	assertSymlinkTarget(t, filepath.Join(agencDir, "CLAUDE.md"), filepath.Join(userDir, "CLAUDE.md"))
+	// skills should be symlinked
 	assertSymlinkTarget(t, filepath.Join(agencDir, "skills"), filepath.Join(userDir, "skills"))
 
 	// commands, agents, plugins should NOT exist
@@ -232,11 +228,13 @@ func TestSyncSymlinks(t *testing.T) {
 		}
 	}
 
-	// Now create "commands" in userDir and remove "CLAUDE.md"
-	if err := os.MkdirAll(filepath.Join(userDir, "commands"), 0755); err != nil {
-		t.Fatal(err)
+	// CLAUDE.md should NOT be symlinked (it's now merged, not symlinked)
+	if _, err := os.Lstat(filepath.Join(agencDir, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Error("CLAUDE.md should not be symlinked")
 	}
-	if err := os.Remove(filepath.Join(userDir, "CLAUDE.md")); err != nil {
+
+	// Now create "commands" in userDir
+	if err := os.MkdirAll(filepath.Join(userDir, "commands"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -244,15 +242,13 @@ func TestSyncSymlinks(t *testing.T) {
 		t.Fatalf("syncSymlinks (second run) failed: %v", err)
 	}
 
-	// CLAUDE.md symlink should be removed, commands should be symlinked
-	if _, err := os.Lstat(filepath.Join(agencDir, "CLAUDE.md")); !os.IsNotExist(err) {
-		t.Error("CLAUDE.md symlink should have been removed")
-	}
+	// commands should now be symlinked
 	assertSymlinkTarget(t, filepath.Join(agencDir, "commands"), filepath.Join(userDir, "commands"))
 }
 
 func TestSyncSettings(t *testing.T) {
 	userDir := t.TempDir()
+	modsDir := t.TempDir()
 	agencDir := t.TempDir()
 
 	// Write a user settings file
@@ -261,8 +257,13 @@ func TestSyncSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Empty mods settings
+	if err := os.WriteFile(filepath.Join(modsDir, settingsFilename), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	// First sync should write the file
-	if err := syncSettings(userDir, agencDir); err != nil {
+	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
 		t.Fatalf("syncSettings failed: %v", err)
 	}
 
@@ -288,7 +289,7 @@ func TestSyncSettings(t *testing.T) {
 
 	// Second sync with same input should not rewrite (mtime preserved)
 	info1, _ := os.Stat(filepath.Join(agencDir, settingsFilename))
-	if err := syncSettings(userDir, agencDir); err != nil {
+	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
 		t.Fatalf("syncSettings (second) failed: %v", err)
 	}
 	info2, _ := os.Stat(filepath.Join(agencDir, settingsFilename))
@@ -299,10 +300,11 @@ func TestSyncSettings(t *testing.T) {
 
 func TestSyncSettings_NoUserFile(t *testing.T) {
 	userDir := t.TempDir()
+	modsDir := t.TempDir()
 	agencDir := t.TempDir()
 
-	// No settings.json in userDir -- should produce agenc-only hooks
-	if err := syncSettings(userDir, agencDir); err != nil {
+	// No settings.json in userDir or modsDir — should produce agenc-only hooks
+	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
 		t.Fatalf("syncSettings failed: %v", err)
 	}
 
@@ -319,6 +321,290 @@ func TestSyncSettings_NoUserFile(t *testing.T) {
 	hooks := parseHooksMap(t, settings)
 	assertHookArrayLen(t, hooks, "Stop", 1)
 	assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
+}
+
+func TestSyncSettings_WithModifications(t *testing.T) {
+	userDir := t.TempDir()
+	modsDir := t.TempDir()
+	agencDir := t.TempDir()
+
+	// User has permissions.allow
+	userSettings := `{"permissions": {"allow": ["Read(./**)"]}}`
+	if err := os.WriteFile(filepath.Join(userDir, settingsFilename), []byte(userSettings), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agenc-mods has permissions.deny
+	modsSettings := `{"permissions": {"deny": ["Write(/etc/**)"]}}`
+	if err := os.WriteFile(filepath.Join(modsDir, settingsFilename), []byte(modsSettings), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
+		t.Fatalf("syncSettings failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(agencDir, settingsFilename))
+	if err != nil {
+		t.Fatalf("failed to read agenc settings: %v", err)
+	}
+
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("failed to parse agenc settings: %v", err)
+	}
+
+	// Check that permissions contains both allow and deny
+	permRaw, ok := settings["permissions"]
+	if !ok {
+		t.Fatal("permissions field missing")
+	}
+	var perms map[string]json.RawMessage
+	if err := json.Unmarshal(permRaw, &perms); err != nil {
+		t.Fatalf("failed to parse permissions: %v", err)
+	}
+	if _, ok := perms["allow"]; !ok {
+		t.Error("permissions.allow was lost")
+	}
+	if _, ok := perms["deny"]; !ok {
+		t.Error("permissions.deny from agenc-mods was not merged in")
+	}
+
+	// Hooks should still be present
+	hooks := parseHooksMap(t, settings)
+	assertHookArrayLen(t, hooks, "Stop", 1)
+	assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
+}
+
+func TestDeepMergeJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     string
+		overlay  string
+		checkFn  func(t *testing.T, result map[string]json.RawMessage)
+	}{
+		{
+			name:    "disjoint keys merge",
+			base:    `{"a": 1}`,
+			overlay: `{"b": 2}`,
+			checkFn: func(t *testing.T, result map[string]json.RawMessage) {
+				assertJSONKey(t, result, "a", "1")
+				assertJSONKey(t, result, "b", "2")
+			},
+		},
+		{
+			name:    "nested objects merge recursively",
+			base:    `{"obj": {"a": 1, "b": 2}}`,
+			overlay: `{"obj": {"b": 3, "c": 4}}`,
+			checkFn: func(t *testing.T, result map[string]json.RawMessage) {
+				var obj map[string]json.RawMessage
+				if err := json.Unmarshal(result["obj"], &obj); err != nil {
+					t.Fatal(err)
+				}
+				assertJSONKey(t, obj, "a", "1")
+				assertJSONKey(t, obj, "b", "3") // overlay wins
+				assertJSONKey(t, obj, "c", "4")
+			},
+		},
+		{
+			name:    "arrays concatenate",
+			base:    `{"arr": [1, 2]}`,
+			overlay: `{"arr": [3, 4]}`,
+			checkFn: func(t *testing.T, result map[string]json.RawMessage) {
+				var arr []json.RawMessage
+				if err := json.Unmarshal(result["arr"], &arr); err != nil {
+					t.Fatal(err)
+				}
+				if len(arr) != 4 {
+					t.Errorf("expected array length 4, got %d", len(arr))
+				}
+			},
+		},
+		{
+			name:    "scalar overlay wins",
+			base:    `{"key": "base"}`,
+			overlay: `{"key": "overlay"}`,
+			checkFn: func(t *testing.T, result map[string]json.RawMessage) {
+				assertJSONKey(t, result, "key", `"overlay"`)
+			},
+		},
+		{
+			name:    "type mismatch object vs scalar overlay wins",
+			base:    `{"key": {"nested": true}}`,
+			overlay: `{"key": "scalar"}`,
+			checkFn: func(t *testing.T, result map[string]json.RawMessage) {
+				assertJSONKey(t, result, "key", `"scalar"`)
+			},
+		},
+		{
+			name:    "empty base",
+			base:    `{}`,
+			overlay: `{"a": 1}`,
+			checkFn: func(t *testing.T, result map[string]json.RawMessage) {
+				assertJSONKey(t, result, "a", "1")
+			},
+		},
+		{
+			name:    "empty overlay",
+			base:    `{"a": 1}`,
+			overlay: `{}`,
+			checkFn: func(t *testing.T, result map[string]json.RawMessage) {
+				assertJSONKey(t, result, "a", "1")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var base map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(tt.base), &base); err != nil {
+				t.Fatal(err)
+			}
+			var overlay map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(tt.overlay), &overlay); err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := deepMergeJSON(base, overlay)
+			if err != nil {
+				t.Fatalf("deepMergeJSON returned error: %v", err)
+			}
+
+			tt.checkFn(t, result)
+		})
+	}
+}
+
+func TestSyncClaudeMd(t *testing.T) {
+	t.Run("both files exist", func(t *testing.T) {
+		userDir := t.TempDir()
+		modsDir := t.TempDir()
+		agencDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(userDir, "CLAUDE.md"), []byte("User content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(modsDir, "CLAUDE.md"), []byte("Agenc content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := syncClaudeMd(userDir, modsDir, agencDir); err != nil {
+			t.Fatal(err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(agencDir, "CLAUDE.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := "User content\n\nAgenc content\n"
+		if string(data) != expected {
+			t.Errorf("expected %q, got %q", expected, string(data))
+		}
+	})
+
+	t.Run("only user file exists", func(t *testing.T) {
+		userDir := t.TempDir()
+		modsDir := t.TempDir()
+		agencDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(userDir, "CLAUDE.md"), []byte("User only"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := syncClaudeMd(userDir, modsDir, agencDir); err != nil {
+			t.Fatal(err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(agencDir, "CLAUDE.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := "User only\n"
+		if string(data) != expected {
+			t.Errorf("expected %q, got %q", expected, string(data))
+		}
+	})
+
+	t.Run("only agenc-mods file exists", func(t *testing.T) {
+		userDir := t.TempDir()
+		modsDir := t.TempDir()
+		agencDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(modsDir, "CLAUDE.md"), []byte("Mods only"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := syncClaudeMd(userDir, modsDir, agencDir); err != nil {
+			t.Fatal(err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(agencDir, "CLAUDE.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := "Mods only\n"
+		if string(data) != expected {
+			t.Errorf("expected %q, got %q", expected, string(data))
+		}
+	})
+
+	t.Run("neither exists removes target", func(t *testing.T) {
+		userDir := t.TempDir()
+		modsDir := t.TempDir()
+		agencDir := t.TempDir()
+
+		// Pre-create target to verify it gets removed
+		destFilepath := filepath.Join(agencDir, "CLAUDE.md")
+		if err := os.WriteFile(destFilepath, []byte("stale"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := syncClaudeMd(userDir, modsDir, agencDir); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := os.Stat(destFilepath); !os.IsNotExist(err) {
+			t.Error("CLAUDE.md should have been removed when both sources are empty")
+		}
+	})
+
+	t.Run("mtime preserved when unchanged", func(t *testing.T) {
+		userDir := t.TempDir()
+		modsDir := t.TempDir()
+		agencDir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(userDir, "CLAUDE.md"), []byte("Content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// First sync
+		if err := syncClaudeMd(userDir, modsDir, agencDir); err != nil {
+			t.Fatal(err)
+		}
+
+		destFilepath := filepath.Join(agencDir, "CLAUDE.md")
+		info1, err := os.Stat(destFilepath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Second sync — same content
+		if err := syncClaudeMd(userDir, modsDir, agencDir); err != nil {
+			t.Fatal(err)
+		}
+
+		info2, err := os.Stat(destFilepath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !info1.ModTime().Equal(info2.ModTime()) {
+			t.Error("file was rewritten despite no changes")
+		}
+	})
 }
 
 // --- test helpers ---
@@ -359,5 +645,16 @@ func assertSymlinkTarget(t *testing.T, linkPath string, expectedTarget string) {
 	}
 	if target != expectedTarget {
 		t.Errorf("symlink '%s' points to '%s', expected '%s'", linkPath, target, expectedTarget)
+	}
+}
+
+func assertJSONKey(t *testing.T, m map[string]json.RawMessage, key string, expectedRaw string) {
+	t.Helper()
+	raw, ok := m[key]
+	if !ok {
+		t.Fatalf("key '%s' not found in map", key)
+	}
+	if string(raw) != expectedRaw {
+		t.Errorf("key '%s': expected %s, got %s", key, expectedRaw, string(raw))
 	}
 }

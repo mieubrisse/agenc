@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
@@ -21,7 +22,6 @@ const (
 // symlinkItemNames lists the items from ~/.claude/ to symlink into the agenc
 // Claude config directory. Each may be a file or directory.
 var symlinkItemNames = []string{
-	"CLAUDE.md",
 	"skills",
 	"commands",
 	"agents",
@@ -53,7 +53,7 @@ func (d *Daemon) runConfigSyncLoop(ctx context.Context) {
 	}
 }
 
-// runConfigSyncCycle performs a single config sync: symlinks + settings merge.
+// runConfigSyncCycle performs a single config sync: symlinks + settings merge + CLAUDE.md merge.
 func (d *Daemon) runConfigSyncCycle() {
 	userClaudeDirpath, err := config.GetUserClaudeDirpath()
 	if err != nil {
@@ -62,12 +62,17 @@ func (d *Daemon) runConfigSyncCycle() {
 	}
 
 	agencClaudeDirpath := config.GetGlobalClaudeDirpath(d.agencDirpath)
+	agencModsDirpath := config.GetClaudeModificationsDirpath(d.agencDirpath)
 
 	if err := syncSymlinks(userClaudeDirpath, agencClaudeDirpath); err != nil {
 		d.logger.Printf("Config sync: symlink sync failed: %v", err)
 	}
 
-	if err := syncSettings(userClaudeDirpath, agencClaudeDirpath); err != nil {
+	if err := syncClaudeMd(userClaudeDirpath, agencModsDirpath, agencClaudeDirpath); err != nil {
+		d.logger.Printf("Config sync: CLAUDE.md sync failed: %v", err)
+	}
+
+	if err := syncSettings(userClaudeDirpath, agencModsDirpath, agencClaudeDirpath); err != nil {
 		d.logger.Printf("Config sync: settings sync failed: %v", err)
 	}
 
@@ -166,15 +171,15 @@ func pathExists(path string) (bool, error) {
 	return false, err
 }
 
-// syncSettings reads the user's settings.json, merges in agenc hooks, and
-// writes the result to the agenc Claude config dir. Only writes if the
-// contents differ from the existing file.
-func syncSettings(userClaudeDirpath string, agencClaudeDirpath string) error {
+// syncSettings reads the user's settings.json and the agenc-modifications
+// settings.json, deep-merges them, appends agenc hooks, and writes the
+// result to the agenc Claude config dir. Only writes if the contents differ.
+func syncSettings(userClaudeDirpath string, agencModsDirpath string, agencClaudeDirpath string) error {
 	userSettingsFilepath := filepath.Join(userClaudeDirpath, settingsFilename)
+	modsSettingsFilepath := filepath.Join(agencModsDirpath, settingsFilename)
 	agencSettingsFilepath := filepath.Join(agencClaudeDirpath, settingsFilename)
 
-	// Read user settings -- follow symlinks transparently via ReadFile.
-	// If the file doesn't exist, start with an empty object.
+	// Read user settings (empty object if missing)
 	userSettingsData, err := os.ReadFile(userSettingsFilepath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -184,9 +189,43 @@ func syncSettings(userClaudeDirpath string, agencClaudeDirpath string) error {
 		}
 	}
 
-	mergedData, err := mergeSettingsWithAgencHooks(userSettingsData)
+	// Read agenc-modifications settings (empty object if missing)
+	modsSettingsData, err := os.ReadFile(modsSettingsFilepath)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to merge settings")
+		if os.IsNotExist(err) {
+			modsSettingsData = []byte("{}")
+		} else {
+			return stacktrace.Propagate(err, "failed to read mods settings at '%s'", modsSettingsFilepath)
+		}
+	}
+
+	// Parse both into maps
+	var userMap map[string]json.RawMessage
+	if err := json.Unmarshal(userSettingsData, &userMap); err != nil {
+		return stacktrace.Propagate(err, "failed to parse user settings JSON")
+	}
+
+	var modsMap map[string]json.RawMessage
+	if err := json.Unmarshal(modsSettingsData, &modsMap); err != nil {
+		return stacktrace.Propagate(err, "failed to parse mods settings JSON")
+	}
+
+	// Deep-merge: user as base, agenc-modifications as overlay
+	mergedMap, err := deepMergeJSON(userMap, modsMap)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to deep-merge settings")
+	}
+
+	// Re-serialize the merged map so we can pass it to the hooks merger
+	mergedBase, err := json.Marshal(mergedMap)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal merged settings base")
+	}
+
+	// Append agenc operational hooks on top of the merged base
+	mergedData, err := mergeSettingsWithAgencHooks(mergedBase)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to merge settings with agenc hooks")
 	}
 
 	// Only write if contents differ (preserves mtime when nothing changed)
@@ -200,6 +239,121 @@ func syncSettings(userClaudeDirpath string, agencClaudeDirpath string) error {
 	}
 
 	return nil
+}
+
+// syncClaudeMd merges the user's CLAUDE.md with the agenc-modifications
+// CLAUDE.md and writes the result to the agenc Claude config directory.
+// User content comes first, agenc-modifications content is appended after.
+// Only writes if content differs from the existing file.
+func syncClaudeMd(userClaudeDirpath string, agencModsDirpath string, agencClaudeDirpath string) error {
+	claudeMdFilename := "CLAUDE.md"
+	userFilepath := filepath.Join(userClaudeDirpath, claudeMdFilename)
+	modsFilepath := filepath.Join(agencModsDirpath, claudeMdFilename)
+	destFilepath := filepath.Join(agencClaudeDirpath, claudeMdFilename)
+
+	userContent, err := os.ReadFile(userFilepath)
+	if err != nil && !os.IsNotExist(err) {
+		return stacktrace.Propagate(err, "failed to read user CLAUDE.md at '%s'", userFilepath)
+	}
+
+	modsContent, err := os.ReadFile(modsFilepath)
+	if err != nil && !os.IsNotExist(err) {
+		return stacktrace.Propagate(err, "failed to read mods CLAUDE.md at '%s'", modsFilepath)
+	}
+
+	userTrimmed := strings.TrimSpace(string(userContent))
+	modsTrimmed := strings.TrimSpace(string(modsContent))
+
+	var merged string
+	switch {
+	case userTrimmed != "" && modsTrimmed != "":
+		merged = userTrimmed + "\n\n" + modsTrimmed
+	case userTrimmed != "":
+		merged = userTrimmed
+	case modsTrimmed != "":
+		merged = modsTrimmed
+	default:
+		// Both empty — remove destination if it exists
+		if err := os.Remove(destFilepath); err != nil && !os.IsNotExist(err) {
+			return stacktrace.Propagate(err, "failed to remove '%s'", destFilepath)
+		}
+		return nil
+	}
+
+	// Add trailing newline
+	mergedBytes := []byte(merged + "\n")
+
+	// Only write if contents differ
+	existingData, readErr := os.ReadFile(destFilepath)
+	if readErr == nil && bytes.Equal(existingData, mergedBytes) {
+		return nil
+	}
+
+	if err := os.WriteFile(destFilepath, mergedBytes, 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write merged CLAUDE.md to '%s'", destFilepath)
+	}
+
+	return nil
+}
+
+// deepMergeJSON recursively merges overlay into base. Objects are merged
+// recursively, arrays are concatenated (base first), and scalars from
+// overlay win over base.
+func deepMergeJSON(base map[string]json.RawMessage, overlay map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	result := make(map[string]json.RawMessage, len(base))
+	for k, v := range base {
+		result[k] = v
+	}
+
+	for k, overlayVal := range overlay {
+		baseVal, exists := result[k]
+		if !exists {
+			result[k] = overlayVal
+			continue
+		}
+
+		// Try to treat both as objects
+		var baseObj map[string]json.RawMessage
+		var overlayObj map[string]json.RawMessage
+		baseObjErr := json.Unmarshal(baseVal, &baseObj)
+		overlayObjErr := json.Unmarshal(overlayVal, &overlayObj)
+
+		if baseObjErr == nil && overlayObjErr == nil && baseObj != nil && overlayObj != nil {
+			// Both are objects — recurse
+			mergedObj, err := deepMergeJSON(baseObj, overlayObj)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "failed to deep-merge key '%s'", k)
+			}
+			mergedData, err := json.Marshal(mergedObj)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "failed to marshal merged key '%s'", k)
+			}
+			result[k] = json.RawMessage(mergedData)
+			continue
+		}
+
+		// Try to treat both as arrays
+		var baseArr []json.RawMessage
+		var overlayArr []json.RawMessage
+		baseArrErr := json.Unmarshal(baseVal, &baseArr)
+		overlayArrErr := json.Unmarshal(overlayVal, &overlayArr)
+
+		if baseArrErr == nil && overlayArrErr == nil && baseArr != nil && overlayArr != nil {
+			// Both are arrays — concatenate
+			concatenated := append(baseArr, overlayArr...)
+			concatData, err := json.Marshal(concatenated)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "failed to marshal concatenated arrays for key '%s'", k)
+			}
+			result[k] = json.RawMessage(concatData)
+			continue
+		}
+
+		// Scalar or type mismatch — overlay wins
+		result[k] = overlayVal
+	}
+
+	return result, nil
 }
 
 // mergeSettingsWithAgencHooks takes raw JSON bytes of the user's settings.json,
