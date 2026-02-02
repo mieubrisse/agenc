@@ -5,6 +5,7 @@ AgenC
 AgenC (pronounced "agency") is like Docker for your multi-agent vibeworking. It's:
 
 - A runtime for running & juggling agents
+- A storehouse for the Git repos agents edit
 - An LLMOps system for rolling fixes back into the agent config
 - A plugin system for sharing agents
 
