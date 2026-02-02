@@ -149,7 +149,7 @@ agenc repo add owner/repo --sync   # clone and add to syncedRepos
 agenc repo rm owner/repo           # remove from disk and syncedRepos
 ```
 
-Values must be in canonical format (`github.com/owner/repo`).
+Entries in `config.yml` must use canonical format (`github.com/owner/repo`). The CLI accepts shorthand — `owner/repo`, `github.com/owner/repo`, or a full `https://github.com/owner/repo` URL — and normalizes it automatically.
 
 Design Goals
 ------------
