@@ -1,9 +1,9 @@
-- [ ] Reload when global Claude config reloads
-    - Will require the agenc wrappers monitoring a bunch of files in ~/.agenc/claude I think
+- [ ] Reload when non-CLAUDE.md/settings.json changes happen (skills, subagents, etc.)
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Add crons with scheduled work tracker (dump work into the queue, cron picks it up)
 - [ ] Add option for agenc-managed config
-- [ ] Daemon has fsnotify on `config.yml` and refreshes its understanding of the config whenever it's updated
+- [ ] OPTIMIZATION: Daemon has fsnotify on `config.yml` and refreshes its understanding of the config only once when it's updated
+    - Prevents reading the config on every loop
 - [ ] Add the ability for agents to request other repo copies
 - [ ] Maybe some way to save information for later???? E.g. I'm doing research in a research tab, and I want to come back to it later
 
