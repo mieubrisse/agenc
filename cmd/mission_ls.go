@@ -80,7 +80,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 func displayAgentTemplate(repo string, nicknames map[string]string) string {
 	if repo == "" {
-		return "(none)"
+		return "--"
 	}
 	if nick, ok := nicknames[repo]; ok {
 		return nick
