@@ -1,13 +1,11 @@
-- [ ] Edit agenc in agenc
-    - [x] Create a software developer agent template
-    - [ ] Have agenc track agenc config
-- [ ] Move agent-templates into config.yml inside `config` directory
-- [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Reload when global Claude config reloads
+    - Will require the agenc wrappers monitoring a bunch of files in ~/.agenc/claude I think
+- [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Add crons with scheduled work tracker (dump work into the queue, cron picks it up)
 - [ ] Add option for agenc-managed config
 - [ ] Daemon has fsnotify on `config.yml` and refreshes its understanding of the config whenever it's updated
 - [ ] Add the ability for agents to request other repo copies
+- [ ] Maybe some way to save information for later???? E.g. I'm doing research in a research tab, and I want to come back to it later
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
@@ -15,8 +13,12 @@
 
 ### Tmux fanciness
 - [ ] When calling a new mission, open one half Claude and the other half the working directory of the thing
+- [ ] Can quickly jump into editing an agent's config with a slash command
+    - Maybe need to clone the existing mission???
+    - DEFINITELY need to copy the Claude history, so that the new editing thing gets it
 - [ ] Add tmux fanciness so that when opening a new pane from an existing agent session, it opens it in the MISSION_DIRPATH
 - [ ] Add tmux fanciness: a popup window that allows jumping to anything (new repo, new agent, open a Git worktree on an existing project, whatever)
+- [ ] Add some way to mark a window/pane as unread, so you know to come back to it
 
 
 
