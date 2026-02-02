@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -222,26 +223,38 @@ func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTempl
 	return entries
 }
 
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+const ansiLightBlue = "\033[94m"
+const ansiReset = "\033[0m"
+
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
-// Templates show a [template] label; repos show [repo].
+// Agent templates show a 🤖 emoji; regular repos show 📦. The canonical
+// repo name is colored light blue.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
+	coloredRepo := ansiLightBlue + entry.RepoName + ansiReset
 	if entry.IsTemplate {
 		if entry.Nickname != "" {
-			return fmt.Sprintf("[template]  %s  (%s)", entry.Nickname, entry.RepoName)
+			return fmt.Sprintf("🤖 %s  (%s)", entry.Nickname, coloredRepo)
 		}
-		return fmt.Sprintf("[template]  %s", entry.RepoName)
+		return fmt.Sprintf("🤖 %s", coloredRepo)
 	}
-	return fmt.Sprintf("[repo]      %s", entry.RepoName)
+	return fmt.Sprintf("📦 %s", coloredRepo)
+}
+
+// stripAnsi removes ANSI escape sequences from a string.
+func stripAnsi(s string) string {
+	return ansiEscapePattern.ReplaceAllString(s, "")
 }
 
 // parseLibraryFzfLine extracts the repo name and template status from a
 // formatted fzf line produced by formatLibraryFzfLine.
 func parseLibraryFzfLine(line string) (repoName string, isTemplate bool) {
-	line = strings.TrimSpace(line)
+	line = strings.TrimSpace(stripAnsi(line))
 
-	if strings.HasPrefix(line, "[template]") {
+	if strings.HasPrefix(line, "🤖") {
 		isTemplate = true
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "[template]"))
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "🤖"))
 		// Check for nickname format: "nickname  (github.com/owner/repo)"
 		if idx := strings.LastIndex(rest, "  ("); idx != -1 {
 			repoName = strings.TrimSuffix(rest[idx+3:], ")")
@@ -250,8 +263,8 @@ func parseLibraryFzfLine(line string) (repoName string, isTemplate bool) {
 		return rest, isTemplate
 	}
 
-	if strings.HasPrefix(line, "[repo]") {
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "[repo]"))
+	if strings.HasPrefix(line, "📦") {
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "📦"))
 		return rest, false
 	}
 
@@ -273,7 +286,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or use --git/--agent flags")
 	}
 
-	fzfArgs := []string{"--prompt", "Select repo: "}
+	fzfArgs := []string{"--ansi", "--prompt", "Select repo: "}
 	if initialQuery != "" {
 		fzfArgs = append(fzfArgs, "--query", initialQuery)
 	}
