@@ -57,7 +57,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.StripEscape)
 	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tREPO\tCREATED")
 	for _, m := range missions {
 		status := getMissionStatus(m.ID, m.Status)
@@ -127,13 +127,21 @@ func extractRepoFromFzfLine(line string) string {
 	return line
 }
 
-// colorizeStatus wraps a status string with ANSI color codes.
+// tabEscape wraps s in tabwriter escape markers (\xff) so that its byte
+// length is excluded from column width calculation.
+func tabEscape(s string) string {
+	return "\xff" + s + "\xff"
+}
+
+// colorizeStatus wraps a status string with ANSI color codes. The ANSI
+// sequences are bracketed with tabwriter escape markers so they don't
+// affect column alignment.
 func colorizeStatus(status string) string {
 	switch status {
 	case "RUNNING":
-		return "\033[32m" + status + "\033[0m"
+		return tabEscape("\033[32m") + status + tabEscape("\033[0m")
 	case "ARCHIVED":
-		return "\033[33m" + status + "\033[0m"
+		return tabEscape("\033[33m") + status + tabEscape("\033[0m")
 	default:
 		return status
 	}
