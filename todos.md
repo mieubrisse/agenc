@@ -13,7 +13,7 @@
 
 ### Tmux fanciness
 - [ ] When calling a new mission, open one half Claude and the other half the working directory of the thing
-- [ ] Can quickly jump into editing an agent's config with a slash command
+- [ ] Slash command for quickly editing agent config
     - Maybe need to clone the existing mission???
     - DEFINITELY need to copy the Claude history, so that the new editing thing gets it
 - [ ] Add tmux fanciness so that when opening a new pane from an existing agent session, it opens it in the MISSION_DIRPATH
