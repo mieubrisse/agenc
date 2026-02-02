@@ -228,11 +228,20 @@ var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 const ansiLightBlue = "\033[94m"
 const ansiReset = "\033[0m"
 
+// colorRepoName colors only the final path segment (the repo name) of a
+// canonical repo string like "github.com/owner/repo".
+func colorRepoName(canonicalName string) string {
+	if idx := strings.LastIndex(canonicalName, "/"); idx != -1 {
+		return canonicalName[:idx+1] + ansiLightBlue + canonicalName[idx+1:] + ansiReset
+	}
+	return ansiLightBlue + canonicalName + ansiReset
+}
+
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
 // Agent templates are prefixed with 🤖; regular repos have no prefix.
-// The canonical repo name is colored light blue.
+// The repo name (final path segment) is colored light blue.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
-	coloredRepo := ansiLightBlue + entry.RepoName + ansiReset
+	coloredRepo := colorRepoName(entry.RepoName)
 	if entry.IsTemplate {
 		if entry.Nickname != "" {
 			return fmt.Sprintf("🤖 %s  (%s)", entry.Nickname, coloredRepo)
