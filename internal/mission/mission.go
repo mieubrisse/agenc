@@ -107,7 +107,7 @@ func ReadTemplateCommitHash(templateDirpath string) (string, error) {
 // SpawnClaude starts claude as a child process in the given agent directory
 // with the given prompt. Returns the running command. The caller is
 // responsible for calling cmd.Wait().
-func SpawnClaude(agencDirpath string, agentDirpath string, prompt string) (*exec.Cmd, error) {
+func SpawnClaude(agencDirpath string, missionID string, agentDirpath string, prompt string) (*exec.Cmd, error) {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
@@ -125,7 +125,10 @@ func SpawnClaude(agencDirpath string, agentDirpath string, prompt string) (*exec
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
+	cmd.Env = append(os.Environ(),
+		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
+		"AGENC_MISSION_UUID="+missionID,
+	)
 
 	if err := cmd.Start(); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to start claude")
@@ -137,7 +140,7 @@ func SpawnClaude(agencDirpath string, agentDirpath string, prompt string) (*exec
 // SpawnClaudeResume starts claude -c as a child process in the given agent
 // directory. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
-func SpawnClaudeResume(agencDirpath string, agentDirpath string) (*exec.Cmd, error) {
+func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
@@ -150,7 +153,10 @@ func SpawnClaudeResume(agencDirpath string, agentDirpath string) (*exec.Cmd, err
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
+	cmd.Env = append(os.Environ(),
+		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
+		"AGENC_MISSION_UUID="+missionID,
+	)
 
 	if err := cmd.Start(); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to start claude -c")

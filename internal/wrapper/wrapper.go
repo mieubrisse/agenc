@@ -117,9 +117,9 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 
 	// Spawn initial Claude process
 	if isResume {
-		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.agentDirpath)
+		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
 	} else {
-		w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.agentDirpath, prompt)
+		w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath, prompt)
 	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to spawn claude")
@@ -148,7 +148,7 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 			if w.state == StateRestarting {
 				// Expected exit from our SIGINT -- relaunch with -c
 				w.logger.Info("Reloading Claude session after config change")
-				w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.agentDirpath)
+				w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
 				if err != nil {
 					return stacktrace.Propagate(err, "failed to respawn claude after restart")
 				}
