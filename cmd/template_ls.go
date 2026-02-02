@@ -30,11 +30,13 @@ func runTemplateLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	for _, entry := range cfg.AgentTemplates {
-		if entry.Nickname != "" {
-			fmt.Println(entry.Nickname)
+	repos := sortedRepoKeys(cfg.AgentTemplates)
+	for _, repo := range repos {
+		props := cfg.AgentTemplates[repo]
+		if props.Nickname != "" {
+			fmt.Println(props.Nickname)
 		} else {
-			fmt.Println(entry.Repo)
+			fmt.Println(repo)
 		}
 	}
 

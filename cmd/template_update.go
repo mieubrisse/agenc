@@ -37,19 +37,15 @@ func runTemplateUpdate(cmd *cobra.Command, args []string) error {
 
 	// Check nickname uniqueness
 	if templateUpdateNicknameFlag != "" {
-		for _, entry := range cfg.AgentTemplates {
-			if entry.Nickname == templateUpdateNicknameFlag && entry.Repo != repo {
-				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateUpdateNicknameFlag, entry.Repo)
+		for otherRepo, props := range cfg.AgentTemplates {
+			if props.Nickname == templateUpdateNicknameFlag && otherRepo != repo {
+				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateUpdateNicknameFlag, otherRepo)
 			}
 		}
 	}
 
-	// Update the entry
-	for i, entry := range cfg.AgentTemplates {
-		if entry.Repo == repo {
-			cfg.AgentTemplates[i].Nickname = templateUpdateNicknameFlag
-			break
-		}
+	cfg.AgentTemplates[repo] = config.AgentTemplateProperties{
+		Nickname: templateUpdateNicknameFlag,
 	}
 
 	if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {

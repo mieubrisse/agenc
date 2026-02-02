@@ -41,11 +41,9 @@ func runTemplateInstall(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	for _, entry := range cfg.AgentTemplates {
-		if entry.Repo == repoName {
-			fmt.Printf("Template '%s' already installed\n", repoName)
-			return nil
-		}
+	if _, exists := cfg.AgentTemplates[repoName]; exists {
+		fmt.Printf("Template '%s' already installed\n", repoName)
+		return nil
 	}
 
 	if _, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL); err != nil {
@@ -53,17 +51,16 @@ func runTemplateInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	if templateInstallNicknameFlag != "" {
-		for _, entry := range cfg.AgentTemplates {
-			if entry.Nickname == templateInstallNicknameFlag {
-				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateInstallNicknameFlag, entry.Repo)
+		for otherRepo, props := range cfg.AgentTemplates {
+			if props.Nickname == templateInstallNicknameFlag {
+				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateInstallNicknameFlag, otherRepo)
 			}
 		}
 	}
 
-	cfg.AgentTemplates = append(cfg.AgentTemplates, config.AgentTemplateEntry{
-		Repo:     repoName,
+	cfg.AgentTemplates[repoName] = config.AgentTemplateProperties{
 		Nickname: templateInstallNicknameFlag,
-	})
+	}
 
 	if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
 		return stacktrace.Propagate(err, "failed to write config")

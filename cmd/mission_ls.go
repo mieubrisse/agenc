@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -89,21 +90,31 @@ func displayAgentTemplate(repo string, nicknames map[string]string) string {
 
 // buildNicknameMap creates a map from repo -> nickname for all templates
 // that have a nickname set.
-func buildNicknameMap(templates []config.AgentTemplateEntry) map[string]string {
+func buildNicknameMap(templates map[string]config.AgentTemplateProperties) map[string]string {
 	m := make(map[string]string)
-	for _, t := range templates {
-		if t.Nickname != "" {
-			m[t.Repo] = t.Nickname
+	for repo, props := range templates {
+		if props.Nickname != "" {
+			m[repo] = props.Nickname
 		}
 	}
 	return m
 }
 
-func formatTemplateFzfLine(t config.AgentTemplateEntry) string {
-	if t.Nickname != "" {
-		return fmt.Sprintf("%s  (%s)", t.Nickname, t.Repo)
+// sortedRepoKeys returns the map keys sorted alphabetically.
+func sortedRepoKeys(templates map[string]config.AgentTemplateProperties) []string {
+	repos := make([]string, 0, len(templates))
+	for repo := range templates {
+		repos = append(repos, repo)
 	}
-	return t.Repo
+	sort.Strings(repos)
+	return repos
+}
+
+func formatTemplateFzfLine(repo string, props config.AgentTemplateProperties) string {
+	if props.Nickname != "" {
+		return fmt.Sprintf("%s  (%s)", props.Nickname, repo)
+	}
+	return repo
 }
 
 func extractRepoFromFzfLine(line string) string {

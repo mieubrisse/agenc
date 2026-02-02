@@ -32,14 +32,7 @@ func runTemplateRm(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Remove from config
-	filtered := cfg.AgentTemplates[:0]
-	for _, entry := range cfg.AgentTemplates {
-		if entry.Repo != repo {
-			filtered = append(filtered, entry)
-		}
-	}
-	cfg.AgentTemplates = filtered
+	delete(cfg.AgentTemplates, repo)
 
 	if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
 		return stacktrace.Propagate(err, "failed to write config")

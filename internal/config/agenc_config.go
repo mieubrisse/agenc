@@ -3,20 +3,23 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/mieubrisse/stacktrace"
 	"gopkg.in/yaml.v3"
 )
 
-// AgentTemplateEntry represents a single agent template in config.yml.
-type AgentTemplateEntry struct {
-	Repo     string `yaml:"repo"`
+// canonicalRepoRegex matches the canonical repo format: github.com/owner/repo
+var canonicalRepoRegex = regexp.MustCompile(`^github\.com/[^/]+/[^/]+$`)
+
+// AgentTemplateProperties holds optional properties for an agent template.
+type AgentTemplateProperties struct {
 	Nickname string `yaml:"nickname,omitempty"`
 }
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	AgentTemplates []AgentTemplateEntry `yaml:"agentTemplates"`
+	AgentTemplates map[string]AgentTemplateProperties `yaml:"agentTemplates"`
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -25,14 +28,17 @@ func GetConfigFilepath(agencDirpath string) string {
 }
 
 // ReadAgencConfig reads and parses config.yml. Returns an empty config if the
-// file does not exist.
+// file does not exist. Returns an error if any agentTemplates key is not in
+// canonical format (github.com/owner/repo).
 func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
 	configFilepath := GetConfigFilepath(agencDirpath)
 
 	data, err := os.ReadFile(configFilepath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &AgencConfig{}, nil
+			return &AgencConfig{
+				AgentTemplates: make(map[string]AgentTemplateProperties),
+			}, nil
 		}
 		return nil, stacktrace.Propagate(err, "failed to read config file '%s'", configFilepath)
 	}
@@ -40,6 +46,19 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
 	var cfg AgencConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
+	}
+
+	if cfg.AgentTemplates == nil {
+		cfg.AgentTemplates = make(map[string]AgentTemplateProperties)
+	}
+
+	for repo := range cfg.AgentTemplates {
+		if !canonicalRepoRegex.MatchString(repo) {
+			return nil, stacktrace.NewError(
+				"invalid agentTemplates key '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				repo, configFilepath,
+			)
+		}
 	}
 
 	return &cfg, nil
@@ -61,7 +80,7 @@ func WriteAgencConfig(agencDirpath string, cfg *AgencConfig) error {
 	return nil
 }
 
-// EnsureConfigFile creates config.yml with an empty agentTemplates list if it
+// EnsureConfigFile creates config.yml with an empty agentTemplates map if it
 // does not already exist.
 func EnsureConfigFile(agencDirpath string) error {
 	configFilepath := GetConfigFilepath(agencDirpath)
@@ -70,7 +89,7 @@ func EnsureConfigFile(agencDirpath string) error {
 		return nil
 	}
 
-	seed := "agentTemplates: []\n"
+	seed := "agentTemplates: {}\n"
 	if err := os.WriteFile(configFilepath, []byte(seed), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to create config file '%s'", configFilepath)
 	}

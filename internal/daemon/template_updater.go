@@ -49,14 +49,14 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		return
 	}
 
-	for _, entry := range cfg.AgentTemplates {
+	for repo := range cfg.AgentTemplates {
 		if ctx.Err() != nil {
 			return
 		}
 
-		repoName, cloneURL, err := mission.ParseRepoReference(entry.Repo)
+		repoName, cloneURL, err := mission.ParseRepoReference(repo)
 		if err != nil {
-			d.logger.Printf("Repo update: invalid repo '%s': %v", entry.Repo, err)
+			d.logger.Printf("Repo update: invalid repo '%s': %v", repo, err)
 			continue
 		}
 

@@ -210,13 +210,13 @@ func isLocalPath(s string) bool {
 // selectWithFzf presents templates in fzf and returns the selected repo name.
 // If allowNone is true, a "NONE" option is prepended. Returns empty string if
 // NONE is selected.
-func selectWithFzf(templates []config.AgentTemplateEntry, initialQuery string, allowNone bool) (string, error) {
+func selectWithFzf(templates map[string]config.AgentTemplateProperties, initialQuery string, allowNone bool) (string, error) {
 	var lines []string
 	if allowNone {
 		lines = append(lines, "NONE")
 	}
-	for _, t := range templates {
-		lines = append(lines, formatTemplateFzfLine(t))
+	for _, repo := range sortedRepoKeys(templates) {
+		lines = append(lines, formatTemplateFzfLine(repo, templates[repo]))
 	}
 	input := strings.Join(lines, "\n")
 
@@ -246,38 +246,29 @@ func selectWithFzf(templates []config.AgentTemplateEntry, initialQuery string, a
 	return extractRepoFromFzfLine(selected), nil
 }
 
-// matchTemplatesSubstring returns templates whose Repo or Nickname contain the
-// given substring (case-sensitive).
-func matchTemplatesSubstring(templates []config.AgentTemplateEntry, substr string) []config.AgentTemplateEntry {
-	var matches []config.AgentTemplateEntry
-	for _, t := range templates {
-		if strings.Contains(t.Repo, substr) || strings.Contains(t.Nickname, substr) {
-			matches = append(matches, t)
-		}
-	}
-	return matches
-}
-
 // resolveTemplate attempts to find exactly one template matching the given
-// query. It tries exact match on repo, then exact match on nickname, then
+// query. It tries exact match on repo key, then exact match on nickname, then
 // single substring match on either field.
-func resolveTemplate(templates []config.AgentTemplateEntry, query string) (string, error) {
-	// Exact match by repo
-	for _, t := range templates {
-		if t.Repo == query {
-			return t.Repo, nil
-		}
+func resolveTemplate(templates map[string]config.AgentTemplateProperties, query string) (string, error) {
+	// Exact match by repo key
+	if _, ok := templates[query]; ok {
+		return query, nil
 	}
 	// Exact match by nickname
-	for _, t := range templates {
-		if t.Nickname == query {
-			return t.Repo, nil
+	for repo, props := range templates {
+		if props.Nickname == query {
+			return repo, nil
 		}
 	}
 	// Single substring match
-	matches := matchTemplatesSubstring(templates, query)
+	var matches []string
+	for repo, props := range templates {
+		if strings.Contains(repo, query) || strings.Contains(props.Nickname, query) {
+			matches = append(matches, repo)
+		}
+	}
 	if len(matches) == 1 {
-		return matches[0].Repo, nil
+		return matches[0], nil
 	}
 	return "", stacktrace.NewError("no unique template match for '%s'", query)
 }

@@ -14,9 +14,9 @@ func TestReadWriteAgencConfig(t *testing.T) {
 	}
 
 	cfg := &AgencConfig{
-		AgentTemplates: []AgentTemplateEntry{
-			{Repo: "github.com/owner/repo1", Nickname: "my-agent"},
-			{Repo: "github.com/owner/repo2"},
+		AgentTemplates: map[string]AgentTemplateProperties{
+			"github.com/owner/repo1": {Nickname: "my-agent"},
+			"github.com/owner/repo2": {},
 		},
 	}
 
@@ -32,17 +32,21 @@ func TestReadWriteAgencConfig(t *testing.T) {
 	if len(got.AgentTemplates) != 2 {
 		t.Fatalf("expected 2 templates, got %d", len(got.AgentTemplates))
 	}
-	if got.AgentTemplates[0].Repo != "github.com/owner/repo1" {
-		t.Errorf("expected repo 'github.com/owner/repo1', got '%s'", got.AgentTemplates[0].Repo)
+
+	props1, ok := got.AgentTemplates["github.com/owner/repo1"]
+	if !ok {
+		t.Fatal("missing key 'github.com/owner/repo1'")
 	}
-	if got.AgentTemplates[0].Nickname != "my-agent" {
-		t.Errorf("expected nickname 'my-agent', got '%s'", got.AgentTemplates[0].Nickname)
+	if props1.Nickname != "my-agent" {
+		t.Errorf("expected nickname 'my-agent', got '%s'", props1.Nickname)
 	}
-	if got.AgentTemplates[1].Repo != "github.com/owner/repo2" {
-		t.Errorf("expected repo 'github.com/owner/repo2', got '%s'", got.AgentTemplates[1].Repo)
+
+	props2, ok := got.AgentTemplates["github.com/owner/repo2"]
+	if !ok {
+		t.Fatal("missing key 'github.com/owner/repo2'")
 	}
-	if got.AgentTemplates[1].Nickname != "" {
-		t.Errorf("expected empty nickname, got '%s'", got.AgentTemplates[1].Nickname)
+	if props2.Nickname != "" {
+		t.Errorf("expected empty nickname, got '%s'", props2.Nickname)
 	}
 }
 
@@ -55,6 +59,9 @@ func TestReadAgencConfig_MissingFile(t *testing.T) {
 	}
 	if len(cfg.AgentTemplates) != 0 {
 		t.Errorf("expected empty templates, got %d", len(cfg.AgentTemplates))
+	}
+	if cfg.AgentTemplates == nil {
+		t.Error("expected non-nil map, got nil")
 	}
 }
 
@@ -74,8 +81,30 @@ func TestReadAgencConfig_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed for empty file: %v", err)
 	}
-	if cfg.AgentTemplates != nil && len(cfg.AgentTemplates) != 0 {
-		t.Errorf("expected nil or empty templates, got %d", len(cfg.AgentTemplates))
+	if len(cfg.AgentTemplates) != 0 {
+		t.Errorf("expected empty templates, got %d", len(cfg.AgentTemplates))
+	}
+	if cfg.AgentTemplates == nil {
+		t.Error("expected non-nil map, got nil")
+	}
+}
+
+func TestReadAgencConfig_NonCanonicalKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	configFilepath := filepath.Join(configDirpath, ConfigFilename)
+	content := "agentTemplates:\n    owner/repo: {}\n"
+	if err := os.WriteFile(configFilepath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for non-canonical key, got nil")
 	}
 }
 
@@ -102,7 +131,7 @@ func TestEnsureConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read config file: %v", err)
 	}
-	expected := "agentTemplates: []\n"
+	expected := "agentTemplates: {}\n"
 	if string(data) != expected {
 		t.Errorf("expected %q, got %q", expected, string(data))
 	}
