@@ -43,6 +43,11 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 	d.repoUpdateCycleCount++
 	refreshDefaultBranch := d.repoUpdateCycleCount%refreshDefaultBranchInterval == 0
 
+	// Always update the managed config repo (unconditionally, every cycle)
+	if configRepoName := d.getManagedConfigRepoName(); configRepoName != "" {
+		d.updateRepo(ctx, configRepoName, refreshDefaultBranch)
+	}
+
 	cfg, err := config.ReadAgencConfig(d.agencDirpath)
 	if err != nil {
 		d.logger.Printf("Repo update: failed to read config: %v", err)
@@ -181,4 +186,31 @@ func gitRevParse(ctx context.Context, dirpath string, ref string) (string, error
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// getManagedConfigRepoName returns the repo name of the managed config repo
+// if $AGENC_DIRPATH/config is a symlink pointing into the repo library.
+// Returns empty string if config is not a symlink or points outside the library.
+func (d *Daemon) getManagedConfigRepoName() string {
+	configDirpath := config.GetConfigDirpath(d.agencDirpath)
+
+	info, err := os.Lstat(configDirpath)
+	if err != nil {
+		return ""
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return "" // Not a symlink
+	}
+
+	target, err := os.Readlink(configDirpath)
+	if err != nil {
+		return ""
+	}
+
+	reposDirPrefix := config.GetReposDirpath(d.agencDirpath) + "/"
+	if !strings.HasPrefix(target, reposDirPrefix) {
+		return "" // Symlink points outside the repo library
+	}
+
+	return strings.TrimPrefix(target, reposDirPrefix)
 }
