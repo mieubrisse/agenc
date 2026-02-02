@@ -13,6 +13,7 @@ const (
 
 	ClaudeDirname              = "claude"
 	ClaudeModificationsDirname = "claude-modifications"
+	ConfigDirname              = "config"
 	UserClaudeDirname          = ".claude"
 	MissionsDirname            = "missions"
 	ReposDirname               = "repos"
@@ -49,7 +50,7 @@ func EnsureDirStructure(agencDirpath string) error {
 	dirs := []string{
 		filepath.Join(agencDirpath, ReposDirname),
 		filepath.Join(agencDirpath, ClaudeDirname),
-		filepath.Join(agencDirpath, ClaudeModificationsDirname),
+		filepath.Join(agencDirpath, ConfigDirname, ClaudeModificationsDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, DaemonDirname),
 	}
@@ -161,10 +162,16 @@ func GetRepoDirpath(agencDirpath string, repoName string) string {
 	return filepath.Join(GetReposDirpath(agencDirpath), repoName)
 }
 
+// GetConfigDirpath returns the path to the user-editable config directory
+// ($AGENC/config/), intended to be Git-controlled.
+func GetConfigDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ConfigDirname)
+}
+
 // GetClaudeModificationsDirpath returns the path to the claude-modifications
 // directory where agenc-specific CLAUDE.md and settings.json overrides live.
 func GetClaudeModificationsDirpath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, ClaudeModificationsDirname)
+	return filepath.Join(GetConfigDirpath(agencDirpath), ClaudeModificationsDirname)
 }
 
 // EnsureClaudeModificationsFiles creates seed files inside the
