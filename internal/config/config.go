@@ -27,6 +27,8 @@ const (
 	WorkspaceDirname       = "workspace"
 	PIDFilename            = "pid"
 	ClaudeStateFilename    = "claude-state"
+	GlobalSettingsFilename = "settings.json"
+	GlobalClaudeMdFilename = "CLAUDE.md"
 	TemplateCommitFilename = "template-commit"
 	WrapperLogFilename     = "wrapper.log"
 	SettingsLocalFilename  = "settings.local.json"

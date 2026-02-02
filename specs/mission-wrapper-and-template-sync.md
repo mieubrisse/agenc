@@ -148,11 +148,12 @@ Component 3: Mission Wrapper
 3. Write the wrapper's own PID to the `pid` file in the mission directory (overwrites any stale value).
 4. Write `busy` to the `claude-state` file (overwrites any stale value from a previous run).
 5. Start watching the `claude-state` file with fsnotify for state change notifications.
-6. Start the template change detection loop (see below).
-7. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`, with the working directory set to the `agent/` subdirectory and `CLAUDE_CONFIG_DIR` set to `~/.agenc/claude/`. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
-8. Enter the main loop: wait for either the child to exit or a template change to trigger a restart.
-9. On natural exit (user typed `/exit` or Claude terminated), clean up and exit the wrapper.
-10. On wrapper exit, remove the `pid` file.
+6. Start watching the global Claude config directory (`~/.agenc/claude/`) with fsnotify for changes to `settings.json` or `CLAUDE.md`.
+7. If the mission has a template, start the template change detection loop (see below).
+8. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`, with the working directory set to the `agent/` subdirectory and `CLAUDE_CONFIG_DIR` set to `~/.agenc/claude/`. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
+9. Enter the main loop: wait for the child to exit, a template change, or a global config change to trigger a restart.
+10. On natural exit (user typed `/exit` or Claude terminated), clean up and exit the wrapper.
+11. On wrapper exit, remove the `pid` file.
 
 ### Key implementation detail
 
@@ -171,15 +172,15 @@ The wrapper watches the `claude-state` file using fsnotify (kqueue on macOS, ino
 
 The wrapper is a state machine. At any point it is in exactly one of three states:
 
-- **Running** -- Claude is alive, no restart needed. The wrapper waits for either the child to exit (natural exit → wrapper exits) or a template change to be detected.
-- **Restart pending** -- A template change has been detected, but Claude is busy. The wrapper waits for `claude-state` to become `idle`, then transitions to Restarting.
+- **Running** -- Claude is alive, no restart needed. The wrapper waits for either the child to exit (natural exit → wrapper exits) or a config change (template or global) to be detected.
+- **Restart pending** -- A config change has been detected, but Claude is busy. The wrapper waits for `claude-state` to become `idle`, then transitions to Restarting.
 - **Restarting** -- The wrapper is actively killing and relaunching Claude. It sends SIGINT, waits for the child to exit, then spawns `claude -c`.
 
 Because the wrapper always knows which state it is in, there is no ambiguity when the child process exits. If the wrapper is in the Restarting state, the exit was caused by the wrapper's own SIGINT -- relaunch with `claude -c`. Otherwise, the user quit naturally -- the wrapper exits.
 
 ### Template change detection
 
-The wrapper runs a background goroutine that polls the template repo for changes:
+The wrapper runs a background goroutine that polls the template repo for changes (only for missions with a template):
 
 1. Every 10 seconds, read the current commit hash of the template repo's `main` branch (e.g., via `git rev-parse main` in the template directory).
 2. Compare it to the hash stored in the mission's `template-commit` file.
@@ -191,6 +192,18 @@ The wrapper runs a background goroutine that polls the template repo for changes
    d. If Claude is busy, transition to Restart pending. When fsnotify reports the `claude-state` file changed to `idle`, transition to Restarting.
 
 The 10-second poll interval is cheap because it only reads a local Git ref -- no network I/O. The daemon's template updater (Component 1) handles all network operations on a 60-second cycle. The wrapper just watches for the local ref to advance.
+
+### Global config change detection
+
+The wrapper watches the global Claude config directory (`~/.agenc/claude/`) for changes to `settings.json` or `CLAUDE.md` using fsnotify. This runs for **all** missions, including those without a template.
+
+The daemon's Claude config sync cycle writes these files when the user's `~/.claude/` settings change. The wrapper detects those writes and restarts Claude so it picks up the updated config.
+
+**Debouncing:** The daemon may write both files in a single sync cycle. The wrapper debounces fsnotify events with a 500ms quiet period -- the first event starts a timer, subsequent events reset it. Only after 500ms of silence does the wrapper notify the main loop. This coalesces multiple writes into a single restart.
+
+**Restart behavior:** Unlike template changes, no rsync is needed. The daemon already wrote the files to `~/.agenc/claude/`, and Claude reads them on startup via `CLAUDE_CONFIG_DIR`. The wrapper uses the same idle-check-then-restart flow: if Claude is idle, restart immediately; if busy, defer until idle.
+
+**Filtering:** Only `settings.json` and `CLAUDE.md` trigger restarts. Other files in the directory (e.g., `.claude.json`, `.claude.json.backup.*`, symlinks to `~/.claude/`) are ignored.
 
 ### Restart procedure
 

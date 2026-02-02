@@ -31,12 +31,24 @@ The wrapper watches this file using `fsnotify` on the parent directory (not the 
 Change Detection
 ----------------
 
+The wrapper detects two kinds of config changes:
+
+### Template changes
+
 The agent config lives in a separate GitHub repo (the "template"). The daemon fetches the template repo from GitHub every 60 seconds. The wrapper polls the local clone's commit hash every 10 seconds and compares it to the stored hash from the last sync. Total worst-case latency from push to detection: ~70 seconds.
 
-When a change is detected, the wrapper rsyncs the template into the mission's `agent/` directory. The rsync excludes:
+When a template change is detected, the wrapper rsyncs the template into the mission's `agent/` directory. The rsync excludes:
 - `workspace/` — Claude's work area is never overwritten
 - `.git/` — git metadata
 - `.claude/settings.local.json` — mission-local settings overrides
+
+### Global config changes
+
+The wrapper also watches the global Claude config directory (`~/.agenc/claude/`) for changes to `settings.json` or `CLAUDE.md` using fsnotify. These files are maintained by the daemon's Claude config sync cycle, which merges the user's `~/.claude/` config with agenc-specific hooks.
+
+When a global config change is detected, the wrapper debounces for 500ms (to coalesce the two writes the daemon may make in a single sync cycle) and then triggers a restart using the same idle-check-then-restart flow. Unlike template changes, no rsync is needed — the daemon already wrote the files, and Claude picks them up on restart.
+
+Global config watching runs for all missions, including those without a template. Template polling only runs for missions that have a template.
 
 State Machine
 -------------
