@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -21,11 +22,18 @@ var promptFlag string
 var gitFlag string
 
 var missionNewCmd = &cobra.Command{
-	Use:   "new",
+	Use:   "new [search-terms...]",
 	Short: "Create a new mission and launch claude",
-	Long:  "Create a new mission and launch claude. The agent template is selected automatically from the defaultAgents config, or can be overridden with --agent.",
-	Args:  cobra.NoArgs,
-	RunE:  runMissionNew,
+	Long: `Create a new mission and launch claude.
+
+Without flags, opens an fzf picker showing all repos and agent templates
+in your library (~/.agenc/repos/). Positional arguments act as search terms
+to filter the list. If exactly one repo matches, it is auto-selected.
+
+Use --git and/or --agent flags for explicit control (cannot be combined
+with positional search terms).`,
+	Args: cobra.ArbitraryArgs,
+	RunE: runMissionNew,
 }
 
 func init() {
@@ -35,15 +43,44 @@ func init() {
 	missionCmd.AddCommand(missionNewCmd)
 }
 
+// repoLibraryEntry represents a single repo or agent template discovered in
+// the ~/.agenc/repos/ directory tree.
+type repoLibraryEntry struct {
+	RepoName   string
+	IsTemplate bool
+	Nickname   string
+}
+
+// repoLibrarySelection holds the user's pick from the repo library fzf menu.
+type repoLibrarySelection struct {
+	RepoName   string // empty if NONE (blank mission)
+	IsTemplate bool
+}
+
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
+
+	hasFlags := gitFlag != "" || agentFlag != ""
+	hasArgs := len(args) > 0
+
+	if hasFlags && hasArgs {
+		return stacktrace.NewError("positional search terms cannot be combined with --git or --agent flags")
+	}
 
 	cfg, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	// Resolve --git first so agent template selection can use the context
+	if hasFlags {
+		return runMissionNewWithFlags(cfg)
+	}
+	return runMissionNewWithPicker(cfg, args)
+}
+
+// runMissionNewWithFlags contains the original flag-based mission creation
+// logic (--git and/or --agent).
+func runMissionNewWithFlags(cfg *config.AgencConfig) error {
 	var gitRepoName string
 	var gitCloneDirpath string
 	if gitFlag != "" {
@@ -61,6 +98,234 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, gitRepoName, gitCloneDirpath)
+}
+
+// runMissionNewWithPicker shows an fzf picker over the repo library. Positional
+// args are used as search terms to filter or auto-select.
+func runMissionNewWithPicker(cfg *config.AgencConfig, args []string) error {
+	entries := listRepoLibrary(agencDirpath, cfg.AgentTemplates)
+
+	var selection *repoLibrarySelection
+
+	if len(args) > 0 {
+		matches := matchRepoLibraryEntries(entries, args)
+		if len(matches) == 1 {
+			entry := matches[0]
+			fmt.Printf("Auto-selected: %s\n", entry.RepoName)
+			selection = &repoLibrarySelection{
+				RepoName:   entry.RepoName,
+				IsTemplate: entry.IsTemplate,
+			}
+		} else {
+			picked, err := selectFromRepoLibrary(entries, strings.Join(args, " "))
+			if err != nil {
+				return err
+			}
+			selection = picked
+		}
+	} else {
+		picked, err := selectFromRepoLibrary(entries, "")
+		if err != nil {
+			return err
+		}
+		selection = picked
+	}
+
+	return launchFromLibrarySelection(cfg, selection)
+}
+
+// launchFromLibrarySelection creates and launches a mission based on the
+// library picker selection.
+func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibrarySelection) error {
+	if selection.RepoName == "" {
+		// NONE selected — blank mission with default agent
+		agentTemplate, err := resolveAgentTemplate(cfg, "", "")
+		if err != nil {
+			return err
+		}
+		return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, "", "")
+	}
+
+	if selection.IsTemplate {
+		// Template selected — use the template as agent, no git repo
+		return createAndLaunchMission(agencDirpath, selection.RepoName, promptFlag, "", "")
+	}
+
+	// Regular repo selected — clone into workspace, use default repo agent
+	agentTemplate, err := resolveAgentTemplate(cfg, "", selection.RepoName)
+	if err != nil {
+		return err
+	}
+	gitCloneDirpath := config.GetRepoDirpath(agencDirpath, selection.RepoName)
+	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, selection.RepoName, gitCloneDirpath)
+}
+
+// listRepoLibrary scans ~/.agenc/repos/ three levels deep (github.com/owner/repo)
+// and cross-references with agentTemplates config. Returns entries sorted with
+// templates first, then repos, alphabetical within each group.
+func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTemplateProperties) []repoLibraryEntry {
+	reposDirpath := config.GetReposDirpath(agencDirpath)
+
+	var entries []repoLibraryEntry
+	seen := make(map[string]bool)
+
+	// Walk three levels: host/owner/repo
+	hosts, _ := os.ReadDir(reposDirpath)
+	for _, host := range hosts {
+		if !host.IsDir() {
+			continue
+		}
+		owners, _ := os.ReadDir(filepath.Join(reposDirpath, host.Name()))
+		for _, owner := range owners {
+			if !owner.IsDir() {
+				continue
+			}
+			repos, _ := os.ReadDir(filepath.Join(reposDirpath, host.Name(), owner.Name()))
+			for _, repo := range repos {
+				if !repo.IsDir() {
+					continue
+				}
+				repoName := host.Name() + "/" + owner.Name() + "/" + repo.Name()
+				seen[repoName] = true
+
+				props, isTemplate := templates[repoName]
+				entry := repoLibraryEntry{
+					RepoName:   repoName,
+					IsTemplate: isTemplate,
+				}
+				if isTemplate {
+					entry.Nickname = props.Nickname
+				}
+				entries = append(entries, entry)
+			}
+		}
+	}
+
+	// Include any templates that aren't physically present in repos/
+	for repoName, props := range templates {
+		if !seen[repoName] {
+			entries = append(entries, repoLibraryEntry{
+				RepoName:   repoName,
+				IsTemplate: true,
+				Nickname:   props.Nickname,
+			})
+		}
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].IsTemplate != entries[j].IsTemplate {
+			return entries[i].IsTemplate
+		}
+		return entries[i].RepoName < entries[j].RepoName
+	})
+
+	return entries
+}
+
+// formatLibraryFzfLine formats a repo library entry for display in fzf.
+// Templates show a [template] label; repos show [repo].
+func formatLibraryFzfLine(entry repoLibraryEntry) string {
+	if entry.IsTemplate {
+		if entry.Nickname != "" {
+			return fmt.Sprintf("[template]  %s  (%s)", entry.Nickname, entry.RepoName)
+		}
+		return fmt.Sprintf("[template]  %s", entry.RepoName)
+	}
+	return fmt.Sprintf("[repo]      %s", entry.RepoName)
+}
+
+// parseLibraryFzfLine extracts the repo name and template status from a
+// formatted fzf line produced by formatLibraryFzfLine.
+func parseLibraryFzfLine(line string) (repoName string, isTemplate bool) {
+	line = strings.TrimSpace(line)
+
+	if strings.HasPrefix(line, "[template]") {
+		isTemplate = true
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "[template]"))
+		// Check for nickname format: "nickname  (github.com/owner/repo)"
+		if idx := strings.LastIndex(rest, "  ("); idx != -1 {
+			repoName = strings.TrimSuffix(rest[idx+3:], ")")
+			return repoName, isTemplate
+		}
+		return rest, isTemplate
+	}
+
+	if strings.HasPrefix(line, "[repo]") {
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "[repo]"))
+		return rest, false
+	}
+
+	return line, false
+}
+
+// selectFromRepoLibrary presents an fzf picker over the repo library entries.
+// A NONE option is prepended for creating a blank mission.
+func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibrarySelection, error) {
+	var lines []string
+	lines = append(lines, "NONE — blank mission")
+	for _, entry := range entries {
+		lines = append(lines, formatLibraryFzfLine(entry))
+	}
+	input := strings.Join(lines, "\n")
+
+	fzfBinary, err := exec.LookPath("fzf")
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or use --git/--agent flags")
+	}
+
+	fzfArgs := []string{"--prompt", "Select repo: "}
+	if initialQuery != "" {
+		fzfArgs = append(fzfArgs, "--query", initialQuery)
+	}
+
+	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
+	fzfCmd.Stdin = strings.NewReader(input)
+	fzfCmd.Stderr = os.Stderr
+
+	output, err := fzfCmd.Output()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "fzf selection failed")
+	}
+
+	selected := strings.TrimSpace(string(output))
+	if strings.HasPrefix(selected, "NONE") {
+		return &repoLibrarySelection{}, nil
+	}
+
+	repoName, isTemplate := parseLibraryFzfLine(selected)
+	return &repoLibrarySelection{
+		RepoName:   repoName,
+		IsTemplate: isTemplate,
+	}, nil
+}
+
+// matchRepoLibraryEntries filters entries by sequential case-insensitive
+// substring matching. Each arg must appear in order within the formatted
+// fzf line.
+func matchRepoLibraryEntries(entries []repoLibraryEntry, args []string) []repoLibraryEntry {
+	var matches []repoLibraryEntry
+	for _, entry := range entries {
+		line := formatLibraryFzfLine(entry)
+		if matchesSequentialSubstrings(line, args) {
+			matches = append(matches, entry)
+		}
+	}
+	return matches
+}
+
+// matchesSequentialSubstrings returns true if all substrings appear in text
+// in order, case-insensitively.
+func matchesSequentialSubstrings(text string, substrings []string) bool {
+	lower := strings.ToLower(text)
+	pos := 0
+	for _, sub := range substrings {
+		idx := strings.Index(lower[pos:], strings.ToLower(sub))
+		if idx == -1 {
+			return false
+		}
+		pos += idx + len(sub)
+	}
+	return true
 }
 
 // resolveAgentTemplate determines which agent template to use for a new
