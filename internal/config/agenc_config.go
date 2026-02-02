@@ -16,7 +16,7 @@ type AgentTemplateEntry struct {
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	AgentTemplates []AgentTemplateEntry `yaml:"agent_templates"`
+	AgentTemplates []AgentTemplateEntry `yaml:"agentTemplates"`
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -61,7 +61,7 @@ func WriteAgencConfig(agencDirpath string, cfg *AgencConfig) error {
 	return nil
 }
 
-// EnsureConfigFile creates config.yml with an empty agent_templates list if it
+// EnsureConfigFile creates config.yml with an empty agentTemplates list if it
 // does not already exist.
 func EnsureConfigFile(agencDirpath string) error {
 	configFilepath := GetConfigFilepath(agencDirpath)
@@ -70,7 +70,7 @@ func EnsureConfigFile(agencDirpath string) error {
 		return nil
 	}
 
-	seed := "agent_templates: []\n"
+	seed := "agentTemplates: []\n"
 	if err := os.WriteFile(configFilepath, []byte(seed), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to create config file '%s'", configFilepath)
 	}

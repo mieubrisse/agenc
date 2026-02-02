@@ -102,7 +102,7 @@ func TestEnsureConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read config file: %v", err)
 	}
-	expected := "agent_templates: []\n"
+	expected := "agentTemplates: []\n"
 	if string(data) != expected {
 		t.Errorf("expected %q, got %q", expected, string(data))
 	}
