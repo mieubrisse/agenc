@@ -21,15 +21,15 @@ var promptFlag string
 var gitFlag string
 
 var missionNewCmd = &cobra.Command{
-	Use:   "new [agent-template]",
+	Use:   "new",
 	Short: "Create a new mission and launch claude",
-	Long:  "Create a new mission with an agent template and launch claude. If the template name matches exactly, it is used directly; otherwise an interactive selector is shown.",
-	Args:  cobra.MaximumNArgs(1),
+	Long:  "Create a new mission and launch claude. The agent template is selected automatically from the defaultAgents config, or can be overridden with --agent.",
+	Args:  cobra.NoArgs,
 	RunE:  runMissionNew,
 }
 
 func init() {
-	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
+	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultAgents config)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
 	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or https://github.com/owner/repo/...)")
 	missionCmd.AddCommand(missionNewCmd)
@@ -43,54 +43,67 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	var agentTemplate string
-
-	if agentFlag != "" {
-		// --agent flag: match by repo or nickname
-		resolved, resolveErr := resolveTemplate(cfg.AgentTemplates, agentFlag)
-		if resolveErr != nil {
-			return stacktrace.NewError("agent template '%s' not found", agentFlag)
-		}
-		agentTemplate = resolved
-	} else if len(cfg.AgentTemplates) == 0 {
-		fmt.Println("No agent templates found. Proceeding without a template.")
-		fmt.Printf("Install templates with: agenc template install owner/repo\n")
-	} else if len(args) == 1 {
-		resolved, resolveErr := resolveTemplate(cfg.AgentTemplates, args[0])
-		if resolveErr != nil {
-			// No match found — fall through to fzf with initial query
-			selected, fzfErr := selectWithFzf(cfg.AgentTemplates, args[0], true)
-			if fzfErr != nil {
-				return stacktrace.Propagate(fzfErr, "failed to select agent template")
-			}
-			if selected != "" {
-				agentTemplate = selected
-			}
-		} else {
-			agentTemplate = resolved
-		}
-	} else {
-		selected, fzfErr := selectWithFzf(cfg.AgentTemplates, "", true)
-		if fzfErr != nil {
-			return stacktrace.Propagate(fzfErr, "failed to select agent template")
-		}
-		if selected != "" {
-			agentTemplate = selected
-		}
-	}
-
+	// Resolve --git first so agent template selection can use the context
 	var gitRepoName string
 	var gitCloneDirpath string
 	if gitFlag != "" {
-		repoName, cloneDirpath, err := resolveGitFlag(agencDirpath, gitFlag)
-		if err != nil {
-			return err
+		repoName, cloneDirpath, gitErr := resolveGitFlag(agencDirpath, gitFlag)
+		if gitErr != nil {
+			return gitErr
 		}
 		gitRepoName = repoName
 		gitCloneDirpath = cloneDirpath
 	}
 
+	agentTemplate, err := resolveAgentTemplate(cfg, agentFlag, gitRepoName)
+	if err != nil {
+		return err
+	}
+
 	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, gitRepoName, gitCloneDirpath)
+}
+
+// resolveAgentTemplate determines which agent template to use for a new
+// mission. If agentFlag is set, it resolves via resolveTemplate. Otherwise
+// the defaultAgents config is consulted based on the git context.
+func resolveAgentTemplate(cfg *config.AgencConfig, agentFlag string, gitRepoName string) (string, error) {
+	if agentFlag != "" {
+		resolved, err := resolveTemplate(cfg.AgentTemplates, agentFlag)
+		if err != nil {
+			return "", stacktrace.NewError("agent template '%s' not found", agentFlag)
+		}
+		return resolved, nil
+	}
+
+	// Pick the defaultAgents key based on git context
+	var defaultRepo string
+	switch {
+	case gitRepoName == "":
+		defaultRepo = cfg.DefaultAgents.Default
+	case isAgentTemplate(cfg, gitRepoName):
+		defaultRepo = cfg.DefaultAgents.AgentTemplate
+	default:
+		defaultRepo = cfg.DefaultAgents.Repo
+	}
+
+	if defaultRepo == "" {
+		return "", nil
+	}
+
+	// Verify the default agent template is actually installed
+	if _, ok := cfg.AgentTemplates[defaultRepo]; !ok {
+		fmt.Fprintf(os.Stderr, "Warning: defaultAgents references '%s' which is not installed; proceeding without agent template\n", defaultRepo)
+		return "", nil
+	}
+
+	return defaultRepo, nil
+}
+
+// isAgentTemplate returns true if the given repo name is a key in the
+// agentTemplates config map.
+func isAgentTemplate(cfg *config.AgencConfig, repoName string) bool {
+	_, ok := cfg.AgentTemplates[repoName]
+	return ok
 }
 
 // createAndLaunchMission creates the mission record and directory, and

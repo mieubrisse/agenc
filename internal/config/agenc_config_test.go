@@ -108,6 +108,97 @@ func TestReadAgencConfig_NonCanonicalKey(t *testing.T) {
 	}
 }
 
+func TestReadWriteDefaultAgents_AllFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{
+		AgentTemplates: map[string]AgentTemplateProperties{
+			"github.com/owner/agent1": {},
+		},
+		DefaultAgents: DefaultAgents{
+			Default:       "github.com/owner/default-agent",
+			Repo:          "github.com/owner/repo-agent",
+			AgentTemplate: "github.com/owner/template-agent",
+		},
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if got.DefaultAgents.Default != "github.com/owner/default-agent" {
+		t.Errorf("expected Default 'github.com/owner/default-agent', got '%s'", got.DefaultAgents.Default)
+	}
+	if got.DefaultAgents.Repo != "github.com/owner/repo-agent" {
+		t.Errorf("expected Repo 'github.com/owner/repo-agent', got '%s'", got.DefaultAgents.Repo)
+	}
+	if got.DefaultAgents.AgentTemplate != "github.com/owner/template-agent" {
+		t.Errorf("expected AgentTemplate 'github.com/owner/template-agent', got '%s'", got.DefaultAgents.AgentTemplate)
+	}
+}
+
+func TestReadAgencConfig_NonCanonicalDefaultAgents(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	configFilepath := filepath.Join(configDirpath, ConfigFilename)
+	content := "agentTemplates: {}\ndefaultAgents:\n    default: owner/bad-repo\n"
+	if err := os.WriteFile(configFilepath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for non-canonical defaultAgents value, got nil")
+	}
+}
+
+func TestReadWriteDefaultAgents_Partial(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{
+		AgentTemplates: map[string]AgentTemplateProperties{},
+		DefaultAgents: DefaultAgents{
+			Repo: "github.com/owner/repo-agent",
+		},
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if got.DefaultAgents.Default != "" {
+		t.Errorf("expected empty Default, got '%s'", got.DefaultAgents.Default)
+	}
+	if got.DefaultAgents.Repo != "github.com/owner/repo-agent" {
+		t.Errorf("expected Repo 'github.com/owner/repo-agent', got '%s'", got.DefaultAgents.Repo)
+	}
+	if got.DefaultAgents.AgentTemplate != "" {
+		t.Errorf("expected empty AgentTemplate, got '%s'", got.DefaultAgents.AgentTemplate)
+	}
+}
+
 func TestEnsureConfigFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)

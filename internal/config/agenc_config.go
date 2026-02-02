@@ -17,10 +17,19 @@ type AgentTemplateProperties struct {
 	Nickname string `yaml:"nickname,omitempty"`
 }
 
+// DefaultAgents maps context keys to agent template repos that should be
+// auto-selected when creating a new mission.
+type DefaultAgents struct {
+	Default       string `yaml:"default,omitempty"`
+	Repo          string `yaml:"repo,omitempty"`
+	AgentTemplate string `yaml:"agentTemplate,omitempty"`
+}
+
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
 	AgentTemplates map[string]AgentTemplateProperties `yaml:"agentTemplates"`
 	SyncedRepos    []string                           `yaml:"syncedRepos,omitempty"`
+	DefaultAgents  DefaultAgents                      `yaml:"defaultAgents,omitempty"`
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -67,6 +76,20 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
 			return nil, stacktrace.NewError(
 				"invalid syncedRepos entry '%s' in %s; must be in canonical format 'github.com/owner/repo'",
 				repo, configFilepath,
+			)
+		}
+	}
+
+	defaultAgentValues := map[string]string{
+		"defaultAgents.default":       cfg.DefaultAgents.Default,
+		"defaultAgents.repo":          cfg.DefaultAgents.Repo,
+		"defaultAgents.agentTemplate": cfg.DefaultAgents.AgentTemplate,
+	}
+	for field, value := range defaultAgentValues {
+		if value != "" && !canonicalRepoRegex.MatchString(value) {
+			return nil, stacktrace.NewError(
+				"invalid %s value '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				field, value, configFilepath,
 			)
 		}
 	}

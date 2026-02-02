@@ -1,11 +1,14 @@
-The AgenC
+![](./image.png)
+
+AgenC
 =========
 AgenC (pronounced "agency") is like Docker for your multi-agent vibeworking. It's:
 
-- A runtime for launching & working with agents
+- A runtime for running & juggling agents
 - An LLMOps system for rolling fixes back into the agent config
 - A plugin system for sharing agents
 
+<!--
 > ⚠️ Addiction Warning
 >
 > Like other agentic work factories, AgenC makes thought -> implemented reality nearly instantaneous.
@@ -21,6 +24,7 @@ AgenC (pronounced "agency") is like Docker for your multi-agent vibeworking. It'
 > This isn't just AgenC. [Across the board, agentic work factories seem to have this effect](https://steve-yegge.medium.com/steveys-birthday-blog-34f437139cb5#:~:text=This%20week%20the,Even%20for%20him.).
 > 
 > So please stop for breaks, and remember to make some wind-down time for sleep!
+-->
 
 Why AgenC?
 ----------
@@ -164,22 +168,15 @@ agenc <noun> <verb> [args...]
 
 ### agenc mission new
 
-Creates a new mission and drops the user into a Claude Code session.
-
-**Interactive mode** (no arguments):
-
-1. The user is dropped into `fzf` to pick an agent template. The default option is `NONE` (no specific agent template).
-2. The user is dropped into `vim` to write the mission prompt — what they want the agent to accomplish.
-3. The AgenC creates the mission: generates a UUID, records it in the SQLite database, and constructs a `missions/<uuid>/` directory by copying config files from the agent template.
-4. The AgenC execs into `claude` in the mission directory (foreground), sending the prompt as the first message.
-
-**Non-interactive mode** (for scripting):
+Creates a new mission and drops the user into a Claude Code session. The agent template is selected automatically from the `defaultAgents` config (see Configuration below), or can be overridden with `--agent`.
 
 ```
-agenc mission new --agent <template-name> "<prompt>"
+agenc mission new [--agent <template-name>] [--git <repo>] [-p "<prompt>"]
 ```
 
-Both `--agent` and the prompt are optional. If either is missing, the interactive flow fills in the gaps (e.g. omitting `--agent` triggers `fzf`, omitting the prompt triggers `vim`).
+- `--agent` — Override the default agent template selection with a specific template name
+- `--git` — Clone a git repo into the mission workspace (local path, `owner/repo`, or GitHub URL)
+- `-p` / `--prompt` — Initial prompt to send to Claude
 
 ### agenc mission ls
 
@@ -206,9 +203,30 @@ The AgenC is general-purpose. Any task you could give to a Claude Code session, 
 Configuration
 -------------
 
+### Environment Variables
+
 | Variable | Default | Description |
 |---|---|---|
 | `AGENC_DIRPATH` | `~/.agenc` | Root directory for all AgenC state |
+
+### config.yml
+
+The file `$AGENC_DIRPATH/config/config.yml` holds project-level settings.
+
+#### defaultAgents
+
+Controls which agent template is auto-selected when creating a new mission. The key chosen depends on the `--git` context:
+
+```yaml
+defaultAgents:
+  default: github.com/owner/coding-agent       # used when --git is NOT specified
+  repo: github.com/owner/repo-agent            # used when --git repo is NOT an agent template
+  agentTemplate: github.com/owner/coding-agent  # used when --git repo IS an agent template
+```
+
+All three subkeys are optional. Values must be in canonical format (`github.com/owner/repo`) and reference an installed agent template. If the referenced template is not installed, a warning is printed and no agent template is used.
+
+The `--agent` flag always overrides `defaultAgents`.
 
 Design Goals
 ------------
