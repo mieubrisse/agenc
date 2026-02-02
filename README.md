@@ -2,8 +2,8 @@ The AgenC
 =========
 AgenC (pronounced "agency") is like Docker for your multi-agent vibeworking. It's:
 
-- An agentic work factory with sandboxing
-- A personal LLMOps system for refining your own agents
+- A runtime for launching & working with agents
+- An LLMOps system for rolling fixes back into the agent config
 - A plugin system for sharing agents
 
 > ⚠️ Addiction Warning
@@ -42,11 +42,24 @@ And if you want to do any sort of longitudinal retrospective on how well your pr
 
 AgenC solves this:
 
-- All agent conversations are navigable in one place
-- All agent config is version-controlled
-- When using any agent, it's trivial to start a new Claude window editing the config
+- All agent conversations are collected & navigable
+- All agent config is version-controlled & deployed
+- At any point when using an agent, you can fork a new Claude code window editing the agent itself
 - When an agent's config is updated, all agents using that config restart with the config the next time they're idle
-- All work is tracked for analysis: how well are the agents performing?
+
+User workflow
+-------------
+### Human-in-the-loop, output elsewhere (Todoist inbox processing, calendar processing)
+1. Press something to easily fire up a 
+
+### Human-in-the-loop, output in the repo (Substack writing, IG content generation)
+
+### Human-in-the-loop Git edits for solo repository (e.g. dotfiles, checklists-and-templates)
+
+### Autonomous 
+
+
+
 
 How it works
 ------------
