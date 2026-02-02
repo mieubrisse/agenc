@@ -261,6 +261,14 @@ func syncClaudeMd(userClaudeDirpath string, agencModsDirpath string, agencClaude
 		return stacktrace.Propagate(err, "failed to read mods CLAUDE.md at '%s'", modsFilepath)
 	}
 
+	// If destFilepath is a stale symlink (left over from a previous version
+	// that symlinked CLAUDE.md), remove it before we read or write. Without
+	// this, ReadFile/WriteFile follow the symlink and corrupt the user's
+	// source ~/.claude/CLAUDE.md.
+	if err := removeSymlinkIfPresent(destFilepath); err != nil {
+		return stacktrace.Propagate(err, "failed to remove stale symlink at '%s'", destFilepath)
+	}
+
 	userTrimmed := strings.TrimSpace(string(userContent))
 	modsTrimmed := strings.TrimSpace(string(modsContent))
 

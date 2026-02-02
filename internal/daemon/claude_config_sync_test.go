@@ -571,6 +571,45 @@ func TestSyncClaudeMd(t *testing.T) {
 		}
 	})
 
+	t.Run("stale symlink replaced with regular file", func(t *testing.T) {
+		userDir := t.TempDir()
+		modsDir := t.TempDir()
+		agencDir := t.TempDir()
+
+		userFilepath := filepath.Join(userDir, "CLAUDE.md")
+		if err := os.WriteFile(userFilepath, []byte("User content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Simulate old version: destination is a symlink to user's file
+		destFilepath := filepath.Join(agencDir, "CLAUDE.md")
+		if err := os.Symlink(userFilepath, destFilepath); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := syncClaudeMd(userDir, modsDir, agencDir); err != nil {
+			t.Fatal(err)
+		}
+
+		// Destination should now be a regular file, not a symlink
+		info, err := os.Lstat(destFilepath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			t.Error("destination should be a regular file, not a symlink")
+		}
+
+		// User's original file should be untouched
+		userData, err := os.ReadFile(userFilepath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(userData) != "User content" {
+			t.Errorf("user's source file was corrupted: got %q", string(userData))
+		}
+	})
+
 	t.Run("mtime preserved when unchanged", func(t *testing.T) {
 		userDir := t.TempDir()
 		modsDir := t.TempDir()
