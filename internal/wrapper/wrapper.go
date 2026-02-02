@@ -39,7 +39,6 @@ type Wrapper struct {
 	agencDirpath    string
 	missionID       string
 	agentTemplate   string
-	embeddedAgent   bool
 	missionDirpath  string
 	agentDirpath    string
 	templateDirpath string
@@ -51,18 +50,17 @@ type Wrapper struct {
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
 	// goroutine leaks.
-	configChanged   chan string   // receives new commit hash (template) or "" (embedded) when config changes
+	configChanged   chan string   // receives new commit hash when template changes
 	claudeStateIdle chan struct{} // notified when claude-state becomes "idle"
 	claudeExited    chan error    // receives the exit error from cmd.Wait()
 }
 
 // NewWrapper creates a new Wrapper for the given mission.
-func NewWrapper(agencDirpath string, missionID string, agentTemplate string, embeddedAgent bool) *Wrapper {
+func NewWrapper(agencDirpath string, missionID string, agentTemplate string) *Wrapper {
 	return &Wrapper{
 		agencDirpath:    agencDirpath,
 		missionID:       missionID,
 		agentTemplate:   agentTemplate,
-		embeddedAgent:   embeddedAgent,
 		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
 		templateDirpath: config.GetRepoDirpath(agencDirpath, agentTemplate),
@@ -115,9 +113,6 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 	if w.agentTemplate != "" {
 		go w.watchClaudeState(ctx)
 		go w.pollTemplateChanges(ctx)
-	} else if w.embeddedAgent {
-		go w.watchClaudeState(ctx)
-		go w.watchEmbeddedConfig(ctx)
 	}
 
 	// Spawn initial Claude process
@@ -167,15 +162,13 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 			return nil
 
 		case newHash := <-w.configChanged:
-			// Config has changed -- rsync template (if applicable) and decide whether to restart
-			if !w.embeddedAgent {
-				if err := mission.RsyncTemplate(w.templateDirpath, w.agentDirpath); err != nil {
-					w.logger.Warn("Failed to rsync template update", "error", err)
-					continue
-				}
-				commitFilepath := config.GetMissionTemplateCommitFilepath(w.agencDirpath, w.missionID)
-				_ = os.WriteFile(commitFilepath, []byte(newHash), 0644)
+			// Config has changed -- rsync template and decide whether to restart
+			if err := mission.RsyncTemplate(w.templateDirpath, w.agentDirpath); err != nil {
+				w.logger.Warn("Failed to rsync template update", "error", err)
+				continue
 			}
+			commitFilepath := config.GetMissionTemplateCommitFilepath(w.agencDirpath, w.missionID)
+			_ = os.WriteFile(commitFilepath, []byte(newHash), 0644)
 
 			claudeState := w.readClaudeState()
 			if claudeState == "idle" {
@@ -251,125 +244,6 @@ func (w *Wrapper) watchClaudeState(ctx context.Context) {
 			w.logger.Warn("fsnotify error", "error", err)
 		}
 	}
-}
-
-// watchEmbeddedConfig uses fsnotify to watch for changes to Claude config
-// files within the agent directory (the worktree root). Watched paths:
-//   - CLAUDE.md and .mcp.json at the agent root
-//   - .claude/ directory recursively (excluding settings.local.json)
-//
-// After the first qualifying event, waits 500ms for additional events before
-// sending a single signal on configChanged.
-func (w *Wrapper) watchEmbeddedConfig(ctx context.Context) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		w.logger.Warn("Failed to create fsnotify watcher for embedded config", "error", err)
-		return
-	}
-	defer watcher.Close()
-
-	// Watch the agent directory for CLAUDE.md and .mcp.json
-	if err := watcher.Add(w.agentDirpath); err != nil {
-		w.logger.Warn("Failed to watch agent directory", "error", err)
-		return
-	}
-
-	// Watch .claude/ directory and all its subdirectories
-	claudeDirpath := filepath.Join(w.agentDirpath, config.UserClaudeDirname)
-	if err := addDirRecursive(watcher, claudeDirpath); err != nil {
-		w.logger.Warn("Failed to watch .claude directory", "error", err)
-		// Continue anyway — the root watch still works
-	}
-
-	const debounceDelay = 500 * time.Millisecond
-	var debounceTimer *time.Timer
-
-	for {
-		select {
-		case <-ctx.Done():
-			if debounceTimer != nil {
-				debounceTimer.Stop()
-			}
-			return
-
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-
-			// Dynamically watch new subdirectories under .claude/
-			if event.Has(fsnotify.Create) {
-				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-					claudeDirpath := filepath.Join(w.agentDirpath, config.UserClaudeDirname)
-					if relPath, relErr := filepath.Rel(claudeDirpath, event.Name); relErr == nil && !strings.HasPrefix(relPath, "..") {
-						_ = watcher.Add(event.Name)
-					}
-					continue
-				}
-			}
-
-			if !isEmbeddedConfigEvent(w.agentDirpath, event) {
-				continue
-			}
-
-			// Debounce: reset timer on each qualifying event
-			if debounceTimer != nil {
-				debounceTimer.Stop()
-			}
-			debounceTimer = time.AfterFunc(debounceDelay, func() {
-				select {
-				case w.configChanged <- "":
-				default:
-				}
-			})
-
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			w.logger.Warn("fsnotify error (embedded config)", "error", err)
-		}
-	}
-}
-
-// isEmbeddedConfigEvent returns true if the fsnotify event corresponds to a
-// Claude config file that should trigger a reload. Directory events are
-// handled by the caller before this function is called.
-func isEmbeddedConfigEvent(agentDirpath string, event fsnotify.Event) bool {
-	name := filepath.Base(event.Name)
-
-	// Root-level files: CLAUDE.md and .mcp.json
-	if filepath.Dir(event.Name) == agentDirpath {
-		return name == "CLAUDE.md" || name == ".mcp.json"
-	}
-
-	// Files under .claude/ (excluding settings.local.json)
-	claudeDirpath := filepath.Join(agentDirpath, config.UserClaudeDirname)
-	relPath, err := filepath.Rel(claudeDirpath, event.Name)
-	if err != nil || strings.HasPrefix(relPath, "..") {
-		return false
-	}
-	if name == config.SettingsLocalFilename {
-		return false
-	}
-	return true
-}
-
-// addDirRecursive adds the given directory and all its subdirectories to the
-// fsnotify watcher. Silently skips directories that don't exist.
-func addDirRecursive(watcher *fsnotify.Watcher, dirpath string) error {
-	return filepath.WalkDir(dirpath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return err
-		}
-		if d.IsDir() {
-			return watcher.Add(path)
-		}
-		return nil
-	})
 }
 
 // pollTemplateChanges polls the template repo every 10 seconds for changes

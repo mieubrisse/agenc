@@ -37,14 +37,14 @@ const addEmbeddedAgentColumnSQL = `ALTER TABLE missions ADD COLUMN embedded_agen
 
 // Mission represents a row in the missions table.
 type Mission struct {
-	ID             string
-	AgentTemplate  string
-	Prompt         string
-	Status         string
-	WorktreeSource string
-	EmbeddedAgent  bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID            string
+	AgentTemplate string
+	Prompt        string
+	Status        string
+	GitRepo       string
+	EmbeddedAgent bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // DB wraps a sql.DB connection to the agenc SQLite database.
@@ -104,32 +104,27 @@ func (db *DB) Close() error {
 }
 
 // CreateMission inserts a new mission and returns it.
-func (db *DB) CreateMission(agentTemplate string, prompt string, worktreeSource string, embeddedAgent bool) (*Mission, error) {
+func (db *DB) CreateMission(agentTemplate string, prompt string, gitRepo string) (*Mission, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	embeddedAgentInt := 0
-	if embeddedAgent {
-		embeddedAgentInt = 1
-	}
-
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, agent_template, prompt, worktree_source, embedded_agent, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
-		id, agentTemplate, prompt, worktreeSource, embeddedAgentInt, now, now,
+		"INSERT INTO missions (id, agent_template, prompt, worktree_source, embedded_agent, status, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'active', ?, ?)",
+		id, agentTemplate, prompt, gitRepo, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
 	}
 
 	return &Mission{
-		ID:             id,
-		AgentTemplate:  agentTemplate,
-		Prompt:         prompt,
-		WorktreeSource: worktreeSource,
-		EmbeddedAgent:  embeddedAgent,
-		Status:         "active",
-		CreatedAt:      time.Now().UTC(),
-		UpdatedAt:      time.Now().UTC(),
+		ID:            id,
+		AgentTemplate: agentTemplate,
+		Prompt:        prompt,
+		GitRepo:       gitRepo,
+		EmbeddedAgent: false,
+		Status:        "active",
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
 	}, nil
 }
 
@@ -373,7 +368,7 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 		var m Mission
 		var createdAt, updatedAt string
 		var embeddedAgentInt int
-		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &embeddedAgentInt, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &embeddedAgentInt, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		m.EmbeddedAgent = embeddedAgentInt != 0
@@ -391,7 +386,7 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
 	var createdAt, updatedAt string
 	var embeddedAgentInt int
-	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.WorktreeSource, &embeddedAgentInt, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &embeddedAgentInt, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	m.EmbeddedAgent = embeddedAgentInt != 0

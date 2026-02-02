@@ -12,10 +12,10 @@ import (
 
 // CreateMissionDir sets up the mission directory structure and rsyncs config
 // files from the agent template into the agent/ subdirectory. When
-// worktreeSource is non-empty, the workspace/ directory is created as a Git
-// worktree of the specified repository. Returns the mission root directory
-// path (not the agent/ subdirectory).
-func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string, worktreeSource string) (string, error) {
+// gitRepoSource is non-empty, the workspace/ directory is created as a copy
+// of the specified repository. Returns the mission root directory path (not
+// the agent/ subdirectory).
+func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string, gitRepoSource string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 	workspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
@@ -27,11 +27,10 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 		}
 	}
 
-	if worktreeSource != "" {
-		// Create workspace as a Git worktree
-		branchName := GetWorktreeBranchName(missionID)
-		if err := CreateWorktree(worktreeSource, workspaceDirpath, branchName); err != nil {
-			return "", stacktrace.Propagate(err, "failed to create git worktree")
+	if gitRepoSource != "" {
+		// Create workspace as a full copy of the git repo
+		if err := CopyRepo(gitRepoSource, workspaceDirpath); err != nil {
+			return "", stacktrace.Propagate(err, "failed to copy git repo into workspace")
 		}
 	} else {
 		// Create a plain workspace directory
@@ -57,26 +56,6 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 	commitFilepath := config.GetMissionTemplateCommitFilepath(agencDirpath, missionID)
 	if err := os.WriteFile(commitFilepath, []byte(commitHash), 0644); err != nil {
 		return "", stacktrace.Propagate(err, "failed to write template-commit file")
-	}
-
-	return missionDirpath, nil
-}
-
-// CreateEmbeddedAgentMissionDir sets up the mission directory structure for an
-// embedded-agent mission. The worktree is created directly at the agent/
-// directory (no workspace/ subdirectory). No template is synced or tracked.
-// Returns the mission root directory path.
-func CreateEmbeddedAgentMissionDir(agencDirpath string, missionID string, worktreeSource string) (string, error) {
-	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
-	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
-
-	if err := os.MkdirAll(missionDirpath, 0755); err != nil {
-		return "", stacktrace.Propagate(err, "failed to create directory '%s'", missionDirpath)
-	}
-
-	branchName := GetWorktreeBranchName(missionID)
-	if err := CreateWorktree(worktreeSource, agentDirpath, branchName); err != nil {
-		return "", stacktrace.Propagate(err, "failed to create git worktree at agent directory")
 	}
 
 	return missionDirpath, nil

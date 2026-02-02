@@ -12,12 +12,6 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
-// GetWorktreeBranchName returns the branch name for a mission's worktree,
-// derived from the first 7 characters of the mission UUID.
-func GetWorktreeBranchName(missionID string) string {
-	return "agenc-" + missionID[:7]
-}
-
 // GetDefaultBranch returns the default branch name for a repository by reading
 // origin/HEAD. Returns just the branch name (e.g. "main", "master").
 func GetDefaultBranch(repoDirpath string) (string, error) {
@@ -31,9 +25,9 @@ func GetDefaultBranch(repoDirpath string) (string, error) {
 	return strings.TrimPrefix(ref, "refs/remotes/origin/"), nil
 }
 
-// ValidateWorktreeRepo checks that the given directory is a Git repository
+// ValidateGitRepo checks that the given directory is a Git repository
 // whose default branch (per origin/HEAD) exists locally.
-func ValidateWorktreeRepo(repoDirpath string) error {
+func ValidateGitRepo(repoDirpath string) error {
 	// Check it's a git repo
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
 	cmd.Dir = repoDirpath
@@ -57,67 +51,23 @@ func ValidateWorktreeRepo(repoDirpath string) error {
 	return nil
 }
 
-// ValidateWorktreeBranch checks that the given branch name does not already
-// exist in the repository.
-func ValidateWorktreeBranch(repoDirpath string, branchName string) error {
-	cmd := exec.Command("git", "rev-parse", "--verify", branchName)
-	cmd.Dir = repoDirpath
-	if err := cmd.Run(); err == nil {
-		return stacktrace.NewError("branch '%s' already exists in '%s'", branchName, repoDirpath)
-	}
-	return nil
-}
+// CopyRepo copies an entire git repository from srcRepoDirpath to
+// dstWorkspaceDirpath using rsync. The destination receives a full
+// independent copy including the .git/ directory.
+func CopyRepo(srcRepoDirpath string, dstWorkspaceDirpath string) error {
+	srcPath := srcRepoDirpath + "/"
+	dstPath := dstWorkspaceDirpath + "/"
 
-// CreateWorktree creates a new Git worktree at workspaceDirpath on a new
-// branch based off the repository's default branch.
-func CreateWorktree(repoDirpath string, workspaceDirpath string, branchName string) error {
-	defaultBranch, err := GetDefaultBranch(repoDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to determine default branch")
+	if err := os.MkdirAll(dstWorkspaceDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create directory '%s'", dstWorkspaceDirpath)
 	}
 
-	cmd := exec.Command("git", "worktree", "add", "-b", branchName, workspaceDirpath, defaultBranch)
-	cmd.Dir = repoDirpath
+	cmd := exec.Command("rsync", "-a", srcPath, dstPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to create worktree: %s", strings.TrimSpace(string(output)))
+		return stacktrace.Propagate(err, "failed to copy repo: %s", strings.TrimSpace(string(output)))
 	}
 	return nil
-}
-
-// RemoveWorktree removes a Git worktree. This is best-effort; errors are
-// returned but callers may choose to ignore them.
-func RemoveWorktree(repoDirpath string, workspaceDirpath string) error {
-	cmd := exec.Command("git", "worktree", "remove", "--force", workspaceDirpath)
-	cmd.Dir = repoDirpath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to remove worktree: %s", strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-// DeleteWorktreeBranchIfMerged deletes the branch if it has been fully merged
-// into the default branch. Returns (true, nil) if the branch was deleted, (false, nil) if
-// the branch has unmerged commits and was preserved, or (false, err) on
-// unexpected failure.
-func DeleteWorktreeBranchIfMerged(repoDirpath string, branchName string) (bool, error) {
-	cmd := exec.Command("git", "branch", "-d", branchName)
-	cmd.Dir = repoDirpath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		outputStr := strings.TrimSpace(string(output))
-		// git branch -d exits non-zero when the branch is not fully merged
-		if strings.Contains(outputStr, "not fully merged") {
-			return false, nil
-		}
-		// Branch might not exist (already deleted)
-		if strings.Contains(outputStr, "not found") {
-			return false, nil
-		}
-		return false, stacktrace.Propagate(err, "failed to delete branch '%s': %s", branchName, outputStr)
-	}
-	return true, nil
 }
 
 // githubSSHRegex matches git@github.com:owner/repo or git@github.com:owner/repo.git
@@ -161,10 +111,10 @@ func ExtractGitHubRepoName(repoDirpath string) (string, error) {
 	return ParseGitHubRemoteURL(strings.TrimSpace(string(output)))
 }
 
-// EnsureWorktreeClone clones the repo into ~/.agenc/repos/ if not already
+// EnsureRepoClone clones the repo into ~/.agenc/repos/ if not already
 // present. Uses the provided cloneURL for the clone. Returns the clone
 // directory path.
-func EnsureWorktreeClone(agencDirpath string, repoName string, cloneURL string) (string, error) {
+func EnsureRepoClone(agencDirpath string, repoName string, cloneURL string) (string, error) {
 	cloneDirpath := config.GetRepoDirpath(agencDirpath, repoName)
 
 	// If already cloned, return immediately
@@ -220,12 +170,12 @@ func ParseRepoReference(ref string) (repoName string, cloneURL string, err error
 	return repoName, cloneURL, nil
 }
 
-// ResolveWorktreeRepoDirpath returns the agenc-owned clone path for a
-// worktree_source value. Handles both old-format (absolute path) and
-// new-format (github.com/owner/repo) values.
-func ResolveWorktreeRepoDirpath(agencDirpath string, worktreeSource string) string {
-	if strings.HasPrefix(worktreeSource, "/") {
-		return worktreeSource // old format: raw filesystem path
+// ResolveRepoCloneDirpath returns the agenc-owned clone path for a
+// git repo value (stored in the worktree_source DB column). Handles both
+// old-format (absolute path) and new-format (github.com/owner/repo) values.
+func ResolveRepoCloneDirpath(agencDirpath string, gitRepo string) string {
+	if strings.HasPrefix(gitRepo, "/") {
+		return gitRepo // old format: raw filesystem path
 	}
-	return config.GetRepoDirpath(agencDirpath, worktreeSource) // new format: repo name
+	return config.GetRepoDirpath(agencDirpath, gitRepo) // new format: repo name
 }

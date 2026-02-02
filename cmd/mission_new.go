@@ -18,8 +18,7 @@ import (
 
 var agentFlag string
 var promptFlag string
-var worktreeFlag string
-var embeddedAgentFlag bool
+var gitFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   "new [agent-template]",
@@ -32,26 +31,12 @@ var missionNewCmd = &cobra.Command{
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "exact agent template name (for programmatic use)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
-	missionNewCmd.Flags().StringVar(&worktreeFlag, "worktree", "", "local path or repo reference (owner/repo); workspace becomes a worktree")
-	missionNewCmd.Flags().BoolVar(&embeddedAgentFlag, "embedded-agent", false, "use agent config from the worktree repo instead of a template")
+	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "local path or repo reference (owner/repo); workspace gets a full repo copy")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
-
-	// Validate --embedded-agent flag constraints
-	if embeddedAgentFlag {
-		if worktreeFlag == "" {
-			return stacktrace.NewError("--worktree is required when using --embedded-agent")
-		}
-		if agentFlag != "" {
-			return stacktrace.NewError("--embedded-agent and --agent are mutually exclusive")
-		}
-		if len(args) > 0 {
-			return stacktrace.NewError("--embedded-agent and positional [agent-template] argument are mutually exclusive")
-		}
-	}
 
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
@@ -62,75 +47,70 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 
 	var agentTemplate string
 
-	if embeddedAgentFlag {
-		// Skip template selection entirely for embedded-agent missions
-	} else {
-		templateRecords, err := db.ListAgentTemplates()
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to list agent templates")
-		}
+	templateRecords, err := db.ListAgentTemplates()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list agent templates")
+	}
 
-		if agentFlag != "" {
-			// --agent flag: match by repo or nickname
-			resolved, resolveErr := resolveTemplate(templateRecords, agentFlag)
-			if resolveErr != nil {
-				return stacktrace.NewError("agent template '%s' not found", agentFlag)
-			}
-			agentTemplate = resolved
-		} else if len(templateRecords) == 0 {
-			fmt.Println("No agent templates found. Proceeding without a template.")
-			fmt.Printf("Install templates with: agenc template install owner/repo\n")
-		} else if len(args) == 1 {
-			resolved, resolveErr := resolveTemplate(templateRecords, args[0])
-			if resolveErr != nil {
-				// No match found — fall through to fzf with initial query
-				selected, fzfErr := selectWithFzf(templateRecords, args[0], true)
-				if fzfErr != nil {
-					return stacktrace.Propagate(fzfErr, "failed to select agent template")
-				}
-				if selected != "" {
-					agentTemplate = selected
-				}
-			} else {
-				agentTemplate = resolved
-			}
-		} else {
-			selected, fzfErr := selectWithFzf(templateRecords, "", true)
+	if agentFlag != "" {
+		// --agent flag: match by repo or nickname
+		resolved, resolveErr := resolveTemplate(templateRecords, agentFlag)
+		if resolveErr != nil {
+			return stacktrace.NewError("agent template '%s' not found", agentFlag)
+		}
+		agentTemplate = resolved
+	} else if len(templateRecords) == 0 {
+		fmt.Println("No agent templates found. Proceeding without a template.")
+		fmt.Printf("Install templates with: agenc template install owner/repo\n")
+	} else if len(args) == 1 {
+		resolved, resolveErr := resolveTemplate(templateRecords, args[0])
+		if resolveErr != nil {
+			// No match found — fall through to fzf with initial query
+			selected, fzfErr := selectWithFzf(templateRecords, args[0], true)
 			if fzfErr != nil {
 				return stacktrace.Propagate(fzfErr, "failed to select agent template")
 			}
 			if selected != "" {
 				agentTemplate = selected
 			}
+		} else {
+			agentTemplate = resolved
+		}
+	} else {
+		selected, fzfErr := selectWithFzf(templateRecords, "", true)
+		if fzfErr != nil {
+			return stacktrace.Propagate(fzfErr, "failed to select agent template")
+		}
+		if selected != "" {
+			agentTemplate = selected
 		}
 	}
 
-	var worktreeRepoName string
-	var worktreeCloneDirpath string
-	if worktreeFlag != "" {
-		repoName, cloneDirpath, err := resolveWorktreeFlag(agencDirpath, worktreeFlag)
+	var gitRepoName string
+	var gitCloneDirpath string
+	if gitFlag != "" {
+		repoName, cloneDirpath, err := resolveGitFlag(agencDirpath, gitFlag)
 		if err != nil {
 			return err
 		}
-		worktreeRepoName = repoName
-		worktreeCloneDirpath = cloneDirpath
+		gitRepoName = repoName
+		gitCloneDirpath = cloneDirpath
 	}
 
-	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, worktreeRepoName, worktreeCloneDirpath, embeddedAgentFlag)
+	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, gitRepoName, gitCloneDirpath)
 }
 
 // createAndLaunchMission creates the mission record and directory, and
-// launches the wrapper process. worktreeRepoName is the canonical repo name
-// stored in the DB (e.g. "github.com/owner/repo"); worktreeCloneDirpath is
+// launches the wrapper process. gitRepoName is the canonical repo name
+// stored in the DB (e.g. "github.com/owner/repo"); gitCloneDirpath is
 // the filesystem path to the agenc-owned clone used for git operations. Both
-// are empty when no worktree is involved.
+// are empty when no git repo is involved.
 func createAndLaunchMission(
 	agencDirpath string,
 	agentTemplate string,
 	prompt string,
-	worktreeRepoName string,
-	worktreeCloneDirpath string,
-	embeddedAgent bool,
+	gitRepoName string,
+	gitCloneDirpath string,
 ) error {
 	// Open database and create mission record
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
@@ -140,30 +120,15 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, prompt, worktreeRepoName, embeddedAgent)
+	missionRecord, err := db.CreateMission(agentTemplate, prompt, gitRepoName)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
 
-	// Validate worktree branch doesn't already exist (needs mission ID for branch name)
-	if worktreeCloneDirpath != "" {
-		branchName := mission.GetWorktreeBranchName(missionRecord.ID)
-		if err := mission.ValidateWorktreeBranch(worktreeCloneDirpath, branchName); err != nil {
-			// Roll back the DB record
-			_ = db.DeleteMission(missionRecord.ID)
-			return stacktrace.Propagate(err, "worktree branch conflict")
-		}
-	}
-
 	fmt.Printf("Created mission: %s\n", missionRecord.ID)
 
-	// Create mission directory structure
-	var missionDirpath string
-	if embeddedAgent {
-		missionDirpath, err = mission.CreateEmbeddedAgentMissionDir(agencDirpath, missionRecord.ID, worktreeCloneDirpath)
-	} else {
-		missionDirpath, err = mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, worktreeCloneDirpath)
-	}
+	// Create mission directory structure (workspace gets a full repo copy)
+	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, gitCloneDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")
 	}
@@ -171,32 +136,32 @@ func createAndLaunchMission(
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching claude...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, embeddedAgent)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate)
 	return w.Run(prompt, false)
 }
 
-// resolveWorktreeFlag resolves a --worktree flag value into a canonical repo
+// resolveGitFlag resolves a --git flag value into a canonical repo
 // name and the filesystem path to the agenc-owned clone. The flag can be a
 // local filesystem path (starts with /, ., or ~) or a repo reference
 // ("owner/repo" or "github.com/owner/repo").
-func resolveWorktreeFlag(agencDirpath string, worktreeFlag string) (repoName string, cloneDirpath string, err error) {
-	if isLocalPath(worktreeFlag) {
-		return resolveWorktreeFlagFromLocalPath(agencDirpath, worktreeFlag)
+func resolveGitFlag(agencDirpath string, flag string) (repoName string, cloneDirpath string, err error) {
+	if isLocalPath(flag) {
+		return resolveGitFlagFromLocalPath(agencDirpath, flag)
 	}
-	return resolveWorktreeFlagFromRepoRef(agencDirpath, worktreeFlag)
+	return resolveGitFlagFromRepoRef(agencDirpath, flag)
 }
 
-// resolveWorktreeFlagFromLocalPath handles --worktree when it points to a
-// local git repository. It validates the repo, extracts the GitHub remote URL,
-// and clones into ~/.agenc/repos/.
-func resolveWorktreeFlagFromLocalPath(agencDirpath string, localPath string) (string, string, error) {
+// resolveGitFlagFromLocalPath handles --git when it points to a local git
+// repository. It validates the repo, extracts the GitHub remote URL, and
+// clones into ~/.agenc/repos/.
+func resolveGitFlagFromLocalPath(agencDirpath string, localPath string) (string, string, error) {
 	absDirpath, err := filepath.Abs(localPath)
 	if err != nil {
-		return "", "", stacktrace.Propagate(err, "failed to resolve worktree path")
+		return "", "", stacktrace.Propagate(err, "failed to resolve git repo path")
 	}
 
-	if err := mission.ValidateWorktreeRepo(absDirpath); err != nil {
-		return "", "", stacktrace.Propagate(err, "invalid worktree repository")
+	if err := mission.ValidateGitRepo(absDirpath); err != nil {
+		return "", "", stacktrace.Propagate(err, "invalid git repository")
 	}
 
 	repoName, err := mission.ExtractGitHubRepoName(absDirpath)
@@ -213,29 +178,29 @@ func resolveWorktreeFlagFromLocalPath(agencDirpath string, localPath string) (st
 	}
 	cloneURL := strings.TrimSpace(string(cloneURLOutput))
 
-	cloneDirpath, err := mission.EnsureWorktreeClone(agencDirpath, repoName, cloneURL)
+	cloneDirpath, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL)
 	if err != nil {
-		return "", "", stacktrace.Propagate(err, "failed to ensure worktree clone")
+		return "", "", stacktrace.Propagate(err, "failed to ensure repo clone")
 	}
 
 	return repoName, cloneDirpath, nil
 }
 
-// resolveWorktreeFlagFromRepoRef handles --worktree when it's a repo reference
-// like "owner/repo" or "github.com/owner/repo". Clones via HTTPS into
+// resolveGitFlagFromRepoRef handles --git when it's a repo reference like
+// "owner/repo" or "github.com/owner/repo". Clones via HTTPS into
 // ~/.agenc/repos/ and validates the result.
-func resolveWorktreeFlagFromRepoRef(agencDirpath string, ref string) (string, string, error) {
+func resolveGitFlagFromRepoRef(agencDirpath string, ref string) (string, string, error) {
 	repoName, cloneURL, err := mission.ParseRepoReference(ref)
 	if err != nil {
-		return "", "", stacktrace.Propagate(err, "invalid --worktree value '%s'", ref)
+		return "", "", stacktrace.Propagate(err, "invalid --git value '%s'", ref)
 	}
 
-	cloneDirpath, err := mission.EnsureWorktreeClone(agencDirpath, repoName, cloneURL)
+	cloneDirpath, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL)
 	if err != nil {
 		return "", "", stacktrace.Propagate(err, "failed to clone '%s'", repoName)
 	}
 
-	if err := mission.ValidateWorktreeRepo(cloneDirpath); err != nil {
+	if err := mission.ValidateGitRepo(cloneDirpath); err != nil {
 		return "", "", stacktrace.Propagate(err, "cloned repository is not valid")
 	}
 
@@ -322,4 +287,3 @@ func resolveTemplate(templates []*database.AgentTemplate, query string) (string,
 	}
 	return "", stacktrace.NewError("no unique template match for '%s'", query)
 }
-

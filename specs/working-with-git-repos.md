@@ -49,5 +49,13 @@ $AGENC_DIRPATH/
     ...daemon, missions, etc. subdirectories...
 ```
 
+### Decisions
+- **Embedded-agent mode**: Removed. With full repo copies, there's no need for a separate mode.
+- **Push strategy**: Agents push directly from their workspace copy (which retains `origin` remote).
+- **Flag rename**: `--worktree` -> `--git`. AgenC still clones into its `repos/` library for force-pull.
+- **`claude-modifications/` directory**: Deferred to later work. Current config assembly stays as-is.
+- **DB backward compat**: Keep `worktree_source` column name, rename only Go struct field to `GitRepo`.
+- **Daemon behavior**: Continues force-pulling repos in `repos/` library. Workspace copies are independent snapshots unaffected by daemon updates.
+
 ### Later Work
 - Make all agents update when the AgenC-global Claude config reloads

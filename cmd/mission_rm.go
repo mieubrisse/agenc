@@ -11,7 +11,6 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/mission"
 )
 
 var missionRmCmd = &cobra.Command{
@@ -118,9 +117,8 @@ func selectMissionsToRemove(db *database.DB) ([]string, error) {
 // removeMission tears down a mission in the reverse order of `mission new`:
 // mission new creates DB record then directory, so we remove directory then DB record.
 func removeMission(db *database.DB, missionID string) error {
-	// Fetch mission record (needed for worktree cleanup)
-	missionRecord, err := db.GetMission(missionID)
-	if err != nil {
+	// Fetch mission record to confirm it exists
+	if _, err := db.GetMission(missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
 
@@ -129,33 +127,7 @@ func removeMission(db *database.DB, missionID string) error {
 		return stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
 	}
 
-	// Clean up worktree and branch before removing the directory
-	if missionRecord.WorktreeSource != "" {
-		var worktreeDirpath string
-		if missionRecord.EmbeddedAgent {
-			worktreeDirpath = config.GetMissionAgentDirpath(agencDirpath, missionID)
-		} else {
-			worktreeDirpath = config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
-		}
-
-		repoDirpath := mission.ResolveWorktreeRepoDirpath(agencDirpath, missionRecord.WorktreeSource)
-		branchName := mission.GetWorktreeBranchName(missionID)
-
-		// Remove the worktree (best-effort)
-		if err := mission.RemoveWorktree(repoDirpath, worktreeDirpath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to clean up git worktree: %v\n", err)
-		}
-
-		// Delete the branch if fully merged into main; preserve if unmerged
-		deleted, err := mission.DeleteWorktreeBranchIfMerged(repoDirpath, branchName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to check worktree branch: %v\n", err)
-		} else if !deleted {
-			fmt.Printf("Branch '%s' preserved in %s (has unmerged changes)\n", branchName, missionRecord.WorktreeSource)
-		}
-	}
-
-	// Remove the mission directory
+	// Remove the mission directory (workspace is just a directory copy, so RemoveAll handles it)
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	if _, err := os.Stat(missionDirpath); err == nil {
 		if err := os.RemoveAll(missionDirpath); err != nil {

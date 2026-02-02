@@ -14,7 +14,7 @@ const (
 )
 
 // runRepoUpdateLoop periodically fetches and fast-forwards repos
-// (agent templates and worktree source clones) referenced by running missions.
+// (agent templates and git repo clones) referenced by running missions.
 func (d *Daemon) runRepoUpdateLoop(ctx context.Context) {
 	d.runRepoUpdateCycle(ctx)
 
@@ -51,8 +51,8 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 }
 
 // collectRunningMissionRepos returns the distinct repo names (agent templates
-// and worktree source clones) referenced by missions whose wrapper PID is
-// still alive. Old-format worktree sources (absolute paths) are skipped.
+// and git repo clones) referenced by missions whose wrapper PID is still
+// alive. Old-format git repo values (absolute paths) are skipped.
 func (d *Daemon) collectRunningMissionRepos() []string {
 	missions, err := d.db.ListMissions(false)
 	if err != nil {
@@ -79,10 +79,10 @@ func (d *Daemon) collectRunningMissionRepos() []string {
 			repoNames = append(repoNames, m.AgentTemplate)
 		}
 
-		// Collect worktree source repo (new-format only: github.com/owner/repo)
-		if m.WorktreeSource != "" && !strings.HasPrefix(m.WorktreeSource, "/") && !seen[m.WorktreeSource] {
-			seen[m.WorktreeSource] = true
-			repoNames = append(repoNames, m.WorktreeSource)
+		// Collect git repo clone (new-format only: github.com/owner/repo)
+		if m.GitRepo != "" && !strings.HasPrefix(m.GitRepo, "/") && !seen[m.GitRepo] {
+			seen[m.GitRepo] = true
+			repoNames = append(repoNames, m.GitRepo)
 		}
 	}
 	return repoNames

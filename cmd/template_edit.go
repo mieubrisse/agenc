@@ -14,7 +14,7 @@ var templateEditPromptFlag string
 
 var templateEditCmd = &cobra.Command{
 	Use:   "edit [template-name]",
-	Short: "Edit an agent template via a new worktree mission",
+	Short: "Edit an agent template via a new mission with a repo copy",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTemplateEdit,
 }
@@ -67,5 +67,5 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	templateCloneDirpath := config.GetRepoDirpath(agencDirpath, templateName)
-	return createAndLaunchMission(agencDirpath, "", templateEditPromptFlag, templateName, templateCloneDirpath, false)
+	return createAndLaunchMission(agencDirpath, "", templateEditPromptFlag, templateName, templateCloneDirpath)
 }
