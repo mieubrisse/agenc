@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/tableprinter"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
@@ -99,7 +101,9 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
 	// Filter to stopped missions only (already ordered by created_at DESC)
-	var lines []string
+	var buf bytes.Buffer
+	tbl := tableprinter.NewTable("ID", "AGENT", "REPO", "PROMPT").WithWriter(&buf)
+	rowCount := 0
 	for _, m := range missions {
 		if getMissionStatus(m.ID, m.Status) != "STOPPED" {
 			continue
@@ -110,22 +114,24 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		}
 		agent := displayAgentTemplate(m.AgentTemplate, nicknames)
 		repo := displayGitRepo(m.GitRepo)
-		lines = append(lines, fmt.Sprintf("%s\t%s\t%s\t%s", m.ID, agent, repo, promptSnippet))
+		tbl.AddRow(m.ID, agent, repo, promptSnippet)
+		rowCount++
 	}
 
-	if len(lines) == 0 {
+	if rowCount == 0 {
 		return "", stacktrace.NewError("no stopped missions to resume")
 	}
 
-	input := strings.Join(lines, "\n")
+	tbl.Print()
 
 	fzfBinary, err := exec.LookPath("fzf")
 	if err != nil {
 		return "", stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the mission ID as an argument")
 	}
 
-	fzfCmd := exec.Command(fzfBinary, "--prompt", "Select mission to resume: ")
-	fzfCmd.Stdin = strings.NewReader(input)
+	fzfCmd := exec.Command(fzfBinary, "--ansi", "--header-lines", "1",
+		"--prompt", "Select mission to resume: ")
+	fzfCmd.Stdin = strings.NewReader(buf.String())
 	fzfCmd.Stderr = os.Stderr
 
 	output, err := fzfCmd.Output()
@@ -134,7 +140,7 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 	}
 
 	selected := strings.TrimSpace(string(output))
-	// Extract mission ID from the first tab-separated field
-	missionID, _, _ := strings.Cut(selected, "\t")
+	// Extract mission ID from the first whitespace-separated field
+	missionID := strings.Fields(selected)[0]
 	return missionID, nil
 }

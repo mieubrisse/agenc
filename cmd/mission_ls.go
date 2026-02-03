@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -13,6 +11,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
 var lsAllFlag bool
@@ -57,11 +56,10 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.StripEscape)
-	fmt.Fprintln(w, "ID\tSTATUS\tAGENT\tREPO\tCREATED")
+	tbl := tableprinter.NewTable("ID", "STATUS", "AGENT", "REPO", "CREATED")
 	for _, m := range missions {
 		status := getMissionStatus(m.ID, m.Status)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		tbl.AddRow(
 			m.ID,
 			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
@@ -69,7 +67,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			m.CreatedAt.Format("2006-01-02 15:04"),
 		)
 	}
-	w.Flush()
+	tbl.Print()
 
 	return nil
 }
@@ -127,21 +125,13 @@ func extractRepoFromFzfLine(line string) string {
 	return line
 }
 
-// tabEscape wraps s in tabwriter escape markers (\xff) so that its byte
-// length is excluded from column width calculation.
-func tabEscape(s string) string {
-	return "\xff" + s + "\xff"
-}
-
-// colorizeStatus wraps a status string with ANSI color codes. The ANSI
-// sequences are bracketed with tabwriter escape markers so they don't
-// affect column alignment.
+// colorizeStatus wraps a status string with ANSI color codes.
 func colorizeStatus(status string) string {
 	switch status {
 	case "RUNNING":
-		return tabEscape("\033[32m") + status + tabEscape("\033[0m")
+		return "\033[32m" + status + "\033[0m"
 	case "ARCHIVED":
-		return tabEscape("\033[33m") + status + tabEscape("\033[0m")
+		return "\033[33m" + status + "\033[0m"
 	default:
 		return status
 	}
