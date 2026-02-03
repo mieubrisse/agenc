@@ -2,7 +2,6 @@ package wrapper
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -81,14 +80,14 @@ func NewWrapper(agencDirpath string, missionID string, agentTemplate string, git
 // isResume=false. For a resume, pass an empty prompt and isResume=true.
 // Run blocks until Claude exits naturally or the wrapper shuts down.
 func (w *Wrapper) Run(prompt string, isResume bool) error {
-	// Set up logger that writes to both stdout and a log file
+	// Set up logger that writes to the log file
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to open wrapper log file")
 	}
 	defer logFile.Close()
-	w.logger = slog.New(slog.NewTextHandler(io.MultiWriter(os.Stdout, logFile), nil))
+	w.logger = slog.New(slog.NewTextHandler(logFile, nil))
 
 	// Write wrapper PID
 	pidFilepath := config.GetMissionPIDFilepath(w.agencDirpath, w.missionID)
