@@ -416,23 +416,6 @@ func createAndLaunchMission(
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ID)
 
-	// Force-update repo library clones so the mission starts from the latest code
-	if gitCloneDirpath != "" {
-		fmt.Printf("Updating repo %s...\n", gitRepoName)
-		if err := mission.ForceUpdateRepo(gitCloneDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to update git repo '%s'", gitRepoName)
-		}
-	}
-	if agentTemplate != "" {
-		templateDirpath := config.GetRepoDirpath(agencDirpath, agentTemplate)
-		if templateDirpath != gitCloneDirpath {
-			fmt.Printf("Updating agent template %s...\n", agentTemplate)
-			if err := mission.ForceUpdateRepo(templateDirpath); err != nil {
-				return stacktrace.Propagate(err, "failed to update agent template '%s'", agentTemplate)
-			}
-		}
-	}
-
 	// Create mission directory structure (repo goes inside workspace/)
 	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, gitCloneDirpath)
 	if err != nil {
@@ -442,7 +425,7 @@ func createAndLaunchMission(
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching claude...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName)
 	return w.Run(prompt, false)
 }
 

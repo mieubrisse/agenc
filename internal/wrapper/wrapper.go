@@ -23,6 +23,7 @@ import (
 const (
 	templatePollInterval       = 10 * time.Second
 	globalConfigDebouncePeriod = 500 * time.Millisecond
+	repoRefDebouncePeriod      = 5 * time.Second
 )
 
 // WrapperState represents the current state of the mission wrapper.
@@ -40,6 +41,7 @@ type Wrapper struct {
 	agencDirpath    string
 	missionID       string
 	agentTemplate   string
+	gitRepoName     string
 	missionDirpath  string
 	agentDirpath    string
 	templateDirpath string
@@ -58,11 +60,12 @@ type Wrapper struct {
 }
 
 // NewWrapper creates a new Wrapper for the given mission.
-func NewWrapper(agencDirpath string, missionID string, agentTemplate string) *Wrapper {
+func NewWrapper(agencDirpath string, missionID string, agentTemplate string, gitRepoName string) *Wrapper {
 	return &Wrapper{
 		agencDirpath:    agencDirpath,
 		missionID:       missionID,
 		agentTemplate:   agentTemplate,
+		gitRepoName:     gitRepoName,
 		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
 		templateDirpath: config.GetRepoDirpath(agencDirpath, agentTemplate),
@@ -117,6 +120,9 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 	go w.watchGlobalConfig(ctx)
 	if w.agentTemplate != "" {
 		go w.pollTemplateChanges(ctx)
+	}
+	if w.gitRepoName != "" {
+		go w.watchWorkspaceRemoteRefs(ctx)
 	}
 
 	// Spawn initial Claude process
@@ -324,6 +330,80 @@ func (w *Wrapper) watchGlobalConfig(ctx context.Context) {
 				return
 			}
 			w.logger.Warn("fsnotify error watching global config", "error", err)
+		}
+	}
+}
+
+// watchWorkspaceRemoteRefs uses fsnotify to watch the workspace repo's
+// .git/refs/remotes/origin/ directory for changes to the default branch ref.
+// When the ref changes (e.g. after `git push origin main`), force-updates the
+// repo library clone so other missions get fresh copies.
+func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
+	workspaceDirpath := config.GetMissionWorkspaceDirpath(w.agencDirpath, w.missionID)
+	repoShortName := filepath.Base(w.gitRepoName)
+	workspaceRepoDirpath := filepath.Join(workspaceDirpath, repoShortName)
+
+	defaultBranch, err := mission.GetDefaultBranch(workspaceRepoDirpath)
+	if err != nil {
+		w.logger.Warn("Failed to determine default branch for workspace repo", "error", err)
+		return
+	}
+
+	refsDirpath := filepath.Join(workspaceRepoDirpath, ".git", "refs", "remotes", "origin")
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		w.logger.Warn("Failed to create fsnotify watcher for workspace remote refs", "error", err)
+		return
+	}
+	defer watcher.Close()
+
+	if err := watcher.Add(refsDirpath); err != nil {
+		w.logger.Warn("Failed to watch workspace remote refs directory", "dir", refsDirpath, "error", err)
+		return
+	}
+
+	debounceTimer := time.NewTimer(0)
+	if !debounceTimer.Stop() {
+		<-debounceTimer.C
+	}
+	timerActive := false
+
+	for {
+		select {
+		case <-ctx.Done():
+			if !debounceTimer.Stop() && timerActive {
+				<-debounceTimer.C
+			}
+			return
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if filepath.Base(event.Name) != defaultBranch {
+				continue
+			}
+			if !(event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
+				continue
+			}
+			// Debounce to avoid rapid successive updates
+			if !debounceTimer.Stop() && timerActive {
+				<-debounceTimer.C
+			}
+			debounceTimer.Reset(repoRefDebouncePeriod)
+			timerActive = true
+		case <-debounceTimer.C:
+			timerActive = false
+			repoLibraryDirpath := config.GetRepoDirpath(w.agencDirpath, w.gitRepoName)
+			w.logger.Info("Workspace remote ref changed, updating repo library", "repo", w.gitRepoName)
+			if err := mission.ForceUpdateRepo(repoLibraryDirpath); err != nil {
+				w.logger.Warn("Failed to force-update repo library", "repo", w.gitRepoName, "error", err)
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			w.logger.Warn("fsnotify error watching workspace remote refs", "error", err)
 		}
 	}
 }

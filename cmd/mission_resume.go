@@ -82,7 +82,7 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Resuming mission: %s\n", missionID)
 	fmt.Println("Launching claude --continue...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.GitRepo)
 	return w.Run("", true)
 }
 
