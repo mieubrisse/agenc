@@ -79,7 +79,7 @@ func displayAgentTemplate(repo string, nicknames map[string]string) string {
 	if nick, ok := nicknames[repo]; ok {
 		return nick
 	}
-	return repo
+	return displayGitRepo(repo)
 }
 
 // displayGitRepo formats a canonical repo name for user-facing display.
