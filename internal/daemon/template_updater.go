@@ -12,6 +12,12 @@ import (
 )
 
 const (
+	// heartbeatStalenessThreshold defines how recent a mission's heartbeat
+	// must be for its repo to be included in the force-pull sweep.
+	heartbeatStalenessThreshold = 5 * time.Minute
+)
+
+const (
 	repoUpdateInterval = 60 * time.Second
 )
 
@@ -63,13 +69,17 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		reposToSync[repo] = true
 	}
 
-	// Include repos from active missions
+	// Include repos from missions with a recent heartbeat (active wrapper)
+	now := time.Now().UTC()
 	missions, err := d.db.ListMissions(false)
 	if err != nil {
-		d.logger.Printf("Repo update: failed to list active missions: %v", err)
+		d.logger.Printf("Repo update: failed to list missions: %v", err)
 	} else {
 		for _, m := range missions {
-			if m.GitRepo != "" {
+			if m.GitRepo == "" || m.LastHeartbeat == nil {
+				continue
+			}
+			if now.Sub(*m.LastHeartbeat) <= heartbeatStalenessThreshold {
 				reposToSync[m.GitRepo] = true
 			}
 		}

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS missions (
 const dropMissionDescriptionsTableSQL = `DROP TABLE IF EXISTS mission_descriptions;`
 
 const addGitRepoColumnSQL = `ALTER TABLE missions ADD COLUMN git_repo TEXT NOT NULL DEFAULT '';`
+const addLastHeartbeatColumnSQL = `ALTER TABLE missions ADD COLUMN last_heartbeat TEXT;`
 // Mission represents a row in the missions table.
 type Mission struct {
 	ID            string
@@ -31,6 +32,7 @@ type Mission struct {
 	Prompt        string
 	Status        string
 	GitRepo       string
+	LastHeartbeat *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -60,6 +62,11 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := migrateWorktreeSourceToGitRepo(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to migrate worktree_source to git_repo column")
+	}
+
+	if err := migrateAddLastHeartbeat(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add last_heartbeat column")
 	}
 
 	// Drop legacy mission_descriptions table
@@ -118,6 +125,35 @@ func migrateWorktreeSourceToGitRepo(conn *sql.DB) error {
 	}
 }
 
+// migrateAddLastHeartbeat idempotently adds the last_heartbeat column.
+func migrateAddLastHeartbeat(conn *sql.DB) error {
+	rows, err := conn.Query("PRAGMA table_info(missions)")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read missions table info")
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return stacktrace.Propagate(err, "failed to scan table_info row")
+		}
+		if name == "last_heartbeat" {
+			return nil // already exists
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return stacktrace.Propagate(err, "error iterating table_info rows")
+	}
+
+	_, err = conn.Exec(addLastHeartbeatColumnSQL)
+	return err
+}
+
 // Close closes the database connection.
 func (db *DB) Close() error {
 	return db.conn.Close()
@@ -150,7 +186,7 @@ func (db *DB) CreateMission(agentTemplate string, prompt string, gitRepo string)
 // ListMissions returns missions ordered by created_at DESC.
 // If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
 func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
-	query := "SELECT id, agent_template, prompt, status, git_repo, created_at, updated_at FROM missions"
+	query := "SELECT id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions"
 	if !includeArchived {
 		query += " WHERE status != 'archived'"
 	}
@@ -168,7 +204,7 @@ func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, agent_template, prompt, status, git_repo, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -241,13 +277,32 @@ func (db *DB) DeleteMission(id string) error {
 	return nil
 }
 
+// UpdateHeartbeat sets the last_heartbeat timestamp to the current time for
+// the given mission. Called periodically by the wrapper to signal liveness.
+func (db *DB) UpdateHeartbeat(id string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.conn.Exec(
+		"UPDATE missions SET last_heartbeat = ? WHERE id = ?",
+		now, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update heartbeat for mission '%s'", id)
+	}
+	return nil
+}
+
 func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	var missions []*Mission
 	for rows.Next() {
 		var m Mission
+		var lastHeartbeat sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
+		}
+		if lastHeartbeat.Valid {
+			t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
+			m.LastHeartbeat = &t
 		}
 		m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
@@ -261,9 +316,14 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
+	var lastHeartbeat sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
 		return nil, err
+	}
+	if lastHeartbeat.Valid {
+		t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
+		m.LastHeartbeat = &t
 	}
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)

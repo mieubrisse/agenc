@@ -427,7 +427,7 @@ func createAndLaunchMission(
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching claude...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, db)
 	return w.Run(prompt, false)
 }
 

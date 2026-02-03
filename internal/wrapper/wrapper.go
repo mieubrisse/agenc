@@ -16,6 +16,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
 )
 
@@ -23,6 +24,7 @@ const (
 	templatePollInterval       = 10 * time.Second
 	globalConfigDebouncePeriod = 500 * time.Millisecond
 	repoRefDebouncePeriod      = 5 * time.Second
+	heartbeatInterval          = 30 * time.Second
 )
 
 // WrapperState represents the current state of the mission wrapper.
@@ -44,6 +46,7 @@ type Wrapper struct {
 	missionDirpath  string
 	agentDirpath    string
 	templateDirpath string
+	db              *database.DB
 
 	state     WrapperState
 	claudeCmd *exec.Cmd
@@ -59,7 +62,7 @@ type Wrapper struct {
 }
 
 // NewWrapper creates a new Wrapper for the given mission.
-func NewWrapper(agencDirpath string, missionID string, agentTemplate string, gitRepoName string) *Wrapper {
+func NewWrapper(agencDirpath string, missionID string, agentTemplate string, gitRepoName string, db *database.DB) *Wrapper {
 	return &Wrapper{
 		agencDirpath:    agencDirpath,
 		missionID:       missionID,
@@ -68,6 +71,7 @@ func NewWrapper(agencDirpath string, missionID string, agentTemplate string, git
 		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
 		templateDirpath: config.GetRepoDirpath(agencDirpath, agentTemplate),
+		db:              db,
 		state:              StateRunning,
 		configChanged:      make(chan string, 1),
 		globalConfigChanged: make(chan struct{}, 1),
@@ -113,6 +117,12 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
+
+	// Write initial heartbeat and start periodic heartbeat loop
+	if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
+		w.logger.Warn("Failed to write initial heartbeat", "error", err)
+	}
+	go w.writeHeartbeat(ctx)
 
 	// Start background watchers for config and state changes
 	go w.watchClaudeState(ctx)
@@ -403,6 +413,24 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 				return
 			}
 			w.logger.Warn("fsnotify error watching workspace remote refs", "error", err)
+		}
+	}
+}
+
+// writeHeartbeat periodically updates the mission's last_heartbeat timestamp
+// in the database so the daemon knows the wrapper is still alive.
+func (w *Wrapper) writeHeartbeat(ctx context.Context) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
+				w.logger.Warn("Failed to write heartbeat", "error", err)
+			}
 		}
 	}
 }
