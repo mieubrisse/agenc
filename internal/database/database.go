@@ -2,7 +2,6 @@ package database
 
 import (
 	"database/sql"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,7 +23,7 @@ CREATE TABLE IF NOT EXISTS missions (
 
 const dropMissionDescriptionsTableSQL = `DROP TABLE IF EXISTS mission_descriptions;`
 
-const addWorktreeSourceColumnSQL = `ALTER TABLE missions ADD COLUMN worktree_source TEXT NOT NULL DEFAULT '';`
+const addGitRepoColumnSQL = `ALTER TABLE missions ADD COLUMN git_repo TEXT NOT NULL DEFAULT '';`
 // Mission represents a row in the missions table.
 type Mission struct {
 	ID            string
@@ -58,9 +57,9 @@ func Open(dbFilepath string) (*DB, error) {
 		}
 	}
 
-	if err := runMigrationIgnoreDuplicate(conn, addWorktreeSourceColumnSQL); err != nil {
+	if err := migrateWorktreeSourceToGitRepo(conn); err != nil {
 		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to run worktree_source migration")
+		return nil, stacktrace.Propagate(err, "failed to migrate worktree_source to git_repo column")
 	}
 
 	// Drop legacy mission_descriptions table
@@ -72,14 +71,51 @@ func Open(dbFilepath string) (*DB, error) {
 	return &DB{conn: conn}, nil
 }
 
-// runMigrationIgnoreDuplicate executes a migration SQL statement, ignoring
-// "duplicate column" errors for idempotent ALTER TABLE ADD COLUMN migrations.
-func runMigrationIgnoreDuplicate(conn *sql.DB, migrationSQL string) error {
-	_, err := conn.Exec(migrationSQL)
-	if err != nil && strings.Contains(err.Error(), "duplicate column") {
-		return nil
+// migrateWorktreeSourceToGitRepo ensures the missions table has a git_repo
+// column. Handles three states idempotently:
+//   - Neither column exists (new DB): adds git_repo
+//   - worktree_source exists (old DB): renames it to git_repo
+//   - git_repo already exists (already migrated): no-op
+func migrateWorktreeSourceToGitRepo(conn *sql.DB) error {
+	hasWorktreeSource := false
+	hasGitRepo := false
+
+	rows, err := conn.Query("PRAGMA table_info(missions)")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read missions table info")
 	}
-	return err
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return stacktrace.Propagate(err, "failed to scan table_info row")
+		}
+		switch name {
+		case "worktree_source":
+			hasWorktreeSource = true
+		case "git_repo":
+			hasGitRepo = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return stacktrace.Propagate(err, "error iterating table_info rows")
+	}
+
+	switch {
+	case hasGitRepo:
+		return nil // already migrated
+	case hasWorktreeSource:
+		_, err := conn.Exec("ALTER TABLE missions RENAME COLUMN worktree_source TO git_repo")
+		return err
+	default:
+		_, err := conn.Exec(addGitRepoColumnSQL)
+		return err
+	}
 }
 
 // Close closes the database connection.
@@ -93,7 +129,7 @@ func (db *DB) CreateMission(agentTemplate string, prompt string, gitRepo string)
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, agent_template, prompt, worktree_source, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+		"INSERT INTO missions (id, agent_template, prompt, git_repo, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
 		id, agentTemplate, prompt, gitRepo, now, now,
 	)
 	if err != nil {
@@ -114,7 +150,7 @@ func (db *DB) CreateMission(agentTemplate string, prompt string, gitRepo string)
 // ListMissions returns missions ordered by created_at DESC.
 // If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
 func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
-	query := "SELECT id, agent_template, prompt, status, worktree_source, created_at, updated_at FROM missions"
+	query := "SELECT id, agent_template, prompt, status, git_repo, created_at, updated_at FROM missions"
 	if !includeArchived {
 		query += " WHERE status != 'archived'"
 	}
@@ -132,7 +168,7 @@ func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, agent_template, prompt, status, worktree_source, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, agent_template, prompt, status, git_repo, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 

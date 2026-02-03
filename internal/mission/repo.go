@@ -187,7 +187,7 @@ func ParseRepoReference(ref string) (repoName string, cloneURL string, err error
 }
 
 // ResolveRepoCloneDirpath returns the agenc-owned clone path for a
-// git repo value (stored in the worktree_source DB column). Handles both
+// git repo value (stored in the git_repo DB column). Handles both
 // old-format (absolute path) and new-format (github.com/owner/repo) values.
 func ResolveRepoCloneDirpath(agencDirpath string, gitRepo string) string {
 	if strings.HasPrefix(gitRepo, "/") {
