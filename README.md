@@ -33,7 +33,7 @@ You want a swarm of infinite obedient robots, making your every whim a reality.
 
 This requires a LOT of alignment work.
 
-Every time the agents don't get it right, you need to capture the lesson back into your agent config: the [Inputs, Not Outputs](TODO link to factory) doctrine.
+Every time the agents don't get it right, you need to capture the lesson back into your agent config: the [Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs) doctrine.
 
 But vanilla Claude is really bad at this.
 
@@ -52,19 +52,20 @@ AgenC solves this:
 - At any point when using an agent, you can fork a new Claude code window editing the agent itself
 - When an agent's config is updated, all agents using that config restart with the config the next time they're idle
 
-User workflow
+Workflows
 -------------
-### Human-in-the-loop, output elsewhere (Todoist inbox processing, calendar processing)
-1. Press something to easily fire up a 
+AgenC is currently really good at these workflows:
 
-### Human-in-the-loop, output in the repo (Substack writing, IG content generation)
+- **Human-in-the-loop assistant work with MCP:** Examples: email/Todoist inbox processing, calendar management.
+- **Human-in-the-loop editing a repo:** Examples: coding, writing.
 
-### Human-in-the-loop Git edits for solo repository (e.g. dotfiles, checklists-and-templates)
+Basically, ["painting with your mind" workflows](https://mieubrisse.substack.com/p/be-rembrandt).
 
-### Autonomous 
+AgenC doesn't currently handle these workflows, but will soon:
 
-
-
+- **Completely autonomous work:** Example: instruct the agent to do a thing without you being connected to the Claude TUI.
+- **Cron:** Example: every Wednesday, summarize HackerNews and let me know what you found.
+- **Inter-agent communication:** Exmaple: the Code Writer agent hands off its work to the Code Reviewer agent who hands off to the PR Coordinator agent.
 
 How it works
 ------------
@@ -73,7 +74,6 @@ How it works
 1. When talking to any agent on a mission, with a simple hotkey you can switch to editing the template, making your AgenC better forever
 1. When an agent's config changes, the agent is restarted the next time it's idle to use the new config
 1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
-
 
 Getting started
 ---------------
@@ -95,15 +95,6 @@ Future work
 - Build settings.json files for you with AI (even out in your filesystem)
     - E.g. when you're starting a task, it will suggest settings.json's for you, so you don't have to give a bunch of "yes"s
 
-Example Workflows
------------------
-
-The AgenC is general-purpose. Any task you could give to a Claude Code session, you can give to the AgenC. Some examples:
-
-- **Code changes** — "Clone github.com/myorg/api, add rate limiting to all public endpoints, and open a PR."
-- **Research** — "Research the top 5 Golang ORMs and write a comparison."
-- **Writing** — "In the substack repo, write a post about the future of AI agents and commit it."
-- **Calendar management** — "Add a weekly team sync every Tuesday at 10am to my Google Calendar."
 
 Configuration
 -------------
@@ -161,8 +152,3 @@ Design Goals
 - **Configurable agents** — Agent templates let you define specialized agents with their own instructions, MCP servers, secrets, and skills.
 - **Observable** — Clear logging and SQLite tracking for all missions.
 - **Simple interface** — Submit a mission via the CLI. The AgenC handles the rest.
-
-Status
-------
-
-This project is in early development.
