@@ -4,8 +4,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const missionCmdName = "mission"
+
 var missionCmd = &cobra.Command{
-	Use:   "mission",
+	Use:   missionCmdName,
 	Short: "Manage agent missions",
 }
 
