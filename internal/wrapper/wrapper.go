@@ -182,6 +182,7 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 
 		case newHash := <-w.configChanged:
 			// Config has changed -- rsync template and decide whether to restart
+			w.logger.Info("Template changed, syncing and scheduling restart", "newHash", newHash)
 			if err := mission.RsyncTemplate(w.templateDirpath, w.agentDirpath); err != nil {
 				w.logger.Warn("Failed to rsync template update", "error", err)
 				continue
@@ -191,9 +192,11 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 
 			claudeState := w.readClaudeState()
 			if claudeState == "idle" {
+				w.logger.Info("Claude is idle, restarting now")
 				w.state = StateRestarting
 				_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
 			} else {
+				w.logger.Info("Claude is busy, deferring restart until idle", "claudeState", claudeState)
 				w.state = StateRestartPending
 			}
 
