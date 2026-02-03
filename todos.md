@@ -1,4 +1,7 @@
 - [ ] Fix bug where a reload before the user has said anything fails Claude with "no conversation to continue"
+- [ ] Fix missing logging + race condition in template change reload path
+    - The `configChanged` handler in `wrapper.go:183-198` has zero logging (unlike the `globalConfigChanged` handler which logs at line 204). Template rsyncs and state transitions happen silently.
+    - Race condition: when Claude exits naturally, both `claudeStateIdle` (from the Stop hook) and `claudeExited` arrive on the select simultaneously. If `claudeExited` wins while state is `StateRestartPending` (not yet `StateRestarting`), the wrapper exits at line 181 without restarting — the pending restart is lost.
 - [ ] Display & accept short UUIDs
 - [ ] Reload when non-CLAUDE.md/settings.json changes happen (skills, subagents, etc.)
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
