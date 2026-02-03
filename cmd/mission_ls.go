@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -56,15 +57,15 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
-	tbl := tableprinter.NewTable("ID", "STATUS", "AGENT", "REPO", "CREATED")
+	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "REPO")
 	for _, m := range missions {
 		status := getMissionStatus(m.ID, m.Status)
 		tbl.AddRow(
+			formatLastActive(m.LastHeartbeat),
 			m.ID,
 			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
 			displayGitRepo(m.GitRepo),
-			m.CreatedAt.Format("2006-01-02 15:04"),
 		)
 	}
 	tbl.Print()
@@ -131,6 +132,15 @@ func extractRepoFromFzfLine(line string) string {
 		return strings.TrimSuffix(line[idx+3:], ")")
 	}
 	return line
+}
+
+// formatLastActive returns a human-readable representation of the last
+// heartbeat timestamp. Returns "--" if the mission has never sent a heartbeat.
+func formatLastActive(lastHeartbeat *time.Time) string {
+	if lastHeartbeat == nil {
+		return "--"
+	}
+	return lastHeartbeat.Local().Format("2006-01-02 15:04")
 }
 
 // colorizeStatus wraps a status string with ANSI color codes.
