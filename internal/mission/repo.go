@@ -12,6 +12,31 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
+// ForceUpdateRepo fetches from origin and resets the local default branch to
+// match the remote. This ensures the repo library clone is up-to-date before
+// copying into a mission workspace.
+func ForceUpdateRepo(repoDirpath string) error {
+	fetchCmd := exec.Command("git", "fetch", "origin")
+	fetchCmd.Dir = repoDirpath
+	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		return stacktrace.Propagate(err, "git fetch failed: %s", strings.TrimSpace(string(output)))
+	}
+
+	defaultBranch, err := GetDefaultBranch(repoDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine default branch")
+	}
+
+	remoteRef := "origin/" + defaultBranch
+	resetCmd := exec.Command("git", "reset", "--hard", remoteRef)
+	resetCmd.Dir = repoDirpath
+	if output, err := resetCmd.CombinedOutput(); err != nil {
+		return stacktrace.Propagate(err, "git reset failed: %s", strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
 // GetDefaultBranch returns the default branch name for a repository by reading
 // origin/HEAD. Returns just the branch name (e.g. "main", "master").
 func GetDefaultBranch(repoDirpath string) (string, error) {
