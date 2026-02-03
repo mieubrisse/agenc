@@ -1,5 +1,5 @@
-- [ ] !!! Figure out why agenc's copy of agenc wasn't getting force-pulled before a new mission
 - [ ] Fix bug where a reload before the user has said anything fails Claude with "no conversation to continue"
+- [ ] Display & accept short UUIDs
 - [ ] Reload when non-CLAUDE.md/settings.json changes happen (skills, subagents, etc.)
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Add crons with scheduled work tracker (dump work into the queue, cron picks it up)
