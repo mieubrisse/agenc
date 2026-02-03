@@ -45,11 +45,15 @@ type DB struct {
 // Open opens or creates the SQLite database at the given filepath
 // and runs auto-migration.
 func Open(dbFilepath string) (*DB, error) {
-	dsn := dbFilepath + "?_busy_timeout=5000"
+	dsn := dbFilepath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to open database at '%s'", dbFilepath)
 	}
+
+	// SQLite only supports a single writer, so limit the pool to one connection
+	// to avoid unnecessary contention between connections in the same process.
+	conn.SetMaxOpenConns(1)
 
 	migrations := []string{createMissionsTableSQL}
 	for _, migrationSQL := range migrations {
