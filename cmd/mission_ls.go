@@ -82,11 +82,19 @@ func displayAgentTemplate(repo string, nicknames map[string]string) string {
 	return repo
 }
 
+// displayGitRepo formats a canonical repo name for user-facing display.
+// GitHub repos have their "github.com/" prefix stripped; non-GitHub repos are
+// shown in full. The repo name (final path segment) is colored light blue.
+// Returns "--" for an empty repo name.
 func displayGitRepo(gitRepo string) string {
 	if gitRepo == "" {
 		return "--"
 	}
-	return strings.TrimPrefix(gitRepo, "github.com/")
+	display := strings.TrimPrefix(gitRepo, "github.com/")
+	if idx := strings.LastIndex(display, "/"); idx != -1 {
+		return display[:idx+1] + ansiLightBlue + display[idx+1:] + ansiReset
+	}
+	return ansiLightBlue + display + ansiReset
 }
 
 // buildNicknameMap creates a map from repo -> nickname for all templates

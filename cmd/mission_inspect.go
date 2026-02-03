@@ -56,7 +56,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
 	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate, nicknames))
 	if mission.GitRepo != "" {
-		fmt.Printf("Git repo:    %s\n", mission.GitRepo)
+		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
 	}
 	fmt.Printf("Prompt:      %s\n", mission.Prompt)
 	fmt.Printf("Directory:   %s\n", missionDirpath)

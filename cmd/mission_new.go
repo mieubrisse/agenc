@@ -112,7 +112,7 @@ func runMissionNewWithPicker(cfg *config.AgencConfig, args []string) error {
 		matches := matchRepoLibraryEntries(entries, args)
 		if len(matches) == 1 {
 			entry := matches[0]
-			fmt.Printf("Auto-selected: %s\n", entry.RepoName)
+			fmt.Printf("Auto-selected: %s\n", displayGitRepo(entry.RepoName))
 			selection = &repoLibrarySelection{
 				RepoName:   entry.RepoName,
 				IsTemplate: entry.IsTemplate,
@@ -228,20 +228,11 @@ var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 const ansiLightBlue = "\033[94m"
 const ansiReset = "\033[0m"
 
-// colorRepoName colors only the final path segment (the repo name) of a
-// canonical repo string like "github.com/owner/repo".
-func colorRepoName(canonicalName string) string {
-	if idx := strings.LastIndex(canonicalName, "/"); idx != -1 {
-		return canonicalName[:idx+1] + ansiLightBlue + canonicalName[idx+1:] + ansiReset
-	}
-	return ansiLightBlue + canonicalName + ansiReset
-}
-
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
 // Agent templates are prefixed with 🤖; regular repos have no prefix.
-// The repo name (final path segment) is colored light blue.
+// Uses displayGitRepo for consistent repo formatting across all commands.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
-	coloredRepo := colorRepoName(entry.RepoName)
+	coloredRepo := displayGitRepo(entry.RepoName)
 	if entry.IsTemplate {
 		if entry.Nickname != "" {
 			return fmt.Sprintf("🤖 %s  (%s)", entry.Nickname, coloredRepo)
@@ -256,24 +247,35 @@ func stripAnsi(s string) string {
 	return ansiEscapePattern.ReplaceAllString(s, "")
 }
 
+// reconstructCanonicalRepoName converts a display-formatted repo name back to
+// canonical form. GitHub repos are displayed as "owner/repo" (1 slash) and need
+// "github.com/" prepended. Non-GitHub repos keep their full URL (2+ slashes).
+func reconstructCanonicalRepoName(displayName string) string {
+	if strings.Count(displayName, "/") == 1 {
+		return "github.com/" + displayName
+	}
+	return displayName
+}
+
 // parseLibraryFzfLine extracts the repo name and template status from a
-// formatted fzf line produced by formatLibraryFzfLine.
+// formatted fzf line produced by formatLibraryFzfLine. The returned repo name
+// is in canonical form (e.g. "github.com/owner/repo").
 func parseLibraryFzfLine(line string) (repoName string, isTemplate bool) {
 	line = strings.TrimSpace(stripAnsi(line))
 
 	if strings.HasPrefix(line, "🤖") {
 		isTemplate = true
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "🤖"))
-		// Check for nickname format: "nickname  (github.com/owner/repo)"
+		// Check for nickname format: "nickname  (owner/repo)"
 		if idx := strings.LastIndex(rest, "  ("); idx != -1 {
 			repoName = strings.TrimSuffix(rest[idx+3:], ")")
-			return repoName, isTemplate
+			return reconstructCanonicalRepoName(repoName), isTemplate
 		}
-		return rest, isTemplate
+		return reconstructCanonicalRepoName(rest), isTemplate
 	}
 
 	// Non-template repos have no emoji prefix, just whitespace
-	return strings.TrimSpace(line), false
+	return reconstructCanonicalRepoName(strings.TrimSpace(line)), false
 }
 
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
