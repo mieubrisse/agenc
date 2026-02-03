@@ -2,12 +2,18 @@
 
 AgenC
 =========
-AgenC (pronounced "agency") is like Docker for your multi-agent vibeworking. It's:
+AgenC (pronounced "agency") is session management + personal LLMOps + live-reload for your multi-agent vibeworking.
 
-- A runtime for running & juggling agents
-- A storehouse for the Git repos agents edit
-- An LLMOps system for rolling fixes back into the agent config
-- A plugin system for sharing agents
+It goes like this: `--dangerously-skip-permissions` is too dangerous and default Claude too dumb.
+
+Better is project-local Claude `CLAUDE.md` to train the agent on how to be awesome, and `settings.json` to ensure it doesn't go off the rails.
+
+In practice, this requires a LOT of `CLAUDE.md` and `settings.json` refinement while you're in the middle of doing other work... which requires finding the right config files + painful Git branch juggling + manually reloading Claude.
+
+The AgenC idea:
+
+1. Any time you have a negative interaction with Claude (bad output, missing permissions in `settings.json`), it's trivial to roll the lesson back into the Claude config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). Claude then hot-reloads to pick up the new config.
+2. Provide sandboxing + session management infra so you can run 5+ agents simultaneously, constantly rolling lesson "exhaust" back into your AI agents' configs. They become a supersmart team of Avengers who understand your every whim.
 
 <!--
 > ⚠️ Addiction Warning
@@ -27,6 +33,7 @@ AgenC (pronounced "agency") is like Docker for your multi-agent vibeworking. It'
 > So please stop for breaks, and remember to make some wind-down time for sleep!
 -->
 
+<!--
 Why AgenC?
 ----------
 You want a swarm of infinite obedient robots, making your every whim a reality.
@@ -51,6 +58,7 @@ AgenC solves this:
 - All agent config is version-controlled & deployed
 - At any point when using an agent, you can fork a new Claude code window editing the agent itself
 - When an agent's config is updated, all agents using that config restart with the config the next time they're idle
+-->
 
 Workflows
 -------------
@@ -59,12 +67,14 @@ AgenC is currently really good at these workflows:
 - **Human-in-the-loop assistant work with MCP:** Examples: email/Todoist inbox processing, calendar management.
 - **Human-in-the-loop editing a repo:** Examples: coding, writing.
 
-Basically, ["painting with your mind" workflows](https://mieubrisse.substack.com/p/be-rembrandt).
+Basically, [painting with your mind](https://mieubrisse.substack.com/p/be-rembrandt).
 
-AgenC doesn't currently handle these workflows, but will soon:
+AgenC doesn't currently handle these, but will soon:
 
 - **Completely autonomous work:** Example: instruct the agent to do a thing without you being connected to the Claude TUI.
+- **Dockerized:** Running agents in Docker so they can do `--dangerously-skip-permissions`
 - **Cron:** Example: every Wednesday, summarize HackerNews and let me know what you found.
+- **Automated lesson capture:** Identifying lessons that need to be rolled back into config proactively, rather than waiting for you.
 - **Inter-agent communication:** Exmaple: the Code Writer agent hands off its work to the Code Reviewer agent who hands off to the PR Coordinator agent.
 
 How it works
