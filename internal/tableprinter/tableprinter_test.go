@@ -60,6 +60,43 @@ func TestVisibleWidth_ANSICodes(t *testing.T) {
 	}
 }
 
+func TestVisibleWidth_Emoji(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int
+	}{
+		{
+			name:  "simple emoji",
+			input: "🔍 Researcher",
+			want:  13, // 🔍 = 2 columns, space + "Researcher" = 11
+		},
+		{
+			name:  "ZWJ sequence emoji",
+			input: "👨‍💻 Software Engineer",
+			want:  20, // 👨‍💻 = 2 columns, space + "Software Engineer" = 18
+		},
+		{
+			name:  "checkmark emoji",
+			input: "✅ Todoist Manager",
+			want:  18, // ✅ = 2 columns, space + "Todoist Manager" = 16
+		},
+		{
+			name:  "emoji with ANSI codes",
+			input: "\033[32m🤖 Bot\033[0m",
+			want:  6, // 🤖 = 2 columns, space + "Bot" = 4
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := VisibleWidth(tt.input)
+			if got != tt.want {
+				t.Errorf("VisibleWidth(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewTable_BasicAlignment(t *testing.T) {
 	var buf bytes.Buffer
 	tbl := NewTable("NAME", "VALUE").WithWriter(&buf)
@@ -81,6 +118,32 @@ func TestNewTable_BasicAlignment(t *testing.T) {
 	if headerValueIdx != row1ValueIdx || headerValueIdx != row2ValueIdx {
 		t.Errorf("VALUE column misaligned: header=%d, row1=%d, row2=%d",
 			headerValueIdx, row1ValueIdx, row2ValueIdx)
+	}
+}
+
+func TestNewTable_EmojiCellsAlignCorrectly(t *testing.T) {
+	var buf bytes.Buffer
+	tbl := NewTable("AGENT", "STATUS").WithWriter(&buf)
+	tbl.AddRow("👨‍💻 Software Engineer", "RUNNING")
+	tbl.AddRow("--", "STOPPED")
+	tbl.Print()
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines, got %d", len(lines))
+	}
+
+	// The STATUS column values should start at the same visible position
+	// regardless of whether the AGENT cell contains emoji.
+	emojiLine := lines[1]
+	plainLine := lines[2]
+
+	emojiStatusIdx := VisibleWidth(emojiLine[:strings.Index(emojiLine, "RUNNING")])
+	plainStatusIdx := VisibleWidth(plainLine[:strings.Index(plainLine, "STOPPED")])
+
+	if emojiStatusIdx != plainStatusIdx {
+		t.Errorf("STATUS column misaligned: emoji row starts at visible pos %d, plain row at %d",
+			emojiStatusIdx, plainStatusIdx)
 	}
 }
 
