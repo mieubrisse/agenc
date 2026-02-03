@@ -183,14 +183,16 @@ func (db *DB) CreateMission(agentTemplate string, prompt string, gitRepo string)
 	}, nil
 }
 
-// ListMissions returns missions ordered by created_at DESC.
+// ListMissions returns missions ordered by last_heartbeat DESC (most recently
+// active first), with missions that have never sent a heartbeat sorted to the
+// end by created_at DESC.
 // If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
 func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
 	query := "SELECT id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions"
 	if !includeArchived {
 		query += " WHERE status != 'archived'"
 	}
-	query += " ORDER BY created_at DESC"
+	query += " ORDER BY last_heartbeat IS NULL, last_heartbeat DESC, created_at DESC"
 
 	rows, err := db.conn.Query(query)
 	if err != nil {
