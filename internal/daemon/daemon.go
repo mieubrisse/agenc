@@ -4,19 +4,23 @@ import (
 	"context"
 	"log"
 	"sync"
+
+	"github.com/odyssey/agenc/internal/database"
 )
 
 // Daemon runs background loops for config sync and repo updates.
 type Daemon struct {
 	agencDirpath         string
+	db                   *database.DB
 	logger               *log.Logger
 	repoUpdateCycleCount int
 }
 
 // NewDaemon creates a new Daemon instance.
-func NewDaemon(agencDirpath string, logger *log.Logger) *Daemon {
+func NewDaemon(agencDirpath string, db *database.DB, logger *log.Logger) *Daemon {
 	return &Daemon{
 		agencDirpath: agencDirpath,
+		db:           db,
 		logger:       logger,
 	}
 }

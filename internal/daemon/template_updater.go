@@ -54,13 +54,25 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		return
 	}
 
-	// Collect all unique repos to sync: agent templates + synced repos
+	// Collect all unique repos to sync: agent templates + synced repos + active mission repos
 	reposToSync := make(map[string]bool)
 	for repo := range cfg.AgentTemplates {
 		reposToSync[repo] = true
 	}
 	for _, repo := range cfg.SyncedRepos {
 		reposToSync[repo] = true
+	}
+
+	// Include repos from active missions
+	missions, err := d.db.ListMissions(false)
+	if err != nil {
+		d.logger.Printf("Repo update: failed to list active missions: %v", err)
+	} else {
+		for _, m := range missions {
+			if m.GitRepo != "" {
+				reposToSync[m.GitRepo] = true
+			}
+		}
 	}
 
 	for repo := range reposToSync {
