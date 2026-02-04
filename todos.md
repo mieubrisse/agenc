@@ -1,5 +1,5 @@
 - [ ] Fix bug where a reload before the user has said anything fails Claude with "no conversation to continue"
-- [ ] Add an MCP server for agents to request a copy of a repo
+- [ ] Create an MCP server that allows AgenC agents to clone repos into their workspace directory
 - [ ] Roll my agenc-config global CLAUDE settings into agenc defaults
 - [ ] Fix missing logging + race condition in template change reload path
     - The `configChanged` handler in `wrapper.go:183-198` has zero logging (unlike the `globalConfigChanged` handler which logs at line 204). Template rsyncs and state transitions happen silently.
@@ -12,7 +12,6 @@
 - [ ] Add option for agenc-managed config
 - [ ] OPTIMIZATION: Daemon has fsnotify on `config.yml` and refreshes its understanding of the config only once when it's updated
     - Prevents reading the config on every loop
-- [ ] Add the ability for agents to request other repo copies
 - [ ] Maybe some way to save information for later???? E.g. I'm doing research in a research tab, and I want to come back to it later
 - [ ] Check on perf of the daemon constantly running a bunch of "is this PID alive?" checks
 
