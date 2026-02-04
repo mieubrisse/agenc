@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"github.com/mieubrisse/stacktrace"
@@ -22,17 +23,23 @@ func init() {
 }
 
 func runConfigEdit(cmd *cobra.Command, args []string) error {
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
+	editorEnv := os.Getenv("EDITOR")
+	if editorEnv == "" {
 		return stacktrace.NewError("$EDITOR is not set; set it to your preferred editor (e.g. export EDITOR=vim)")
 	}
 
-	editorBinary, err := exec.LookPath(editor)
+	// Split $EDITOR on whitespace so values like "code --wait" work correctly.
+	editorParts := strings.Fields(editorEnv)
+
+	editorBinary, err := exec.LookPath(editorParts[0])
 	if err != nil {
-		return stacktrace.Propagate(err, "editor '%s' not found in PATH", editor)
+		return stacktrace.Propagate(err, "editor '%s' not found in PATH", editorParts[0])
 	}
 
 	configFilepath := config.GetConfigFilepath(agencDirpath)
 
-	return syscall.Exec(editorBinary, []string{editor, configFilepath}, os.Environ())
+	// Build argv: editor name, any extra flags from $EDITOR, then the config file path.
+	argv := append(editorParts, configFilepath)
+
+	return syscall.Exec(editorBinary, argv, os.Environ())
 }
