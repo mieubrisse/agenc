@@ -8,9 +8,6 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
 )
 
 var nukeForceFlag bool
@@ -28,10 +25,9 @@ func init() {
 }
 
 func runMissionNuke(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	db, err := openDB()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
+		return err
 	}
 	defer db.Close()
 

@@ -31,19 +31,9 @@ func init() {
 }
 
 func runMissionStop(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
-
-	missionID, err := db.ResolveMissionID(args[0])
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to resolve mission ID")
-	}
-
-	return stopMissionWrapper(missionID)
+	return resolveAndRunForMission(args[0], func(_ *database.DB, missionID string) error {
+		return stopMissionWrapper(missionID)
+	})
 }
 
 // stopMissionWrapper gracefully stops a mission's wrapper process if it is

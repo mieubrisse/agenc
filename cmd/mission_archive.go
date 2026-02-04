@@ -9,7 +9,6 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -25,14 +24,7 @@ func init() {
 }
 
 func runMissionArchive(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
-
-	return resolveAndRunForEachMission(db, args, selectMissionsToArchive, archiveMission)
+	return resolveAndRunForEachMission(args, selectMissionsToArchive, archiveMission)
 }
 
 func selectMissionsToArchive(db *database.DB) ([]string, error) {

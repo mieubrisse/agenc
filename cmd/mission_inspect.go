@@ -25,51 +25,41 @@ func init() {
 }
 
 func runMissionInspect(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
+	return resolveAndRunForMission(args[0], func(db *database.DB, missionID string) error {
+		mission, err := db.GetMission(missionID)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to get mission")
+		}
 
-	missionID, err := db.ResolveMissionID(args[0])
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to resolve mission ID")
-	}
+		missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 
-	mission, err := db.GetMission(missionID)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get mission")
-	}
+		if inspectDirFlag {
+			fmt.Println(missionDirpath)
+			return nil
+		}
 
-	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
+		cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
+		if cfgErr != nil {
+			return stacktrace.Propagate(cfgErr, "failed to read config")
+		}
+		nicknames := buildNicknameMap(cfg.AgentTemplates)
 
-	if inspectDirFlag {
-		fmt.Println(missionDirpath)
+		fmt.Printf("ID:          %s\n", mission.ShortID)
+		fmt.Printf("Full ID:     %s\n", mission.ID)
+		fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
+		fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate, nicknames))
+		if mission.GitRepo != "" {
+			fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
+		}
+		prompt := resolveMissionPrompt(db, agencDirpath, mission)
+		if prompt == "" {
+			prompt = "--"
+		}
+		fmt.Printf("Prompt:      %s\n", prompt)
+		fmt.Printf("Directory:   %s\n", missionDirpath)
+		fmt.Printf("Created:     %s\n", mission.CreatedAt.Format("2006-01-02 15:04:05"))
+		fmt.Printf("Updated:     %s\n", mission.UpdatedAt.Format("2006-01-02 15:04:05"))
+
 		return nil
-	}
-
-	cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
-	if cfgErr != nil {
-		return stacktrace.Propagate(cfgErr, "failed to read config")
-	}
-	nicknames := buildNicknameMap(cfg.AgentTemplates)
-
-	fmt.Printf("ID:          %s\n", mission.ShortID)
-	fmt.Printf("Full ID:     %s\n", mission.ID)
-	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
-	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate, nicknames))
-	if mission.GitRepo != "" {
-		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
-	}
-	prompt := resolveMissionPrompt(db, agencDirpath, mission)
-	if prompt == "" {
-		prompt = "--"
-	}
-	fmt.Printf("Prompt:      %s\n", prompt)
-	fmt.Printf("Directory:   %s\n", missionDirpath)
-	fmt.Printf("Created:     %s\n", mission.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Updated:     %s\n", mission.UpdatedAt.Format("2006-01-02 15:04:05"))
-
-	return nil
+	})
 }

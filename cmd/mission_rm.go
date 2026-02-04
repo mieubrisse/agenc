@@ -25,14 +25,7 @@ func init() {
 }
 
 func runMissionRm(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
-
-	return resolveAndRunForEachMission(db, args, selectMissionsToRemove, removeMission)
+	return resolveAndRunForEachMission(args, selectMissionsToRemove, removeMission)
 }
 
 func selectMissionsToRemove(db *database.DB) ([]string, error) {

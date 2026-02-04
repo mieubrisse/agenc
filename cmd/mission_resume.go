@@ -29,33 +29,12 @@ func init() {
 }
 
 func runMissionResume(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
+	return resolveAndRunForEachMission(args, selectStoppedMissionWithFzf, resumeMission)
+}
 
-	var missionID string
-	if len(args) == 1 {
-		resolved, resolveErr := db.ResolveMissionID(args[0])
-		if resolveErr != nil {
-			return stacktrace.Propagate(resolveErr, "failed to resolve mission ID")
-		}
-		missionID = resolved
-	} else {
-		selected, selectErr := selectStoppedMissionWithFzf(db)
-		if selectErr != nil {
-			return selectErr
-		}
-		// fzf selection returns a short ID; resolve it
-		resolved, resolveErr := db.ResolveMissionID(selected)
-		if resolveErr != nil {
-			return stacktrace.Propagate(resolveErr, "failed to resolve mission ID")
-		}
-		missionID = resolved
-	}
-
+// resumeMission handles the per-mission resume logic: unarchive if needed,
+// check wrapper state, validate directory format, and launch claude --continue.
+func resumeMission(db *database.DB, missionID string) error {
 	missionRecord, err := db.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
@@ -96,16 +75,16 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 }
 
 // selectStoppedMissionWithFzf queries stopped missions and presents them in fzf.
-// Returns the selected mission ID.
-func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
+// Returns a slice containing the selected mission ID.
+func selectStoppedMissionWithFzf(db *database.DB) ([]string, error) {
 	missions, err := db.ListMissions(false)
 	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to list missions")
+		return nil, stacktrace.Propagate(err, "failed to list missions")
 	}
 
 	cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
 	if cfgErr != nil {
-		return "", stacktrace.Propagate(cfgErr, "failed to read config")
+		return nil, stacktrace.Propagate(cfgErr, "failed to read config")
 	}
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
@@ -125,14 +104,14 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 	}
 
 	if rowCount == 0 {
-		return "", stacktrace.NewError("no stopped missions to resume")
+		return nil, stacktrace.NewError("no stopped missions to resume")
 	}
 
 	tbl.Print()
 
 	fzfBinary, err := exec.LookPath("fzf")
 	if err != nil {
-		return "", stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the mission ID as an argument")
+		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the mission ID as an argument")
 	}
 
 	fzfCmd := exec.Command(fzfBinary, "--ansi", "--header-lines", "1",
@@ -142,11 +121,11 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 
 	output, err := fzfCmd.Output()
 	if err != nil {
-		return "", stacktrace.Propagate(err, "fzf selection failed")
+		return nil, stacktrace.Propagate(err, "fzf selection failed")
 	}
 
 	selected := strings.TrimSpace(string(output))
 	// Extract mission ID from the first whitespace-separated field
 	missionID := strings.Fields(selected)[0]
-	return missionID, nil
+	return []string{missionID}, nil
 }

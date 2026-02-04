@@ -123,54 +123,44 @@ func runMissionNewWithFlags(cfg *config.AgencConfig) error {
 // existing mission. The source mission's git_repo carries over to the new
 // mission. The agent template can be overridden with --agent or a positional arg.
 func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
-	}
-	defer db.Close()
+	return resolveAndRunForMission(cloneFlag, func(db *database.DB, sourceMissionID string) error {
+		sourceMission, err := db.GetMission(sourceMissionID)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to get source mission")
+		}
 
-	sourceMissionID, err := db.ResolveMissionID(cloneFlag)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to resolve source mission ID")
-	}
+		agentTemplate, err := resolveCloneAgentTemplate(cfg, sourceMission, args)
+		if err != nil {
+			return err
+		}
 
-	sourceMission, err := db.GetMission(sourceMissionID)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get source mission")
-	}
+		missionRecord, err := db.CreateMission(agentTemplate, sourceMission.GitRepo)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to create mission record")
+		}
 
-	agentTemplate, err := resolveCloneAgentTemplate(cfg, sourceMission, args)
-	if err != nil {
-		return err
-	}
+		fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
 
-	missionRecord, err := db.CreateMission(agentTemplate, sourceMission.GitRepo)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to create mission record")
-	}
+		// Create mission directory structure with agent template but no git copy
+		// (workspace will be copied separately from the source mission)
+		if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, "", ""); err != nil {
+			return stacktrace.Propagate(err, "failed to create mission directory")
+		}
 
-	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
+		// Copy the source mission's workspace into the new mission
+		srcWorkspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, sourceMission.ID)
+		dstWorkspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionRecord.ID)
+		if err := mission.CopyWorkspace(srcWorkspaceDirpath, dstWorkspaceDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to copy workspace from source mission")
+		}
 
-	// Create mission directory structure with agent template but no git copy
-	// (workspace will be copied separately from the source mission)
-	if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, "", ""); err != nil {
-		return stacktrace.Propagate(err, "failed to create mission directory")
-	}
+		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
+		fmt.Println("Launching claude...")
 
-	// Copy the source mission's workspace into the new mission
-	srcWorkspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, sourceMission.ID)
-	dstWorkspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionRecord.ID)
-	if err := mission.CopyWorkspace(srcWorkspaceDirpath, dstWorkspaceDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to copy workspace from source mission")
-	}
-
-	fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
-	fmt.Println("Launching claude...")
-
-	gitRepoName := sourceMission.GitRepo
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, db)
-	return w.Run(false)
+		gitRepoName := sourceMission.GitRepo
+		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, db)
+		return w.Run(false)
+	})
 }
 
 // resolveCloneAgentTemplate determines the agent template when cloning a
