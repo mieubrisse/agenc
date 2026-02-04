@@ -431,7 +431,9 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 			timerActive = false
 			repoLibraryDirpath := config.GetRepoDirpath(w.agencDirpath, w.gitRepoName)
 			w.logger.Info("Workspace remote ref changed, updating repo library", "repo", w.gitRepoName)
-			if err := mission.ForceUpdateRepo(repoLibraryDirpath); err != nil {
+			if _, err := os.Stat(repoLibraryDirpath); os.IsNotExist(err) {
+				w.logger.Error("Repo library clone not found; was it removed? Skipping update", "repo", w.gitRepoName, "expected", repoLibraryDirpath)
+			} else if err := mission.ForceUpdateRepo(repoLibraryDirpath); err != nil {
 				w.logger.Warn("Failed to force-update repo library", "repo", w.gitRepoName, "error", err)
 			}
 		case err, ok := <-watcher.Errors:

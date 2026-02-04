@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
+	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
@@ -37,7 +40,12 @@ func init() {
 }
 
 func runRepoRm(cmd *cobra.Command, args []string) error {
-	repoNames, err := resolveRepoArgs(args, "Select repos to remove (TAB to multi-select): ")
+	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read config")
+	}
+
+	repoNames, err := resolveRepoRmArgs(cfg, args)
 	if err != nil {
 		return err
 	}
@@ -46,11 +54,48 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, repoName := range repoNames {
-		if err := removeSingleRepo(repoName); err != nil {
+		if err := removeSingleRepo(cfg, cm, repoName); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// resolveRepoRmArgs resolves CLI arguments to canonical repo names for removal.
+// When no arguments are given, opens an fzf picker that excludes agent template
+// repos (since those can't be removed via repo rm).
+func resolveRepoRmArgs(cfg *config.AgencConfig, args []string) ([]string, error) {
+	if len(args) > 0 {
+		var repoNames []string
+		for _, arg := range args {
+			repoName, _, err := mission.ParseRepoReference(arg)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "invalid repo reference")
+			}
+			repoNames = append(repoNames, repoName)
+		}
+		return repoNames, nil
+	}
+
+	allRepos, err := findReposOnDisk(agencDirpath)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to scan repos directory")
+	}
+
+	// Filter out agent templates — they must be removed via 'template rm' first
+	var removableRepos []string
+	for _, repoName := range allRepos {
+		if _, isTemplate := cfg.AgentTemplates[repoName]; !isTemplate {
+			removableRepos = append(removableRepos, repoName)
+		}
+	}
+
+	if len(removableRepos) == 0 {
+		fmt.Println("No removable repositories in the repo library (all are agent templates).")
+		return nil, nil
+	}
+
+	return selectReposWithFzf(removableRepos, "Select repos to remove (TAB to multi-select): ")
 }
 
 // resolveRepoArgs converts CLI arguments to canonical repo names, or falls
@@ -80,12 +125,7 @@ func resolveRepoArgs(args []string, fzfPrompt string) ([]string, error) {
 	return selectReposWithFzf(allRepos, fzfPrompt)
 }
 
-func removeSingleRepo(repoName string) error {
-	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
-	}
-
+func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {
 	if _, isTemplate := cfg.AgentTemplates[repoName]; isTemplate {
 		return stacktrace.NewError(
 			"'%s' is registered as an agent template; run 'agenc template rm %s' first",
@@ -97,10 +137,27 @@ func removeSingleRepo(repoName string) error {
 	repoDirpath := config.GetRepoDirpath(agencDirpath, repoName)
 	_, statErr := os.Stat(repoDirpath)
 	existsOnDisk := statErr == nil
-	existsInConfig := slices.Contains(cfg.SyncedRepos, repoName)
+	isSynced := slices.Contains(cfg.SyncedRepos, repoName)
 
-	// Remove from syncedRepos if present
-	if existsInConfig {
+	if !existsOnDisk && !isSynced {
+		fmt.Printf("'%s' not found\n", repoName)
+		return nil
+	}
+
+	// Synced repos get an extra confirmation since the daemon actively
+	// maintains them and removing one is a more significant action.
+	if isSynced {
+		fmt.Printf("'%s' is a synced repo. Remove it? [y/N] ", repoName)
+		reader := bufio.NewReader(os.Stdin)
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read confirmation")
+		}
+		if strings.TrimSpace(input) != "y" {
+			fmt.Printf("Skipped '%s'\n", repoName)
+			return nil
+		}
+
 		idx := slices.Index(cfg.SyncedRepos, repoName)
 		cfg.SyncedRepos = slices.Delete(cfg.SyncedRepos, idx, idx+1)
 
@@ -116,10 +173,6 @@ func removeSingleRepo(repoName string) error {
 		}
 	}
 
-	if existsOnDisk || existsInConfig {
-		fmt.Printf("Removed '%s'\n", repoName)
-	} else {
-		fmt.Printf("'%s' not found\n", repoName)
-	}
+	fmt.Printf("Removed '%s'\n", repoName)
 	return nil
 }
