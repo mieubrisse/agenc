@@ -8,6 +8,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/session"
 )
 
 var inspectDirFlag bool
@@ -51,6 +52,12 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		if mission.GitRepo != "" {
 			fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
 		}
+		claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
+		sessionName := session.FindSessionName(claudeConfigDirpath, missionID)
+		if sessionName == "" {
+			sessionName = "--"
+		}
+		fmt.Printf("Session:     %s\n", sessionName)
 		prompt := resolveMissionPrompt(db, agencDirpath, mission)
 		if prompt == "" {
 			prompt = "--"

@@ -13,6 +13,7 @@ import (
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/history"
+	"github.com/odyssey/agenc/internal/session"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -66,17 +67,18 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
-	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "REPO", "PROMPT")
+	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
+	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "REPO", "SESSION")
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
-		prompt := resolveMissionPrompt(db, agencDirpath, m)
+		sessionName := resolveSessionName(claudeConfigDirpath, m)
 		tbl.AddRow(
 			formatLastActive(m.LastHeartbeat),
 			m.ShortID,
 			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
 			displayGitRepo(m.GitRepo),
-			truncatePrompt(prompt, defaultPromptMaxLen),
+			truncatePrompt(sessionName, defaultPromptMaxLen),
 		)
 	}
 	tbl.Print()
@@ -173,6 +175,16 @@ func colorizeStatus(status string) string {
 }
 
 const defaultPromptMaxLen = 50
+
+// resolveSessionName returns the Claude Code session name for a mission,
+// falling back to the mission's cached prompt if no session name is found.
+func resolveSessionName(claudeConfigDirpath string, m *database.Mission) string {
+	sessionName := session.FindSessionName(claudeConfigDirpath, m.ID)
+	if sessionName != "" {
+		return sessionName
+	}
+	return m.Prompt
+}
 
 // resolveMissionPrompt returns the mission's first user prompt, using the DB
 // cache if available, otherwise backfilling from Claude's history.jsonl. The
