@@ -11,6 +11,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/mission"
 )
 
 // handleFirstRun checks whether this is the first time agenc is running
@@ -46,7 +47,7 @@ func handleFirstRun(agencDirpath string) error {
 		return nil
 	}
 
-	fmt.Print("Enter the repo (owner/repo, github.com/owner/repo, or full URL): ")
+	fmt.Print("Enter the repo (owner/repo, github.com/owner/repo, or GitHub URL): ")
 	repoRef, err := reader.ReadString('\n')
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read repo reference")
@@ -70,8 +71,7 @@ func cloneConfigRepo(agencDirpath string, repoRef string) error {
 		return stacktrace.Propagate(err, "failed to create agenc directory '%s'", agencDirpath)
 	}
 
-	// Build clone URL from the repo reference
-	cloneURL, err := buildCloneURL(repoRef)
+	_, cloneURL, err := mission.ParseRepoReference(repoRef)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo reference")
 	}
@@ -87,28 +87,4 @@ func cloneConfigRepo(agencDirpath string, repoRef string) error {
 
 	fmt.Println("Config repo cloned successfully.")
 	return nil
-}
-
-// buildCloneURL converts a repo reference into an HTTPS clone URL.
-// Accepts "owner/repo", "github.com/owner/repo", or a full URL.
-func buildCloneURL(repoRef string) (string, error) {
-	// If it already looks like a full URL, use it directly
-	if strings.HasPrefix(repoRef, "https://") || strings.HasPrefix(repoRef, "git@") || strings.HasPrefix(repoRef, "ssh://") {
-		return repoRef, nil
-	}
-
-	parts := strings.Split(repoRef, "/")
-	switch len(parts) {
-	case 2:
-		// owner/repo
-		return fmt.Sprintf("https://github.com/%s/%s.git", parts[0], parts[1]), nil
-	case 3:
-		// github.com/owner/repo
-		if parts[0] != "github.com" {
-			return "", stacktrace.NewError("unsupported host '%s'; only github.com is supported", parts[0])
-		}
-		return fmt.Sprintf("https://github.com/%s/%s.git", parts[1], parts[2]), nil
-	default:
-		return "", stacktrace.NewError("invalid repo reference '%s'; expected 'owner/repo', 'github.com/owner/repo', or a full URL", repoRef)
-	}
 }

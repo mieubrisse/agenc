@@ -167,6 +167,30 @@ agenc repo rm owner/repo           # remove from disk and syncedRepos
 
 Entries in `config.yml` must use canonical format (`github.com/owner/repo`). The CLI accepts shorthand — `owner/repo`, `github.com/owner/repo`, or a full `https://github.com/owner/repo` URL — and normalizes it automatically.
 
+### Config Auto-Sync
+
+The `$AGENC_DIRPATH/config/` directory can be a Git repository. When it is, the daemon automatically commits and pushes any uncommitted changes every 10 minutes, using a commit message of the form:
+
+```
+2026-02-04T15:30:00Z agenc auto-commit
+```
+
+This keeps your agenc configuration version-controlled without manual effort. Changes to `config.yml`, `claude-modifications/`, or any other files in the config directory are captured automatically.
+
+The push step is skipped if the repository has no `origin` remote — so a purely local Git repo (e.g. `git init` with no remote) will still get periodic commits for local history without push errors.
+
+#### First-run setup
+
+On the very first run, if stdin is a TTY, agenc prompts you to optionally clone an existing config repo:
+
+```
+Welcome to agenc! Setting up for the first time.
+
+Do you have an existing agenc config repo to clone? [y/N]
+```
+
+Answering **yes** lets you provide a repo reference (`owner/repo`, `github.com/owner/repo`, or a GitHub URL), which agenc clones into `$AGENC_DIRPATH/config/`. This lets you restore your agenc configuration on a new machine or share it across machines. Answering **no** (or running non-interactively) proceeds with the default empty config.
+
 Design Goals
 ------------
 

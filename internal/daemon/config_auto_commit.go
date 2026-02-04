@@ -72,6 +72,10 @@ func (d *Daemon) runConfigAutoCommitCycle(ctx context.Context) {
 
 	d.logger.Printf("Config auto-commit: committed changes: %s", commitMsg)
 
+	if !hasOriginRemote(ctx, configDirpath) {
+		return
+	}
+
 	// Push to remote
 	pushCmd := exec.CommandContext(ctx, "git", "push")
 	pushCmd.Dir = configDirpath
@@ -91,6 +95,13 @@ func isGitRepo(dirpath string) bool {
 		return false
 	}
 	return info.IsDir()
+}
+
+// hasOriginRemote returns true if the git repository has an "origin" remote configured.
+func hasOriginRemote(ctx context.Context, repoDirpath string) bool {
+	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+	cmd.Dir = repoDirpath
+	return cmd.Run() == nil
 }
 
 // hasUncommittedChanges returns true if the git working tree has any staged,
