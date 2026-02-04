@@ -10,8 +10,9 @@ import (
 var agencDirpath string
 
 var rootCmd = &cobra.Command{
-	Use:   "agenc",
-	Short: "The AgenC — agent mission management CLI",
+	Use:          "agenc",
+	Short:        "The AgenC — agent mission management CLI",
+	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		dirpath, err := config.GetAgencDirpath()
 		if err != nil {
