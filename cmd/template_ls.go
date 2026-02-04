@@ -56,5 +56,5 @@ func formatDefaultFor(defaultFor string) string {
 	if defaultFor == "" {
 		return "--"
 	}
-	return fmt.Sprintf("✅ %s", defaultFor)
+	return defaultFor
 }
