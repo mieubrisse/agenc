@@ -38,6 +38,11 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	agentTemplate, err := resolveAgentTemplate(cfg, "", templateName)
+	if err != nil {
+		return err
+	}
+
 	templateCloneDirpath := config.GetRepoDirpath(agencDirpath, templateName)
-	return createAndLaunchMission(agencDirpath, "", templateName, templateCloneDirpath)
+	return createAndLaunchMission(agencDirpath, agentTemplate, templateName, templateCloneDirpath)
 }
