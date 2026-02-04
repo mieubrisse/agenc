@@ -56,6 +56,18 @@ Crons are managed through `agenc cron` subcommands:
 - `agenc cron enable <name>` -- sets `enabled: true` for the named cron.
 - `agenc cron disable <name>` -- sets `enabled: false` for the named cron.
 
+### Crontab Parsing Library
+
+Use [`adhocore/gronx`](https://github.com/adhocore/gronx) (v1.19.6+, MIT license) for crontab expression parsing and evaluation. It is a zero-dependency library purpose-built for parsing and matching crontab expressions. Key API:
+
+- `gron.IsValid(expr)` -- validate a cron expression.
+- `gron.IsDue(expr, referenceTime)` -- check if an expression matches a specific time. This is the core function the scheduler uses.
+- `gronx.NextTickAfter(expr, refTime, false)` -- find the next fire time after a reference (useful for `cron ls` display).
+
+Alternatives considered:
+- `robfig/cron` -- popular but primarily a job scheduler, not maintained since 2020.
+- `hashicorp/cronexpr` -- maintained but GPL/Apache dual-licensed and lacks a built-in `IsDue` function.
+
 ### Daemon Scheduling
 
 The daemon gains a new background goroutine: the **cron scheduler**.
@@ -66,7 +78,7 @@ The daemon gains a new background goroutine: the **cron scheduler**.
 
 1. Read the `crons` section of `config.yml`.
 2. Get the current time, truncated to the minute.
-3. For each enabled cron, evaluate the crontab expression against the current minute.
+3. For each enabled cron, evaluate the crontab expression against the current minute using `gron.IsDue(expr, now)`.
 4. For each cron whose schedule matches:
    a. Create a new mission via the same code path as `agenc mission new`, passing the cron's agent template, prompt, and optional git repo. Set the mission's `cron_name` field to the cron's name.
    b. Launch Claude in headless mode using `claude --print -p <prompt>` with the working directory set to the mission's `agent/` subdirectory. The `--print` flag runs Claude non-interactively: it processes the prompt, executes any tool calls, and exits.
@@ -151,6 +163,30 @@ EOF
 
 **Message format:** Free-text, expected to be Markdown. No subject line.
 
+### Message Storage
+
+Message bodies live on the filesystem inside the mission directory, not in the database. Each message is a numbered Markdown file:
+
+```
+~/.agenc/missions/<uuid>/
+    messages/
+        1.md
+        2.md
+        3.md
+```
+
+Files are numbered sequentially starting at 1, in chronological order. The `messages/` directory is created on first message. Since message files live inside the mission directory, they are automatically cleaned up when the mission is deleted via `agenc mission rm`.
+
+The `agenc message send` command:
+
+1. Reads `AGENC_MISSION_UUID` to determine the mission directory.
+2. Creates the `messages/` subdirectory if it does not exist.
+3. Determines the next sequence number by reading the DB for the highest existing `seq` value for this mission, then incrementing by 1.
+4. Writes the message body to `<seq>.md`.
+5. Inserts a row into the `messages` table with the sequence number, sender, and metadata.
+
+This separation keeps large message bodies out of the database while still enabling efficient queries on message metadata (unread count, latest timestamp, delivery status).
+
 ### Settings Integration
 
 For `agenc message send` to work, the agent must have Bash permission to run it. The Claude config sync component (Component 2 from the wrapper spec) adds the following to the merged `settings.json`:
@@ -178,28 +214,29 @@ The agent template's CLAUDE.md should instruct agents that `agenc message send` 
 
 ### Data Model
 
-Messages are stored in a new `messages` table:
+Message metadata is stored in a `messages` table. Message bodies live on the filesystem (see Message Storage above).
 
 ```sql
 CREATE TABLE messages (
-    id TEXT PRIMARY KEY,
     mission_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
     sender TEXT NOT NULL,       -- 'agent' or 'user'
-    body TEXT NOT NULL,
     is_read INTEGER NOT NULL DEFAULT 0,
+    delivered INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
+    PRIMARY KEY (mission_id, seq),
     FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
 );
 ```
 
-- `id`: UUID.
-- `mission_id`: The mission this message belongs to. Messages are always associated with a mission.
+- `mission_id`: The mission this message belongs to.
+- `seq`: Sequential message number within the mission (1, 2, 3, ...). Maps to the filename `<seq>.md` in the mission's `messages/` directory.
 - `sender`: Either `'agent'` (sent by `agenc message send`) or `'user'` (sent via inbox reply).
-- `body`: Free-text message content (Markdown).
-- `is_read`: 0 = unread, 1 = read. New messages default to unread.
+- `is_read`: 0 = unread, 1 = read. New agent messages default to unread. User replies default to read.
+- `delivered`: 0 = not yet delivered to the agent, 1 = delivered (or not applicable). Only meaningful for user replies (`sender = 'user'`). Agent messages always default to 1. User replies are created with 0 and marked 1 upon injection into a resumed mission.
 - `created_at`: ISO 8601 timestamp.
 
-The `ON DELETE CASCADE` ensures messages are cleaned up when a mission is deleted via `agenc mission rm`.
+The composite primary key `(mission_id, seq)` enforces uniqueness per mission and eliminates the need for a separate UUID. The `ON DELETE CASCADE` ensures message metadata is cleaned up when a mission is deleted (the filesystem files are removed when the mission directory is deleted).
 
 
 Inbox
@@ -270,49 +307,52 @@ Reading a thread marks all its messages as read.
 
 When the user presses `r` to reply:
 
-1. A temporary file is created with the following template:
+1. A temporary file is created with the following template. Earlier messages are included as plain Markdown (no `>` quoting) so that formatting renders correctly as the user reviews them in their editor:
 
 ```
 
 <!-- Write your reply above this line. Only text above the line will be sent. -->
 <!-- ─────────────────────────────────────────────────────────────────────── -->
 
-> [2025-01-15 09:02] Agent:
-> ## Git Sync Report
->
-> Checked 12 repositories. Results:
-> ...
+[2025-01-15 09:02] Agent:
 
-> [2025-01-15 09:00] Agent:
-> Started checking repos for unpushed changes...
+## Git Sync Report
+
+Checked 12 repositories. Results:
+
+- **dotfiles**: 3 unpushed commits on `main`
+- **api-server**: 1 unpushed commit on `feat/auth`
+- **blog**: uncommitted changes in working tree
+
+All other repos are clean and in sync with remote.
+
+
+[2025-01-15 09:00] Agent:
+
+Started checking repos for unpushed changes...
 ```
 
+The separator is the HTML comment block (two lines). Everything above is the user's reply; everything below is read-only context. The messages below the separator are rendered as plain Markdown so the user can read them naturally with full formatting intact.
+
 2. The user's `$EDITOR` (defaulting to `vim`) opens the file with the cursor at line 1.
-3. The user writes their reply above the separator line. The quoted message history below provides context, just like email.
+3. The user writes their reply above the separator. The message history below provides context, just like email.
 4. On save and quit:
-   a. The text above the separator line is extracted.
-   b. If the text is empty (user didn't write anything), the reply is discarded.
-   c. Otherwise, the reply is stored in the `messages` table with `sender = 'user'` and `is_read = 1`.
+   a. The text above the separator is extracted.
+   b. If the text is empty or whitespace-only, the reply is discarded.
+   c. Otherwise, the reply body is written to the next `<seq>.md` file in the mission's `messages/` directory, and a row is inserted into the `messages` table with `sender = 'user'`, `is_read = 1`, and `delivered = 0`.
 5. The reply is now queued. It will be delivered to the agent when the mission is next resumed (see Reply Delivery below).
 
 ### Reply Delivery
 
 When a mission is resumed (via `agenc mission resume` or the inbox's attach action), the wrapper checks for queued user replies:
 
-1. Query the `messages` table for messages where `mission_id` matches, `sender = 'user'`, and a new `delivered` flag is `0`.
+1. Query the `messages` table for rows where `mission_id` matches, `sender = 'user'`, and `delivered = 0`.
 2. If one or more undelivered replies exist:
-   a. Concatenate them in chronological order (in case the user replied multiple times).
-   b. Use the concatenated text as the prompt for `claude -c -p <reply_text>` (continue conversation with injected prompt).
-   c. Mark the replies as delivered (`delivered = 1`).
+   a. Read each reply body from the corresponding `<seq>.md` file in the mission's `messages/` directory.
+   b. Concatenate them in chronological order (in case the user replied multiple times), separated by blank lines.
+   c. Use the concatenated text as the prompt for `claude -c -p <reply_text>` (continue conversation with injected prompt).
+   d. Mark the replies as delivered (`delivered = 1`).
 3. If no undelivered replies exist, resume normally with `claude -c` (standard resume behavior).
-
-This requires an additional column on the `messages` table:
-
-```sql
-ALTER TABLE messages ADD COLUMN delivered INTEGER NOT NULL DEFAULT 1;
-```
-
-Only user replies (`sender = 'user'`) use the `delivered` flag. Agent messages default to `delivered = 1` (not applicable). User replies are created with `delivered = 0` and marked `delivered = 1` upon injection into a resumed mission.
 
 ### Headless Reply Delivery
 
@@ -363,15 +403,15 @@ CREATE TABLE cron_last_runs (
     last_run_at TEXT NOT NULL
 );
 
--- Store agent-user messages
+-- Message metadata (bodies stored as files in mission's messages/ directory)
 CREATE TABLE messages (
-    id TEXT PRIMARY KEY,
     mission_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
     sender TEXT NOT NULL,
-    body TEXT NOT NULL,
     is_read INTEGER NOT NULL DEFAULT 0,
     delivered INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
+    PRIMARY KEY (mission_id, seq),
     FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
 );
 
@@ -388,10 +428,30 @@ Changes to Existing Components
 - **New goroutine:** Cron scheduler (60-second cycle). Reads `config.yml`, evaluates crontab expressions, creates and launches headless missions.
 - **Headless mission management:** The daemon must track running headless Claude processes (child PIDs) for cleanup on daemon shutdown. On `SIGTERM`/`SIGINT`, the daemon sends `SIGINT` to all running headless Claude processes before exiting.
 
+### Mission Directory Structure
+
+The mission directory gains a `messages/` subdirectory:
+
+```
+~/.agenc/missions/<uuid>/
+    pid
+    claude-state
+    template-commit
+    claude-output.log          # (headless missions only)
+    messages/                  # created on first message
+        1.md
+        2.md
+        3.md
+    agent/
+        ...
+```
+
+The `messages/` directory is outside `agent/` (alongside `pid` and `claude-state`), so it is invisible to Claude and unaffected by template syncs.
+
 ### Mission Wrapper
 
 - **Environment variable:** Set `AGENC_MISSION_UUID` in the Claude child process environment.
-- **Reply injection:** On resume, check for undelivered user replies in the `messages` table. If present, concatenate and pass as the prompt to `claude -c -p`.
+- **Reply injection:** On resume, check for undelivered user replies in the `messages` table. If present, read the corresponding `<seq>.md` files, concatenate, and pass as the prompt to `claude -c -p`.
 
 ### Claude Config Sync
 
@@ -424,19 +484,18 @@ Implementation Phases
 This spec covers significant surface area. A phased implementation is recommended:
 
 **Phase 1: Messaging foundation**
-- Add the `messages` table.
-- Implement `agenc message send`.
+- Add the `messages` table (metadata only; bodies on filesystem).
+- Implement `agenc message send` (writes `<seq>.md` to mission's `messages/` directory, inserts DB row).
 - Set `AGENC_MISSION_UUID` in the wrapper's Claude environment.
 - Add `Bash(agenc message send:*)` to the Claude config sync.
 
 **Phase 2: Inbox**
 - Implement `agenc inbox` with the interactive thread picker and detail view.
-- Implement the reply flow ($EDITOR, separator parsing, queueing).
+- Implement the reply flow ($EDITOR with plain-Markdown message history, separator parsing, filesystem write, queueing).
 - Implement mark-unread.
 
 **Phase 3: Reply delivery**
-- Implement reply injection on `mission resume`.
-- Add the `delivered` column and tracking logic.
+- Implement reply injection on `mission resume` (read undelivered reply files, concatenate, pass as prompt).
 - Implement the inbox attach action.
 
 **Phase 4: Crons**
