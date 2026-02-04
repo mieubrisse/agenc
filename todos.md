@@ -1,4 +1,5 @@
 - [ ] Fix bug where a reload before the user has said anything fails Claude with "no conversation to continue"
+- [ ] Add an MCP server for agents to request a copy of a repo
 - [ ] Roll my agenc-config global CLAUDE settings into agenc defaults
 - [ ] Fix missing logging + race condition in template change reload path
     - The `configChanged` handler in `wrapper.go:183-198` has zero logging (unlike the `globalConfigChanged` handler which logs at line 204). Template rsyncs and state transitions happen silently.
