@@ -15,6 +15,8 @@ The AgenC idea:
 1. Any time you have a negative interaction with Claude (bad output, missing permissions in `settings.json`), it's trivial to roll the lesson back into the Claude config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). Claude then hot-reloads to pick up the new config.
 2. Provide sandboxing + session management infra so you can run 5+ agents simultaneously, constantly rolling lesson "exhaust" back into your AI agents' configs. They become a supersmart team of Avengers who understand your every whim.
 
+<!-- TODO something about clear separation of "allow just this session" vs "allow always?" via the agent template mechanism and the sandboxing in a mission directory? -->
+
 <!--
 > ⚠️ Addiction Warning
 >
