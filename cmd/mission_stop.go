@@ -11,6 +11,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 const (
@@ -30,7 +31,19 @@ func init() {
 }
 
 func runMissionStop(cmd *cobra.Command, args []string) error {
-	return stopMissionWrapper(args[0])
+	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open database")
+	}
+	defer db.Close()
+
+	missionID, err := db.ResolveMissionID(args[0])
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to resolve mission ID")
+	}
+
+	return stopMissionWrapper(missionID)
 }
 
 // stopMissionWrapper gracefully stops a mission's wrapper process if it is
@@ -64,7 +77,7 @@ func stopMissionWrapper(missionID string) error {
 	for time.Now().Before(deadline) {
 		if !daemon.IsProcessRunning(pid) {
 			os.Remove(pidFilepath)
-			fmt.Printf("Mission '%s' stopped.\n", missionID)
+			fmt.Printf("Mission '%s' stopped.\n", database.ShortID(missionID))
 			return nil
 		}
 		time.Sleep(wrapperStopTick)
@@ -73,7 +86,7 @@ func stopMissionWrapper(missionID string) error {
 	// Force kill if still running
 	_ = process.Signal(syscall.SIGKILL)
 	os.Remove(pidFilepath)
-	fmt.Printf("Mission '%s' force-killed after timeout.\n", missionID)
+	fmt.Printf("Mission '%s' force-killed after timeout.\n", database.ShortID(missionID))
 
 	return nil
 }

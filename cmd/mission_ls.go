@@ -73,7 +73,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		prompt := resolveMissionPrompt(db, agencDirpath, m)
 		tbl.AddRow(
 			formatLastActive(m.LastHeartbeat),
-			m.ID,
+			m.ShortID,
 			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
 			displayGitRepo(m.GitRepo),

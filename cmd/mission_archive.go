@@ -32,25 +32,7 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missionIDs := args
-	if len(missionIDs) == 0 {
-		selectedIDs, err := selectMissionsToArchive(db)
-		if err != nil {
-			return err
-		}
-		if len(selectedIDs) == 0 {
-			return nil
-		}
-		missionIDs = selectedIDs
-	}
-
-	for _, missionID := range missionIDs {
-		if err := archiveMission(db, missionID); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return resolveAndRunForEachMission(db, args, selectMissionsToArchive, archiveMission)
 }
 
 func selectMissionsToArchive(db *database.DB) ([]string, error) {
@@ -68,7 +50,7 @@ func selectMissionsToArchive(db *database.DB) ([]string, error) {
 	for _, m := range missions {
 		label := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
 		createdDate := m.CreatedAt.Format("2006-01-02 15:04")
-		fzfLines = append(fzfLines, fmt.Sprintf("%s\t%s\t%s", m.ID, label, createdDate))
+		fzfLines = append(fzfLines, fmt.Sprintf("%s\t%s\t%s", m.ShortID, label, createdDate))
 	}
 
 	fzfBinary, err := exec.LookPath("fzf")
@@ -123,6 +105,6 @@ func archiveMission(db *database.DB, missionID string) error {
 		return stacktrace.Propagate(err, "failed to archive mission in database")
 	}
 
-	fmt.Printf("Archived mission: %s\n", missionID)
+	fmt.Printf("Archived mission: %s\n", database.ShortID(missionID))
 	return nil
 }

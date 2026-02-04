@@ -9,7 +9,8 @@
     - Remove the vestigial `--prompt` CLI flag and all prompt-parameter-passing code (SpawnClaude, Wrapper.Run, CreateMission, etc.).
     - At display time, read the prompt from the DB. If empty, backfill from Claude's `history.jsonl` (`$AGENC_DIRPATH/claude/history.jsonl`) — grep for the mission UUID, parse the first matching line's `display` field, write it back to the DB.
     - Display the cached prompt (truncated) in `mission ls`, `mission inspect`, and fzf pickers.
-- [ ] Display & accept short UUIDs
+- [x] Display & accept short UUIDs
+- [ ] Consolidate duplicated fzf picker infrastructure across mission resume/archive/rm into a shared helper with pluggable formatting
 - [ ] Reload when non-CLAUDE.md/settings.json changes happen (skills, subagents, etc.)
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Add crons with scheduled work tracker (dump work into the queue, cron picks it up)

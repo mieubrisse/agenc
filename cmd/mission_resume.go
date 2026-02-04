@@ -38,13 +38,22 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 
 	var missionID string
 	if len(args) == 1 {
-		missionID = args[0]
-	} else {
-		selected, err := selectStoppedMissionWithFzf(db)
-		if err != nil {
-			return err
+		resolved, resolveErr := db.ResolveMissionID(args[0])
+		if resolveErr != nil {
+			return stacktrace.Propagate(resolveErr, "failed to resolve mission ID")
 		}
-		missionID = selected
+		missionID = resolved
+	} else {
+		selected, selectErr := selectStoppedMissionWithFzf(db)
+		if selectErr != nil {
+			return selectErr
+		}
+		// fzf selection returns a short ID; resolve it
+		resolved, resolveErr := db.ResolveMissionID(selected)
+		if resolveErr != nil {
+			return stacktrace.Propagate(resolveErr, "failed to resolve mission ID")
+		}
+		missionID = resolved
 	}
 
 	missionRecord, err := db.GetMission(missionID)
@@ -56,7 +65,7 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		if err := db.UnarchiveMission(missionID); err != nil {
 			return stacktrace.Propagate(err, "failed to unarchive mission")
 		}
-		fmt.Printf("Unarchived mission: %s\n", missionID)
+		fmt.Printf("Unarchived mission: %s\n", database.ShortID(missionID))
 	}
 
 	// Check if the wrapper is already running for this mission
@@ -79,7 +88,7 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	fmt.Printf("Resuming mission: %s\n", missionID)
+	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 	fmt.Println("Launching claude --continue...")
 
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.GitRepo, db)
@@ -102,7 +111,7 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 
 	// Filter to stopped missions only (already ordered by created_at DESC)
 	var buf bytes.Buffer
-	tbl := tableprinter.NewTable("ID", "AGENT", "REPO", "PROMPT").WithWriter(&buf)
+	tbl := tableprinter.NewTable("SHORT ID", "AGENT", "REPO", "PROMPT").WithWriter(&buf)
 	rowCount := 0
 	for _, m := range missions {
 		if getMissionStatus(m.ID, m.Status) != "STOPPED" {
@@ -111,7 +120,7 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		prompt := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
 		agent := displayAgentTemplate(m.AgentTemplate, nicknames)
 		repo := displayGitRepo(m.GitRepo)
-		tbl.AddRow(m.ID, agent, repo, prompt)
+		tbl.AddRow(m.ShortID, agent, repo, prompt)
 		rowCount++
 	}
 

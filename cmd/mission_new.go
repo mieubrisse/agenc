@@ -130,7 +130,12 @@ func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
 	}
 	defer db.Close()
 
-	sourceMission, err := db.GetMission(cloneFlag)
+	sourceMissionID, err := db.ResolveMissionID(cloneFlag)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to resolve source mission ID")
+	}
+
+	sourceMission, err := db.GetMission(sourceMissionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get source mission")
 	}
@@ -145,7 +150,7 @@ func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
 
-	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ID, sourceMission.ID)
+	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
 
 	// Create mission directory structure with agent template but no git copy
 	// (workspace will be copied separately from the source mission)
@@ -505,7 +510,7 @@ func createAndLaunchMission(
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
 
-	fmt.Printf("Created mission: %s\n", missionRecord.ID)
+	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
 	// Create mission directory structure (repo goes inside workspace/)
 	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, gitCloneDirpath)

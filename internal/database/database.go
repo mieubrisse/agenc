@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,9 +27,13 @@ const dropMissionDescriptionsTableSQL = `DROP TABLE IF EXISTS mission_descriptio
 
 const addGitRepoColumnSQL = `ALTER TABLE missions ADD COLUMN git_repo TEXT NOT NULL DEFAULT '';`
 const addLastHeartbeatColumnSQL = `ALTER TABLE missions ADD COLUMN last_heartbeat TEXT;`
+const addShortIDColumnSQL = `ALTER TABLE missions ADD COLUMN short_id TEXT NOT NULL DEFAULT '';`
+const backfillShortIDSQL = `UPDATE missions SET short_id = SUBSTR(id, 1, 8) WHERE short_id = '';`
+const createShortIDIndexSQL = `CREATE INDEX IF NOT EXISTS idx_missions_short_id ON missions(short_id);`
 // Mission represents a row in the missions table.
 type Mission struct {
 	ID            string
+	ShortID       string
 	AgentTemplate string
 	Prompt        string
 	Status        string
@@ -73,6 +79,11 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to add last_heartbeat column")
 	}
 
+	if err := migrateAddShortID(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add short_id column")
+	}
+
 	// Drop legacy mission_descriptions table
 	if _, err := conn.Exec(dropMissionDescriptionsTableSQL); err != nil {
 		conn.Close()
@@ -82,21 +93,15 @@ func Open(dbFilepath string) (*DB, error) {
 	return &DB{conn: conn}, nil
 }
 
-// migrateWorktreeSourceToGitRepo ensures the missions table has a git_repo
-// column. Handles three states idempotently:
-//   - Neither column exists (new DB): adds git_repo
-//   - worktree_source exists (old DB): renames it to git_repo
-//   - git_repo already exists (already migrated): no-op
-func migrateWorktreeSourceToGitRepo(conn *sql.DB) error {
-	hasWorktreeSource := false
-	hasGitRepo := false
-
+// getColumnNames returns a set of column names present in the missions table.
+func getColumnNames(conn *sql.DB) (map[string]bool, error) {
 	rows, err := conn.Query("PRAGMA table_info(missions)")
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read missions table info")
+		return nil, stacktrace.Propagate(err, "failed to read missions table info")
 	}
 	defer rows.Close()
 
+	columns := make(map[string]bool)
 	for rows.Next() {
 		var cid int
 		var name, colType string
@@ -104,23 +109,31 @@ func migrateWorktreeSourceToGitRepo(conn *sql.DB) error {
 		var dfltValue sql.NullString
 		var pk int
 		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
-			return stacktrace.Propagate(err, "failed to scan table_info row")
+			return nil, stacktrace.Propagate(err, "failed to scan table_info row")
 		}
-		switch name {
-		case "worktree_source":
-			hasWorktreeSource = true
-		case "git_repo":
-			hasGitRepo = true
-		}
+		columns[name] = true
 	}
 	if err := rows.Err(); err != nil {
-		return stacktrace.Propagate(err, "error iterating table_info rows")
+		return nil, stacktrace.Propagate(err, "error iterating table_info rows")
+	}
+	return columns, nil
+}
+
+// migrateWorktreeSourceToGitRepo ensures the missions table has a git_repo
+// column. Handles three states idempotently:
+//   - Neither column exists (new DB): adds git_repo
+//   - worktree_source exists (old DB): renames it to git_repo
+//   - git_repo already exists (already migrated): no-op
+func migrateWorktreeSourceToGitRepo(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
 	}
 
 	switch {
-	case hasGitRepo:
+	case columns["git_repo"]:
 		return nil // already migrated
-	case hasWorktreeSource:
+	case columns["worktree_source"]:
 		_, err := conn.Exec("ALTER TABLE missions RENAME COLUMN worktree_source TO git_repo")
 		return err
 	default:
@@ -131,31 +144,41 @@ func migrateWorktreeSourceToGitRepo(conn *sql.DB) error {
 
 // migrateAddLastHeartbeat idempotently adds the last_heartbeat column.
 func migrateAddLastHeartbeat(conn *sql.DB) error {
-	rows, err := conn.Query("PRAGMA table_info(missions)")
+	columns, err := getColumnNames(conn)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read missions table info")
+		return err
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var cid int
-		var name, colType string
-		var notNull int
-		var dfltValue sql.NullString
-		var pk int
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
-			return stacktrace.Propagate(err, "failed to scan table_info row")
-		}
-		if name == "last_heartbeat" {
-			return nil // already exists
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return stacktrace.Propagate(err, "error iterating table_info rows")
+	if columns["last_heartbeat"] {
+		return nil
 	}
 
 	_, err = conn.Exec(addLastHeartbeatColumnSQL)
 	return err
+}
+
+// migrateAddShortID idempotently adds the short_id column, backfills it from
+// existing IDs, and creates an index.
+func migrateAddShortID(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["short_id"] {
+		return nil
+	}
+
+	if _, err := conn.Exec(addShortIDColumnSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to add short_id column")
+	}
+	if _, err := conn.Exec(backfillShortIDSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to backfill short_id column")
+	}
+	if _, err := conn.Exec(createShortIDIndexSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create short_id index")
+	}
+	return nil
 }
 
 // Close closes the database connection.
@@ -166,11 +189,12 @@ func (db *DB) Close() error {
 // CreateMission inserts a new mission and returns it.
 func (db *DB) CreateMission(agentTemplate string, gitRepo string) (*Mission, error) {
 	id := uuid.New().String()
+	shortID := ShortID(id)
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, agent_template, git_repo, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
-		id, agentTemplate, gitRepo, now, now,
+		"INSERT INTO missions (id, short_id, agent_template, git_repo, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
+		id, shortID, agentTemplate, gitRepo, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -178,6 +202,7 @@ func (db *DB) CreateMission(agentTemplate string, gitRepo string) (*Mission, err
 
 	return &Mission{
 		ID:            id,
+		ShortID:       shortID,
 		AgentTemplate: agentTemplate,
 		GitRepo:       gitRepo,
 		Status:        "active",
@@ -191,7 +216,7 @@ func (db *DB) CreateMission(agentTemplate string, gitRepo string) (*Mission, err
 // end by created_at DESC.
 // If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
 func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
-	query := "SELECT id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions"
+	query := "SELECT id, short_id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions"
 	if !includeArchived {
 		query += " WHERE status != 'archived'"
 	}
@@ -209,7 +234,7 @@ func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -315,7 +340,7 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 		var m Mission
 		var lastHeartbeat sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
@@ -336,7 +361,7 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
 	var lastHeartbeat sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
@@ -346,4 +371,67 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	return &m, nil
+}
+
+// ShortID returns the first 8 characters of a full UUID.
+func ShortID(fullID string) string {
+	return fullID[:8]
+}
+
+// ResolveMissionID resolves a user-provided mission identifier (either a full
+// UUID or an 8-character short ID) to the full mission UUID. Returns an error
+// if the identifier matches zero or multiple missions.
+func (db *DB) ResolveMissionID(userInput string) (string, error) {
+	// Try exact match on full ID first (O(1) via primary key)
+	var fullID string
+	err := db.conn.QueryRow("SELECT id FROM missions WHERE id = ?", userInput).Scan(&fullID)
+	if err == nil {
+		return fullID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", stacktrace.Propagate(err, "failed to query mission by full ID")
+	}
+
+	// Try match on short_id (O(1) via index)
+	rows, err := db.conn.Query("SELECT id, prompt FROM missions WHERE short_id = ?", userInput)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to query mission by short ID")
+	}
+	defer rows.Close()
+
+	type match struct {
+		id     string
+		prompt string
+	}
+	var matches []match
+	for rows.Next() {
+		var m match
+		if err := rows.Scan(&m.id, &m.prompt); err != nil {
+			return "", stacktrace.Propagate(err, "failed to scan mission row")
+		}
+		matches = append(matches, m)
+	}
+	if err := rows.Err(); err != nil {
+		return "", stacktrace.Propagate(err, "error iterating mission rows")
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", stacktrace.NewError("mission '%s' not found", userInput)
+	case 1:
+		return matches[0].id, nil
+	default:
+		var lines []string
+		for _, m := range matches {
+			snippet := m.prompt
+			if len(snippet) > 60 {
+				snippet = snippet[:57] + "..."
+			}
+			lines = append(lines, fmt.Sprintf("  %s  %s", m.id, snippet))
+		}
+		return "", stacktrace.NewError(
+			"short ID '%s' is ambiguous; matches %d missions:\n%s\nPlease provide more of the UUID to disambiguate.",
+			userInput, len(matches), strings.Join(lines, "\n"),
+		)
+	}
 }

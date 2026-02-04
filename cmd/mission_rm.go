@@ -32,25 +32,7 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missionIDs := args
-	if len(missionIDs) == 0 {
-		selectedIDs, err := selectMissionsToRemove(db)
-		if err != nil {
-			return err
-		}
-		if len(selectedIDs) == 0 {
-			return nil
-		}
-		missionIDs = selectedIDs
-	}
-
-	for _, missionID := range missionIDs {
-		if err := removeMission(db, missionID); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return resolveAndRunForEachMission(db, args, selectMissionsToRemove, removeMission)
 }
 
 func selectMissionsToRemove(db *database.DB) ([]string, error) {
@@ -72,7 +54,7 @@ func selectMissionsToRemove(db *database.DB) ([]string, error) {
 			statusTag = " [archived]"
 		}
 		createdDate := m.CreatedAt.Format("2006-01-02 15:04")
-		fzfLines = append(fzfLines, fmt.Sprintf("%s\t%s%s\t%s", m.ID, label, statusTag, createdDate))
+		fzfLines = append(fzfLines, fmt.Sprintf("%s\t%s%s\t%s", m.ShortID, label, statusTag, createdDate))
 	}
 
 	fzfBinary, err := exec.LookPath("fzf")
@@ -137,6 +119,6 @@ func removeMission(db *database.DB, missionID string) error {
 		return stacktrace.Propagate(err, "failed to delete mission from database")
 	}
 
-	fmt.Printf("Removed mission: %s\n", missionID)
+	fmt.Printf("Removed mission: %s\n", database.ShortID(missionID))
 	return nil
 }

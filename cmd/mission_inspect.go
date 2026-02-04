@@ -25,14 +25,17 @@ func init() {
 }
 
 func runMissionInspect(cmd *cobra.Command, args []string) error {
-	missionID := args[0]
-
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to open database")
 	}
 	defer db.Close()
+
+	missionID, err := db.ResolveMissionID(args[0])
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to resolve mission ID")
+	}
 
 	mission, err := db.GetMission(missionID)
 	if err != nil {
@@ -52,7 +55,8 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 	}
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
-	fmt.Printf("ID:          %s\n", mission.ID)
+	fmt.Printf("ID:          %s\n", mission.ShortID)
+	fmt.Printf("Full ID:     %s\n", mission.ID)
 	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
 	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate, nicknames))
 	if mission.GitRepo != "" {
