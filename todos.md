@@ -1,10 +1,10 @@
-- [ ] Fix bug where a reload before the user has said anything fails Claude with "no conversation to continue"
+- [x] Fix bug where a reload before the user has said anything fails Claude with "no conversation to continue"
 - [ ] Create an MCP server that allows AgenC agents to clone repos into their workspace directory
 - [ ] Roll my agenc-config global CLAUDE settings into agenc defaults
 - [ ] Fix missing logging + race condition in template change reload path
     - The `configChanged` handler in `wrapper.go:183-198` has zero logging (unlike the `globalConfigChanged` handler which logs at line 204). Template rsyncs and state transitions happen silently.
     - Race condition: when Claude exits naturally, both `claudeStateIdle` (from the Stop hook) and `claudeExited` arrive on the select simultaneously. If `claudeExited` wins while state is `StateRestartPending` (not yet `StateRestarting`), the wrapper exits at line 181 without restarting — the pending restart is lost.
-- [ ] Show the user's first prompt in `mission ls` output
+- [x] Show the user's first prompt in `mission ls` output
     - Repurpose the existing DB `prompt` column as a cache of the first user prompt.
     - Remove the vestigial `--prompt` CLI flag and all prompt-parameter-passing code (SpawnClaude, Wrapper.Run, CreateMission, etc.).
     - At display time, read the prompt from the DB. If empty, backfill from Claude's `history.jsonl` (`$AGENC_DIRPATH/claude/history.jsonl`) — grep for the mission UUID, parse the first matching line's `display` field, write it back to the DB.
@@ -15,7 +15,6 @@
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Add crons with scheduled work tracker (dump work into the queue, cron picks it up)
 - [ ] Implement config sync via missions (see `specs/config-sync-via-missions.md`)
-- [ ] Add option for agenc-managed config
 - [ ] OPTIMIZATION: Daemon has fsnotify on `config.yml` and refreshes its understanding of the config only once when it's updated
     - Prevents reading the config on every loop
 - [ ] Maybe some way to save information for later???? E.g. I'm doing research in a research tab, and I want to come back to it later
