@@ -4,6 +4,10 @@
 - [ ] Fix missing logging + race condition in template change reload path
     - The `configChanged` handler in `wrapper.go:183-198` has zero logging (unlike the `globalConfigChanged` handler which logs at line 204). Template rsyncs and state transitions happen silently.
     - Race condition: when Claude exits naturally, both `claudeStateIdle` (from the Stop hook) and `claudeExited` arrive on the select simultaneously. If `claudeExited` wins while state is `StateRestartPending` (not yet `StateRestarting`), the wrapper exits at line 181 without restarting — the pending restart is lost.
+- [ ] Show the user's first prompt in `mission ls` output
+    - The DB `prompt` column is vestigial (from a removed `--prompt` flag). Remove it along with all prompt plumbing.
+    - Source the first prompt from Claude's `history.jsonl` (`$AGENC_DIRPATH/claude/history.jsonl`), which logs every `UserPromptSubmit` with `display`, `timestamp`, `project` (contains mission UUID), and `sessionId`.
+    - Also: clean up all vestigial `--prompt` flag and prompt-parameter-passing code across the codebase.
 - [ ] Display & accept short UUIDs
 - [ ] Reload when non-CLAUDE.md/settings.json changes happen (skills, subagents, etc.)
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
