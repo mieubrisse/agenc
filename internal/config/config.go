@@ -32,6 +32,7 @@ const (
 	TemplateCommitFilename = "template-commit"
 	WrapperLogFilename     = "wrapper.log"
 	SettingsLocalFilename  = "settings.local.json"
+	HistoryFilename        = "history.jsonl"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -173,6 +174,12 @@ func GetRepoDirpath(agencDirpath string, repoName string) string {
 // ($AGENC/config/), intended to be Git-controlled.
 func GetConfigDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ConfigDirname)
+}
+
+// GetHistoryFilepath returns the path to Claude's history.jsonl file, which
+// records every user prompt submission.
+func GetHistoryFilepath(agencDirpath string) string {
+	return filepath.Join(GetGlobalClaudeDirpath(agencDirpath), HistoryFilename)
 }
 
 // GetClaudeModificationsDirpath returns the path to the claude-modifications

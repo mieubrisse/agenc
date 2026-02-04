@@ -66,10 +66,7 @@ func selectMissionsToRemove(db *database.DB) ([]string, error) {
 
 	var fzfLines []string
 	for _, m := range missions {
-		label := m.Prompt
-		if len(label) > 60 {
-			label = label[:57] + "..."
-		}
+		label := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
 		statusTag := ""
 		if m.Status == "archived" {
 			statusTag = " [archived]"

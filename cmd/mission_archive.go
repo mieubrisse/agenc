@@ -66,10 +66,7 @@ func selectMissionsToArchive(db *database.DB) ([]string, error) {
 
 	var fzfLines []string
 	for _, m := range missions {
-		label := m.Prompt
-		if len(label) > 60 {
-			label = label[:57] + "..."
-		}
+		label := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
 		createdDate := m.CreatedAt.Format("2006-01-02 15:04")
 		fzfLines = append(fzfLines, fmt.Sprintf("%s\t%s\t%s", m.ID, label, createdDate))
 	}

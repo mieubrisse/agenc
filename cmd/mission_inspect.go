@@ -58,7 +58,11 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 	if mission.GitRepo != "" {
 		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
 	}
-	fmt.Printf("Prompt:      %s\n", mission.Prompt)
+	prompt := resolveMissionPrompt(db, agencDirpath, mission)
+	if prompt == "" {
+		prompt = "--"
+	}
+	fmt.Printf("Prompt:      %s\n", prompt)
 	fmt.Printf("Directory:   %s\n", missionDirpath)
 	fmt.Printf("Created:     %s\n", mission.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Printf("Updated:     %s\n", mission.UpdatedAt.Format("2006-01-02 15:04:05"))

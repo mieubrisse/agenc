@@ -104,10 +104,9 @@ func ReadTemplateCommitHash(templateDirpath string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// SpawnClaude starts claude as a child process in the given agent directory
-// with the given prompt. Returns the running command. The caller is
-// responsible for calling cmd.Wait().
-func SpawnClaude(agencDirpath string, missionID string, agentDirpath string, prompt string) (*exec.Cmd, error) {
+// SpawnClaude starts claude as a child process in the given agent directory.
+// Returns the running command. The caller is responsible for calling cmd.Wait().
+func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
@@ -115,12 +114,7 @@ func SpawnClaude(agencDirpath string, missionID string, agentDirpath string, pro
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
-	args := []string{claudeBinary}
-	if prompt != "" {
-		args = append(args, prompt)
-	}
-
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.Command(claudeBinary)
 	cmd.Dir = agentDirpath
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

@@ -9,8 +9,6 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
-var templateEditPromptFlag string
-
 var templateEditCmd = &cobra.Command{
 	Use:   "edit [template-name]",
 	Short: "Edit an agent template via a new mission with a repo copy",
@@ -19,7 +17,6 @@ var templateEditCmd = &cobra.Command{
 }
 
 func init() {
-	templateEditCmd.Flags().StringVarP(&templateEditPromptFlag, "prompt", "p", "", "initial prompt to send to claude")
 	templateCmd.AddCommand(templateEditCmd)
 }
 
@@ -59,5 +56,5 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	templateCloneDirpath := config.GetRepoDirpath(agencDirpath, templateName)
-	return createAndLaunchMission(agencDirpath, "", templateEditPromptFlag, templateName, templateCloneDirpath)
+	return createAndLaunchMission(agencDirpath, "", templateName, templateCloneDirpath)
 }

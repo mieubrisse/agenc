@@ -83,7 +83,7 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	fmt.Println("Launching claude --continue...")
 
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.GitRepo, db)
-	return w.Run("", true)
+	return w.Run(true)
 }
 
 // selectStoppedMissionWithFzf queries stopped missions and presents them in fzf.
@@ -108,13 +108,10 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		if getMissionStatus(m.ID, m.Status) != "STOPPED" {
 			continue
 		}
-		promptSnippet := m.Prompt
-		if len(promptSnippet) > 60 {
-			promptSnippet = promptSnippet[:57] + "..."
-		}
+		prompt := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
 		agent := displayAgentTemplate(m.AgentTemplate, nicknames)
 		repo := displayGitRepo(m.GitRepo)
-		tbl.AddRow(m.ID, agent, repo, promptSnippet)
+		tbl.AddRow(m.ID, agent, repo, prompt)
 		rowCount++
 	}
 

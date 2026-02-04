@@ -164,13 +164,13 @@ func (db *DB) Close() error {
 }
 
 // CreateMission inserts a new mission and returns it.
-func (db *DB) CreateMission(agentTemplate string, prompt string, gitRepo string) (*Mission, error) {
+func (db *DB) CreateMission(agentTemplate string, gitRepo string) (*Mission, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, agent_template, prompt, git_repo, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)",
-		id, agentTemplate, prompt, gitRepo, now, now,
+		"INSERT INTO missions (id, agent_template, git_repo, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
+		id, agentTemplate, gitRepo, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -179,7 +179,6 @@ func (db *DB) CreateMission(agentTemplate string, prompt string, gitRepo string)
 	return &Mission{
 		ID:            id,
 		AgentTemplate: agentTemplate,
-		Prompt:        prompt,
 		GitRepo:       gitRepo,
 		Status:        "active",
 		CreatedAt:     time.Now().UTC(),
@@ -279,6 +278,19 @@ func (db *DB) DeleteMission(id string) error {
 	}
 	if rowsAffected == 0 {
 		return stacktrace.NewError("mission '%s' not found", id)
+	}
+	return nil
+}
+
+// UpdateMissionPrompt sets the cached first-user-prompt for a mission.
+func (db *DB) UpdateMissionPrompt(id string, prompt string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.conn.Exec(
+		"UPDATE missions SET prompt = ?, updated_at = ? WHERE id = ?",
+		prompt, now, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update prompt for mission '%s'", id)
 	}
 	return nil
 }

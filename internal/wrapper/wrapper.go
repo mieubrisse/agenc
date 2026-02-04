@@ -54,10 +54,10 @@ type Wrapper struct {
 	logger    *slog.Logger
 
 	// hasConversation tracks whether a Claude conversation exists that can be
-	// resumed with `claude -c`. Set at startup based on isResume/prompt, and
-	// set to true when the user submits their first message (claude-state
-	// becomes "busy"). Written from watchClaudeState goroutine, read from the
-	// main event loop, so we use atomic.Bool.
+	// resumed with `claude -c`. Set to true at startup for resumes, and flipped
+	// to true when the user submits their first message (claude-state becomes
+	// "busy"). Written from watchClaudeState goroutine, read from the main
+	// event loop, so we use atomic.Bool.
 	hasConversation atomic.Bool
 
 	// Channels for internal communication between goroutines and the main loop.
@@ -88,10 +88,10 @@ func NewWrapper(agencDirpath string, missionID string, agentTemplate string, git
 	}
 }
 
-// Run executes the wrapper lifecycle. For a new mission, pass the prompt and
-// isResume=false. For a resume, pass an empty prompt and isResume=true.
-// Run blocks until Claude exits naturally or the wrapper shuts down.
-func (w *Wrapper) Run(prompt string, isResume bool) error {
+// Run executes the wrapper lifecycle. For a new mission, pass isResume=false.
+// For a resume, pass isResume=true. Run blocks until Claude exits naturally
+// or the wrapper shuts down.
+func (w *Wrapper) Run(isResume bool) error {
 	// Set up logger that writes to the log file
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -142,11 +142,10 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 		go w.watchWorkspaceRemoteRefs(ctx)
 	}
 
-	// Track whether a resumable conversation exists. A conversation exists if
-	// we're resuming a prior session or if we have an initial prompt (which
-	// will create one). For no-prompt new missions, we start with false and
-	// flip to true when the user submits their first message.
-	if isResume || prompt != "" {
+	// Track whether a resumable conversation exists. For resumes, one already
+	// exists. For new missions, we start with false and flip to true when the
+	// user submits their first message (claude-state becomes "busy").
+	if isResume {
 		w.hasConversation.Store(true)
 	}
 
@@ -154,7 +153,7 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 	if isResume {
 		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
 	} else {
-		w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath, prompt)
+		w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath)
 	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to spawn claude")
@@ -186,7 +185,7 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 				if w.hasConversation.Load() {
 					w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
 				} else {
-					w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath, "")
+					w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath)
 				}
 				if err != nil {
 					return stacktrace.Propagate(err, "failed to respawn claude after restart")

@@ -19,7 +19,6 @@ import (
 )
 
 var agentFlag string
-var promptFlag string
 var gitFlag string
 
 var missionNewCmd = &cobra.Command{
@@ -39,7 +38,6 @@ with positional search terms).`,
 
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultFor config)")
-	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
 	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or https://github.com/owner/repo/...)")
 	missionCmd.AddCommand(missionNewCmd)
 }
@@ -98,7 +96,7 @@ func runMissionNewWithFlags(cfg *config.AgencConfig) error {
 		return err
 	}
 
-	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, gitRepoName, gitCloneDirpath)
+	return createAndLaunchMission(agencDirpath, agentTemplate, gitRepoName, gitCloneDirpath)
 }
 
 // runMissionNewWithPicker shows an fzf picker over the repo library. Positional
@@ -144,12 +142,12 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 		if err != nil {
 			return err
 		}
-		return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, "", "")
+		return createAndLaunchMission(agencDirpath, agentTemplate, "", "")
 	}
 
 	if selection.IsTemplate {
 		// Template selected — use the template as agent, no git repo
-		return createAndLaunchMission(agencDirpath, selection.RepoName, promptFlag, "", "")
+		return createAndLaunchMission(agencDirpath, selection.RepoName, "", "")
 	}
 
 	// Regular repo selected — clone into workspace, use default repo agent
@@ -158,7 +156,7 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 		return err
 	}
 	gitCloneDirpath := config.GetRepoDirpath(agencDirpath, selection.RepoName)
-	return createAndLaunchMission(agencDirpath, agentTemplate, promptFlag, selection.RepoName, gitCloneDirpath)
+	return createAndLaunchMission(agencDirpath, agentTemplate, selection.RepoName, gitCloneDirpath)
 }
 
 // listRepoLibrary scans ~/.agenc/repos/ three levels deep (github.com/owner/repo)
@@ -400,7 +398,6 @@ func isAgentTemplate(cfg *config.AgencConfig, repoName string) bool {
 func createAndLaunchMission(
 	agencDirpath string,
 	agentTemplate string,
-	prompt string,
 	gitRepoName string,
 	gitCloneDirpath string,
 ) error {
@@ -412,7 +409,7 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, prompt, gitRepoName)
+	missionRecord, err := db.CreateMission(agentTemplate, gitRepoName)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
@@ -429,7 +426,7 @@ func createAndLaunchMission(
 	fmt.Println("Launching claude...")
 
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, db)
-	return w.Run(prompt, false)
+	return w.Run(false)
 }
 
 // resolveGitFlag resolves a --git flag value into a canonical repo

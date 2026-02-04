@@ -12,6 +12,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/history"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -66,15 +67,17 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
-	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "REPO")
+	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "REPO", "PROMPT")
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
+		prompt := resolveMissionPrompt(db, agencDirpath, m)
 		tbl.AddRow(
 			formatLastActive(m.LastHeartbeat),
 			m.ID,
 			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
 			displayGitRepo(m.GitRepo),
+			truncatePrompt(prompt, defaultPromptMaxLen),
 		)
 	}
 	tbl.Print()
@@ -168,6 +171,41 @@ func colorizeStatus(status string) string {
 	default:
 		return status
 	}
+}
+
+const defaultPromptMaxLen = 50
+
+// resolveMissionPrompt returns the mission's first user prompt, using the DB
+// cache if available, otherwise backfilling from Claude's history.jsonl. The
+// returned string may be empty if no prompt has been recorded yet.
+func resolveMissionPrompt(db *database.DB, agencDirpath string, m *database.Mission) string {
+	if m.Prompt != "" {
+		return m.Prompt
+	}
+
+	historyFilepath := config.GetHistoryFilepath(agencDirpath)
+	prompt := history.FindFirstPrompt(historyFilepath, m.ID)
+	if prompt == "" {
+		return ""
+	}
+
+	// Cache in DB for future reads; ignore errors since this is best-effort.
+	_ = db.UpdateMissionPrompt(m.ID, prompt)
+	m.Prompt = prompt
+	return prompt
+}
+
+// truncatePrompt collapses whitespace and truncates a prompt string for
+// display. Returns "--" for an empty prompt.
+func truncatePrompt(prompt string, maxLen int) string {
+	if prompt == "" {
+		return "--"
+	}
+	collapsed := strings.Join(strings.Fields(prompt), " ")
+	if len(collapsed) <= maxLen {
+		return collapsed
+	}
+	return collapsed[:maxLen] + "..."
 }
 
 // getMissionStatus returns the unified status for a mission: RUNNING, STOPPED,
