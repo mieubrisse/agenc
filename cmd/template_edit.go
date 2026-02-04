@@ -33,26 +33,9 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("no agent templates available to edit")
 	}
 
-	var templateName string
-
-	if len(args) == 1 {
-		resolved, resolveErr := resolveTemplate(cfg.AgentTemplates, args[0])
-		if resolveErr != nil {
-			// No match — fall through to fzf with initial query
-			selected, fzfErr := selectWithFzf(cfg.AgentTemplates, args[0], false)
-			if fzfErr != nil {
-				return stacktrace.Propagate(fzfErr, "failed to select agent template")
-			}
-			templateName = selected
-		} else {
-			templateName = resolved
-		}
-	} else {
-		selected, fzfErr := selectWithFzf(cfg.AgentTemplates, "", false)
-		if fzfErr != nil {
-			return stacktrace.Propagate(fzfErr, "failed to select agent template")
-		}
-		templateName = selected
+	templateName, err := resolveOrPickTemplate(cfg.AgentTemplates, args)
+	if err != nil {
+		return err
 	}
 
 	templateCloneDirpath := config.GetRepoDirpath(agencDirpath, templateName)

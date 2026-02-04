@@ -13,9 +13,9 @@ var templateUpdateNicknameFlag string
 var templateUpdateDefaultFlag string
 
 var templateUpdateCmd = &cobra.Command{
-	Use:   "update <template>",
+	Use:   "update [template]",
 	Short: "Update properties of an installed agent template",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTemplateUpdate,
 }
 
@@ -39,7 +39,11 @@ func runTemplateUpdate(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	repo, err := resolveTemplate(cfg.AgentTemplates, args[0])
+	if len(cfg.AgentTemplates) == 0 {
+		return stacktrace.NewError("no agent templates available to update")
+	}
+
+	repo, err := resolveOrPickTemplate(cfg.AgentTemplates, args)
 	if err != nil {
 		return err
 	}

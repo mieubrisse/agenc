@@ -638,6 +638,28 @@ func selectWithFzf(templates map[string]config.AgentTemplateProperties, initialQ
 	return extractRepoFromFzfLine(selected), nil
 }
 
+// resolveOrPickTemplate resolves a template from an optional CLI argument,
+// falling back to an interactive fzf picker when no unique match is found or
+// no argument is provided.
+func resolveOrPickTemplate(templates map[string]config.AgentTemplateProperties, args []string) (string, error) {
+	if len(args) == 1 {
+		resolved, resolveErr := resolveTemplate(templates, args[0])
+		if resolveErr != nil {
+			selected, fzfErr := selectWithFzf(templates, args[0], false)
+			if fzfErr != nil {
+				return "", stacktrace.Propagate(fzfErr, "failed to select agent template")
+			}
+			return selected, nil
+		}
+		return resolved, nil
+	}
+	selected, fzfErr := selectWithFzf(templates, "", false)
+	if fzfErr != nil {
+		return "", stacktrace.Propagate(fzfErr, "failed to select agent template")
+	}
+	return selected, nil
+}
+
 // resolveTemplate attempts to find exactly one template matching the given
 // query. It tries exact match on repo key, then exact match on nickname, then
 // single substring match on either field.
