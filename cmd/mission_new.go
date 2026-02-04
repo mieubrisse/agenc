@@ -628,26 +628,43 @@ func selectWithFzf(templates map[string]config.AgentTemplateProperties, initialQ
 	return extractRepoFromFzfLine(selected), nil
 }
 
-// resolveOrPickTemplate resolves a template from an optional CLI argument,
-// falling back to an interactive fzf picker when no unique match is found or
-// no argument is provided.
+// resolveOrPickTemplate resolves a template from positional search-term
+// arguments, falling back to an interactive fzf picker when no unique match
+// is found or no arguments are provided. Multiple args are matched
+// sequentially (each must appear in order within the formatted template
+// line). If exactly one template matches, it is auto-selected.
 func resolveOrPickTemplate(templates map[string]config.AgentTemplateProperties, args []string) (string, error) {
-	if len(args) == 1 {
-		resolved, resolveErr := resolveTemplate(templates, args[0])
-		if resolveErr != nil {
-			selected, fzfErr := selectWithFzf(templates, args[0], false)
-			if fzfErr != nil {
-				return "", stacktrace.Propagate(fzfErr, "failed to select agent template")
-			}
-			return selected, nil
+	if len(args) > 0 {
+		matches := matchTemplateEntries(templates, args)
+		if len(matches) == 1 {
+			fmt.Printf("Auto-selected: %s\n", displayGitRepo(matches[0]))
+			return matches[0], nil
 		}
-		return resolved, nil
+		selected, fzfErr := selectWithFzf(templates, strings.Join(args, " "), false)
+		if fzfErr != nil {
+			return "", stacktrace.Propagate(fzfErr, "failed to select agent template")
+		}
+		return selected, nil
 	}
 	selected, fzfErr := selectWithFzf(templates, "", false)
 	if fzfErr != nil {
 		return "", stacktrace.Propagate(fzfErr, "failed to select agent template")
 	}
 	return selected, nil
+}
+
+// matchTemplateEntries filters templates by sequential case-insensitive
+// substring matching against formatted fzf display lines. Returns the
+// canonical repo keys of all matching templates.
+func matchTemplateEntries(templates map[string]config.AgentTemplateProperties, args []string) []string {
+	var matches []string
+	for _, repo := range sortedRepoKeys(templates) {
+		line := formatTemplateFzfLine(repo, templates[repo])
+		if matchesSequentialSubstrings(line, args) {
+			matches = append(matches, repo)
+		}
+	}
+	return matches
 }
 
 // resolveTemplate attempts to find exactly one template matching the given

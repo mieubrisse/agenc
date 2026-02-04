@@ -10,9 +10,9 @@ import (
 )
 
 var templateEditCmd = &cobra.Command{
-	Use:   editCmdStr + " [template-name]",
+	Use:   editCmdStr + " [search-terms...]",
 	Short: "Edit an agent template via a new mission with a repo copy",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runTemplateEdit,
 }
 
