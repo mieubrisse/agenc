@@ -44,6 +44,12 @@ func (d *Daemon) Run(ctx context.Context) {
 		d.runRepoUpdateLoop(ctx)
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runConfigAutoCommitLoop(ctx)
+	}()
+
 	wg.Wait()
 	d.logger.Println("Daemon stopping")
 }

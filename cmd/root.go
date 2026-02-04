@@ -20,6 +20,10 @@ var rootCmd = &cobra.Command{
 		}
 		agencDirpath = dirpath
 
+		if err := handleFirstRun(agencDirpath); err != nil {
+			return stacktrace.Propagate(err, "first-run setup failed")
+		}
+
 		if err := config.EnsureDirStructure(agencDirpath); err != nil {
 			return stacktrace.Propagate(err, "failed to ensure directory structure")
 		}
