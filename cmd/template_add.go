@@ -11,6 +11,7 @@ import (
 )
 
 var templateAddNicknameFlag string
+var templateAddDefaultFlag string
 
 var templateAddCmd = &cobra.Command{
 	Use:   "add <repo>",
@@ -27,6 +28,8 @@ Accepts any of these formats:
 
 func init() {
 	templateAddCmd.Flags().StringVar(&templateAddNicknameFlag, "nickname", "", "optional friendly name for the template")
+	templateAddCmd.Flags().StringVar(&templateAddDefaultFlag, "default", "",
+		fmt.Sprintf("make this template the default for a mission context; valid values: %s", config.FormatDefaultForValues()))
 	templateCmd.AddCommand(templateAddCmd)
 }
 
@@ -58,8 +61,20 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if templateAddDefaultFlag != "" {
+		if !config.IsValidDefaultForValue(templateAddDefaultFlag) {
+			return stacktrace.NewError("invalid --default value '%s'; must be one of: %s", templateAddDefaultFlag, config.FormatDefaultForValues())
+		}
+		for otherRepo, props := range cfg.AgentTemplates {
+			if props.DefaultFor == templateAddDefaultFlag {
+				return stacktrace.NewError("defaultFor '%s' is already claimed by '%s'", templateAddDefaultFlag, otherRepo)
+			}
+		}
+	}
+
 	cfg.AgentTemplates[repoName] = config.AgentTemplateProperties{
-		Nickname: templateAddNicknameFlag,
+		Nickname:   templateAddNicknameFlag,
+		DefaultFor: templateAddDefaultFlag,
 	}
 
 	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {

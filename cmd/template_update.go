@@ -10,6 +10,7 @@ import (
 )
 
 var templateUpdateNicknameFlag string
+var templateUpdateDefaultFlag string
 
 var templateUpdateCmd = &cobra.Command{
 	Use:   "update <template>",
@@ -20,11 +21,19 @@ var templateUpdateCmd = &cobra.Command{
 
 func init() {
 	templateUpdateCmd.Flags().StringVar(&templateUpdateNicknameFlag, "nickname", "", "set or clear the template nickname")
-	templateUpdateCmd.MarkFlagRequired("nickname")
+	templateUpdateCmd.Flags().StringVar(&templateUpdateDefaultFlag, "default", "",
+		fmt.Sprintf("set or clear the mission context this template is the default for; valid values: %s", config.FormatDefaultForValues()))
 	templateCmd.AddCommand(templateUpdateCmd)
 }
 
 func runTemplateUpdate(cmd *cobra.Command, args []string) error {
+	nicknameChanged := cmd.Flags().Changed("nickname")
+	defaultChanged := cmd.Flags().Changed("default")
+
+	if !nicknameChanged && !defaultChanged {
+		return stacktrace.NewError("at least one of --nickname or --default must be provided")
+	}
+
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
@@ -35,27 +44,52 @@ func runTemplateUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Check nickname uniqueness
-	if templateUpdateNicknameFlag != "" {
-		for otherRepo, props := range cfg.AgentTemplates {
-			if props.Nickname == templateUpdateNicknameFlag && otherRepo != repo {
-				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateUpdateNicknameFlag, otherRepo)
+	existing := cfg.AgentTemplates[repo]
+
+	if nicknameChanged {
+		if templateUpdateNicknameFlag != "" {
+			for otherRepo, props := range cfg.AgentTemplates {
+				if props.Nickname == templateUpdateNicknameFlag && otherRepo != repo {
+					return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateUpdateNicknameFlag, otherRepo)
+				}
 			}
 		}
+		existing.Nickname = templateUpdateNicknameFlag
 	}
 
-	existing := cfg.AgentTemplates[repo]
-	existing.Nickname = templateUpdateNicknameFlag
+	if defaultChanged {
+		if templateUpdateDefaultFlag != "" {
+			if !config.IsValidDefaultForValue(templateUpdateDefaultFlag) {
+				return stacktrace.NewError("invalid --default value '%s'; must be one of: %s", templateUpdateDefaultFlag, config.FormatDefaultForValues())
+			}
+			for otherRepo, props := range cfg.AgentTemplates {
+				if props.DefaultFor == templateUpdateDefaultFlag && otherRepo != repo {
+					return stacktrace.NewError("defaultFor '%s' is already claimed by '%s'", templateUpdateDefaultFlag, otherRepo)
+				}
+			}
+		}
+		existing.DefaultFor = templateUpdateDefaultFlag
+	}
+
 	cfg.AgentTemplates[repo] = existing
 
 	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 		return stacktrace.Propagate(err, "failed to write config")
 	}
 
-	if templateUpdateNicknameFlag == "" {
-		fmt.Printf("Cleared nickname for '%s'\n", repo)
-	} else {
-		fmt.Printf("Set nickname for '%s' to '%s'\n", repo, templateUpdateNicknameFlag)
+	if nicknameChanged {
+		if templateUpdateNicknameFlag == "" {
+			fmt.Printf("Cleared nickname for '%s'\n", repo)
+		} else {
+			fmt.Printf("Set nickname for '%s' to '%s'\n", repo, templateUpdateNicknameFlag)
+		}
+	}
+	if defaultChanged {
+		if templateUpdateDefaultFlag == "" {
+			fmt.Printf("Cleared defaultFor for '%s'\n", repo)
+		} else {
+			fmt.Printf("Set defaultFor for '%s' to '%s'\n", repo, templateUpdateDefaultFlag)
+		}
 	}
 	return nil
 }

@@ -1,10 +1,10 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
@@ -13,12 +13,9 @@ import (
 // canonicalRepoRegex matches the canonical repo format: github.com/owner/repo
 var canonicalRepoRegex = regexp.MustCompile(`^github\.com/[^/]+/[^/]+$`)
 
-// validDefaultForValues defines the set of recognized defaultFor values.
-var validDefaultForValues = map[string]bool{
-	"emptyMission":  true,
-	"repo":          true,
-	"agentTemplate": true,
-}
+// ValidDefaultForValues lists the recognized values for the defaultFor field.
+// This is the single source of truth; all validation and help text derive from it.
+var ValidDefaultForValues = []string{"emptyMission", "repo", "agentTemplate"}
 
 // AgentTemplateProperties holds optional properties for an agent template.
 type AgentTemplateProperties struct {
@@ -90,10 +87,10 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		if props.DefaultFor == "" {
 			continue
 		}
-		if !validDefaultForValues[props.DefaultFor] {
+		if !IsValidDefaultForValue(props.DefaultFor) {
 			return nil, nil, stacktrace.NewError(
-				"invalid defaultFor value '%s' on template '%s' in %s; must be one of: emptyMission, repo, agentTemplate",
-				props.DefaultFor, repo, configFilepath,
+				"invalid defaultFor value '%s' on template '%s' in %s; must be one of: %s",
+				props.DefaultFor, repo, configFilepath, FormatDefaultForValues(),
 			)
 		}
 		if otherRepo, exists := seenDefaultFor[props.DefaultFor]; exists {
@@ -163,7 +160,17 @@ func EnsureConfigFile(agencDirpath string) error {
 	return nil
 }
 
-// FormatDefaultForValues returns a human-readable list of valid defaultFor values.
+// IsValidDefaultForValue returns true if the given value is a recognized defaultFor value.
+func IsValidDefaultForValue(value string) bool {
+	for _, v := range ValidDefaultForValues {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+// FormatDefaultForValues returns a human-readable comma-separated list of valid defaultFor values.
 func FormatDefaultForValues() string {
-	return fmt.Sprintf("emptyMission, repo, agentTemplate")
+	return strings.Join(ValidDefaultForValues, ", ")
 }
