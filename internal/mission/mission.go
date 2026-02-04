@@ -104,9 +104,11 @@ func ReadTemplateCommitHash(templateDirpath string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// SpawnClaude starts claude as a child process in the given agent directory.
-// Returns the running command. The caller is responsible for calling cmd.Wait().
-func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
+// buildClaudeCmd constructs an exec.Cmd for running Claude in the given agent
+// directory. If a secrets.env file exists at .claude/secrets.env within the
+// agent directory, the command is wrapped with `op run` to inject 1Password
+// secrets. Otherwise, Claude is invoked directly.
+func buildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, claudeArgs []string) (*exec.Cmd, error) {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
@@ -114,7 +116,30 @@ func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*e
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
-	cmd := exec.Command(claudeBinary)
+	secretsEnvFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, config.SecretsEnvFilename)
+
+	var cmd *exec.Cmd
+	if _, statErr := os.Stat(secretsEnvFilepath); statErr == nil {
+		// secrets.env exists — wrap with op run
+		opBinary, err := exec.LookPath("op")
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "'op' (1Password CLI) not found in PATH; required because '%s' exists", secretsEnvFilepath)
+		}
+
+		opArgs := []string{
+			"run",
+			"--env-file", secretsEnvFilepath,
+			"--no-masking",
+			"--",
+			claudeBinary,
+		}
+		opArgs = append(opArgs, claudeArgs...)
+		cmd = exec.Command(opBinary, opArgs...)
+	} else {
+		// No secrets.env — run claude directly
+		cmd = exec.Command(claudeBinary, claudeArgs...)
+	}
+
 	cmd.Dir = agentDirpath
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -123,6 +148,17 @@ func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*e
 		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
 		"AGENC_MISSION_UUID="+missionID,
 	)
+
+	return cmd, nil
+}
+
+// SpawnClaude starts claude as a child process in the given agent directory.
+// Returns the running command. The caller is responsible for calling cmd.Wait().
+func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
+	cmd, err := buildClaudeCmd(agencDirpath, missionID, agentDirpath, nil)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to build claude command")
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to start claude")
@@ -135,22 +171,10 @@ func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*e
 // directory. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
 func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
-	claudeBinary, err := exec.LookPath("claude")
+	cmd, err := buildClaudeCmd(agencDirpath, missionID, agentDirpath, []string{"-c"})
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
+		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
 	}
-
-	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
-
-	cmd := exec.Command(claudeBinary, "-c")
-	cmd.Dir = agentDirpath
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(),
-		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
-		"AGENC_MISSION_UUID="+missionID,
-	)
 
 	if err := cmd.Start(); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to start claude -c")

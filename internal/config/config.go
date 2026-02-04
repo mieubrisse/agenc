@@ -33,6 +33,7 @@ const (
 	WrapperLogFilename     = "wrapper.log"
 	SettingsLocalFilename  = "settings.local.json"
 	HistoryFilename        = "history.jsonl"
+	SecretsEnvFilename     = "secrets.env"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
