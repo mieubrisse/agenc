@@ -13,9 +13,9 @@ import (
 )
 
 var repoRmCmd = &cobra.Command{
-	Use:   "rm <repo>",
+	Use:   "rm [repo...]",
 	Short: "Remove a repository from the repo library",
-	Long: `Remove a repository from the repo library.
+	Long: `Remove one or more repositories from the repo library.
 
 Deletes the cloned repo from ~/.agenc/repos/ and removes it from the
 syncedRepos list in config.yml if present.
@@ -23,11 +23,12 @@ syncedRepos list in config.yml if present.
 Refuses to remove a repo that is still registered as an agent template.
 Use 'agenc template rm' first in that case.
 
+When called without arguments, opens an interactive fzf picker.
+
 Accepts any of these formats:
   owner/repo
   github.com/owner/repo
   https://github.com/owner/repo`,
-	Args: cobra.ExactArgs(1),
 	RunE: runRepoRm,
 }
 
@@ -36,11 +37,50 @@ func init() {
 }
 
 func runRepoRm(cmd *cobra.Command, args []string) error {
-	repoName, _, err := mission.ParseRepoReference(args[0])
+	repoNames, err := resolveRepoArgs(args, "Select repos to remove (TAB to multi-select): ")
 	if err != nil {
-		return stacktrace.Propagate(err, "invalid repo reference")
+		return err
+	}
+	if len(repoNames) == 0 {
+		return nil
 	}
 
+	for _, repoName := range repoNames {
+		if err := removeSingleRepo(repoName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resolveRepoArgs converts CLI arguments to canonical repo names, or falls
+// back to an fzf picker when no arguments are given.
+func resolveRepoArgs(args []string, fzfPrompt string) ([]string, error) {
+	if len(args) > 0 {
+		var repoNames []string
+		for _, arg := range args {
+			repoName, _, err := mission.ParseRepoReference(arg)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "invalid repo reference")
+			}
+			repoNames = append(repoNames, repoName)
+		}
+		return repoNames, nil
+	}
+
+	allRepos, err := findReposOnDisk(agencDirpath)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to scan repos directory")
+	}
+	if len(allRepos) == 0 {
+		fmt.Println("No repositories in the repo library.")
+		return nil, nil
+	}
+
+	return selectReposWithFzf(allRepos, fzfPrompt)
+}
+
+func removeSingleRepo(repoName string) error {
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
