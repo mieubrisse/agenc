@@ -23,8 +23,7 @@ var repoRmCmd = &cobra.Command{
 Deletes the cloned repo from ~/.agenc/repos/ and removes it from the
 syncedRepos list in config.yml if present.
 
-Refuses to remove a repo that is still registered as an agent template.
-Use 'agenc template rm' first in that case.
+Refuses to remove agent template repos. Use 'agenc template rm' instead.
 
 When called without arguments, opens an interactive fzf picker.
 
@@ -128,7 +127,7 @@ func resolveRepoArgs(args []string, fzfPrompt string) ([]string, error) {
 func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {
 	if _, isTemplate := cfg.AgentTemplates[repoName]; isTemplate {
 		return stacktrace.NewError(
-			"'%s' is registered as an agent template; run 'agenc template rm %s' first",
+			"'%s' is an agent template; use 'agenc template rm %s' instead",
 			repoName, repoName,
 		)
 	}
