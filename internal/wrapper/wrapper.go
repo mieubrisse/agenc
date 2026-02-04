@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -51,6 +52,13 @@ type Wrapper struct {
 	state     WrapperState
 	claudeCmd *exec.Cmd
 	logger    *slog.Logger
+
+	// hasConversation tracks whether a Claude conversation exists that can be
+	// resumed with `claude -c`. Set at startup based on isResume/prompt, and
+	// set to true when the user submits their first message (claude-state
+	// becomes "busy"). Written from watchClaudeState goroutine, read from the
+	// main event loop, so we use atomic.Bool.
+	hasConversation atomic.Bool
 
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
@@ -134,6 +142,14 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 		go w.watchWorkspaceRemoteRefs(ctx)
 	}
 
+	// Track whether a resumable conversation exists. A conversation exists if
+	// we're resuming a prior session or if we have an initial prompt (which
+	// will create one). For no-prompt new missions, we start with false and
+	// flip to true when the user submits their first message.
+	if isResume || prompt != "" {
+		w.hasConversation.Store(true)
+	}
+
 	// Spawn initial Claude process
 	if isResume {
 		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
@@ -165,9 +181,13 @@ func (w *Wrapper) Run(prompt string, isResume bool) error {
 
 		case <-w.claudeExited:
 			if w.state == StateRestarting {
-				// Expected exit from our SIGINT -- relaunch with -c
-				w.logger.Info("Reloading Claude session after config change")
-				w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
+				// Expected exit from our SIGINT -- relaunch
+				w.logger.Info("Reloading Claude session after config change", "hasConversation", w.hasConversation.Load())
+				if w.hasConversation.Load() {
+					w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
+				} else {
+					w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath, "")
+				}
 				if err != nil {
 					return stacktrace.Propagate(err, "failed to respawn claude after restart")
 				}
@@ -265,6 +285,10 @@ func (w *Wrapper) watchClaudeState(ctx context.Context) {
 			}
 			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
 				state := w.readClaudeState()
+				if state == "busy" {
+					// User submitted a message, so a conversation now exists
+					w.hasConversation.Store(true)
+				}
 				if state == "idle" {
 					select {
 					case w.claudeStateIdle <- struct{}{}:
