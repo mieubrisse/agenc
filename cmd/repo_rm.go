@@ -16,14 +16,14 @@ import (
 )
 
 var repoRmCmd = &cobra.Command{
-	Use:   "rm [repo...]",
+	Use:   rmCmdStr + " [repo...]",
 	Short: "Remove a repository from the repo library",
 	Long: `Remove one or more repositories from the repo library.
 
 Deletes the cloned repo from ~/.agenc/repos/ and removes it from the
 syncedRepos list in config.yml if present.
 
-Refuses to remove agent template repos. Use 'agenc template rm' instead.
+Refuses to remove agent template repos. Use '` + agencCmdStr + ` ` + templateCmdStr + ` ` + rmCmdStr + `' instead.
 
 When called without arguments, opens an interactive fzf picker.
 
@@ -127,8 +127,8 @@ func resolveRepoArgs(args []string, fzfPrompt string) ([]string, error) {
 func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {
 	if _, isTemplate := cfg.AgentTemplates[repoName]; isTemplate {
 		return stacktrace.NewError(
-			"'%s' is an agent template; use 'agenc template rm %s' instead",
-			repoName, repoName,
+			"'%s' is an agent template; use '%s %s %s %s' instead",
+			repoName, agencCmdStr, templateCmdStr, rmCmdStr, repoName,
 		)
 	}
 

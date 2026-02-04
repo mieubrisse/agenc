@@ -10,7 +10,7 @@ import (
 )
 
 var daemonStopCmd = &cobra.Command{
-	Use:   "stop",
+	Use:   stopCmdStr,
 	Short: "Stop the background daemon",
 	RunE:  runDaemonStop,
 }

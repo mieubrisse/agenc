@@ -14,7 +14,7 @@ var templateAddNicknameFlag string
 var templateAddDefaultFlag string
 
 var templateAddCmd = &cobra.Command{
-	Use:   "add <repo>",
+	Use:   addCmdStr + " <repo>",
 	Short: "Add an agent template from a GitHub repository",
 	Long: `Add an agent template from a GitHub repository.
 

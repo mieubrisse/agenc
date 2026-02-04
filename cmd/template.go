@@ -5,7 +5,7 @@ import (
 )
 
 var templateCmd = &cobra.Command{
-	Use:   "template",
+	Use:   templateCmdStr,
 	Short: "Manage agent templates",
 }
 

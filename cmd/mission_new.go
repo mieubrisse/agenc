@@ -23,7 +23,7 @@ var gitFlag string
 var cloneFlag string
 
 var missionNewCmd = &cobra.Command{
-	Use:   "new [search-terms...]",
+	Use:   newCmdStr + " [search-terms...]",
 	Short: "Create a new mission and launch claude",
 	Long: `Create a new mission and launch claude.
 

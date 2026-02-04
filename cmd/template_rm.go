@@ -11,7 +11,7 @@ import (
 )
 
 var templateRmCmd = &cobra.Command{
-	Use:   "rm <template>",
+	Use:   rmCmdStr + " <template>",
 	Short: "Remove an installed agent template",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runTemplateRm,

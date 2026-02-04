@@ -12,7 +12,7 @@ import (
 )
 
 var loginCmd = &cobra.Command{
-	Use:   "login",
+	Use:   loginCmdStr,
 	Short: "Log in to Claude (credentials stored in ~/.agenc/claude/)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		claudeBinary, err := exec.LookPath("claude")

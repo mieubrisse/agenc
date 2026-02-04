@@ -5,7 +5,7 @@ import (
 )
 
 var repoCmd = &cobra.Command{
-	Use:   "repo",
+	Use:   repoCmdStr,
 	Short: "Manage the repo library",
 }
 

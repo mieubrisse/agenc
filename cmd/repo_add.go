@@ -14,7 +14,7 @@ import (
 var repoAddSyncFlag bool
 
 var repoAddCmd = &cobra.Command{
-	Use:   "add <repo>",
+	Use:   addCmdStr + " <repo>",
 	Short: "Add a repository to the repo library",
 	Long: `Add a repository to the repo library by cloning it into ~/.agenc/repos/.
 

@@ -16,13 +16,12 @@ import (
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
-const missionLsCmdName = "ls"
 const defaultMissionLsLimit = 20
 
 var lsAllFlag bool
 
 var missionLsCmd = &cobra.Command{
-	Use:   missionLsCmdName,
+	Use:   lsCmdStr,
 	Short: "List active missions",
 	RunE:  runMissionLs,
 }
@@ -85,7 +84,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	if !lsAllFlag && totalCount > defaultMissionLsLimit {
 		remaining := totalCount - defaultMissionLsLimit
 		fmt.Printf("\n...and %d more missions; run '%s %s %s -a' to see all missions\n",
-			remaining, rootCmd.Name(), missionCmdName, missionLsCmdName)
+			remaining, agencCmdStr, missionCmdStr, lsCmdStr)
 	}
 
 	return nil

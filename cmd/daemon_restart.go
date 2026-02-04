@@ -10,7 +10,7 @@ import (
 )
 
 var daemonRestartCmd = &cobra.Command{
-	Use:   "restart",
+	Use:   restartCmdStr,
 	Short: "Restart the background daemon",
 	RunE:  runDaemonRestart,
 }

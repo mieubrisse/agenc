@@ -19,7 +19,7 @@ import (
 )
 
 var daemonStartCmd = &cobra.Command{
-	Use:   "start",
+	Use:   startCmdStr,
 	Short: "Start the background daemon",
 	RunE:  runDaemonStart,
 }

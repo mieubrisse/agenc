@@ -45,7 +45,7 @@ func checkDaemonVersion(agencDirpath string) {
 	}
 
 	fmt.Fprintf(os.Stderr, "Warning: daemon version (%s) does not match CLI version (%s). "+
-		"Run 'agenc daemon restart' to restart the daemon.\n", daemonVersion, cliVersion)
+		"Run '%s %s %s' to restart the daemon.\n", daemonVersion, cliVersion, agencCmdStr, daemonCmdStr, restartCmdStr)
 }
 
 // restartDaemon stops the running daemon and starts a new one, printing a

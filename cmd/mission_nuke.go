@@ -13,7 +13,7 @@ import (
 var nukeForceFlag bool
 
 var missionNukeCmd = &cobra.Command{
-	Use:   "nuke",
+	Use:   nukeCmdStr,
 	Short: "Stop and permanently remove ALL missions",
 	Args:  cobra.NoArgs,
 	RunE:  runMissionNuke,

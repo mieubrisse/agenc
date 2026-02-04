@@ -11,7 +11,7 @@ import (
 )
 
 var templateLsCmd = &cobra.Command{
-	Use:   "ls",
+	Use:   lsCmdStr,
 	Short: "List installed agent templates",
 	RunE:  runTemplateLs,
 }

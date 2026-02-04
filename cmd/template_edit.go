@@ -10,7 +10,7 @@ import (
 )
 
 var templateEditCmd = &cobra.Command{
-	Use:   "edit [template-name]",
+	Use:   editCmdStr + " [template-name]",
 	Short: "Edit an agent template via a new mission with a repo copy",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTemplateEdit,
@@ -29,7 +29,7 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(cfg.AgentTemplates) == 0 {
-		fmt.Printf("No agent templates found. Add templates with: agenc template add owner/repo\n")
+		fmt.Printf("No agent templates found. Add templates with: %s %s %s owner/repo\n", agencCmdStr, templateCmdStr, addCmdStr)
 		return stacktrace.NewError("no agent templates available to edit")
 	}
 

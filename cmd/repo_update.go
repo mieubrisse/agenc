@@ -11,7 +11,7 @@ import (
 )
 
 var repoUpdateCmd = &cobra.Command{
-	Use:   "update [repo...]",
+	Use:   updateCmdStr + " [repo...]",
 	Short: "Fetch and reset repos to match their remote",
 	Long: `Update one or more repositories in the repo library by fetching from
 origin and resetting the local default branch to match the remote.

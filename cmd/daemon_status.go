@@ -16,7 +16,7 @@ import (
 var daemonStatusJSON bool
 
 var daemonStatusCmd = &cobra.Command{
-	Use:   "status",
+	Use:   statusCmdStr,
 	Short: "Show daemon status",
 	RunE:  runDaemonStatus,
 }

@@ -13,7 +13,7 @@ var templateUpdateNicknameFlag string
 var templateUpdateDefaultFlag string
 
 var templateUpdateCmd = &cobra.Command{
-	Use:   "update [template]",
+	Use:   updateCmdStr + " [template]",
 	Short: "Update properties of an installed agent template",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTemplateUpdate,

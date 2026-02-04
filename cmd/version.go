@@ -9,10 +9,10 @@ import (
 )
 
 var versionCmd = &cobra.Command{
-	Use:   "version",
+	Use:   versionCmdStr,
 	Short: "Print the agenc version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("agenc version %s\n", version.Version)
+		fmt.Printf("%s version %s\n", agencCmdStr, version.Version)
 	},
 }
 

@@ -5,7 +5,7 @@ import (
 )
 
 var daemonCmd = &cobra.Command{
-	Use:   "daemon",
+	Use:   daemonCmdStr,
 	Short: "Manage the background daemon",
 }
 

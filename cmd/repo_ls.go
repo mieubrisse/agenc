@@ -15,7 +15,7 @@ import (
 )
 
 var repoLsCmd = &cobra.Command{
-	Use:   "ls",
+	Use:   lsCmdStr,
 	Short: "List repositories in the repo library",
 	RunE:  runRepoLs,
 }

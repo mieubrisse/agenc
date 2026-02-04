@@ -13,7 +13,7 @@ import (
 var inspectDirFlag bool
 
 var missionInspectCmd = &cobra.Command{
-	Use:   "inspect <mission-id>",
+	Use:   inspectCmdStr + " <mission-id>",
 	Short: "Print information about a mission",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runMissionInspect,

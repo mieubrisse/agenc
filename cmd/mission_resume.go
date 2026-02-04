@@ -18,7 +18,7 @@ import (
 )
 
 var missionResumeCmd = &cobra.Command{
-	Use:   "resume [mission-id]",
+	Use:   resumeCmdStr + " [mission-id]",
 	Short: "Unarchive (if needed) and resume a mission with claude --continue",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runMissionResume,
@@ -62,8 +62,8 @@ func resumeMission(db *database.DB, missionID string) error {
 	if _, err := os.Stat(agentDirpath); os.IsNotExist(err) {
 		return stacktrace.NewError(
 			"mission '%s' uses the old directory format (no agent/ subdirectory); "+
-				"please archive it with 'agenc mission archive %s' and create a new mission",
-			missionID, missionID,
+				"please archive it with '%s %s %s %s' and create a new mission",
+			missionID, agencCmdStr, missionCmdStr, archiveCmdStr, missionID,
 		)
 	}
 
