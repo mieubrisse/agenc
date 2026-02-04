@@ -108,7 +108,7 @@ func listSubdirs(dirpath string) ([]string, error) {
 // formatCheckmark returns a checkmark or dash for boolean display.
 func formatCheckmark(value bool) string {
 	if value {
-		return "\033[32m✓\033[0m"
+		return "✅"
 	}
 	return "--"
 }
