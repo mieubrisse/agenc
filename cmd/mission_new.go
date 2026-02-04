@@ -20,6 +20,7 @@ import (
 
 var agentFlag string
 var gitFlag string
+var cloneFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   "new [search-terms...]",
@@ -31,7 +32,12 @@ in your library (~/.agenc/repos/). Positional arguments act as search terms
 to filter the list. If exactly one repo matches, it is auto-selected.
 
 Use --git and/or --agent flags for explicit control (cannot be combined
-with positional search terms).`,
+with positional search terms).
+
+Use --clone <mission-uuid> to create a new mission with a full copy of an
+existing mission's workspace. The source mission's git repo and agent template
+carry over by default. Override the agent template with --agent or a single
+positional search term. --clone cannot be combined with --git.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
@@ -39,6 +45,7 @@ with positional search terms).`,
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultFor config)")
 	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or https://github.com/owner/repo/...)")
+	missionNewCmd.Flags().StringVar(&cloneFlag, "clone", "", "mission UUID to clone workspace from")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -59,16 +66,29 @@ type repoLibrarySelection struct {
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read config")
+	}
+
+	if cloneFlag != "" {
+		if gitFlag != "" {
+			return stacktrace.NewError("--clone and --git are mutually exclusive")
+		}
+		if agentFlag != "" && len(args) > 0 {
+			return stacktrace.NewError("--clone with --agent cannot be combined with positional arguments")
+		}
+		if len(args) > 1 {
+			return stacktrace.NewError("--clone accepts at most one positional argument (agent template search term)")
+		}
+		return runMissionNewWithClone(cfg, args)
+	}
+
 	hasFlags := gitFlag != "" || agentFlag != ""
 	hasArgs := len(args) > 0
 
 	if hasFlags && hasArgs {
 		return stacktrace.NewError("positional search terms cannot be combined with --git or --agent flags")
-	}
-
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
 	}
 
 	if hasFlags {
@@ -97,6 +117,77 @@ func runMissionNewWithFlags(cfg *config.AgencConfig) error {
 	}
 
 	return createAndLaunchMission(agencDirpath, agentTemplate, gitRepoName, gitCloneDirpath)
+}
+
+// runMissionNewWithClone creates a new mission by cloning the workspace of an
+// existing mission. The source mission's git_repo carries over to the new
+// mission. The agent template can be overridden with --agent or a positional arg.
+func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
+	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open database")
+	}
+	defer db.Close()
+
+	sourceMission, err := db.GetMission(cloneFlag)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get source mission")
+	}
+
+	agentTemplate, err := resolveCloneAgentTemplate(cfg, sourceMission, args)
+	if err != nil {
+		return err
+	}
+
+	missionRecord, err := db.CreateMission(agentTemplate, sourceMission.GitRepo)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to create mission record")
+	}
+
+	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ID, sourceMission.ID)
+
+	// Create mission directory structure with agent template but no git copy
+	// (workspace will be copied separately from the source mission)
+	if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, agentTemplate, "", ""); err != nil {
+		return stacktrace.Propagate(err, "failed to create mission directory")
+	}
+
+	// Copy the source mission's workspace into the new mission
+	srcWorkspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, sourceMission.ID)
+	dstWorkspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionRecord.ID)
+	if err := mission.CopyWorkspace(srcWorkspaceDirpath, dstWorkspaceDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to copy workspace from source mission")
+	}
+
+	fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
+	fmt.Println("Launching claude...")
+
+	gitRepoName := sourceMission.GitRepo
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, db)
+	return w.Run(false)
+}
+
+// resolveCloneAgentTemplate determines the agent template when cloning a
+// mission. If --agent is set, it resolves via resolveTemplate. If a positional
+// arg is provided, it resolves via resolveTemplate. Otherwise the source
+// mission's agent template is inherited.
+func resolveCloneAgentTemplate(cfg *config.AgencConfig, sourceMission *database.Mission, args []string) (string, error) {
+	if agentFlag != "" {
+		resolved, err := resolveTemplate(cfg.AgentTemplates, agentFlag)
+		if err != nil {
+			return "", stacktrace.NewError("agent template '%s' not found", agentFlag)
+		}
+		return resolved, nil
+	}
+	if len(args) == 1 {
+		resolved, err := resolveTemplate(cfg.AgentTemplates, args[0])
+		if err != nil {
+			return "", stacktrace.NewError("agent template '%s' not found", args[0])
+		}
+		return resolved, nil
+	}
+	return sourceMission.AgentTemplate, nil
 }
 
 // runMissionNewWithPicker shows an fzf picker over the repo library. Positional

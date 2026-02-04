@@ -95,6 +95,29 @@ func CopyRepo(srcRepoDirpath string, dstWorkspaceDirpath string) error {
 	return nil
 }
 
+// CopyWorkspace copies an entire workspace directory from srcWorkspaceDirpath
+// to dstWorkspaceDirpath using rsync. If the source directory does not exist,
+// this is a no-op (empty workspace = nothing to copy).
+func CopyWorkspace(srcWorkspaceDirpath string, dstWorkspaceDirpath string) error {
+	if _, err := os.Stat(srcWorkspaceDirpath); os.IsNotExist(err) {
+		return nil
+	}
+
+	srcPath := srcWorkspaceDirpath + "/"
+	dstPath := dstWorkspaceDirpath + "/"
+
+	if err := os.MkdirAll(dstWorkspaceDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create directory '%s'", dstWorkspaceDirpath)
+	}
+
+	cmd := exec.Command("rsync", "-a", srcPath, dstPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to copy workspace: %s", strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
 // githubSSHRegex matches git@github.com:owner/repo or git@github.com:owner/repo.git
 var githubSSHRegex = regexp.MustCompile(`^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$`)
 
