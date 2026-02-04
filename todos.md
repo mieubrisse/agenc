@@ -8,6 +8,7 @@
 - [ ] Reload when non-CLAUDE.md/settings.json changes happen (skills, subagents, etc.)
 - [ ] Add Bash aliases so you can `cd` to an agent's workdir
 - [ ] Add crons with scheduled work tracker (dump work into the queue, cron picks it up)
+- [ ] Implement config sync via missions (see `specs/config-sync-via-missions.md`)
 - [ ] Add option for agenc-managed config
 - [ ] OPTIMIZATION: Daemon has fsnotify on `config.yml` and refreshes its understanding of the config only once when it's updated
     - Prevents reading the config on every loop
