@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
 var templateLsCmd = &cobra.Command{
@@ -30,15 +31,30 @@ func runTemplateLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	repos := sortedRepoKeys(cfg.AgentTemplates)
-	for _, repo := range repos {
+	tbl := tableprinter.NewTable("NICKNAME", "REPO", "DEFAULT FOR")
+	for _, repo := range sortedRepoKeys(cfg.AgentTemplates) {
 		props := cfg.AgentTemplates[repo]
-		if props.Nickname != "" {
-			fmt.Println(props.Nickname)
-		} else {
-			fmt.Println(repo)
-		}
+		tbl.AddRow(
+			formatNickname(props.Nickname),
+			displayGitRepo(repo),
+			formatDefaultFor(props.DefaultFor),
+		)
 	}
+	tbl.Print()
 
 	return nil
+}
+
+func formatNickname(nickname string) string {
+	if nickname == "" {
+		return "--"
+	}
+	return nickname
+}
+
+func formatDefaultFor(defaultFor string) string {
+	if defaultFor == "" {
+		return "--"
+	}
+	return defaultFor
 }
