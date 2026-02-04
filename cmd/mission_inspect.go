@@ -46,7 +46,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cfg, cfgErr := config.ReadAgencConfig(agencDirpath)
+	cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
 	if cfgErr != nil {
 		return stacktrace.Propagate(cfgErr, "failed to read config")
 	}

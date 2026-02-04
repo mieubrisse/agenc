@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,11 +21,11 @@ func TestReadWriteAgencConfig(t *testing.T) {
 		},
 	}
 
-	if err := WriteAgencConfig(tmpDir, cfg); err != nil {
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
 		t.Fatalf("WriteAgencConfig failed: %v", err)
 	}
 
-	got, err := ReadAgencConfig(tmpDir)
+	got, _, err := ReadAgencConfig(tmpDir)
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
@@ -53,7 +54,7 @@ func TestReadWriteAgencConfig(t *testing.T) {
 func TestReadAgencConfig_MissingFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	cfg, err := ReadAgencConfig(tmpDir)
+	cfg, _, err := ReadAgencConfig(tmpDir)
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed for missing file: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestReadAgencConfig_EmptyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := ReadAgencConfig(tmpDir)
+	cfg, _, err := ReadAgencConfig(tmpDir)
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed for empty file: %v", err)
 	}
@@ -102,13 +103,13 @@ func TestReadAgencConfig_NonCanonicalKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := ReadAgencConfig(tmpDir)
+	_, _, err := ReadAgencConfig(tmpDir)
 	if err == nil {
 		t.Fatal("expected error for non-canonical key, got nil")
 	}
 }
 
-func TestReadWriteDefaultAgents_AllFields(t *testing.T) {
+func TestReadWriteDefaultFor(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)
 	if err := os.MkdirAll(configDirpath, 0755); err != nil {
@@ -117,36 +118,52 @@ func TestReadWriteDefaultAgents_AllFields(t *testing.T) {
 
 	cfg := &AgencConfig{
 		AgentTemplates: map[string]AgentTemplateProperties{
-			"github.com/owner/agent1": {},
-		},
-		DefaultAgents: DefaultAgents{
-			Default:       "github.com/owner/default-agent",
-			Repo:          "github.com/owner/repo-agent",
-			AgentTemplate: "github.com/owner/template-agent",
+			"github.com/owner/coding-agent": {
+				Nickname:   "coder",
+				DefaultFor: "emptyMission",
+			},
+			"github.com/owner/repo-agent": {
+				DefaultFor: "repo",
+			},
+			"github.com/owner/meta-agent": {
+				DefaultFor: "agentTemplate",
+			},
 		},
 	}
 
-	if err := WriteAgencConfig(tmpDir, cfg); err != nil {
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
 		t.Fatalf("WriteAgencConfig failed: %v", err)
 	}
 
-	got, err := ReadAgencConfig(tmpDir)
+	got, _, err := ReadAgencConfig(tmpDir)
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
-	if got.DefaultAgents.Default != "github.com/owner/default-agent" {
-		t.Errorf("expected Default 'github.com/owner/default-agent', got '%s'", got.DefaultAgents.Default)
+	if len(got.AgentTemplates) != 3 {
+		t.Fatalf("expected 3 templates, got %d", len(got.AgentTemplates))
 	}
-	if got.DefaultAgents.Repo != "github.com/owner/repo-agent" {
-		t.Errorf("expected Repo 'github.com/owner/repo-agent', got '%s'", got.DefaultAgents.Repo)
+
+	codingAgent := got.AgentTemplates["github.com/owner/coding-agent"]
+	if codingAgent.Nickname != "coder" {
+		t.Errorf("expected nickname 'coder', got '%s'", codingAgent.Nickname)
 	}
-	if got.DefaultAgents.AgentTemplate != "github.com/owner/template-agent" {
-		t.Errorf("expected AgentTemplate 'github.com/owner/template-agent', got '%s'", got.DefaultAgents.AgentTemplate)
+	if codingAgent.DefaultFor != "emptyMission" {
+		t.Errorf("expected defaultFor 'emptyMission', got '%s'", codingAgent.DefaultFor)
+	}
+
+	repoAgent := got.AgentTemplates["github.com/owner/repo-agent"]
+	if repoAgent.DefaultFor != "repo" {
+		t.Errorf("expected defaultFor 'repo', got '%s'", repoAgent.DefaultFor)
+	}
+
+	metaAgent := got.AgentTemplates["github.com/owner/meta-agent"]
+	if metaAgent.DefaultFor != "agentTemplate" {
+		t.Errorf("expected defaultFor 'agentTemplate', got '%s'", metaAgent.DefaultFor)
 	}
 }
 
-func TestReadAgencConfig_NonCanonicalDefaultAgents(t *testing.T) {
+func TestReadAgencConfig_DuplicateDefaultFor(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)
 	if err := os.MkdirAll(configDirpath, 0755); err != nil {
@@ -154,48 +171,120 @@ func TestReadAgencConfig_NonCanonicalDefaultAgents(t *testing.T) {
 	}
 
 	configFilepath := filepath.Join(configDirpath, ConfigFilename)
-	content := "agentTemplates: {}\ndefaultAgents:\n    default: owner/bad-repo\n"
+	content := `agentTemplates:
+  github.com/owner/agent1:
+    defaultFor: repo
+  github.com/owner/agent2:
+    defaultFor: repo
+`
 	if err := os.WriteFile(configFilepath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := ReadAgencConfig(tmpDir)
+	_, _, err := ReadAgencConfig(tmpDir)
 	if err == nil {
-		t.Fatal("expected error for non-canonical defaultAgents value, got nil")
+		t.Fatal("expected error for duplicate defaultFor, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate defaultFor") {
+		t.Errorf("expected 'duplicate defaultFor' in error, got: %v", err)
 	}
 }
 
-func TestReadWriteDefaultAgents_Partial(t *testing.T) {
+func TestReadAgencConfig_InvalidDefaultFor(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)
 	if err := os.MkdirAll(configDirpath, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg := &AgencConfig{
-		AgentTemplates: map[string]AgentTemplateProperties{},
-		DefaultAgents: DefaultAgents{
-			Repo: "github.com/owner/repo-agent",
+	configFilepath := filepath.Join(configDirpath, ConfigFilename)
+	content := `agentTemplates:
+  github.com/owner/agent1:
+    defaultFor: bogusValue
+`
+	if err := os.WriteFile(configFilepath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for invalid defaultFor value, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid defaultFor") {
+		t.Errorf("expected 'invalid defaultFor' in error, got: %v", err)
+	}
+}
+
+func TestFindDefaultTemplate(t *testing.T) {
+	templates := map[string]AgentTemplateProperties{
+		"github.com/owner/coding-agent": {
+			Nickname:   "coder",
+			DefaultFor: "emptyMission",
 		},
+		"github.com/owner/repo-agent": {
+			DefaultFor: "repo",
+		},
+		"github.com/owner/plain-agent": {},
 	}
 
-	if err := WriteAgencConfig(tmpDir, cfg); err != nil {
-		t.Fatalf("WriteAgencConfig failed: %v", err)
+	if got := FindDefaultTemplate(templates, "emptyMission"); got != "github.com/owner/coding-agent" {
+		t.Errorf("expected 'github.com/owner/coding-agent' for emptyMission, got '%s'", got)
 	}
 
-	got, err := ReadAgencConfig(tmpDir)
+	if got := FindDefaultTemplate(templates, "repo"); got != "github.com/owner/repo-agent" {
+		t.Errorf("expected 'github.com/owner/repo-agent' for repo, got '%s'", got)
+	}
+
+	if got := FindDefaultTemplate(templates, "agentTemplate"); got != "" {
+		t.Errorf("expected empty string for agentTemplate (not claimed), got '%s'", got)
+	}
+
+	if got := FindDefaultTemplate(templates, "nonexistent"); got != "" {
+		t.Errorf("expected empty string for nonexistent context, got '%s'", got)
+	}
+}
+
+func TestWriteReadPreservesComments(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a config file with comments via raw YAML
+	configFilepath := filepath.Join(configDirpath, ConfigFilename)
+	rawYAML := `# Top-level config comment
+agentTemplates:
+  github.com/owner/coding-agent:
+    nickname: coder
+    defaultFor: emptyMission # this is the default for blank missions
+  github.com/owner/repo-agent:
+    defaultFor: repo
+`
+	if err := os.WriteFile(configFilepath, []byte(rawYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read with comment preservation
+	cfg, cm, err := ReadAgencConfig(tmpDir)
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
-	if got.DefaultAgents.Default != "" {
-		t.Errorf("expected empty Default, got '%s'", got.DefaultAgents.Default)
+	// Write back with the comment map
+	if err := WriteAgencConfig(tmpDir, cfg, cm); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
 	}
-	if got.DefaultAgents.Repo != "github.com/owner/repo-agent" {
-		t.Errorf("expected Repo 'github.com/owner/repo-agent', got '%s'", got.DefaultAgents.Repo)
+
+	// Read the raw output and verify comments survived
+	data, err := os.ReadFile(configFilepath)
+	if err != nil {
+		t.Fatalf("failed to read written config: %v", err)
 	}
-	if got.DefaultAgents.AgentTemplate != "" {
-		t.Errorf("expected empty AgentTemplate, got '%s'", got.DefaultAgents.AgentTemplate)
+
+	output := string(data)
+	if !strings.Contains(output, "this is the default for blank missions") {
+		t.Errorf("inline comment was not preserved in round-trip; output:\n%s", output)
 	}
 }
 

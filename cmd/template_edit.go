@@ -26,7 +26,7 @@ func init() {
 func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	cfg, err := config.ReadAgencConfig(agencDirpath)
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}

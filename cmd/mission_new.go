@@ -38,7 +38,7 @@ with positional search terms).`,
 }
 
 func init() {
-	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultAgents config)")
+	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultFor config)")
 	missionNewCmd.Flags().StringVarP(&promptFlag, "prompt", "p", "", "initial prompt to send to claude")
 	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or https://github.com/owner/repo/...)")
 	missionCmd.AddCommand(missionNewCmd)
@@ -68,7 +68,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("positional search terms cannot be combined with --git or --agent flags")
 	}
 
-	cfg, err := config.ReadAgencConfig(agencDirpath)
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
@@ -350,7 +350,7 @@ func matchesSequentialSubstrings(text string, substrings []string) bool {
 
 // resolveAgentTemplate determines which agent template to use for a new
 // mission. If agentFlag is set, it resolves via resolveTemplate. Otherwise
-// the defaultAgents config is consulted based on the git context.
+// the per-template defaultFor config is consulted based on the git context.
 func resolveAgentTemplate(cfg *config.AgencConfig, agentFlag string, gitRepoName string) (string, error) {
 	if agentFlag != "" {
 		resolved, err := resolveTemplate(cfg.AgentTemplates, agentFlag)
@@ -360,24 +360,25 @@ func resolveAgentTemplate(cfg *config.AgencConfig, agentFlag string, gitRepoName
 		return resolved, nil
 	}
 
-	// Pick the defaultAgents key based on git context
-	var defaultRepo string
+	// Pick the defaultFor context based on git context
+	var defaultForContext string
 	switch {
 	case gitRepoName == "":
-		defaultRepo = cfg.DefaultAgents.Default
+		defaultForContext = "emptyMission"
 	case isAgentTemplate(cfg, gitRepoName):
-		defaultRepo = cfg.DefaultAgents.AgentTemplate
+		defaultForContext = "agentTemplate"
 	default:
-		defaultRepo = cfg.DefaultAgents.Repo
+		defaultForContext = "repo"
 	}
 
+	defaultRepo := config.FindDefaultTemplate(cfg.AgentTemplates, defaultForContext)
 	if defaultRepo == "" {
 		return "", nil
 	}
 
 	// Verify the default agent template is actually installed
 	if _, ok := cfg.AgentTemplates[defaultRepo]; !ok {
-		fmt.Fprintf(os.Stderr, "Warning: defaultAgents references '%s' which is not installed; proceeding without agent template\n", defaultRepo)
+		fmt.Fprintf(os.Stderr, "Warning: defaultFor references '%s' which is not installed; proceeding without agent template\n", defaultRepo)
 		return "", nil
 	}
 

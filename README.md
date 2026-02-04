@@ -119,20 +119,32 @@ Configuration
 
 The file `$AGENC_DIRPATH/config/config.yml` holds project-level settings.
 
-#### defaultAgents
+#### defaultFor
 
-Controls which agent template is auto-selected when creating a new mission. The key chosen depends on the `--git` context:
+Each agent template can declare a `defaultFor` field that makes it the auto-selected template when creating a new mission in a specific context. The three recognized contexts are:
+
+| Value | When used |
+|---|---|
+| `emptyMission` | `--git` is **not** specified (blank mission) |
+| `repo` | `--git` repo is **not** an agent template |
+| `agentTemplate` | `--git` repo **is** an agent template |
+
+At most one template may claim each context. Example:
 
 ```yaml
-defaultAgents:
-  default: github.com/owner/coding-agent       # used when --git is NOT specified
-  repo: github.com/owner/repo-agent            # used when --git repo is NOT an agent template
-  agentTemplate: github.com/owner/coding-agent  # used when --git repo IS an agent template
+agentTemplates:
+  github.com/owner/coding-agent:
+    nickname: coder
+    defaultFor: emptyMission
+  github.com/owner/repo-agent:
+    defaultFor: repo
+  github.com/owner/meta-agent:
+    defaultFor: agentTemplate
 ```
 
-All three subkeys are optional. Values must be in canonical format (`github.com/owner/repo`) and reference an installed agent template. If the referenced template is not installed, a warning is printed and no agent template is used.
+The `defaultFor` field is optional — templates without it are never auto-selected. If the template claiming a context is not installed, a warning is printed and no agent template is used.
 
-The `--agent` flag always overrides `defaultAgents`.
+The `--agent` flag always overrides `defaultFor`.
 
 #### syncedRepos
 

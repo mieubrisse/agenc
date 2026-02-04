@@ -36,7 +36,7 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "invalid repo reference")
 	}
 
-	cfg, err := config.ReadAgencConfig(agencDirpath)
+	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
@@ -62,7 +62,7 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 		Nickname: templateAddNicknameFlag,
 	}
 
-	if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
+	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 		return stacktrace.Propagate(err, "failed to write config")
 	}
 

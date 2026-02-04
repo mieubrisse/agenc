@@ -1,35 +1,35 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 
+	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
-	"gopkg.in/yaml.v3"
 )
 
 // canonicalRepoRegex matches the canonical repo format: github.com/owner/repo
 var canonicalRepoRegex = regexp.MustCompile(`^github\.com/[^/]+/[^/]+$`)
 
-// AgentTemplateProperties holds optional properties for an agent template.
-type AgentTemplateProperties struct {
-	Nickname string `yaml:"nickname,omitempty"`
+// validDefaultForValues defines the set of recognized defaultFor values.
+var validDefaultForValues = map[string]bool{
+	"emptyMission":  true,
+	"repo":          true,
+	"agentTemplate": true,
 }
 
-// DefaultAgents maps context keys to agent template repos that should be
-// auto-selected when creating a new mission.
-type DefaultAgents struct {
-	Default       string `yaml:"default,omitempty"`
-	Repo          string `yaml:"repo,omitempty"`
-	AgentTemplate string `yaml:"agentTemplate,omitempty"`
+// AgentTemplateProperties holds optional properties for an agent template.
+type AgentTemplateProperties struct {
+	Nickname   string `yaml:"nickname,omitempty"`
+	DefaultFor string `yaml:"defaultFor,omitempty"`
 }
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
 	AgentTemplates map[string]AgentTemplateProperties `yaml:"agentTemplates"`
 	SyncedRepos    []string                           `yaml:"syncedRepos,omitempty"`
-	DefaultAgents  DefaultAgents                      `yaml:"defaultAgents,omitempty"`
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -39,8 +39,11 @@ func GetConfigFilepath(agencDirpath string) string {
 
 // ReadAgencConfig reads and parses config.yml. Returns an empty config if the
 // file does not exist. Returns an error if any agentTemplates key is not in
-// canonical format (github.com/owner/repo).
-func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
+// canonical format (github.com/owner/repo), if a defaultFor value is
+// unrecognized, or if two templates share the same defaultFor value.
+// The returned yaml.CommentMap captures any YAML comments for round-trip
+// preservation; callers that only read config may discard it with _.
+func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error) {
 	configFilepath := GetConfigFilepath(agencDirpath)
 
 	data, err := os.ReadFile(configFilepath)
@@ -48,14 +51,15 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
 		if os.IsNotExist(err) {
 			return &AgencConfig{
 				AgentTemplates: make(map[string]AgentTemplateProperties),
-			}, nil
+			}, nil, nil
 		}
-		return nil, stacktrace.Propagate(err, "failed to read config file '%s'", configFilepath)
+		return nil, nil, stacktrace.Propagate(err, "failed to read config file '%s'", configFilepath)
 	}
 
 	var cfg AgencConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
+	cm := yaml.CommentMap{}
+	if err := yaml.UnmarshalWithOptions(data, &cfg, yaml.CommentToMap(cm)); err != nil {
+		return nil, nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
 	}
 
 	if cfg.AgentTemplates == nil {
@@ -64,7 +68,7 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
 
 	for repo := range cfg.AgentTemplates {
 		if !canonicalRepoRegex.MatchString(repo) {
-			return nil, stacktrace.NewError(
+			return nil, nil, stacktrace.NewError(
 				"invalid agentTemplates key '%s' in %s; must be in canonical format 'github.com/owner/repo'",
 				repo, configFilepath,
 			)
@@ -73,35 +77,52 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, error) {
 
 	for _, repo := range cfg.SyncedRepos {
 		if !canonicalRepoRegex.MatchString(repo) {
-			return nil, stacktrace.NewError(
+			return nil, nil, stacktrace.NewError(
 				"invalid syncedRepos entry '%s' in %s; must be in canonical format 'github.com/owner/repo'",
 				repo, configFilepath,
 			)
 		}
 	}
 
-	defaultAgentValues := map[string]string{
-		"defaultAgents.default":       cfg.DefaultAgents.Default,
-		"defaultAgents.repo":          cfg.DefaultAgents.Repo,
-		"defaultAgents.agentTemplate": cfg.DefaultAgents.AgentTemplate,
-	}
-	for field, value := range defaultAgentValues {
-		if value != "" && !canonicalRepoRegex.MatchString(value) {
-			return nil, stacktrace.NewError(
-				"invalid %s value '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				field, value, configFilepath,
+	// Validate defaultFor values
+	seenDefaultFor := make(map[string]string) // defaultFor value -> repo that claimed it
+	for repo, props := range cfg.AgentTemplates {
+		if props.DefaultFor == "" {
+			continue
+		}
+		if !validDefaultForValues[props.DefaultFor] {
+			return nil, nil, stacktrace.NewError(
+				"invalid defaultFor value '%s' on template '%s' in %s; must be one of: emptyMission, repo, agentTemplate",
+				props.DefaultFor, repo, configFilepath,
 			)
 		}
+		if otherRepo, exists := seenDefaultFor[props.DefaultFor]; exists {
+			return nil, nil, stacktrace.NewError(
+				"duplicate defaultFor value '%s' in %s: claimed by both '%s' and '%s'",
+				props.DefaultFor, configFilepath, otherRepo, repo,
+			)
+		}
+		seenDefaultFor[props.DefaultFor] = repo
 	}
 
-	return &cfg, nil
+	return &cfg, cm, nil
 }
 
-// WriteAgencConfig marshals and writes config.yml.
-func WriteAgencConfig(agencDirpath string, cfg *AgencConfig) error {
+// WriteAgencConfig marshals and writes config.yml. Pass the yaml.CommentMap
+// returned by ReadAgencConfig to preserve YAML comments through round-trips;
+// pass nil if no comments need preserving.
+func WriteAgencConfig(agencDirpath string, cfg *AgencConfig, cm yaml.CommentMap) error {
 	configFilepath := GetConfigFilepath(agencDirpath)
 
-	data, err := yaml.Marshal(cfg)
+	var (
+		data []byte
+		err  error
+	)
+	if cm != nil {
+		data, err = yaml.MarshalWithOptions(cfg, yaml.WithComment(cm))
+	} else {
+		data, err = yaml.Marshal(cfg)
+	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to marshal config")
 	}
@@ -111,6 +132,18 @@ func WriteAgencConfig(agencDirpath string, cfg *AgencConfig) error {
 	}
 
 	return nil
+}
+
+// FindDefaultTemplate returns the repo key of the template whose DefaultFor
+// matches the given context value (e.g. "emptyMission", "repo", "agentTemplate").
+// Returns an empty string if no template claims that context.
+func FindDefaultTemplate(templates map[string]AgentTemplateProperties, context string) string {
+	for repo, props := range templates {
+		if props.DefaultFor == context {
+			return repo
+		}
+	}
+	return ""
 }
 
 // EnsureConfigFile creates config.yml with an empty agentTemplates map if it
@@ -128,4 +161,9 @@ func EnsureConfigFile(agencDirpath string) error {
 	}
 
 	return nil
+}
+
+// FormatDefaultForValues returns a human-readable list of valid defaultFor values.
+func FormatDefaultForValues() string {
+	return fmt.Sprintf("emptyMission, repo, agentTemplate")
 }

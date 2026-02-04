@@ -44,7 +44,7 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if repoAddSyncFlag {
-		cfg, err := config.ReadAgencConfig(agencDirpath)
+		cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to read config")
 		}
@@ -52,7 +52,7 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 		if !slices.Contains(cfg.SyncedRepos, repoName) {
 			cfg.SyncedRepos = append(cfg.SyncedRepos, repoName)
 
-			if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
+			if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 				return stacktrace.Propagate(err, "failed to write config")
 			}
 		}

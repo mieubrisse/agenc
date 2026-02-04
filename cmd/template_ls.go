@@ -20,7 +20,7 @@ func init() {
 }
 
 func runTemplateLs(cmd *cobra.Command, args []string) error {
-	cfg, err := config.ReadAgencConfig(agencDirpath)
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}

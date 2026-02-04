@@ -22,7 +22,7 @@ func init() {
 }
 
 func runTemplateRm(cmd *cobra.Command, args []string) error {
-	cfg, err := config.ReadAgencConfig(agencDirpath)
+	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
@@ -34,7 +34,7 @@ func runTemplateRm(cmd *cobra.Command, args []string) error {
 
 	delete(cfg.AgentTemplates, repo)
 
-	if err := config.WriteAgencConfig(agencDirpath, cfg); err != nil {
+	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 		return stacktrace.Propagate(err, "failed to write config")
 	}
 

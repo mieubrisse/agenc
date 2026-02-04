@@ -53,7 +53,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cfg, err := config.ReadAgencConfig(agencDirpath)
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}

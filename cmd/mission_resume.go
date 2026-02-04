@@ -94,7 +94,7 @@ func selectStoppedMissionWithFzf(db *database.DB) (string, error) {
 		return "", stacktrace.Propagate(err, "failed to list missions")
 	}
 
-	cfg, cfgErr := config.ReadAgencConfig(agencDirpath)
+	cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
 	if cfgErr != nil {
 		return "", stacktrace.Propagate(cfgErr, "failed to read config")
 	}

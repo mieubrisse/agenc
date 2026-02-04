@@ -54,7 +54,7 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		d.updateRepo(ctx, configRepoName, refreshDefaultBranch)
 	}
 
-	cfg, err := config.ReadAgencConfig(d.agencDirpath)
+	cfg, _, err := config.ReadAgencConfig(d.agencDirpath)
 	if err != nil {
 		d.logger.Printf("Repo update: failed to read config: %v", err)
 		return
