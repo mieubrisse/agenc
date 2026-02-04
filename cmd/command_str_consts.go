@@ -10,6 +10,7 @@ const (
 	agencCmdStr = "agenc"
 
 	// Top-level commands
+	configCmdStr   = "config"
 	missionCmdStr  = "mission"
 	repoCmdStr     = "repo"
 	templateCmdStr = "template"
