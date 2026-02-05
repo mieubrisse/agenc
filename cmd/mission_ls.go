@@ -68,7 +68,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
-	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "REPO", "SESSION")
+	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "SESSION", "REPO")
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
 		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
@@ -77,8 +77,8 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			m.ShortID,
 			colorizeStatus(status),
 			displayAgentTemplate(m.AgentTemplate, nicknames),
-			displayGitRepo(m.GitRepo),
 			truncatePrompt(sessionName, defaultPromptMaxLen),
+			displayGitRepo(m.GitRepo),
 		)
 	}
 	tbl.Print()
