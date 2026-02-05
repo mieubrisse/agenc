@@ -58,44 +58,15 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to resolve repo")
 	}
 
-	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	added, err := addTemplateToLibrary(agencDirpath, result.RepoName, templateAddNicknameFlag, templateAddDefaultFlag)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
-	if _, exists := cfg.AgentTemplates[result.RepoName]; exists {
-		fmt.Printf("Template '%s' already added\n", result.RepoName)
-		return nil
+	if added {
+		printTemplateAdded(result.RepoName)
+	} else {
+		printTemplateAlreadyExists(result.RepoName)
 	}
-
-	if templateAddNicknameFlag != "" {
-		for otherRepo, props := range cfg.AgentTemplates {
-			if props.Nickname == templateAddNicknameFlag {
-				return stacktrace.NewError("nickname '%s' is already in use by '%s'", templateAddNicknameFlag, otherRepo)
-			}
-		}
-	}
-
-	if templateAddDefaultFlag != "" {
-		if !config.IsValidDefaultForValue(templateAddDefaultFlag) {
-			return stacktrace.NewError("invalid --default value '%s'; must be one of: %s", templateAddDefaultFlag, config.FormatDefaultForValues())
-		}
-		for otherRepo, props := range cfg.AgentTemplates {
-			if props.DefaultFor == templateAddDefaultFlag {
-				return stacktrace.NewError("defaultFor '%s' is already claimed by '%s'", templateAddDefaultFlag, otherRepo)
-			}
-		}
-	}
-
-	cfg.AgentTemplates[result.RepoName] = config.AgentTemplateProperties{
-		Nickname:   templateAddNicknameFlag,
-		DefaultFor: templateAddDefaultFlag,
-	}
-
-	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-		return stacktrace.Propagate(err, "failed to write config")
-	}
-
-	fmt.Printf("Added template '%s'\n", result.RepoName)
 	return nil
 }

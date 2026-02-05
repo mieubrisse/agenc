@@ -137,36 +137,17 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	// Add to template library
-	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	// Add to template library (reuses template add infrastructure)
+	added, err := addTemplateToLibrary(agencDirpath, repoName, "", "")
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return stacktrace.Propagate(err, "failed to add template to library")
+	}
+	if added {
+		printTemplateAdded(repoName)
 	}
 
-	if _, exists := cfg.AgentTemplates[repoName]; !exists {
-		cfg.AgentTemplates[repoName] = config.AgentTemplateProperties{}
-		if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-			return stacktrace.Propagate(err, "failed to write config")
-		}
-	}
-
-	fmt.Printf("Created and added template '%s'\n", repoName)
-
-	// Launch a mission to edit the new template (same as 'template edit')
-	ensureDaemonRunning(agencDirpath)
-
-	// Re-read config to pick up the newly added template
-	cfg, _, err = config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
-	}
-
-	agentTemplate, err := resolveAgentTemplate(cfg, "", repoName)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to resolve agent template for editing")
-	}
-
-	return createAndLaunchMission(agencDirpath, agentTemplate, repoName, cloneDirpath)
+	// Launch a mission to edit the new template (reuses template edit infrastructure)
+	return launchTemplateEditMission(agencDirpath, repoName)
 }
 
 // checkGitHubRepoState checks if a GitHub repo exists and whether it's empty.
