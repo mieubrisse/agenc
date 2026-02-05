@@ -51,6 +51,9 @@ brews:
     homepage: "https://github.com/mieubrisse/agenc"
     description: "AgenC - Agent orchestration system"
     license: "AGPL-3.0"
+    dependencies:
+      - name: gh
+      - name: fzf
     install: |
       bin.install "agenc"
     test: |
