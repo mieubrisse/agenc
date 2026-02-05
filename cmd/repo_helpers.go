@@ -8,6 +8,12 @@ import (
 // repo library and returns the selected canonical repo names. Returns nil (no
 // error) if the user cancels with Ctrl-C or Escape.
 func selectReposWithFzf(repoNames []string, prompt string) ([]string, error) {
+	return selectReposWithFzfAndQuery(repoNames, prompt, "")
+}
+
+// selectReposWithFzfAndQuery is like selectReposWithFzf but allows specifying
+// an initial query to pre-filter results.
+func selectReposWithFzfAndQuery(repoNames []string, prompt string, initialQuery string) ([]string, error) {
 	if len(repoNames) == 0 {
 		return nil, nil
 	}
@@ -19,10 +25,11 @@ func selectReposWithFzf(repoNames []string, prompt string) ([]string, error) {
 	}
 
 	indices, err := runFzfPicker(FzfPickerConfig{
-		Prompt:      prompt,
-		Headers:     []string{"REPO"},
-		Rows:        rows,
-		MultiSelect: true,
+		Prompt:       prompt,
+		Headers:      []string{"REPO"},
+		Rows:         rows,
+		MultiSelect:  true,
+		InitialQuery: initialQuery,
 	})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass repo names as arguments instead")

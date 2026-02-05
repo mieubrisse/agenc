@@ -28,9 +28,12 @@ Refuses to remove agent template repos. Use '` + agencCmdStr + ` ` + templateCmd
 When called without arguments, opens an interactive fzf picker.
 
 Accepts any of these formats:
-  owner/repo
-  github.com/owner/repo
-  https://github.com/owner/repo`,
+  owner/repo                           - shorthand (e.g., mieubrisse/agenc)
+  github.com/owner/repo                - canonical name
+  https://github.com/owner/repo        - URL
+
+You can also use search terms to find a repo in your library:
+  agenc repo rm my repo                - searches for repos matching "my repo"`,
 	RunE: runRepoRm,
 }
 
@@ -64,19 +67,6 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 // When no arguments are given, opens an fzf picker that excludes agent template
 // repos (since those can't be removed via repo rm).
 func resolveRepoRmArgs(cfg *config.AgencConfig, args []string) ([]string, error) {
-	if len(args) > 0 {
-		var repoNames []string
-		for _, arg := range args {
-			// Protocol doesn't matter here - we only need the canonical repo name
-			repoName, _, err := mission.ParseRepoReference(arg, false)
-			if err != nil {
-				return nil, stacktrace.Propagate(err, "invalid repo reference")
-			}
-			repoNames = append(repoNames, repoName)
-		}
-		return repoNames, nil
-	}
-
 	allRepos, err := findReposOnDisk(agencDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to scan repos directory")
@@ -95,35 +85,39 @@ func resolveRepoRmArgs(cfg *config.AgencConfig, args []string) ([]string, error)
 		return nil, nil
 	}
 
-	return selectReposWithFzf(removableRepos, "Select repos to remove (TAB to multi-select): ")
-}
+	if len(args) == 0 {
+		// No args - open fzf picker
+		return selectReposWithFzf(removableRepos, "Select repos to remove (TAB to multi-select): ")
+	}
 
-// resolveRepoArgs converts CLI arguments to canonical repo names, or falls
-// back to an fzf picker when no arguments are given.
-func resolveRepoArgs(args []string, fzfPrompt string) ([]string, error) {
-	if len(args) > 0 {
+	// Check if the first arg looks like a repo reference
+	if looksLikeRepoReference(args[0]) {
+		// Each arg is a repo reference
 		var repoNames []string
 		for _, arg := range args {
-			// Protocol doesn't matter here - we only need the canonical repo name
-			repoName, _, err := mission.ParseRepoReference(arg, false)
-			if err != nil {
-				return nil, stacktrace.Propagate(err, "invalid repo reference")
+			repoName, _, parseErr := mission.ParseRepoReference(arg, false)
+			if parseErr != nil {
+				return nil, stacktrace.Propagate(parseErr, "invalid repo reference '%s'", arg)
 			}
 			repoNames = append(repoNames, repoName)
 		}
 		return repoNames, nil
 	}
 
-	allRepos, err := findReposOnDisk(agencDirpath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to scan repos directory")
-	}
-	if len(allRepos) == 0 {
-		fmt.Println("No repositories in the repo library.")
-		return nil, nil
+	// Treat args as search terms
+	searchTerms := strings.Join(args, " ")
+	terms := strings.Fields(searchTerms)
+
+	// Match using glob-style pattern
+	matches := matchReposGlob(removableRepos, terms)
+
+	if len(matches) == 1 {
+		fmt.Printf("Auto-selected: %s\n", displayGitRepo(matches[0]))
+		return matches, nil
 	}
 
-	return selectReposWithFzf(allRepos, fzfPrompt)
+	// Multiple or no matches - use fzf with initial query
+	return selectReposWithFzfAndQuery(removableRepos, "Select repos to remove (TAB to multi-select): ", searchTerms)
 }
 
 func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {

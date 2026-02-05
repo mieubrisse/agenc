@@ -3,12 +3,12 @@ package cmd
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/mission"
 )
 
 var repoAddSyncFlag bool
@@ -19,18 +19,21 @@ var repoAddCmd = &cobra.Command{
 	Long: `Add a repository to the repo library by cloning it into ~/.agenc/repos/.
 
 Accepts any of these formats:
-  owner/repo
-  github.com/owner/repo
-  https://github.com/owner/repo
-  git@github.com:owner/repo.git
+  owner/repo                           - shorthand (e.g., mieubrisse/agenc)
+  github.com/owner/repo                - canonical name
+  https://github.com/owner/repo        - HTTPS URL
+  git@github.com:owner/repo.git        - SSH URL
+  /path/to/local/clone                 - local filesystem path
 
-Tip: Use the full URL to control the clone protocol. For SSH authentication,
-use git@github.com:owner/repo.git. For HTTPS, use https://github.com/owner/repo.
-Shorthand formats (owner/repo) inherit the protocol from existing repos in
-your library, defaulting to HTTPS if none exist.
+You can also use search terms to find an existing repo in your library:
+  agenc repo add my repo               - searches for repos matching "my repo"
+
+For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
+from existing repos in your library. If no repos exist, you'll be prompted
+to choose.
 
 Use --sync to keep the repo continuously synced by the daemon.`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MinimumNArgs(1),
 	RunE: runRepoAdd,
 }
 
@@ -40,14 +43,19 @@ func init() {
 }
 
 func runRepoAdd(cmd *cobra.Command, args []string) error {
-	preferSSH := mission.DetectPreferredProtocol(agencDirpath)
-	repoName, cloneURL, err := mission.ParseRepoReference(args[0], preferSSH)
-	if err != nil {
-		return stacktrace.Propagate(err, "invalid repo reference")
+	// Join args - could be a single repo ref or multiple search terms
+	input := args[0]
+	if len(args) > 1 {
+		// Multiple args: either multiple repo refs or search terms
+		// If the first arg doesn't look like a repo ref, treat all as search terms
+		if !looksLikeRepoReference(args[0]) {
+			input = strings.Join(args, " ")
+		}
 	}
 
-	if _, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL); err != nil {
-		return stacktrace.Propagate(err, "failed to clone repository '%s'", repoName)
+	result, err := ResolveRepoInput(agencDirpath, input, false, "Select repo to add: ")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to resolve repo")
 	}
 
 	if repoAddSyncFlag {
@@ -56,8 +64,8 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to read config")
 		}
 
-		if !slices.Contains(cfg.SyncedRepos, repoName) {
-			cfg.SyncedRepos = append(cfg.SyncedRepos, repoName)
+		if !slices.Contains(cfg.SyncedRepos, result.RepoName) {
+			cfg.SyncedRepos = append(cfg.SyncedRepos, result.RepoName)
 
 			if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 				return stacktrace.Propagate(err, "failed to write config")
@@ -65,10 +73,15 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	status := "Added"
+	if !result.WasNewlyCloned {
+		status = "Already exists"
+	}
+
 	if repoAddSyncFlag {
-		fmt.Printf("Added '%s' (synced)\n", repoName)
+		fmt.Printf("%s '%s' (synced)\n", status, result.RepoName)
 	} else {
-		fmt.Printf("Added '%s'\n", repoName)
+		fmt.Printf("%s '%s'\n", status, result.RepoName)
 	}
 	return nil
 }

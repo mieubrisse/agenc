@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/mission"
 )
 
 var templateAddNicknameFlag string
@@ -19,15 +19,19 @@ var templateAddCmd = &cobra.Command{
 	Long: `Add an agent template from a GitHub repository.
 
 Accepts any of these formats:
-  owner/repo
-  github.com/owner/repo
-  https://github.com/owner/repo
-  git@github.com:owner/repo.git
+  owner/repo                           - shorthand (e.g., mieubrisse/agenc)
+  github.com/owner/repo                - canonical name
+  https://github.com/owner/repo        - HTTPS URL
+  git@github.com:owner/repo.git        - SSH URL
+  /path/to/local/clone                 - local filesystem path
+
+You can also use search terms to find an existing repo in your library:
+  agenc template add my repo           - searches for repos matching "my repo"
 
 The clone protocol is auto-detected: explicit URLs preserve their protocol,
 while shorthand references (owner/repo) use the protocol inferred from
-existing repos in the library.`,
-	Args: cobra.ExactArgs(1),
+existing repos in the library. If no repos exist, you'll be prompted to choose.`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runTemplateAdd,
 }
 
@@ -39,10 +43,19 @@ func init() {
 }
 
 func runTemplateAdd(cmd *cobra.Command, args []string) error {
-	preferSSH := mission.DetectPreferredProtocol(agencDirpath)
-	repoName, cloneURL, err := mission.ParseRepoReference(args[0], preferSSH)
+	// Join args - could be a single repo ref or multiple search terms
+	input := args[0]
+	if len(args) > 1 {
+		// Multiple args: either multiple repo refs or search terms
+		// If the first arg doesn't look like a repo ref, treat all as search terms
+		if !looksLikeRepoReference(args[0]) {
+			input = strings.Join(args, " ")
+		}
+	}
+
+	result, err := ResolveRepoInput(agencDirpath, input, false, "Select repo to add as template: ")
 	if err != nil {
-		return stacktrace.Propagate(err, "invalid repo reference")
+		return stacktrace.Propagate(err, "failed to resolve repo")
 	}
 
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
@@ -50,13 +63,9 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	if _, exists := cfg.AgentTemplates[repoName]; exists {
-		fmt.Printf("Template '%s' already added\n", repoName)
+	if _, exists := cfg.AgentTemplates[result.RepoName]; exists {
+		fmt.Printf("Template '%s' already added\n", result.RepoName)
 		return nil
-	}
-
-	if _, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL); err != nil {
-		return stacktrace.Propagate(err, "failed to clone repository '%s'", repoName)
 	}
 
 	if templateAddNicknameFlag != "" {
@@ -78,7 +87,7 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	cfg.AgentTemplates[repoName] = config.AgentTemplateProperties{
+	cfg.AgentTemplates[result.RepoName] = config.AgentTemplateProperties{
 		Nickname:   templateAddNicknameFlag,
 		DefaultFor: templateAddDefaultFlag,
 	}
@@ -87,6 +96,6 @@ func runTemplateAdd(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to write config")
 	}
 
-	fmt.Printf("Added template '%s' from %s\n", repoName, cloneURL)
+	fmt.Printf("Added template '%s'\n", result.RepoName)
 	return nil
 }

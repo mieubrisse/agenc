@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -38,17 +37,18 @@ existing mission's workspace. The source mission's git repo and agent template
 carry over by default. Override the agent template with --agent or a single
 positional search term. --clone cannot be combined with --git.
 
-Tip: The --git flag accepts full URLs to control the clone protocol.
-Use git@github.com:owner/repo.git for SSH or https://github.com/owner/repo
-for HTTPS. Shorthand formats (owner/repo) inherit the protocol from existing
-repos in your library.`,
+The --git flag accepts:
+  - Full URLs (git@github.com:owner/repo.git or https://github.com/owner/repo)
+  - Shorthand references (owner/repo or github.com/owner/repo)
+  - Local filesystem paths (/path/to/repo, ./relative/path, ~/home/path)
+  - Search terms to match against repos in your library ("my repo")`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
 
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultFor config)")
-	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or full URL - SSH or HTTPS)")
+	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo (URL, shorthand, local path, or search terms)")
 	missionNewCmd.Flags().StringVar(&cloneFlag, "clone", "", "mission UUID to clone workspace from")
 	missionCmd.AddCommand(missionNewCmd)
 }
@@ -494,78 +494,17 @@ func createAndLaunchMission(
 // resolveGitFlag resolves a --git flag value into a canonical repo
 // name and the filesystem path to the agenc-owned clone. The flag can be a
 // local filesystem path (starts with /, ., or ~), a repo reference
-// ("owner/repo" or "github.com/owner/repo"), or a GitHub URL
-// (https://github.com/owner/repo/...).
+// ("owner/repo" or "github.com/owner/repo"), a GitHub URL
+// (https://github.com/owner/repo/...), or search terms to match against
+// repos in the library.
 func resolveGitFlag(agencDirpath string, flag string) (repoName string, cloneDirpath string, err error) {
-	if isLocalPath(flag) {
-		return resolveGitFlagFromLocalPath(agencDirpath, flag)
+	result, err := ResolveRepoInput(agencDirpath, flag, false, "Select git repo: ")
+	if err != nil {
+		return "", "", err
 	}
-	return resolveGitFlagFromRepoRef(agencDirpath, flag)
+	return result.RepoName, result.CloneDirpath, nil
 }
 
-// resolveGitFlagFromLocalPath handles --git when it points to a local git
-// repository. It validates the repo, extracts the GitHub remote URL, and
-// clones into ~/.agenc/repos/.
-func resolveGitFlagFromLocalPath(agencDirpath string, localPath string) (string, string, error) {
-	absDirpath, err := filepath.Abs(localPath)
-	if err != nil {
-		return "", "", stacktrace.Propagate(err, "failed to resolve git repo path")
-	}
-
-	if err := mission.ValidateGitRepo(absDirpath); err != nil {
-		return "", "", stacktrace.Propagate(err, "invalid git repository")
-	}
-
-	repoName, err := mission.ExtractGitHubRepoName(absDirpath)
-	if err != nil {
-		return "", "", stacktrace.Propagate(err, "failed to extract GitHub repo name")
-	}
-
-	// Read the clone URL from the user's repo (preserves SSH vs HTTPS)
-	cloneURLCmd := exec.Command("git", "remote", "get-url", "origin")
-	cloneURLCmd.Dir = absDirpath
-	cloneURLOutput, err := cloneURLCmd.Output()
-	if err != nil {
-		return "", "", stacktrace.Propagate(err, "failed to read origin remote URL")
-	}
-	cloneURL := strings.TrimSpace(string(cloneURLOutput))
-
-	cloneDirpath, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL)
-	if err != nil {
-		return "", "", stacktrace.Propagate(err, "failed to ensure repo clone")
-	}
-
-	return repoName, cloneDirpath, nil
-}
-
-// resolveGitFlagFromRepoRef handles --git when it's a repo reference like
-// "owner/repo", "github.com/owner/repo", or a full GitHub URL (SSH or HTTPS).
-// The clone protocol is auto-detected: explicit URLs preserve their protocol,
-// while shorthand references use the protocol inferred from existing repos.
-func resolveGitFlagFromRepoRef(agencDirpath string, ref string) (string, string, error) {
-	preferSSH := mission.DetectPreferredProtocol(agencDirpath)
-	repoName, cloneURL, err := mission.ParseRepoReference(ref, preferSSH)
-	if err != nil {
-		return "", "", stacktrace.Propagate(err, "invalid --git value '%s'", ref)
-	}
-
-	cloneDirpath, err := mission.EnsureRepoClone(agencDirpath, repoName, cloneURL)
-	if err != nil {
-		return "", "", stacktrace.Propagate(err, "failed to clone '%s'", repoName)
-	}
-
-	if err := mission.ValidateGitRepo(cloneDirpath); err != nil {
-		return "", "", stacktrace.Propagate(err, "cloned repository is not valid")
-	}
-
-	return repoName, cloneDirpath, nil
-}
-
-// isLocalPath returns true if the string looks like a filesystem path rather
-// than a repo reference.
-func isLocalPath(s string) bool {
-	return strings.HasPrefix(s, "/") || strings.HasPrefix(s, ".") || strings.HasPrefix(s, "~")
-}
 
 // selectWithFzf presents templates in fzf and returns the selected repo name.
 // If allowNone is true, a "NONE" option is prepended. Returns empty string if
