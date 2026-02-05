@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -312,14 +311,13 @@ func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTempl
 	return entries
 }
 
-var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
 const ansiLightBlue = "\033[94m"
 const ansiReset = "\033[0m"
 
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
 // Agent templates are prefixed with 🤖; regular repos have no prefix.
 // Uses displayGitRepo for consistent repo formatting across all commands.
+// This is used by matchRepoLibraryEntries for pre-filtering before fzf.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
 	coloredRepo := displayGitRepo(entry.RepoName)
 	if entry.IsTemplate {
@@ -331,80 +329,53 @@ func formatLibraryFzfLine(entry repoLibraryEntry) string {
 	return fmt.Sprintf("   %s", coloredRepo)
 }
 
-// stripAnsi removes ANSI escape sequences from a string.
-func stripAnsi(s string) string {
-	return ansiEscapePattern.ReplaceAllString(s, "")
-}
-
-// reconstructCanonicalRepoName converts a display-formatted repo name back to
-// canonical form. GitHub repos are displayed as "owner/repo" (1 slash) and need
-// "github.com/" prepended. Non-GitHub repos keep their full URL (2+ slashes).
-func reconstructCanonicalRepoName(displayName string) string {
-	if strings.Count(displayName, "/") == 1 {
-		return "github.com/" + displayName
-	}
-	return displayName
-}
-
-// parseLibraryFzfLine extracts the repo name and template status from a
-// formatted fzf line produced by formatLibraryFzfLine. The returned repo name
-// is in canonical form (e.g. "github.com/owner/repo").
-func parseLibraryFzfLine(line string) (repoName string, isTemplate bool) {
-	line = strings.TrimSpace(stripAnsi(line))
-
-	if strings.HasPrefix(line, "🤖") {
-		isTemplate = true
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "🤖"))
-		// Check for nickname format: "nickname  (owner/repo)"
-		if idx := strings.LastIndex(rest, "  ("); idx != -1 {
-			repoName = strings.TrimSuffix(rest[idx+3:], ")")
-			return reconstructCanonicalRepoName(repoName), isTemplate
-		}
-		return reconstructCanonicalRepoName(rest), isTemplate
-	}
-
-	// Non-template repos have no emoji prefix, just whitespace
-	return reconstructCanonicalRepoName(strings.TrimSpace(line)), false
-}
-
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
 // A NONE option is prepended for creating a blank mission.
 func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibrarySelection, error) {
-	var lines []string
-	lines = append(lines, "NONE — blank mission")
+	// Build rows for the picker
+	var rows [][]string
 	for _, entry := range entries {
-		lines = append(lines, formatLibraryFzfLine(entry))
+		typeIcon := ""
+		name := ""
+		if entry.IsTemplate {
+			typeIcon = "🤖"
+			if entry.Nickname != "" {
+				name = entry.Nickname
+			}
+		}
+		rows = append(rows, []string{typeIcon, name, displayGitRepo(entry.RepoName)})
 	}
-	input := strings.Join(lines, "\n")
 
-	fzfBinary, err := exec.LookPath("fzf")
+	// Use sentinel row for NONE option
+	sentinelRow := []string{"", "NONE", "— blank mission"}
+
+	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
+		Prompt:       "Select repo: ",
+		Headers:      []string{"TYPE", "NAME", "REPO"},
+		Rows:         rows,
+		MultiSelect:  false,
+		InitialQuery: initialQuery,
+	}, sentinelRow)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or use --git/--agent flags")
 	}
-
-	fzfArgs := []string{"--ansi", "--prompt", "Select repo: "}
-	if initialQuery != "" {
-		fzfArgs = append(fzfArgs, "--query", initialQuery)
+	if indices == nil {
+		return nil, stacktrace.NewError("fzf selection cancelled")
 	}
 
-	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
-	fzfCmd.Stdin = strings.NewReader(input)
-	fzfCmd.Stderr = os.Stderr
-
-	output, err := fzfCmd.Output()
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "fzf selection failed")
-	}
-
-	selected := strings.TrimSpace(string(output))
-	if strings.HasPrefix(selected, "NONE") {
+	// Sentinel row returns index -1
+	if len(indices) > 0 && indices[0] == -1 {
 		return &repoLibrarySelection{}, nil
 	}
 
-	repoName, isTemplate := parseLibraryFzfLine(selected)
+	if len(indices) == 0 {
+		return nil, stacktrace.NewError("no selection made")
+	}
+
+	entry := entries[indices[0]]
 	return &repoLibrarySelection{
-		RepoName:   repoName,
-		IsTemplate: isTemplate,
+		RepoName:   entry.RepoName,
+		IsTemplate: entry.IsTemplate,
 	}, nil
 }
 
@@ -598,41 +569,62 @@ func isLocalPath(s string) bool {
 
 // selectWithFzf presents templates in fzf and returns the selected repo name.
 // If allowNone is true, a "NONE" option is prepended. Returns empty string if
-// NONE is selected.
+// NONE is selected or cancelled.
 func selectWithFzf(templates map[string]config.AgentTemplateProperties, initialQuery string, allowNone bool) (string, error) {
-	var lines []string
-	if allowNone {
-		lines = append(lines, "NONE")
-	}
-	for _, repo := range sortedRepoKeys(templates) {
-		lines = append(lines, formatTemplateFzfLine(repo, templates[repo]))
-	}
-	input := strings.Join(lines, "\n")
+	// Build sorted list of repo keys
+	repoKeys := sortedRepoKeys(templates)
 
-	fzfBinary, err := exec.LookPath("fzf")
+	// Build rows for the picker
+	var rows [][]string
+	for _, repo := range repoKeys {
+		props := templates[repo]
+		nickname := "--"
+		if props.Nickname != "" {
+			nickname = props.Nickname
+		}
+		rows = append(rows, []string{nickname, displayGitRepo(repo)})
+	}
+
+	var indices []int
+	var err error
+
+	if allowNone {
+		// Use sentinel for NONE option
+		sentinelRow := []string{"NONE", "--"}
+		indices, err = runFzfPickerWithSentinel(FzfPickerConfig{
+			Prompt:       "Select agent template: ",
+			Headers:      []string{"AGENT", "REPO"},
+			Rows:         rows,
+			MultiSelect:  false,
+			InitialQuery: initialQuery,
+		}, sentinelRow)
+	} else {
+		indices, err = runFzfPicker(FzfPickerConfig{
+			Prompt:       "Select agent template: ",
+			Headers:      []string{"AGENT", "REPO"},
+			Rows:         rows,
+			MultiSelect:  false,
+			InitialQuery: initialQuery,
+		})
+	}
+
 	if err != nil {
 		return "", stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the template name as an argument")
 	}
-
-	fzfArgs := []string{"--prompt", "Select agent template: "}
-	if initialQuery != "" {
-		fzfArgs = append(fzfArgs, "--query", initialQuery)
-	}
-
-	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
-	fzfCmd.Stdin = strings.NewReader(input)
-	fzfCmd.Stderr = os.Stderr
-
-	output, err := fzfCmd.Output()
-	if err != nil {
-		return "", stacktrace.Propagate(err, "fzf selection failed")
-	}
-
-	selected := strings.TrimSpace(string(output))
-	if selected == "NONE" {
+	if indices == nil {
 		return "", nil
 	}
-	return extractRepoFromFzfLine(selected), nil
+
+	// Sentinel row returns index -1
+	if len(indices) > 0 && indices[0] == -1 {
+		return "", nil
+	}
+
+	if len(indices) == 0 {
+		return "", nil
+	}
+
+	return repoKeys[indices[0]], nil
 }
 
 // resolveOrPickTemplate resolves a template from positional search-term

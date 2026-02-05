@@ -139,18 +139,13 @@ func sortedRepoKeys(templates map[string]config.AgentTemplateProperties) []strin
 	return repos
 }
 
+// formatTemplateFzfLine formats a template entry for matching in fzf.
+// This is used by matchTemplateEntries for pre-filtering before fzf.
 func formatTemplateFzfLine(repo string, props config.AgentTemplateProperties) string {
 	if props.Nickname != "" {
 		return fmt.Sprintf("%s  (%s)", props.Nickname, repo)
 	}
 	return repo
-}
-
-func extractRepoFromFzfLine(line string) string {
-	if idx := strings.LastIndex(line, "  ("); idx != -1 {
-		return strings.TrimSuffix(line[idx+3:], ")")
-	}
-	return line
 }
 
 // formatLastActive returns a human-readable representation of the last

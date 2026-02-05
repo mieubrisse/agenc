@@ -1,10 +1,6 @@
 package cmd
 
 import (
-	"os"
-	"os/exec"
-	"strings"
-
 	"github.com/mieubrisse/stacktrace"
 )
 
@@ -12,35 +8,32 @@ import (
 // repo library and returns the selected canonical repo names. Returns nil (no
 // error) if the user cancels with Ctrl-C or Escape.
 func selectReposWithFzf(repoNames []string, prompt string) ([]string, error) {
-	fzfBinary, err := exec.LookPath("fzf")
+	if len(repoNames) == 0 {
+		return nil, nil
+	}
+
+	// Build rows for the picker (single column: repo display name)
+	var rows [][]string
+	for _, name := range repoNames {
+		rows = append(rows, []string{displayGitRepo(name)})
+	}
+
+	indices, err := runFzfPicker(FzfPickerConfig{
+		Prompt:      prompt,
+		Headers:     []string{"REPO"},
+		Rows:        rows,
+		MultiSelect: true,
+	})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass repo names as arguments instead")
 	}
-
-	input := strings.Join(repoNames, "\n")
-
-	fzfCmd := exec.Command(fzfBinary,
-		"--multi",
-		"--prompt", prompt,
-	)
-	fzfCmd.Stdin = strings.NewReader(input)
-	fzfCmd.Stderr = os.Stderr
-
-	output, err := fzfCmd.Output()
-	if err != nil {
-		// fzf returns exit code 130 on Ctrl-C, and exit code 1 when no match
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
-			return nil, nil
-		}
-		return nil, stacktrace.Propagate(err, "fzf selection failed")
+	if indices == nil {
+		return nil, nil
 	}
 
 	var selected []string
-	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			selected = append(selected, line)
-		}
+	for _, idx := range indices {
+		selected = append(selected, repoNames[idx])
 	}
 	return selected, nil
 }

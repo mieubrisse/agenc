@@ -1,10 +1,9 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -13,9 +12,16 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/tableprinter"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
+
+// ansiEscapePattern matches ANSI SGR escape sequences.
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// stripAnsi removes ANSI escape sequences from a string.
+func stripAnsi(s string) string {
+	return ansiEscapePattern.ReplaceAllString(s, "")
+}
 
 var missionResumeCmd = &cobra.Command{
 	Use:   resumeCmdStr + " [search-terms...]",
@@ -181,43 +187,25 @@ func matchStoppedMissions(entries []stoppedMissionEntry, args []string) []stoppe
 // selectStoppedMissionFzf presents stopped missions in an fzf picker and
 // returns the selected entry. Returns nil if the user cancels.
 func selectStoppedMissionFzf(entries []stoppedMissionEntry, initialQuery string) (*stoppedMissionEntry, error) {
-	var buf bytes.Buffer
-	tbl := tableprinter.NewTable("SHORT ID", "AGENT", "REPO", "PROMPT").WithWriter(&buf)
+	// Build rows for the picker
+	var rows [][]string
 	for _, e := range entries {
-		tbl.AddRow(e.ShortID, e.Agent, e.Repo, e.Prompt)
+		rows = append(rows, []string{e.ShortID, e.Agent, e.Repo, e.Prompt})
 	}
-	tbl.Print()
 
-	fzfBinary, err := exec.LookPath("fzf")
+	indices, err := runFzfPicker(FzfPickerConfig{
+		Prompt:       "Select mission to resume: ",
+		Headers:      []string{"SHORT ID", "AGENT", "REPO", "PROMPT"},
+		Rows:         rows,
+		MultiSelect:  false,
+		InitialQuery: initialQuery,
+	})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass a mission ID as an argument")
 	}
-
-	fzfArgs := []string{"--ansi", "--header-lines", "1", "--prompt", "Select mission to resume: "}
-	if initialQuery != "" {
-		fzfArgs = append(fzfArgs, "--query", initialQuery)
+	if indices == nil {
+		return nil, nil
 	}
 
-	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
-	fzfCmd.Stdin = strings.NewReader(buf.String())
-	fzfCmd.Stderr = os.Stderr
-
-	output, err := fzfCmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
-			return nil, nil
-		}
-		return nil, stacktrace.Propagate(err, "fzf selection failed")
-	}
-
-	selected := strings.TrimSpace(string(output))
-	selectedShortID := strings.Fields(selected)[0]
-
-	for i := range entries {
-		if entries[i].ShortID == selectedShortID {
-			return &entries[i], nil
-		}
-	}
-
-	return nil, stacktrace.NewError("selected mission '%s' not found in entry list", selectedShortID)
+	return &entries[indices[0]], nil
 }

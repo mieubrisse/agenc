@@ -2,9 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -38,44 +35,30 @@ func selectMissionsToArchive(db *database.DB) ([]string, error) {
 		return nil, nil
 	}
 
-	var fzfLines []string
+	// Build rows for the picker
+	var rows [][]string
 	for _, m := range missions {
 		label := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
 		createdDate := m.CreatedAt.Format("2006-01-02 15:04")
-		fzfLines = append(fzfLines, fmt.Sprintf("%s\t%s\t%s", m.ShortID, label, createdDate))
+		rows = append(rows, []string{m.ShortID, label, createdDate})
 	}
 
-	fzfBinary, err := exec.LookPath("fzf")
+	indices, err := runFzfPicker(FzfPickerConfig{
+		Prompt:      "Select missions to archive (TAB to multi-select): ",
+		Headers:     []string{"ID", "PROMPT", "CREATED"},
+		Rows:        rows,
+		MultiSelect: true,
+	})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass mission IDs as arguments instead")
 	}
-
-	fzfCmd := exec.Command(fzfBinary,
-		"--multi",
-		"--prompt", "Select missions to archive (TAB to multi-select): ",
-		"--tabstop", "4",
-	)
-	fzfCmd.Stdin = strings.NewReader(strings.Join(fzfLines, "\n"))
-	fzfCmd.Stderr = os.Stderr
-
-	output, err := fzfCmd.Output()
-	if err != nil {
-		// fzf returns exit code 130 on Ctrl-C, and exit code 1 when no match
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
-			return nil, nil
-		}
-		return nil, stacktrace.Propagate(err, "fzf selection failed")
+	if indices == nil {
+		return nil, nil
 	}
 
 	var selectedIDs []string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// The mission ID is the first field (tab-separated)
-		id, _, _ := strings.Cut(line, "\t")
-		selectedIDs = append(selectedIDs, id)
+	for _, idx := range indices {
+		selectedIDs = append(selectedIDs, missions[idx].ShortID)
 	}
 
 	return selectedIDs, nil
