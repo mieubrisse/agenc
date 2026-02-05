@@ -40,12 +40,15 @@ func init() {
 }
 
 // stoppedMissionEntry holds the display-ready fields for a stopped mission.
+// Fields mirror the mission ls output (minus STATUS) to maintain visual
+// consistency across commands.
 type stoppedMissionEntry struct {
-	MissionID string
-	ShortID   string
-	Agent     string // display-formatted (may contain ANSI)
-	Repo      string // display-formatted (may contain ANSI)
-	Prompt    string // truncated prompt
+	MissionID  string
+	LastActive string // formatted timestamp
+	ShortID    string
+	Agent      string // display-formatted (may contain ANSI)
+	Session    string // session name (truncated)
+	Repo       string // display-formatted (may contain ANSI)
 }
 
 func runMissionResume(cmd *cobra.Command, args []string) error {
@@ -137,6 +140,7 @@ func resumeMission(db *database.DB, missionID string) error {
 }
 
 // listStoppedMissions returns all stopped missions with their display fields.
+// Uses the same formatting infrastructure as mission ls for visual consistency.
 func listStoppedMissions(db *database.DB) ([]stoppedMissionEntry, error) {
 	missions, err := db.ListMissions(false)
 	if err != nil {
@@ -148,18 +152,21 @@ func listStoppedMissions(db *database.DB) ([]stoppedMissionEntry, error) {
 		return nil, stacktrace.Propagate(cfgErr, "failed to read config")
 	}
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
+	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
 	var entries []stoppedMissionEntry
 	for _, m := range missions {
 		if getMissionStatus(m.ID, m.Status) != "STOPPED" {
 			continue
 		}
+		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
 		entries = append(entries, stoppedMissionEntry{
-			MissionID: m.ID,
-			ShortID:   m.ShortID,
-			Agent:     displayAgentTemplate(m.AgentTemplate, nicknames),
-			Repo:      displayGitRepo(m.GitRepo),
-			Prompt:    truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60),
+			MissionID:  m.ID,
+			LastActive: formatLastActive(m.LastHeartbeat),
+			ShortID:    m.ShortID,
+			Agent:      displayAgentTemplate(m.AgentTemplate, nicknames),
+			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
+			Repo:       displayGitRepo(m.GitRepo),
 		})
 	}
 	return entries, nil
@@ -168,7 +175,7 @@ func listStoppedMissions(db *database.DB) ([]stoppedMissionEntry, error) {
 // formatStoppedMissionMatchLine returns a plain-text representation of a
 // stopped mission entry suitable for sequential substring matching.
 func formatStoppedMissionMatchLine(entry stoppedMissionEntry) string {
-	return entry.ShortID + " " + stripAnsi(entry.Agent) + " " + stripAnsi(entry.Repo) + " " + entry.Prompt
+	return entry.LastActive + " " + entry.ShortID + " " + stripAnsi(entry.Agent) + " " + entry.Session + " " + stripAnsi(entry.Repo)
 }
 
 // matchStoppedMissions filters entries by sequential case-insensitive
@@ -186,16 +193,17 @@ func matchStoppedMissions(entries []stoppedMissionEntry, args []string) []stoppe
 
 // selectStoppedMissionFzf presents stopped missions in an fzf picker and
 // returns the selected entry. Returns nil if the user cancels.
+// Column order matches mission ls output (minus STATUS) for visual consistency.
 func selectStoppedMissionFzf(entries []stoppedMissionEntry, initialQuery string) (*stoppedMissionEntry, error) {
-	// Build rows for the picker
+	// Build rows for the picker — column order matches mission ls (minus STATUS)
 	var rows [][]string
 	for _, e := range entries {
-		rows = append(rows, []string{e.ShortID, e.Agent, e.Repo, e.Prompt})
+		rows = append(rows, []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo})
 	}
 
 	indices, err := runFzfPicker(FzfPickerConfig{
 		Prompt:       "Select mission to resume: ",
-		Headers:      []string{"SHORT ID", "AGENT", "REPO", "PROMPT"},
+		Headers:      []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
 		Rows:         rows,
 		MultiSelect:  false,
 		InitialQuery: initialQuery,
