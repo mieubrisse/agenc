@@ -15,7 +15,7 @@ How it works
 ------------
 
 1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). The agent then hot-reloads to pick up the new config.
-2. Sandboxing and session management let you run dozens of agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a supersmart team who understand your every whim.
+2. Sandboxing and session management let you run dozens of agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a super team who understand your every whim.
 
 <!-- TODO something about clear separation of "allow just this session" vs "allow always?" via the agent template mechanism and the sandboxing in a mission directory? -->
 
@@ -66,14 +66,22 @@ AgenC solves this:
 
 Workflows
 -------------
-AgenC is currently really good at these workflows:
+### AgenC is currently really good at these workflows
 
 - **Human-in-the-loop assistant work with MCP:** Examples: email/Todoist inbox processing, calendar management.
-- **Human-in-the-loop editing a repo:** Examples: coding, writing.
+- **Human-in-the-loop editing a repo:** Examples: coding, editing AgenC agents, writing
 
 Basically, [painting with your mind](https://mieubrisse.substack.com/p/be-rembrandt).
 
-AgenC doesn't currently handle these, but will soon:
+It works like this:
+
+1. You create or install **agent template** repos ([example](https://github.com/mieubrisse/agenc-agent-template_agenc-engineer)) containing the agent config you want (CLAUDE.md, skills, MCP, and even 1Password secrets to inject)
+1. Agent templates get instantiated into an **agent** on a **mission**, with its own sandbox and repo copies where the agent can write files, commit, etc. without interfering with other missions
+1. When an agent doesn't do the right thing, you fire off a new mission to refine the agent's prompt 
+1. When an agent's config gets updated, all agents using that config live-reload the next time they're idle so fixes are constantly incorporated
+1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
+
+### AgenC doesn't currently handle these workflows, but will soon
 
 - **Completely autonomous work:** Example: instruct the agent to do a thing without you being connected to the Claude TUI.
 - **Dockerized:** Running agents in Docker so they can do `--dangerously-skip-permissions`
@@ -81,34 +89,9 @@ AgenC doesn't currently handle these, but will soon:
 - **Automated lesson capture:** Identifying lessons that need to be rolled back into config proactively, rather than waiting for you.
 - **Inter-agent communication:** Exmaple: the Code Writer agent hands off its work to the Code Reviewer agent who hands off to the PR Coordinator agent.
 
-How it works
-------------
-1. You create or install **agent template** repos containing the Claude config you want (CLAUDE.md, skills, MCP, and even 1Password secrets to inject)
-1. You send agents on **missions**, which execute inside a sandbox directory created from the agent template
-1. When talking to any agent on a mission, with a simple hotkey you can switch to editing the template, making your AgenC better forever
-1. When an agent's config changes, the agent is restarted the next time it's idle to use the new config
-1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
-
 Getting started
 ---------------
 TODO brew installation instructions
-
-Conceptual models
------------------
-**Agent templates** instantiate **agents**.
-
-Think of agents as functions, `f(context, agent_config) -> output`, whose output is good some % of the time.
-
-When the agents don't produce good output, lessons should be rolled back into the agent config.
-
-Future work
------------
-- Let you analyze mission results and proactively suggest fixes to agents
-- Analyze how effective each agent is
-- Execute missions inside Docker containers so `--dangerously-skip-permissions` is allowed
-- Build settings.json files for you with AI (even out in your filesystem)
-    - E.g. when you're starting a task, it will suggest settings.json's for you, so you don't have to give a bunch of "yes"s
-
 
 Configuration
 -------------
@@ -192,6 +175,10 @@ Do you have an existing agenc config repo to clone? [y/N]
 ```
 
 Answering **yes** lets you provide a repo reference (`owner/repo`, `github.com/owner/repo`, or a GitHub URL), which agenc clones into `$AGENC_DIRPATH/config/`. This lets you restore your agenc configuration on a new machine or share it across machines. Answering **no** (or running non-interactively) proceeds with the default empty config.
+
+Theory
+------
+TODO
 
 Design Goals
 ------------
