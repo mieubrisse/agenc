@@ -49,7 +49,7 @@ A cron is a named, scheduled rule that tells the daemon to create and launch a h
 | `description` | no | Human-readable description of what this cron does. Displayed in `cron ls`. |
 | `git` | no | A Git repo from the agenc repo library to copy into the mission's workspace. |
 | `timeout` | no | Maximum runtime before the mission is killed. Format: `30m`, `2h`, `1h30m`. Default: `1h`. |
-| `overlap` | no | Policy when previous run is still active: `skip` (default), `allow`, or `queue`. |
+| `overlap` | no | Policy when previous run is still active: `skip` (default) or `allow`. |
 | `retention` | no | Number of missions to retain per cron. Older missions are auto-archived. Default: unlimited. |
 | `enabled` | no | Boolean. Disabled crons are retained in config but do not fire. Default: `true`. |
 
@@ -134,7 +134,7 @@ Use [`adhocore/gronx`](https://github.com/adhocore/gronx) (v1.19.6+, MIT license
 - Agent must exist in `agentTemplates` section of config.yml.
 - Git repo (if specified) must exist in `syncedRepos` section of config.yml.
 - Timeout must be a valid Go duration string (e.g., `30m`, `1h`, `2h30m`).
-- Overlap must be one of: `skip`, `allow`, `queue`.
+- Overlap must be one of: `skip`, `allow`.
 - Retention must be a positive integer.
 
 **On daemon startup:**
@@ -162,7 +162,6 @@ The daemon gains a new background goroutine: the **cron scheduler**.
    b. **Overlap policy:**
       - `skip`: If a run exists with `finished_at IS NULL`, skip this fire and log it.
       - `allow`: Proceed regardless of running missions.
-      - `queue`: If a run exists with `finished_at IS NULL`, mark this cron as "queued" (in-memory) and check again next cycle. Max queue depth: 1.
    c. **Concurrency check:** If running headless missions >= `maxConcurrent`, skip and log.
    d. **Record run start:** Insert row into `cron_runs` with `started_at = now`, `finished_at = NULL`. Note the row ID.
    e. **Spawn headless mission:** Fork `agenc mission new --headless --timeout <timeout> --agent <agent> --git <git> -p <prompt>` with:
@@ -173,7 +172,6 @@ The daemon gains a new background goroutine: the **cron scheduler**.
 6. **Completion handling:** When a wrapper process exits, the daemon:
    a. Removes it from the in-memory tracking map.
    b. If `retention` is set and exceeded, archive oldest missions for this cron.
-   c. If overlap policy is `queue` and a fire was queued, trigger it now.
 
    Note: The wrapper is responsible for updating `cron_runs` with `finished_at`, `exit_code`, and `exit_reason` before it exits.
 
@@ -565,12 +563,11 @@ Changes to Existing Components
 
 ### Daemon
 
-- **New goroutine:** Cron scheduler (60-second cycle). Evaluates cron expressions and spawns wrapper processes.
-- **Wrapper tracking:** Maintain in-memory map of running headless wrapper PIDs.
-- **Orphan handling:** On startup, adopt running wrappers or mark orphaned runs.
-- **Shutdown cleanup:** Send SIGINT to running wrappers, wait for graceful exit.
-- **Retention enforcement:** After wrapper exits, archive old missions if retention policy exceeded.
-- **Queue management:** Track queued cron fires (for `overlap: queue` policy) and trigger when previous run completes.
+- **New goroutine:** Cron scheduler (60-second cycle). Evaluates cron expressions and spawns `mission new --headless` subprocesses.
+- **Process tracking:** Maintain in-memory map of running headless mission PIDs.
+- **Orphan handling:** On startup, adopt running missions or mark orphaned runs.
+- **Shutdown cleanup:** Send SIGINT to running missions, wait for graceful exit.
+- **Retention enforcement:** After mission exits, archive old missions if retention policy exceeded.
 
 ### `agenc mission new`
 
@@ -674,3 +671,65 @@ Implementation Phases
 - Implement `agenc cron history <name>`.
 - Implement retention policy enforcement.
 - Add `--cron` filter to `mission ls`.
+
+
+Open Questions
+--------------
+
+The following items need resolution before or during implementation:
+
+### 1. Notification of Cron Failures
+
+When a cron fails (error, timeout, agent template missing), the user currently only finds out by checking `cron ls` or `cron history`. Options:
+
+- **Do nothing** — User checks status manually.
+- **Auto-message on failure** — Wrapper sends `agenc message send` on non-success exit. Appears in inbox.
+- **Notification hooks** — User-configurable command or webhook on failure.
+
+**Decision needed:** Which approach, if any?
+
+### 2. Daemon Observability
+
+The daemon is gaining complexity. Should we add:
+
+- **`agenc daemon status`** — Show running goroutines, last activity timestamps, running headless missions, etc.
+- **Structured logging** — JSON logs for easier parsing/aggregation.
+- **Health endpoint** — HTTP endpoint for monitoring (probably overkill).
+
+**Decision needed:** What level of observability is worth implementing?
+
+### 3. `cron_runs` Without Mission
+
+The daemon inserts a `cron_runs` row before spawning `mission new --headless`. If the spawn fails or `mission new` fails before creating the mission, the `cron_runs` row has no corresponding mission.
+
+**Current handling:** Orphan handling on daemon startup marks it as `orphaned`. Is this sufficient, or should we clean up the row entirely?
+
+### 4. Retention Policy Mechanics
+
+The spec says "archive oldest missions for this cron" when retention is exceeded. Questions:
+
+- Should this be automatic (daemon does it on completion) or a separate cleanup job?
+- Archive vs. delete? Archived missions can be unarchived; deleted are gone.
+- What about the `cron_runs` rows for archived missions? Keep them for history, or delete?
+
+**Decision needed:** Clarify retention behavior.
+
+### 5. `cron run` vs `cron_runs` Tracking
+
+`agenc cron run <name>` is for manual testing. Should it:
+
+- Create a `cron_runs` entry (so it shows in `cron history`)?
+- Skip `cron_runs` (since it's manual, not scheduled)?
+- Create entry but mark it differently (e.g., `triggered_by = 'manual'`)?
+
+**Decision needed:** How to track manually-triggered runs.
+
+### 6. Message Threading in Inbox
+
+The inbox groups messages by mission. For crons that fire frequently (e.g., hourly), this creates many threads. Should we:
+
+- Keep current behavior (one thread per mission)?
+- Group by cron name (all runs of `daily-git-sync` in one thread)?
+- Add filtering/search to inbox?
+
+**Decision needed:** Is per-mission threading sufficient for cron workflows?
