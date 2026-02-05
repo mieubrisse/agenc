@@ -20,17 +20,23 @@ type sessionsIndexEntry struct {
 	Modified  string `json:"modified"`
 }
 
-// jsonlSummaryLine represents a summary line in a session JSONL file.
-type jsonlSummaryLine struct {
-	Type    string `json:"type"`
-	Summary string `json:"summary"`
+// jsonlMetadataLine represents a metadata line in a session JSONL file.
+// Covers both {"type":"summary"} and {"type":"custom-title"} entries.
+type jsonlMetadataLine struct {
+	Type        string `json:"type"`
+	Summary     string `json:"summary"`
+	CustomTitle string `json:"customTitle"`
 }
 
-// FindSessionName returns the Claude Code session summary for the given mission.
+// FindSessionName returns the Claude Code session name for the given mission.
 // It searches the Claude config projects directory for a project directory whose
-// name contains the missionID, then reads session data from sessions-index.json
-// (preferred) or falls back to scanning JSONL files. Returns "" if no session
-// name is found.
+// name contains the missionID, then reads session data using the following
+// priority order:
+//  1. Custom title from JSONL (set via /rename — always wins)
+//  2. Summary from sessions-index.json
+//  3. Summary from JSONL files
+//
+// Returns "" if no session name is found.
 func FindSessionName(claudeConfigDirpath string, missionID string) string {
 	projectsDirpath := filepath.Join(claudeConfigDirpath, "projects")
 	entries, err := os.ReadDir(projectsDirpath)
@@ -52,13 +58,20 @@ func FindSessionName(claudeConfigDirpath string, missionID string) string {
 		return ""
 	}
 
-	// Primary: try sessions-index.json
-	if summary := findSummaryFromIndex(projectDirpath); summary != "" {
-		return summary
+	// Always scan JSONL first — a custom-title (from /rename) takes priority
+	// over any auto-generated summary.
+	customTitle, jsonlSummary := findNamesFromJSONL(projectDirpath)
+	if customTitle != "" {
+		return customTitle
 	}
 
-	// Fallback: scan JSONL files for summary entries
-	return findSummaryFromJSONL(projectDirpath)
+	// Try sessions-index.json for an auto-generated summary
+	if indexSummary := findSummaryFromIndex(projectDirpath); indexSummary != "" {
+		return indexSummary
+	}
+
+	// Fall back to the auto-generated summary found in JSONL
+	return jsonlSummary
 }
 
 // findSummaryFromIndex reads sessions-index.json and returns the summary from
@@ -92,13 +105,13 @@ func findSummaryFromIndex(projectDirpath string) string {
 	return index.Entries[latestIdx].Summary
 }
 
-// findSummaryFromJSONL scans .jsonl files in the project directory for
-// {"type":"summary","summary":"..."} entries. Returns the last summary found
-// from the most recently modified JSONL file. Returns "" if no summaries exist.
-func findSummaryFromJSONL(projectDirpath string) string {
+// findNamesFromJSONL scans .jsonl files in the project directory for custom-title
+// and summary entries. It examines the most recently modified JSONL file and
+// returns (customTitle, summary). Either or both may be empty.
+func findNamesFromJSONL(projectDirpath string) (customTitle string, summary string) {
 	entries, err := os.ReadDir(projectDirpath)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 
 	type jsonlCandidate struct {
@@ -122,7 +135,7 @@ func findSummaryFromJSONL(projectDirpath string) string {
 	}
 
 	if len(candidates) == 0 {
-		return ""
+		return "", ""
 	}
 
 	// Find the most recently modified JSONL file
@@ -133,38 +146,48 @@ func findSummaryFromJSONL(projectDirpath string) string {
 		}
 	}
 
-	return findLastSummaryInJSONL(candidates[latestIdx].filepath)
+	return findNamesInJSONL(candidates[latestIdx].filepath)
 }
 
-// findLastSummaryInJSONL scans a JSONL file for lines with {"type":"summary"}
-// and returns the summary from the last such line. Returns "" if none found.
-func findLastSummaryInJSONL(jsonlFilepath string) string {
+// findNamesInJSONL scans a JSONL file for custom-title and summary entries.
+// Returns the last custom-title and the last summary found, either of which
+// may be empty.
+func findNamesInJSONL(jsonlFilepath string) (customTitle string, summary string) {
 	file, err := os.Open(jsonlFilepath)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer file.Close()
 
-	var lastSummary string
 	scanner := bufio.NewScanner(file)
 	// Increase buffer size for potentially large JSONL lines
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Quick check before attempting JSON parse
-		if !strings.Contains(line, `"type":"summary"`) {
+
+		// Quick check: skip lines that can't contain either entry type
+		hasSummary := strings.Contains(line, `"type":"summary"`)
+		hasCustomTitle := strings.Contains(line, `"type":"custom-title"`)
+		if !hasSummary && !hasCustomTitle {
 			continue
 		}
 
-		var entry jsonlSummaryLine
+		var entry jsonlMetadataLine
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			continue
 		}
-		if entry.Type == "summary" && entry.Summary != "" {
-			lastSummary = entry.Summary
+		switch entry.Type {
+		case "summary":
+			if entry.Summary != "" {
+				summary = entry.Summary
+			}
+		case "custom-title":
+			if entry.CustomTitle != "" {
+				customTitle = entry.CustomTitle
+			}
 		}
 	}
 
-	return lastSummary
+	return customTitle, summary
 }
