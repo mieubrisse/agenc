@@ -93,7 +93,20 @@ It works like this:
 
 Getting started
 ---------------
-TODO brew installation instructions
+
+Install via Homebrew:
+
+```
+brew tap mieubrisse/agenc
+brew install agenc
+```
+
+To update:
+
+```
+brew update
+brew upgrade agenc
+```
 
 Configuration
 -------------
