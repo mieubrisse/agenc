@@ -252,15 +252,19 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 }
 
 // listRepoLibrary scans $AGENC_DIRPATH/repos/ three levels deep (github.com/owner/repo)
-// and cross-references with agentTemplates config. Returns entries sorted with
-// templates first, then repos, alphabetical within each group.
+// and cross-references with agentTemplates config. Returns two types of entries:
+// 1. Repo entries (IsTemplate=false) for every repo found on disk
+// 2. Template entries (IsTemplate=true) for every template in the config
+// A repo that is also registered as a template will appear twice: once as a
+// repo row and once as a template row. Results are sorted with templates first,
+// then repos, alphabetical within each group.
 func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTemplateProperties) []repoLibraryEntry {
 	reposDirpath := config.GetReposDirpath(agencDirpath)
 
 	var entries []repoLibraryEntry
-	seen := make(map[string]bool)
 
 	// Walk three levels: host/owner/repo
+	// Add ALL repos as non-template entries
 	hosts, _ := os.ReadDir(reposDirpath)
 	for _, host := range hosts {
 		if !host.IsDir() {
@@ -277,30 +281,22 @@ func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTempl
 					continue
 				}
 				repoName := host.Name() + "/" + owner.Name() + "/" + repo.Name()
-				seen[repoName] = true
-
-				props, isTemplate := templates[repoName]
-				entry := repoLibraryEntry{
+				// Add as a repo entry (not a template)
+				entries = append(entries, repoLibraryEntry{
 					RepoName:   repoName,
-					IsTemplate: isTemplate,
-				}
-				if isTemplate {
-					entry.Nickname = props.Nickname
-				}
-				entries = append(entries, entry)
+					IsTemplate: false,
+				})
 			}
 		}
 	}
 
-	// Include any templates that aren't physically present in repos/
+	// Add ALL templates as template entries
 	for repoName, props := range templates {
-		if !seen[repoName] {
-			entries = append(entries, repoLibraryEntry{
-				RepoName:   repoName,
-				IsTemplate: true,
-				Nickname:   props.Nickname,
-			})
-		}
+		entries = append(entries, repoLibraryEntry{
+			RepoName:   repoName,
+			IsTemplate: true,
+			Nickname:   props.Nickname,
+		})
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
