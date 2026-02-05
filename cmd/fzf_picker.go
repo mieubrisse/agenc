@@ -19,16 +19,31 @@ import (
 // instead to maintain column alignment.
 type FzfPickerConfig struct {
 	Prompt       string     // The prompt displayed to the user
-	Headers      []string   // Column headers for the table
+	Headers      []string   // Column headers for the table (if provided, none may be blank)
 	Rows         [][]string // Data rows (each row is a slice of column values)
 	MultiSelect  bool       // If true, enables multi-select with TAB
 	InitialQuery string     // Optional initial query to pre-filter results
+}
+
+// validateHeaders returns an error if any header in the slice is blank (empty
+// or whitespace-only). An empty headers slice is valid (no headers displayed).
+func validateHeaders(headers []string) error {
+	for i, h := range headers {
+		if strings.TrimSpace(h) == "" {
+			return stacktrace.NewError("header at index %d is blank; fzf strips leading whitespace which breaks column alignment", i)
+		}
+	}
+	return nil
 }
 
 // runFzfPicker presents an fzf picker with tableprinter-formatted data.
 // Returns nil, nil if the user cancels (Ctrl-C/Escape).
 // Returns the selected row indices (0-based, corresponding to cfg.Rows).
 func runFzfPicker(cfg FzfPickerConfig) ([]int, error) {
+	if err := validateHeaders(cfg.Headers); err != nil {
+		return nil, err
+	}
+
 	if len(cfg.Rows) == 0 {
 		return nil, nil
 	}
@@ -136,6 +151,10 @@ func runFzfPicker(cfg FzfPickerConfig) ([]int, error) {
 // (e.g., "NONE") at index -1. Returns the selected indices where -1 represents
 // the sentinel row. Use this when you need a "none/skip" option.
 func runFzfPickerWithSentinel(cfg FzfPickerConfig, sentinelRow []string) ([]int, error) {
+	if err := validateHeaders(cfg.Headers); err != nil {
+		return nil, err
+	}
+
 	if len(cfg.Rows) == 0 && len(sentinelRow) == 0 {
 		return nil, nil
 	}
