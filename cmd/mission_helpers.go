@@ -14,12 +14,12 @@ import (
 // ============================================================================
 
 // missionPickerEntry holds the display-ready fields for a mission in fzf pickers.
-// Fields mirror the mission ls output (minus STATUS) to maintain visual
-// consistency across commands.
+// Fields mirror the mission ls output to maintain visual consistency across commands.
 type missionPickerEntry struct {
 	MissionID  string
 	LastActive string // formatted timestamp
 	ShortID    string
+	Status     string // colorized status (RUNNING/STOPPED/ARCHIVED)
 	Agent      string // display-formatted (may contain ANSI)
 	Session    string // session name (truncated)
 	Repo       string // display-formatted (may contain ANSI)
@@ -46,10 +46,12 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
 		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
+		status := getMissionStatus(m.ID, m.Status)
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,
 			LastActive: formatLastActive(m.LastHeartbeat),
 			ShortID:    m.ShortID,
+			Status:     colorizeStatus(status),
 			Agent:      displayAgentTemplate(m.AgentTemplate, nicknames),
 			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
 			Repo:       displayGitRepo(m.GitRepo),
@@ -58,26 +60,44 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 	return entries, nil
 }
 
+// missionPickerOptions configures the fzf picker behavior.
+type missionPickerOptions struct {
+	Prompt       string
+	MultiSelect  bool
+	InitialQuery string
+	ShowStatus   bool // if true, includes the STATUS column
+}
+
 // selectMissionsFzf presents missions in an fzf picker with the standard
-// column layout (matching mission ls minus STATUS). Returns selected entries.
+// column layout (matching mission ls). Returns selected entries.
 // Returns nil, nil if the user cancels.
-func selectMissionsFzf(entries []missionPickerEntry, prompt string, multiSelect bool, initialQuery string) ([]missionPickerEntry, error) {
+func selectMissionsFzf(entries []missionPickerEntry, opts missionPickerOptions) ([]missionPickerEntry, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
 
-	// Build rows for the picker — column order matches mission ls (minus STATUS)
-	rows := make([][]string, 0, len(entries))
-	for _, e := range entries {
-		rows = append(rows, []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo})
+	// Build rows and headers based on options
+	var headers []string
+	var rows [][]string
+
+	if opts.ShowStatus {
+		headers = []string{"LAST ACTIVE", "ID", "STATUS", "AGENT", "SESSION", "REPO"}
+		for _, e := range entries {
+			rows = append(rows, []string{e.LastActive, e.ShortID, e.Status, e.Agent, e.Session, e.Repo})
+		}
+	} else {
+		headers = []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"}
+		for _, e := range entries {
+			rows = append(rows, []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo})
+		}
 	}
 
 	indices, err := runFzfPicker(FzfPickerConfig{
-		Prompt:       prompt,
-		Headers:      []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
+		Prompt:       opts.Prompt,
+		Headers:      headers,
 		Rows:         rows,
-		MultiSelect:  multiSelect,
-		InitialQuery: initialQuery,
+		MultiSelect:  opts.MultiSelect,
+		InitialQuery: opts.InitialQuery,
 	})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass mission IDs as arguments instead")

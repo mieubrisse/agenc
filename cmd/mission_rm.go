@@ -42,7 +42,11 @@ func selectMissionsToRemove(db *database.DB) ([]string, error) {
 		return nil, err
 	}
 
-	selected, err := selectMissionsFzf(entries, "Select missions to remove (TAB to multi-select): ", true, "")
+	selected, err := selectMissionsFzf(entries, missionPickerOptions{
+		Prompt:      "Select missions to remove (TAB to multi-select): ",
+		MultiSelect: true,
+		ShowStatus:  true,
+	})
 	if err != nil {
 		return nil, err
 	}

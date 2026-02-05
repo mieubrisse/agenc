@@ -57,7 +57,10 @@ func selectMissionsToStop(db *database.DB) ([]string, error) {
 		return nil, err
 	}
 
-	selected, err := selectMissionsFzf(entries, "Select missions to stop (TAB to multi-select): ", true, "")
+	selected, err := selectMissionsFzf(entries, missionPickerOptions{
+		Prompt:      "Select missions to stop (TAB to multi-select): ",
+		MultiSelect: true,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -59,7 +59,10 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Auto-selected: %s\n", matches[0].ShortID)
 			selected = &matches[0]
 		} else {
-			picked, err := selectMissionsFzf(entries, "Select mission to resume: ", false, strings.Join(args, " "))
+			picked, err := selectMissionsFzf(entries, missionPickerOptions{
+				Prompt:       "Select mission to resume: ",
+				InitialQuery: strings.Join(args, " "),
+			})
 			if err != nil {
 				return err
 			}
@@ -69,7 +72,9 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 			selected = &picked[0]
 		}
 	} else {
-		picked, err := selectMissionsFzf(entries, "Select mission to resume: ", false, "")
+		picked, err := selectMissionsFzf(entries, missionPickerOptions{
+			Prompt: "Select mission to resume: ",
+		})
 		if err != nil {
 			return err
 		}

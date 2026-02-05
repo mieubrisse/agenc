@@ -72,7 +72,10 @@ func selectMissionToInspect(db *database.DB) (string, error) {
 		return "", err
 	}
 
-	selected, err := selectMissionsFzf(entries, "Select mission to inspect: ", false, "")
+	selected, err := selectMissionsFzf(entries, missionPickerOptions{
+		Prompt:     "Select mission to inspect: ",
+		ShowStatus: true,
+	})
 	if err != nil {
 		return "", err
 	}
