@@ -318,47 +318,49 @@ const ansiLightBlue = "\033[94m"
 const ansiReset = "\033[0m"
 
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
-// Agent templates are prefixed with 🤖; regular repos have spacing to align.
+// Agent templates are prefixed with 🤖; repos are prefixed with 📦.
 // Uses displayGitRepo for consistent repo formatting across all commands.
 // This is used by matchRepoLibraryEntries for pre-filtering before fzf.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
 	coloredRepo := displayGitRepo(entry.RepoName)
 	if entry.IsTemplate {
 		if entry.Nickname != "" {
-			return fmt.Sprintf("🤖  %s (%s)", entry.Nickname, coloredRepo)
+			return fmt.Sprintf("🤖 %s (%s)", entry.Nickname, coloredRepo)
 		}
-		return fmt.Sprintf("🤖  %s", coloredRepo)
+		return fmt.Sprintf("🤖 %s", coloredRepo)
 	}
-	return fmt.Sprintf("    %s", coloredRepo)
+	return fmt.Sprintf("📦 %s", coloredRepo)
 }
 
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
 // A NONE option is prepended for creating a blank mission.
 func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibrarySelection, error) {
-	// Build rows for the picker as a single column with pre-formatted content:
-	// Templates: "🤖  Nickname (repo)" or "🤖  repo"
-	// Repos:     "    repo" (4 spaces to align with "🤖  ")
+	// Build rows for the picker with two columns:
+	// Column 1: 🤖 for templates, 📦 for repos
+	// Column 2 (ITEM): "Nickname (repo)" for templates, repo path for repos
 	var rows [][]string
 	for _, entry := range entries {
-		var item string
+		var typeIcon, item string
 		if entry.IsTemplate {
+			typeIcon = "🤖"
 			if entry.Nickname != "" {
-				item = fmt.Sprintf("🤖  %s (%s)", entry.Nickname, displayGitRepo(entry.RepoName))
+				item = fmt.Sprintf("%s (%s)", entry.Nickname, displayGitRepo(entry.RepoName))
 			} else {
-				item = fmt.Sprintf("🤖  %s", displayGitRepo(entry.RepoName))
+				item = displayGitRepo(entry.RepoName)
 			}
 		} else {
-			item = fmt.Sprintf("    %s", displayGitRepo(entry.RepoName))
+			typeIcon = "📦"
+			item = displayGitRepo(entry.RepoName)
 		}
-		rows = append(rows, []string{item})
+		rows = append(rows, []string{typeIcon, item})
 	}
 
 	// Use sentinel row for NONE option
-	sentinelRow := []string{"    — blank mission"}
+	sentinelRow := []string{"", "— blank mission"}
 
 	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
 		Prompt:       "Select repo: ",
-		Headers:      []string{"ITEM"},
+		Headers:      []string{"", "ITEM"},
 		Rows:         rows,
 		MultiSelect:  false,
 		InitialQuery: initialQuery,
