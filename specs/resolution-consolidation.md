@@ -212,57 +212,34 @@ repos, err := Resolve(strings.Join(args, " "), Resolver[string]{
 })
 ```
 
-Open Questions
---------------
+Design Decisions
+----------------
 
-### 1. Canonical resolution returning multiple items?
+### 1. Input semantics
 
-Current `ResolveRepoInputs()` can resolve multiple space-separated references in one call. Should the generic resolver handle this, or should callers loop?
+`"term1 term2"` is always treated as search terms for sequential substring matching, not as multiple references. Callers that need to resolve multiple items should either:
+- Let the user multi-select in fzf
+- Call `Resolve()` multiple times in a loop
 
-**Options:**
-- A: Resolver handles single input only; callers loop for multi-input
-- B: Add `TryCanonicalMulti func(inputs []string) ([]T, []string, error)` returning matched items and remaining unmatched terms
+### 2. Sentinel rows
 
-### 2. Sentinel rows in fzf?
+Handled externally. Commands that need sentinel rows (e.g., "blank mission") wrap or compose around the resolver rather than adding complexity to the core.
 
-Mission picker has a "blank mission" sentinel. Template picker could have "create new template".
+### 3. Pre-filtering
 
-**Options:**
-- A: Handle sentinels outside the generic resolver (wrap/compose)
-- B: Add `SentinelRows []SentinelRow` to Resolver config
-- C: Use a separate `ResolveWithSentinel[T]` function
+Baked into `GetItems()`. The caller is responsible for returning the appropriate subset of items.
 
-### 3. Pre-filtering before resolution?
+### 4. Auto-select confirmation
 
-`repo rm` filters out templates before matching. Should this be:
+The resolver does not print anything. Callers can determine auto-selection from the return value and context (e.g., if input was provided and exactly one item returned).
 
-**Options:**
-- A: Baked into `GetItems()` — caller's responsibility
-- B: Add `Filter func(T) bool` to Resolver config
+### 5. Location
 
-### 4. Confirmation message on auto-select?
+`cmd/resolver.go` — lives alongside other cmd utilities.
 
-Some commands print "Using X" when auto-selecting. Should the resolver handle this?
+### 6. Filter functions
 
-**Options:**
-- A: Resolver is silent; callers print confirmation
-- B: Add `OnAutoSelect func(T)` callback
-- C: Return a `Result` struct with `{Items []T, WasAutoSelected bool}`
-
-### 5. Where does this live?
-
-**Options:**
-- A: `cmd/resolver.go` — alongside other cmd utilities
-- B: `internal/resolver/resolver.go` — separate package for reuse
-- C: `cmd/resolve.go` — verb-based naming
-
-### 6. What about the filter functions?
-
-With a generic resolver, do we still need `matchMissionEntries()`, `matchRepoLibraryEntries()`, etc.?
-
-**Options:**
-- A: Delete them; filtering is internal to Resolve()
-- B: Keep them for cases where fzf isn't involved (e.g., testing, scripting)
+Delete `matchMissionEntries()`, `matchRepoLibraryEntries()`, `matchTemplateEntries()`, and `matchReposGlob()` once all callers are migrated. The filtering logic is subsumed into `Resolve()`.
 
 Implementation Plan
 -------------------
