@@ -311,7 +311,11 @@ func TestEnsureConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read config file: %v", err)
 	}
-	expected := "agentTemplates: {}\n"
+	expected := `agentTemplates:
+  github.com/mieubrisse/agenc-agent-template_agenc-engineer:
+    nickname: "🤖 AgenC Engineer"
+    defaultFor: agentTemplate
+`
 	if string(data) != expected {
 		t.Errorf("expected %q, got %q", expected, string(data))
 	}

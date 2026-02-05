@@ -143,8 +143,9 @@ func FindDefaultTemplate(templates map[string]AgentTemplateProperties, context s
 	return ""
 }
 
-// EnsureConfigFile creates config.yml with an empty agentTemplates map if it
-// does not already exist.
+// EnsureConfigFile creates config.yml with a default configuration if it does
+// not already exist. The default configuration includes the AgenC Engineer
+// template pre-installed as the default for editing agent templates.
 func EnsureConfigFile(agencDirpath string) error {
 	configFilepath := GetConfigFilepath(agencDirpath)
 
@@ -152,7 +153,11 @@ func EnsureConfigFile(agencDirpath string) error {
 		return nil
 	}
 
-	seed := "agentTemplates: {}\n"
+	seed := `agentTemplates:
+  github.com/mieubrisse/agenc-agent-template_agenc-engineer:
+    nickname: "🤖 AgenC Engineer"
+    defaultFor: agentTemplate
+`
 	if err := os.WriteFile(configFilepath, []byte(seed), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to create config file '%s'", configFilepath)
 	}
