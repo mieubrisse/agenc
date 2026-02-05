@@ -19,6 +19,7 @@ import (
 var agentFlag string
 var gitFlag string
 var cloneFlag string
+var promptFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   newCmdStr + " [search-terms...]",
@@ -50,6 +51,7 @@ func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultFor config)")
 	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo (URL, shorthand, local path, or search terms)")
 	missionNewCmd.Flags().StringVar(&cloneFlag, "clone", "", "mission UUID to clone workspace from")
+	missionNewCmd.Flags().StringVar(&promptFlag, "prompt", "", "initial prompt to start Claude with")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -120,7 +122,7 @@ func runMissionNewWithFlags(cfg *config.AgencConfig) error {
 		return err
 	}
 
-	return createAndLaunchMission(agencDirpath, agentTemplate, gitRepoName, gitCloneDirpath, "")
+	return createAndLaunchMission(agencDirpath, agentTemplate, gitRepoName, gitCloneDirpath, promptFlag)
 }
 
 // runMissionNewWithClone creates a new mission by cloning the workspace of an
@@ -162,7 +164,7 @@ func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
 		fmt.Println("Launching claude...")
 
 		gitRepoName := sourceMission.GitRepo
-		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, "", db)
+		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, promptFlag, db)
 		return w.Run(false)
 	})
 }
@@ -232,12 +234,12 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 		if err != nil {
 			return err
 		}
-		return createAndLaunchMission(agencDirpath, agentTemplate, "", "", "")
+		return createAndLaunchMission(agencDirpath, agentTemplate, "", "", promptFlag)
 	}
 
 	if selection.IsTemplate {
 		// Template selected — use the template as agent, no git repo
-		return createAndLaunchMission(agencDirpath, selection.RepoName, "", "", "")
+		return createAndLaunchMission(agencDirpath, selection.RepoName, "", "", promptFlag)
 	}
 
 	// Regular repo selected — clone into workspace, use default repo agent
@@ -246,7 +248,7 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 		return err
 	}
 	gitCloneDirpath := config.GetRepoDirpath(agencDirpath, selection.RepoName)
-	return createAndLaunchMission(agencDirpath, agentTemplate, selection.RepoName, gitCloneDirpath, "")
+	return createAndLaunchMission(agencDirpath, agentTemplate, selection.RepoName, gitCloneDirpath, promptFlag)
 }
 
 // listRepoLibrary scans ~/.agenc/repos/ three levels deep (github.com/owner/repo)
