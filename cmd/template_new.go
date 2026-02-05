@@ -48,7 +48,7 @@ flag accepts the same formats as above, or search terms to match against your
 template library.
 
 The new template is automatically added to your template library and a mission
-is launched to edit it (same as 'template edit').`, cloneFlagName, cloneFlagName),
+is launched to edit it (same as '%s %s').`, cloneFlagName, cloneFlagName, templateCmdStr, editCmdStr),
 	Args: cobra.MaximumNArgs(1),
 	RunE: runTemplateNew,
 }
