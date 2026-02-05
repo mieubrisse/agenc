@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/config"
 )
 
 var templateAddNicknameFlag string
@@ -36,9 +33,8 @@ existing repos in the library. If no repos exist, you'll be prompted to choose.`
 }
 
 func init() {
-	templateAddCmd.Flags().StringVar(&templateAddNicknameFlag, "nickname", "", "optional friendly name for the template")
-	templateAddCmd.Flags().StringVar(&templateAddDefaultFlag, "default", "",
-		fmt.Sprintf("make this template the default for a mission context; valid values: %s", config.FormatDefaultForValues()))
+	templateAddCmd.Flags().StringVar(&templateAddNicknameFlag, templateNicknameFlagName, "", templateNicknameFlagDesc)
+	templateAddCmd.Flags().StringVar(&templateAddDefaultFlag, templateDefaultFlagName, "", templateDefaultFlagDesc())
 	templateCmd.AddCommand(templateAddCmd)
 }
 

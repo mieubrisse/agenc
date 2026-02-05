@@ -17,7 +17,11 @@ import (
 
 const templateNewPublicFlagName = "public"
 
-var templateNewPublicFlag bool
+var (
+	templateNewPublicFlag   bool
+	templateNewNicknameFlag string
+	templateNewDefaultFlag  string
+)
 
 var templateNewCmd = &cobra.Command{
 	Use:   newCmdStr + " <repo>",
@@ -44,6 +48,8 @@ is launched to edit it (same as 'template edit').`,
 
 func init() {
 	templateNewCmd.Flags().BoolVar(&templateNewPublicFlag, templateNewPublicFlagName, false, "create a public repository (default is private)")
+	templateNewCmd.Flags().StringVar(&templateNewNicknameFlag, templateNicknameFlagName, "", templateNicknameFlagDesc)
+	templateNewCmd.Flags().StringVar(&templateNewDefaultFlag, templateDefaultFlagName, "", templateDefaultFlagDesc())
 	templateCmd.AddCommand(templateNewCmd)
 }
 
@@ -138,7 +144,7 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add to template library (reuses template add infrastructure)
-	added, err := addTemplateToLibrary(agencDirpath, repoName, "", "")
+	added, err := addTemplateToLibrary(agencDirpath, repoName, templateNewNicknameFlag, templateNewDefaultFlag)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to add template to library")
 	}

@@ -8,6 +8,19 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
+// Template flag names (shared across template add and template new)
+const (
+	templateNicknameFlagName = "nickname"
+	templateDefaultFlagName  = "default"
+)
+
+// Template flag descriptions
+const templateNicknameFlagDesc = "optional friendly name for the template"
+
+func templateDefaultFlagDesc() string {
+	return fmt.Sprintf("make this template the default for a mission context; valid values: %s", config.FormatDefaultForValues())
+}
+
 // addTemplateToLibrary adds a template to the agenc config. Returns true if
 // the template was newly added, false if it already existed. The nickname and
 // defaultFor parameters are optional (pass empty strings to skip).
