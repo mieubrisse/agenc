@@ -360,7 +360,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 
 	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
 		Prompt:       "Select repo: ",
-		Headers:      []string{"", "ITEM"},
+		Headers:      []string{" ", "ITEM"},
 		Rows:         rows,
 		MultiSelect:  false,
 		InitialQuery: initialQuery,
