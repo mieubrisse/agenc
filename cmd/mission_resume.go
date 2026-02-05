@@ -53,10 +53,24 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	}
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
-		// No canonical resolution for missions (just use search)
-		TryCanonical: nil,
-		GetItems:     func() ([]missionPickerEntry, error) { return entries, nil },
-		ExtractText:  formatMissionMatchLine,
+		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
+			if !looksLikeMissionID(input) {
+				return missionPickerEntry{}, false, nil
+			}
+			missionID, err := db.ResolveMissionID(input)
+			if err != nil {
+				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
+			}
+			// Find the entry in our stopped missions list
+			for _, e := range entries {
+				if e.MissionID == missionID {
+					return e, true, nil
+				}
+			}
+			return missionPickerEntry{}, false, stacktrace.NewError("mission %s is not stopped", input)
+		},
+		GetItems:    func() ([]missionPickerEntry, error) { return entries, nil },
+		ExtractText: formatMissionMatchLine,
 		FormatRow: func(e missionPickerEntry) []string {
 			return []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo}
 		},
@@ -74,8 +88,9 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 
 	selected := result.Items[0]
 
-	// Print auto-select message if search matched exactly one
-	if len(args) > 0 {
+	// Print auto-select message only if search terms (not UUID) matched exactly one
+	input := strings.Join(args, " ")
+	if input != "" && !looksLikeMissionID(input) {
 		fmt.Printf("Auto-selected: %s\n", selected.ShortID)
 	}
 

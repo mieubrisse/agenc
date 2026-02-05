@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"regexp"
 
 	"github.com/mieubrisse/stacktrace"
@@ -28,6 +27,18 @@ type missionPickerEntry struct {
 
 // ansiPattern matches ANSI SGR escape sequences for stripping colors.
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// shortIDPattern matches 8 hex characters (mission short ID).
+var shortIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}$`)
+
+// fullUUIDPattern matches a full UUID (8-4-4-4-12 hex format).
+var fullUUIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// looksLikeMissionID returns true if the input appears to be a mission ID
+// (either a short 8-char hex ID or a full UUID) rather than search terms.
+func looksLikeMissionID(input string) bool {
+	return shortIDPattern.MatchString(input) || fullUUIDPattern.MatchString(input)
+}
 
 // stripAnsiCodes removes ANSI escape sequences from a string.
 func stripAnsiCodes(s string) string {
@@ -61,72 +72,10 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 	return entries, nil
 }
 
-// missionPickerOptions configures the fzf picker behavior.
-type missionPickerOptions struct {
-	Prompt       string
-	MultiSelect  bool
-	InitialQuery string
-	ShowStatus   bool // if true, includes the STATUS column
-}
-
-// selectMissionsFzf presents missions in an fzf picker with the standard
-// column layout (matching mission ls). Returns selected entries.
-// Returns nil, nil if the user cancels.
-func selectMissionsFzf(entries []missionPickerEntry, opts missionPickerOptions) ([]missionPickerEntry, error) {
-	if len(entries) == 0 {
-		return nil, nil
-	}
-
-	// Build rows and headers based on options
-	var headers []string
-	var rows [][]string
-
-	if opts.ShowStatus {
-		headers = []string{"LAST ACTIVE", "ID", "STATUS", "AGENT", "SESSION", "REPO"}
-		for _, e := range entries {
-			rows = append(rows, []string{e.LastActive, e.ShortID, e.Status, e.Agent, e.Session, e.Repo})
-		}
-	} else {
-		headers = []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"}
-		for _, e := range entries {
-			rows = append(rows, []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo})
-		}
-	}
-
-	indices, err := runFzfPicker(FzfPickerConfig{
-		Prompt:       opts.Prompt,
-		Headers:      headers,
-		Rows:         rows,
-		MultiSelect:  opts.MultiSelect,
-		InitialQuery: opts.InitialQuery,
-	})
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass mission IDs as arguments instead")
-	}
-	if indices == nil {
-		return nil, nil
-	}
-
-	selected := make([]missionPickerEntry, 0, len(indices))
-	for _, idx := range indices {
-		selected = append(selected, entries[idx])
-	}
-	return selected, nil
-}
-
 // formatMissionMatchLine returns a plain-text representation of a mission
 // picker entry suitable for sequential substring matching.
 func formatMissionMatchLine(entry missionPickerEntry) string {
 	return entry.LastActive + " " + entry.ShortID + " " + stripAnsiCodes(entry.Agent) + " " + entry.Session + " " + stripAnsiCodes(entry.Repo)
-}
-
-// extractMissionShortIDs returns the short IDs from a slice of picker entries.
-func extractMissionShortIDs(entries []missionPickerEntry) []string {
-	ids := make([]string, len(entries))
-	for i, e := range entries {
-		ids[i] = e.ShortID
-	}
-	return ids
 }
 
 // filterStoppedMissions returns only missions that are currently stopped.
@@ -183,50 +132,6 @@ func resolveAndRunForMission(rawID string, fn func(*database.DB, string) error) 
 	return fn(db, missionID)
 }
 
-// resolveAndRunForEachMission handles the common pattern of: if no args use
-// fzf selector, resolve all IDs (fail fast), then run action on each.
-func resolveAndRunForEachMission(
-	args []string,
-	selectFn func(*database.DB) ([]string, error),
-	actionFn func(*database.DB, string) error,
-) error {
-	db, err := openDB()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	missionIDs := args
-	if len(missionIDs) == 0 {
-		selectedIDs, err := selectFn(db)
-		if err != nil {
-			return err
-		}
-		if len(selectedIDs) == 0 {
-			return nil
-		}
-		missionIDs = selectedIDs
-	}
-
-	// Resolve all IDs up front (fail fast on any bad input)
-	resolvedIDs := make([]string, 0, len(missionIDs))
-	for _, rawID := range missionIDs {
-		resolved, err := db.ResolveMissionID(rawID)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to resolve mission ID")
-		}
-		resolvedIDs = append(resolvedIDs, resolved)
-	}
-
-	for _, missionID := range resolvedIDs {
-		if err := actionFn(db, missionID); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // prepareMissionForAction verifies a mission exists and stops its wrapper.
 // This is the common setup needed before destructive operations (remove, archive).
 func prepareMissionForAction(db *database.DB, missionID string) (*database.Mission, error) {
@@ -240,51 +145,6 @@ func prepareMissionForAction(db *database.DB, missionID string) (*database.Missi
 	}
 
 	return mission, nil
-}
-
-// missionSelectConfig configures the interactive mission selection picker.
-type missionSelectConfig struct {
-	IncludeArchived bool                                                 // pass to db.ListMissions
-	Filter          func([]*database.Mission) []*database.Mission        // optional post-fetch filter
-	EmptyMessage    string                                               // message when no missions match
-	Prompt          string                                               // fzf prompt
-	ShowStatus      bool                                                 // whether to show STATUS column
-}
-
-// selectMissionsInteractive presents an fzf picker for mission selection.
-// Returns the selected mission short IDs, or nil if no missions or user cancels.
-func selectMissionsInteractive(db *database.DB, cfg missionSelectConfig) ([]string, error) {
-	missions, err := db.ListMissions(cfg.IncludeArchived)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to list missions")
-	}
-
-	if cfg.Filter != nil {
-		missions = cfg.Filter(missions)
-	}
-
-	if len(missions) == 0 {
-		if cfg.EmptyMessage != "" {
-			fmt.Println(cfg.EmptyMessage)
-		}
-		return nil, nil
-	}
-
-	entries, err := buildMissionPickerEntries(db, missions)
-	if err != nil {
-		return nil, err
-	}
-
-	selected, err := selectMissionsFzf(entries, missionPickerOptions{
-		Prompt:      cfg.Prompt,
-		MultiSelect: true,
-		ShowStatus:  cfg.ShowStatus,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return extractMissionShortIDs(selected), nil
 }
 
 // ============================================================================

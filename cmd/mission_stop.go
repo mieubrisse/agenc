@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,12 +21,13 @@ const (
 )
 
 var missionStopCmd = &cobra.Command{
-	Use:   stopCmdStr + " [mission-id...]",
+	Use:   stopCmdStr + " [mission-id|search-terms...]",
 	Short: "Stop one or more mission wrapper processes",
 	Long: `Stop one or more mission wrapper processes.
 
 Without arguments, opens an interactive fzf picker showing running missions.
-With arguments, stops the specified missions by ID.`,
+With arguments, accepts a mission ID (short or full UUID) or search terms to
+filter the list. If exactly one mission matches search terms, it is auto-selected.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionStop,
 }
@@ -35,18 +37,74 @@ func init() {
 }
 
 func runMissionStop(cmd *cobra.Command, args []string) error {
-	return resolveAndRunForEachMission(args, selectMissionsToStop, func(db *database.DB, missionID string) error {
-		return stopMissionWrapper(missionID)
-	})
-}
+	db, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
 
-func selectMissionsToStop(db *database.DB) ([]string, error) {
-	return selectMissionsInteractive(db, missionSelectConfig{
-		IncludeArchived: false,
-		Filter:          filterRunningMissions,
-		EmptyMessage:    "No running missions to stop.",
-		Prompt:          "Select missions to stop (TAB to multi-select): ",
+	missions, err := db.ListMissions(false)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list missions")
+	}
+
+	runningMissions := filterRunningMissions(missions)
+	if len(runningMissions) == 0 {
+		fmt.Println("No running missions to stop.")
+		return nil
+	}
+
+	entries, err := buildMissionPickerEntries(db, runningMissions)
+	if err != nil {
+		return err
+	}
+
+	input := strings.Join(args, " ")
+	result, err := Resolve(input, Resolver[missionPickerEntry]{
+		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
+			if !looksLikeMissionID(input) {
+				return missionPickerEntry{}, false, nil
+			}
+			missionID, err := db.ResolveMissionID(input)
+			if err != nil {
+				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
+			}
+			// Find the entry in our running missions list
+			for _, e := range entries {
+				if e.MissionID == missionID {
+					return e, true, nil
+				}
+			}
+			return missionPickerEntry{}, false, stacktrace.NewError("mission %s is not running", input)
+		},
+		GetItems:    func() ([]missionPickerEntry, error) { return entries, nil },
+		ExtractText: formatMissionMatchLine,
+		FormatRow: func(e missionPickerEntry) []string {
+			return []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo}
+		},
+		FzfPrompt:   "Select missions to stop (TAB to multi-select): ",
+		FzfHeaders:  []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
+		MultiSelect: true,
 	})
+	if err != nil {
+		return err
+	}
+
+	if result.WasCancelled || len(result.Items) == 0 {
+		return nil
+	}
+
+	// Print auto-select message only if search terms (not UUID) matched exactly one
+	if input != "" && !looksLikeMissionID(input) && len(result.Items) == 1 {
+		fmt.Printf("Auto-selected: %s\n", result.Items[0].ShortID)
+	}
+
+	for _, entry := range result.Items {
+		if err := stopMissionWrapper(entry.MissionID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // stopMissionWrapper gracefully stops a mission's wrapper process if it is
