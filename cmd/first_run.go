@@ -47,7 +47,12 @@ func handleFirstRun(agencDirpath string) error {
 		return nil
 	}
 
-	fmt.Print("Enter the repo (owner/repo, github.com/owner/repo, or GitHub URL - SSH or HTTPS): ")
+	fmt.Println("Enter the repo reference. Examples:")
+	fmt.Println("  owner/repo                         (uses HTTPS)")
+	fmt.Println("  https://github.com/owner/repo      (HTTPS)")
+	fmt.Println("  git@github.com:owner/repo.git      (SSH)")
+	fmt.Println()
+	fmt.Print("Repo: ")
 	repoRef, err := reader.ReadString('\n')
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read repo reference")

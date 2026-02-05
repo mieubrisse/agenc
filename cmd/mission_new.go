@@ -37,14 +37,19 @@ with positional search terms).
 Use --clone <mission-uuid> to create a new mission with a full copy of an
 existing mission's workspace. The source mission's git repo and agent template
 carry over by default. Override the agent template with --agent or a single
-positional search term. --clone cannot be combined with --git.`,
+positional search term. --clone cannot be combined with --git.
+
+Tip: The --git flag accepts full URLs to control the clone protocol.
+Use git@github.com:owner/repo.git for SSH or https://github.com/owner/repo
+for HTTPS. Shorthand formats (owner/repo) inherit the protocol from existing
+repos in your library.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
 
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultFor config)")
-	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or https://github.com/owner/repo/...)")
+	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo to copy into workspace (local path, owner/repo, or full URL - SSH or HTTPS)")
 	missionNewCmd.Flags().StringVar(&cloneFlag, "clone", "", "mission UUID to clone workspace from")
 	missionCmd.AddCommand(missionNewCmd)
 }

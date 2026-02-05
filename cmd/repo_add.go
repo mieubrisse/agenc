@@ -24,9 +24,10 @@ Accepts any of these formats:
   https://github.com/owner/repo
   git@github.com:owner/repo.git
 
-The clone protocol is auto-detected: explicit URLs preserve their protocol,
-while shorthand references (owner/repo) use the protocol inferred from
-existing repos in the library.
+Tip: Use the full URL to control the clone protocol. For SSH authentication,
+use git@github.com:owner/repo.git. For HTTPS, use https://github.com/owner/repo.
+Shorthand formats (owner/repo) inherit the protocol from existing repos in
+your library, defaulting to HTTPS if none exist.
 
 Use --sync to keep the repo continuously synced by the daemon.`,
 	Args: cobra.ExactArgs(1),
