@@ -52,7 +52,6 @@ const (
 
 	// mission new flags
 	agentFlagName  = "agent"
-	gitFlagName    = "git"
 	cloneFlagName  = "clone"
 	promptFlagName = "prompt"
 

@@ -17,7 +17,6 @@ import (
 )
 
 var agentFlag string
-var gitFlag string
 var cloneFlag string
 var promptFlag string
 
@@ -26,38 +25,30 @@ var missionNewCmd = &cobra.Command{
 	Short: "Create a new mission and launch claude",
 	Long: fmt.Sprintf(`Create a new mission and launch claude.
 
-Without flags, opens an fzf picker showing all repos and agent templates
-in your library ($AGENC_DIRPATH/repos/). Positional arguments act as search terms
-to filter the list. If exactly one repo matches, it is auto-selected.
+Positional arguments select a repo or agent template. They can be:
+  - A git reference (URL, shorthand like owner/repo, or local path)
+  - Search terms to match against your library ("my repo")
 
-Use --%s and/or --%s flags for explicit control (cannot be combined
-with positional search terms).
+Without --%s, both repos and agent templates are shown. Selecting an agent
+template creates a blank mission using that template. Selecting a repo clones
+it into the workspace and uses the default agent template.
+
+With --%s, only repos are shown. The flag value specifies the agent template
+using the same format as positional args (git reference or search terms).
 
 Use --%s <mission-uuid> to create a new mission with a full copy of an
-existing mission's workspace. The source mission's git repo and agent template
-carry over by default. Override the agent template with --%s or a single
-positional search term. --%s cannot be combined with --%s.
-
-The --%s and --%s flags accept the same input formats:
-  - Full URLs (git@github.com:owner/repo.git or https://github.com/owner/repo)
-  - Shorthand references (owner/repo or github.com/owner/repo)
-  - Local filesystem paths (/path/to/repo, ./relative/path, ~/home/path)
-  - Search terms to match against repos in your library ("my repo")
-
-The --%s flag searches all repos; --%s searches only agent templates.`,
-		gitFlagName, agentFlagName,
-		cloneFlagName,
+existing mission's workspace. Override the agent template with --%s or a
+positional search term.`,
 		agentFlagName,
-		cloneFlagName, gitFlagName,
-		gitFlagName, agentFlagName,
-		gitFlagName, agentFlagName),
+		agentFlagName,
+		cloneFlagName,
+		agentFlagName),
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
 
 func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, agentFlagName, "", "agent template (URL, shorthand, local path, or search terms)")
-	missionNewCmd.Flags().StringVar(&gitFlag, gitFlagName, "", "git repo (URL, shorthand, local path, or search terms)")
 	missionNewCmd.Flags().StringVar(&cloneFlag, cloneFlagName, "", "mission UUID to clone workspace from")
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
 	missionCmd.AddCommand(missionNewCmd)
@@ -86,9 +77,6 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	if cloneFlag != "" {
-		if gitFlag != "" {
-			return stacktrace.NewError("--%s and --%s are mutually exclusive", cloneFlagName, gitFlagName)
-		}
 		if agentFlag != "" && len(args) > 0 {
 			return stacktrace.NewError("--%s with --%s cannot be combined with positional arguments", cloneFlagName, agentFlagName)
 		}
@@ -98,39 +86,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return runMissionNewWithClone(args)
 	}
 
-	hasFlags := gitFlag != "" || agentFlag != ""
-	hasArgs := len(args) > 0
-
-	if hasFlags && hasArgs {
-		return stacktrace.NewError("positional search terms cannot be combined with --%s or --%s flags", gitFlagName, agentFlagName)
-	}
-
-	if hasFlags {
-		return runMissionNewWithFlags(cfg)
-	}
 	return runMissionNewWithPicker(cfg, args)
-}
-
-// runMissionNewWithFlags contains the original flag-based mission creation
-// logic (--git and/or --agent).
-func runMissionNewWithFlags(cfg *config.AgencConfig) error {
-	var gitRepoName string
-	var gitCloneDirpath string
-	if gitFlag != "" {
-		repoName, cloneDirpath, gitErr := resolveGitFlag(agencDirpath, gitFlag)
-		if gitErr != nil {
-			return gitErr
-		}
-		gitRepoName = repoName
-		gitCloneDirpath = cloneDirpath
-	}
-
-	agentTemplate, err := resolveAgentTemplate(cfg, agentFlag, gitRepoName)
-	if err != nil {
-		return err
-	}
-
-	return createAndLaunchMission(agencDirpath, agentTemplate, gitRepoName, gitCloneDirpath, promptFlag)
 }
 
 // runMissionNewWithClone creates a new mission by cloning the workspace of an
@@ -201,9 +157,44 @@ func resolveCloneAgentTemplate(sourceMission *database.Mission, args []string) (
 
 // runMissionNewWithPicker shows an fzf picker over the repo library. Positional
 // args are used as search terms to filter or auto-select.
+//
+// When agentFlag is set, only repos are shown (no templates), and the agent
+// template is resolved separately from the flag value after repo selection.
 func runMissionNewWithPicker(cfg *config.AgencConfig, args []string) error {
 	entries := listRepoLibrary(agencDirpath, cfg.AgentTemplates)
 
+	// When --agent is specified, filter to repos only (user will pick their agent)
+	if agentFlag != "" {
+		var reposOnly []repoLibraryEntry
+		for _, e := range entries {
+			if !e.IsTemplate {
+				reposOnly = append(reposOnly, e)
+			}
+		}
+		entries = reposOnly
+	}
+
+	// First, try to resolve positional args as a git reference (URL, path, shorthand)
+	if len(args) > 0 {
+		joinedArgs := strings.Join(args, " ")
+		if looksLikeRepoReference(joinedArgs) || (len(args) == 1 && looksLikeRepoReference(args[0])) {
+			input := joinedArgs
+			if len(args) == 1 {
+				input = args[0]
+			}
+			result, err := ResolveRepoInput(agencDirpath, input, false, "Select repo: ")
+			if err != nil {
+				return err
+			}
+			selection := &repoLibrarySelection{
+				RepoName:   result.RepoName,
+				IsTemplate: false,
+			}
+			return launchFromLibrarySelection(cfg, selection)
+		}
+	}
+
+	// Fall back to search term matching
 	var selection *repoLibrarySelection
 
 	if len(args) > 0 {
@@ -234,11 +225,12 @@ func runMissionNewWithPicker(cfg *config.AgencConfig, args []string) error {
 }
 
 // launchFromLibrarySelection creates and launches a mission based on the
-// library picker selection.
+// library picker selection. If agentFlag is set, resolves the agent template
+// from it; otherwise uses defaultFor config or the selected template.
 func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibrarySelection) error {
 	if selection.RepoName == "" {
-		// NONE selected — blank mission with default agent
-		agentTemplate, err := resolveAgentTemplate(cfg, "", "")
+		// NONE selected — blank mission
+		agentTemplate, err := resolveAgentTemplate(cfg, agentFlag, "")
 		if err != nil {
 			return err
 		}
@@ -247,11 +239,14 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 
 	if selection.IsTemplate {
 		// Template selected — use the template as agent, no git repo
+		// (this path only happens when agentFlag is not set, since templates
+		// are filtered out when agentFlag is specified)
 		return createAndLaunchMission(agencDirpath, selection.RepoName, "", "", promptFlag)
 	}
 
-	// Regular repo selected — clone into workspace, use default repo agent
-	agentTemplate, err := resolveAgentTemplate(cfg, "", selection.RepoName)
+	// Regular repo selected — clone into workspace
+	// If agentFlag is set, resolve it; otherwise use defaultFor config
+	agentTemplate, err := resolveAgentTemplate(cfg, agentFlag, selection.RepoName)
 	if err != nil {
 		return err
 	}
@@ -369,7 +364,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		InitialQuery: initialQuery,
 	}, sentinelRow)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or use --%s/--%s flags", gitFlagName, agentFlagName)
+		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass a repo reference as an argument")
 	}
 	if indices == nil {
 		return nil, stacktrace.NewError("fzf selection cancelled")
@@ -506,21 +501,6 @@ func createAndLaunchMission(
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, initialPrompt, db)
 	return w.Run(false)
 }
-
-// resolveGitFlag resolves a --git flag value into a canonical repo
-// name and the filesystem path to the agenc-owned clone. The flag can be a
-// local filesystem path (starts with /, ., or ~), a repo reference
-// ("owner/repo" or "github.com/owner/repo"), a GitHub URL
-// (https://github.com/owner/repo/...), or search terms to match against
-// repos in the library.
-func resolveGitFlag(agencDirpath string, flag string) (repoName string, cloneDirpath string, err error) {
-	result, err := ResolveRepoInput(agencDirpath, flag, false, "Select git repo: ")
-	if err != nil {
-		return "", "", err
-	}
-	return result.RepoName, result.CloneDirpath, nil
-}
-
 
 // selectWithFzf presents templates in fzf and returns the selected repo name.
 // If allowNone is true, a "NONE" option is prepended. Returns empty string if
