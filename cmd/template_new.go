@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
@@ -24,9 +25,11 @@ var (
 )
 
 var templateNewCmd = &cobra.Command{
-	Use:   newCmdStr + " <repo>",
+	Use:   newCmdStr + " [repo]",
 	Short: "Create a new agent template repository",
 	Long: fmt.Sprintf(`Create a new agent template repository on GitHub.
+
+If no repo is specified and stdin is a TTY, prompts interactively for the repo name.
 
 Accepts any of these formats:
   owner/repo                           - shorthand (e.g., mieubrisse/my-agent)
@@ -46,7 +49,7 @@ template library.
 
 The new template is automatically added to your template library and a mission
 is launched to edit it (same as 'template edit').`, cloneFlagName, cloneFlagName),
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: runTemplateNew,
 }
 
@@ -59,7 +62,26 @@ func init() {
 }
 
 func runTemplateNew(cmd *cobra.Command, args []string) error {
-	input := args[0]
+	var input string
+
+	if len(args) == 0 {
+		// No args provided - prompt interactively if TTY
+		if !isatty.IsTerminal(os.Stdin.Fd()) {
+			return stacktrace.NewError("no repo specified and stdin is not a TTY; provide a repo argument")
+		}
+
+		repoInput, err := promptForRepoReference()
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read repo reference")
+		}
+		if repoInput == "" {
+			fmt.Println("No repo provided. Aborted.")
+			return nil
+		}
+		input = repoInput
+	} else {
+		input = args[0]
+	}
 
 	// Ensure gh CLI is available
 	if _, err := exec.LookPath("gh"); err != nil {
@@ -511,4 +533,26 @@ func promptYesNo(prompt string) bool {
 
 	input = strings.TrimSpace(strings.ToLower(input))
 	return input == "y" || input == "yes"
+}
+
+// promptForRepoReference prompts the user interactively for a repository reference.
+// Returns the trimmed input, or empty string if the user provides no input.
+func promptForRepoReference() (string, error) {
+	fmt.Println("Enter the repo reference for your new agent template.")
+	fmt.Println()
+	fmt.Println("Accepted formats:")
+	fmt.Println("  owner/repo                         (shorthand)")
+	fmt.Println("  github.com/owner/repo              (canonical)")
+	fmt.Println("  https://github.com/owner/repo      (HTTPS URL)")
+	fmt.Println("  git@github.com:owner/repo.git      (SSH URL)")
+	fmt.Println()
+	fmt.Print("Repo: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to read input")
+	}
+
+	return strings.TrimSpace(input), nil
 }
