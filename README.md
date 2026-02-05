@@ -3,13 +3,15 @@
 AgenC
 =========
 
-The industrial capitalists of the late 1800s were programmers. They "programmed" organizations using the lossy language of English and the unreliable processors of humans. The results were revolutionary... but the medium was imprecise, slow to iterate, and expensive to scale.
+The industrial capitalists of the late 1800s were programmers. They "programmed" organizations using the lossy "coding" of English and the unreliable "processors" of humans. The results were revolutionary... but the method was imprecise, slow to iterate, and expensive to scale.
 
-Now we have AI agents. AgenC (pronounced "agency") lets you program your own organization of them, with yourself at the head - assembling interlocking parts into one cohesive, effective whole.
+Now we have AI agents. AgenC (pronounced "agency") lets you program your own organization of agents, with yourself as the director - assembling interlocking workers into one cohesive, effective whole.
 
 AI agents are probabilistic functions: they produce good outputs some percentage of the time. That percentage needs constant tuning - refining prompts, adjusting permissions, capturing lessons from failures.
 
 AgenC makes this organization-building and agent-tuning easy, so you can focus on directing your AI workforce rather than wrestling with configuration.
+
+<!--- TODO Debora feedback - why use AgenC? There are a million AIs out there; why do we need this one? -->
 
 How it works
 ------------
