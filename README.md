@@ -1,15 +1,68 @@
 ![](./image.png)
 
 AgenC
-=========
+=====
 
-The industrial capitalists of the late 1800s were programmers. They "programmed" organizations using the lossy "coding" of English and the unreliable "processors" of humans. The results were revolutionary... but the method was imprecise, slow to iterate, and expensive to scale.
+Managing AI agents is tedious. Every time an agent misbehaves, you have to find the right config file, update it, restart the agent, and hope you remember the fix next time. Multiply that across multiple agents and the overhead becomes significant.
 
-Now we have AI agents. AgenC (pronounced "agency") lets you program your own organization of agents, with yourself as the director - assembling interlocking workers into one cohesive, effective whole.
+AgenC (pronounced "agency") solves this. It's a CLI tool that runs agents in isolated sandboxes, tracks all conversations, and makes it trivial to roll lessons back into agent config. When you update an agent's config, all running instances hot-reload automatically.
 
-AI agents are probabilistic functions: they produce good outputs some percentage of the time. That percentage needs constant tuning - refining prompts, adjusting permissions, capturing lessons from failures.
+Quick Start
+-----------
 
-AgenC makes this organization-building and agent-tuning easy, so you can focus on directing your AI workforce rather than wrestling with configuration.
+### Prerequisites
+
+- **macOS** (Linux support planned)
+- **Claude CLI** installed and in your PATH ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
+
+### Install
+
+```
+brew tap mieubrisse/agenc
+brew install agenc
+```
+
+### Authenticate
+
+AgenC uses its own Claude config directory. Log in once:
+
+```
+agenc login
+```
+
+### Create your first agent template
+
+Agent templates define how your agents behave — their instructions, permissions, MCP servers, and skills. Create one:
+
+```
+agenc template new --nickname "Software Engineer" --default repo
+```
+
+You'll be prompted for a repo name (e.g., `your-username/software-engineer`). AgenC creates a private GitHub repo, initializes it with template files, and launches a mission to help you configure it. The `--default repo` flag makes this template auto-selected when you open repositories.
+
+### Open a repo
+
+Now put your agent to work. Open any GitHub repo:
+
+```
+agenc mission new owner/repo
+```
+
+AgenC accepts multiple formats — use whichever is convenient:
+
+```
+agenc mission new owner/repo                          # shorthand
+agenc mission new github.com/owner/repo               # canonical
+agenc mission new https://github.com/owner/repo       # HTTPS URL
+agenc mission new git@github.com:owner/repo.git       # SSH URL
+```
+
+The repo is cloned into an isolated sandbox, your Software Engineer template is applied, and Claude launches ready to work.
+
+CLI Reference
+-------------
+
+Run `agenc --help` for available commands, or see [docs/cli/](docs/cli/) for complete documentation.
 
 <!--- TODO Debora feedback - why use AgenC? There are a million AIs out there; why do we need this one? -->
 
@@ -18,8 +71,6 @@ How it works
 
 1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). The agent then hot-reloads to pick up the new config.
 2. Sandboxing and session management let you run dozens of agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a super team who understand your every whim.
-
-<!-- TODO something about clear separation of "allow just this session" vs "allow always?" via the agent template mechanism and the sandboxing in a mission directory? -->
 
 <!--
 > ⚠️ Addiction Warning
@@ -91,24 +142,10 @@ It works like this:
 - **Automated lesson capture:** Identifying lessons that need to be rolled back into config proactively, rather than waiting for you.
 - **Inter-agent communication:** Exmaple: the Code Writer agent hands off its work to the Code Reviewer agent who hands off to the PR Coordinator agent.
 
-Getting started
+Troubleshooting
 ---------------
 
-Install via Homebrew:
-
-```
-brew tap mieubrisse/agenc
-brew install agenc
-```
-
-To update:
-
-```
-brew update
-brew upgrade agenc
-```
-
-### Troubleshooting: "Command Line Tools are too outdated"
+### "Command Line Tools are too outdated"
 
 If you see this error during installation:
 
@@ -228,13 +265,3 @@ Your organization is a function too - composed of these agent functions. You hav
 This is what it means to "program an organization." The industrial capitalists could only approximate it - writing policies, training workers, hoping the message got through. You can do it precisely: adjust a prompt, add a permission, provide a better example. The agent updates immediately. The org function improves.
 
 The key insight is that refining the outer function means refining the inner functions. Every time an agent misbehaves, that's signal. Capture it in the agent's config, and you've permanently raised its success rate. Do this systematically across all your agents, and the organization compounds in capability rather than in error.
-
-Design Goals
-------------
-
-- **Mission management** — Create, track, and organize missions with a simple CLI.
-- **Mission isolation** — Each mission operates in its own directory with config copied from its agent template.
-- **Self-contained** — The AgenC uses its own `CLAUDE_CONFIG_DIR` and never touches the user's existing Claude Code setup.
-- **Configurable agents** — Agent templates let you define specialized agents with their own instructions, MCP servers, secrets, and skills.
-- **Observable** — Clear logging and SQLite tracking for all missions.
-- **Simple interface** — Submit a mission via the CLI. The AgenC handles the rest.
