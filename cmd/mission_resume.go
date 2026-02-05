@@ -18,18 +18,74 @@ import (
 )
 
 var missionResumeCmd = &cobra.Command{
-	Use:   resumeCmdStr + " [mission-id]",
+	Use:   resumeCmdStr + " [search-terms...]",
 	Short: "Unarchive (if needed) and resume a mission with claude --continue",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runMissionResume,
+	Long: `Unarchive (if needed) and resume a mission with claude --continue.
+
+Without arguments, opens an interactive fzf picker showing stopped missions.
+Positional arguments act as search terms to filter the list. If exactly one
+mission matches, it is auto-selected.`,
+	Args: cobra.ArbitraryArgs,
+	RunE: runMissionResume,
 }
 
 func init() {
 	missionCmd.AddCommand(missionResumeCmd)
 }
 
+// stoppedMissionEntry holds the display-ready fields for a stopped mission.
+type stoppedMissionEntry struct {
+	MissionID string
+	ShortID   string
+	Agent     string // display-formatted (may contain ANSI)
+	Repo      string // display-formatted (may contain ANSI)
+	Prompt    string // truncated prompt
+}
+
 func runMissionResume(cmd *cobra.Command, args []string) error {
-	return resolveAndRunForEachMission(args, selectStoppedMissionWithFzf, resumeMission)
+	db, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	entries, err := listStoppedMissions(db)
+	if err != nil {
+		return err
+	}
+
+	if len(entries) == 0 {
+		return stacktrace.NewError("no stopped missions to resume")
+	}
+
+	var selected *stoppedMissionEntry
+	if len(args) > 0 {
+		matches := matchStoppedMissions(entries, args)
+		if len(matches) == 1 {
+			fmt.Printf("Auto-selected: %s\n", matches[0].ShortID)
+			selected = &matches[0]
+		} else {
+			picked, err := selectStoppedMissionFzf(entries, strings.Join(args, " "))
+			if err != nil {
+				return err
+			}
+			if picked == nil {
+				return nil
+			}
+			selected = picked
+		}
+	} else {
+		picked, err := selectStoppedMissionFzf(entries, "")
+		if err != nil {
+			return err
+		}
+		if picked == nil {
+			return nil
+		}
+		selected = picked
+	}
+
+	return resumeMission(db, selected.MissionID)
 }
 
 // resumeMission handles the per-mission resume logic: unarchive if needed,
@@ -74,9 +130,8 @@ func resumeMission(db *database.DB, missionID string) error {
 	return w.Run(true)
 }
 
-// selectStoppedMissionWithFzf queries stopped missions and presents them in fzf.
-// Returns a slice containing the selected mission ID.
-func selectStoppedMissionWithFzf(db *database.DB) ([]string, error) {
+// listStoppedMissions returns all stopped missions with their display fields.
+func listStoppedMissions(db *database.DB) ([]stoppedMissionEntry, error) {
 	missions, err := db.ListMissions(false)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to list missions")
@@ -88,44 +143,81 @@ func selectStoppedMissionWithFzf(db *database.DB) ([]string, error) {
 	}
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 
-	// Filter to stopped missions only (already ordered by created_at DESC)
-	var buf bytes.Buffer
-	tbl := tableprinter.NewTable("SHORT ID", "AGENT", "REPO", "PROMPT").WithWriter(&buf)
-	rowCount := 0
+	var entries []stoppedMissionEntry
 	for _, m := range missions {
 		if getMissionStatus(m.ID, m.Status) != "STOPPED" {
 			continue
 		}
-		prompt := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
-		agent := displayAgentTemplate(m.AgentTemplate, nicknames)
-		repo := displayGitRepo(m.GitRepo)
-		tbl.AddRow(m.ShortID, agent, repo, prompt)
-		rowCount++
+		entries = append(entries, stoppedMissionEntry{
+			MissionID: m.ID,
+			ShortID:   m.ShortID,
+			Agent:     displayAgentTemplate(m.AgentTemplate, nicknames),
+			Repo:      displayGitRepo(m.GitRepo),
+			Prompt:    truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60),
+		})
 	}
+	return entries, nil
+}
 
-	if rowCount == 0 {
-		return nil, stacktrace.NewError("no stopped missions to resume")
+// formatStoppedMissionMatchLine returns a plain-text representation of a
+// stopped mission entry suitable for sequential substring matching.
+func formatStoppedMissionMatchLine(entry stoppedMissionEntry) string {
+	return entry.ShortID + " " + stripAnsi(entry.Agent) + " " + stripAnsi(entry.Repo) + " " + entry.Prompt
+}
+
+// matchStoppedMissions filters entries by sequential case-insensitive
+// substring matching against a plain-text representation of each entry.
+func matchStoppedMissions(entries []stoppedMissionEntry, args []string) []stoppedMissionEntry {
+	var matches []stoppedMissionEntry
+	for _, entry := range entries {
+		line := formatStoppedMissionMatchLine(entry)
+		if matchesSequentialSubstrings(line, args) {
+			matches = append(matches, entry)
+		}
 	}
+	return matches
+}
 
+// selectStoppedMissionFzf presents stopped missions in an fzf picker and
+// returns the selected entry. Returns nil if the user cancels.
+func selectStoppedMissionFzf(entries []stoppedMissionEntry, initialQuery string) (*stoppedMissionEntry, error) {
+	var buf bytes.Buffer
+	tbl := tableprinter.NewTable("SHORT ID", "AGENT", "REPO", "PROMPT").WithWriter(&buf)
+	for _, e := range entries {
+		tbl.AddRow(e.ShortID, e.Agent, e.Repo, e.Prompt)
+	}
 	tbl.Print()
 
 	fzfBinary, err := exec.LookPath("fzf")
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass the mission ID as an argument")
+		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass a mission ID as an argument")
 	}
 
-	fzfCmd := exec.Command(fzfBinary, "--ansi", "--header-lines", "1",
-		"--prompt", "Select mission to resume: ")
+	fzfArgs := []string{"--ansi", "--header-lines", "1", "--prompt", "Select mission to resume: "}
+	if initialQuery != "" {
+		fzfArgs = append(fzfArgs, "--query", initialQuery)
+	}
+
+	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
 	fzfCmd.Stdin = strings.NewReader(buf.String())
 	fzfCmd.Stderr = os.Stderr
 
 	output, err := fzfCmd.Output()
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
+			return nil, nil
+		}
 		return nil, stacktrace.Propagate(err, "fzf selection failed")
 	}
 
 	selected := strings.TrimSpace(string(output))
-	// Extract mission ID from the first whitespace-separated field
-	missionID := strings.Fields(selected)[0]
-	return []string{missionID}, nil
+	selectedShortID := strings.Fields(selected)[0]
+
+	for i := range entries {
+		if entries[i].ShortID == selectedShortID {
+			return &entries[i], nil
+		}
+	}
+
+	return nil, stacktrace.NewError("selected mission '%s' not found in entry list", selectedShortID)
 }
