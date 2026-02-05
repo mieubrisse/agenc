@@ -67,7 +67,8 @@ func resolveRepoRmArgs(cfg *config.AgencConfig, args []string) ([]string, error)
 	if len(args) > 0 {
 		var repoNames []string
 		for _, arg := range args {
-			repoName, _, err := mission.ParseRepoReference(arg)
+			// Protocol doesn't matter here - we only need the canonical repo name
+			repoName, _, err := mission.ParseRepoReference(arg, false)
 			if err != nil {
 				return nil, stacktrace.Propagate(err, "invalid repo reference")
 			}
@@ -103,7 +104,8 @@ func resolveRepoArgs(args []string, fzfPrompt string) ([]string, error) {
 	if len(args) > 0 {
 		var repoNames []string
 		for _, arg := range args {
-			repoName, _, err := mission.ParseRepoReference(arg)
+			// Protocol doesn't matter here - we only need the canonical repo name
+			repoName, _, err := mission.ParseRepoReference(arg, false)
 			if err != nil {
 				return nil, stacktrace.Propagate(err, "invalid repo reference")
 			}

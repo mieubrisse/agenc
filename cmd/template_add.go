@@ -21,7 +21,12 @@ var templateAddCmd = &cobra.Command{
 Accepts any of these formats:
   owner/repo
   github.com/owner/repo
-  https://github.com/owner/repo`,
+  https://github.com/owner/repo
+  git@github.com:owner/repo.git
+
+The clone protocol is auto-detected: explicit URLs preserve their protocol,
+while shorthand references (owner/repo) use the protocol inferred from
+existing repos in the library.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTemplateAdd,
 }
@@ -34,7 +39,8 @@ func init() {
 }
 
 func runTemplateAdd(cmd *cobra.Command, args []string) error {
-	repoName, cloneURL, err := mission.ParseRepoReference(args[0])
+	preferSSH := mission.DetectPreferredProtocol(agencDirpath)
+	repoName, cloneURL, err := mission.ParseRepoReference(args[0], preferSSH)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo reference")
 	}

@@ -47,7 +47,7 @@ func handleFirstRun(agencDirpath string) error {
 		return nil
 	}
 
-	fmt.Print("Enter the repo (owner/repo, github.com/owner/repo, or GitHub URL): ")
+	fmt.Print("Enter the repo (owner/repo, github.com/owner/repo, or GitHub URL - SSH or HTTPS): ")
 	repoRef, err := reader.ReadString('\n')
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read repo reference")
@@ -71,7 +71,10 @@ func cloneConfigRepo(agencDirpath string, repoRef string) error {
 		return stacktrace.Propagate(err, "failed to create agenc directory '%s'", agencDirpath)
 	}
 
-	_, cloneURL, err := mission.ParseRepoReference(repoRef)
+	// On first run there are no existing repos to detect protocol from.
+	// Users can provide SSH URLs explicitly (git@github.com:owner/repo.git).
+	// Shorthand (owner/repo) defaults to HTTPS.
+	_, cloneURL, err := mission.ParseRepoReference(repoRef, false)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo reference")
 	}

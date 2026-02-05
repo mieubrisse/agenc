@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -189,12 +190,30 @@ func EnsureRepoClone(agencDirpath string, repoName string, cloneURL string) (str
 }
 
 // ParseRepoReference parses a repository reference in the format "owner/repo",
-// "github.com/owner/repo", or a full GitHub URL
-// (https://github.com/owner/repo/...) into the canonical repo name and an
-// HTTPS clone URL. If the host is omitted, github.com is assumed. Extra path
-// segments after owner/repo in a URL are ignored.
-func ParseRepoReference(ref string) (repoName string, cloneURL string, err error) {
-	// Normalize GitHub URLs to github.com/owner/repo
+// "github.com/owner/repo", or a full GitHub URL (SSH or HTTPS) into the
+// canonical repo name and a clone URL. If the host is omitted, github.com is
+// assumed. Extra path segments after owner/repo in a URL are ignored.
+//
+// The clone URL protocol is determined as follows:
+//   - If an SSH URL is provided (git@github.com:... or ssh://...), returns SSH clone URL
+//   - If an HTTPS URL is provided, returns HTTPS clone URL
+//   - If just "owner/repo" is provided, uses preferSSH to decide (true = SSH, false = HTTPS)
+func ParseRepoReference(ref string, preferSSH bool) (repoName string, cloneURL string, err error) {
+	// Check for SSH URL formats first
+	if m := githubSSHRegex.FindStringSubmatch(ref); m != nil {
+		owner, repo := m[1], m[2]
+		repoName = fmt.Sprintf("github.com/%s/%s", owner, repo)
+		cloneURL = fmt.Sprintf("git@github.com:%s/%s.git", owner, repo)
+		return repoName, cloneURL, nil
+	}
+	if m := githubSSHProtoRegex.FindStringSubmatch(ref); m != nil {
+		owner, repo := m[1], m[2]
+		repoName = fmt.Sprintf("github.com/%s/%s", owner, repo)
+		cloneURL = fmt.Sprintf("git@github.com:%s/%s.git", owner, repo)
+		return repoName, cloneURL, nil
+	}
+
+	// Check for HTTPS URL format
 	const githubURLPrefix = "https://github.com/"
 	if strings.HasPrefix(ref, githubURLPrefix) {
 		ref = strings.TrimPrefix(ref, "https://")
@@ -204,10 +223,14 @@ func ParseRepoReference(ref string) (repoName string, cloneURL string, err error
 		// Keep only github.com/owner/repo (first 3 segments)
 		segments := strings.SplitN(ref, "/", 4)
 		if len(segments) >= 3 {
-			ref = strings.Join(segments[:3], "/")
+			owner, repo := segments[1], segments[2]
+			repoName = fmt.Sprintf("github.com/%s/%s", owner, repo)
+			cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
+			return repoName, cloneURL, nil
 		}
 	}
 
+	// Handle shorthand formats: "owner/repo" or "github.com/owner/repo"
 	parts := strings.Split(ref, "/")
 
 	var owner, repo string
@@ -230,7 +253,11 @@ func ParseRepoReference(ref string) (repoName string, cloneURL string, err error
 	}
 
 	repoName = fmt.Sprintf("github.com/%s/%s", owner, repo)
-	cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
+	if preferSSH {
+		cloneURL = fmt.Sprintf("git@github.com:%s/%s.git", owner, repo)
+	} else {
+		cloneURL = fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
+	}
 	return repoName, cloneURL, nil
 }
 
@@ -242,4 +269,70 @@ func ResolveRepoCloneDirpath(agencDirpath string, gitRepo string) string {
 		return gitRepo // old format: raw filesystem path
 	}
 	return config.GetRepoDirpath(agencDirpath, gitRepo) // new format: repo name
+}
+
+// DetectPreferredProtocol examines existing repos in ~/.agenc/repos/ to infer
+// the user's preferred clone protocol. Returns true if SSH should be preferred,
+// false for HTTPS. If no repos exist or protocols are mixed, defaults to false
+// (HTTPS).
+func DetectPreferredProtocol(agencDirpath string) bool {
+	reposDirpath := config.GetReposDirpath(agencDirpath)
+
+	var sshCount, httpsCount int
+
+	// Walk three levels: host/owner/repo
+	hosts, err := os.ReadDir(reposDirpath)
+	if err != nil {
+		return false // No repos dir, default to HTTPS
+	}
+
+	for _, host := range hosts {
+		if !host.IsDir() {
+			continue
+		}
+		owners, _ := os.ReadDir(filepath.Join(reposDirpath, host.Name()))
+		for _, owner := range owners {
+			if !owner.IsDir() {
+				continue
+			}
+			repos, _ := os.ReadDir(filepath.Join(reposDirpath, host.Name(), owner.Name()))
+			for _, repo := range repos {
+				if !repo.IsDir() {
+					continue
+				}
+				repoDirpath := filepath.Join(reposDirpath, host.Name(), owner.Name(), repo.Name())
+				protocol := detectRepoProtocol(repoDirpath)
+				switch protocol {
+				case "ssh":
+					sshCount++
+				case "https":
+					httpsCount++
+				}
+			}
+		}
+	}
+
+	// If user has any SSH repos, prefer SSH (they've explicitly set it up)
+	// This is more user-friendly than requiring all repos to be SSH
+	return sshCount > 0 && httpsCount == 0
+}
+
+// detectRepoProtocol reads the origin remote URL from a git repo and returns
+// "ssh", "https", or "" if it cannot be determined.
+func detectRepoProtocol(repoDirpath string) string {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = repoDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	url := strings.TrimSpace(string(output))
+	if githubSSHRegex.MatchString(url) || githubSSHProtoRegex.MatchString(url) {
+		return "ssh"
+	}
+	if githubHTTPSRegex.MatchString(url) {
+		return "https"
+	}
+	return ""
 }

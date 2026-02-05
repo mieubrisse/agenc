@@ -563,10 +563,12 @@ func resolveGitFlagFromLocalPath(agencDirpath string, localPath string) (string,
 }
 
 // resolveGitFlagFromRepoRef handles --git when it's a repo reference like
-// "owner/repo" or "github.com/owner/repo". Clones via HTTPS into
-// ~/.agenc/repos/ and validates the result.
+// "owner/repo", "github.com/owner/repo", or a full GitHub URL (SSH or HTTPS).
+// The clone protocol is auto-detected: explicit URLs preserve their protocol,
+// while shorthand references use the protocol inferred from existing repos.
 func resolveGitFlagFromRepoRef(agencDirpath string, ref string) (string, string, error) {
-	repoName, cloneURL, err := mission.ParseRepoReference(ref)
+	preferSSH := mission.DetectPreferredProtocol(agencDirpath)
+	repoName, cloneURL, err := mission.ParseRepoReference(ref, preferSSH)
 	if err != nil {
 		return "", "", stacktrace.Propagate(err, "invalid --git value '%s'", ref)
 	}
