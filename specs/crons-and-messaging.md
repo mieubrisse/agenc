@@ -6,11 +6,32 @@ Overview
 
 This spec describes three features that make agenc more autonomous, reducing the amount of hand-holding required from the user:
 
-1. **Crons** -- scheduled, headless missions that the daemon launches automatically on a crontab schedule.
-2. **Messaging** -- a mechanism for agents to send messages to the user during (or at the end of) a mission, and for the user to reply.
-3. **Inbox** -- an interactive CLI interface for the user to read agent messages, reply, and triage.
+1. **Crons** — scheduled, headless missions that the daemon launches automatically on a crontab schedule.
+2. **Messaging** — a mechanism for agents to send messages to the user during (or at the end of) a mission, and for the user to reply.
+3. **Inbox** — an interactive CLI interface for the user to read agent messages, reply, and triage.
 
-Together, these features enable a workflow where agents do work in the background on a schedule, report results or ask for help via messages, and the user processes those messages asynchronously through an inbox -- much like email.
+Together, these features enable a workflow where agents do work in the background on a schedule, report results or ask for help via messages, and the user processes those messages asynchronously through an inbox — much like email.
+
+
+Prerequisites
+-------------
+
+### Verify `--print` Resumability
+
+Before implementing crons, verify that headless Claude sessions can be resumed:
+
+```bash
+claude --print -p "Say hello and remember the number 42"
+claude -c -p "What number did I ask you to remember?"
+```
+
+If `-c` successfully continues the `--print` conversation, proceed with this spec. If not, investigate alternatives:
+
+- `claude -p <prompt>` with stdin closed (may behave differently)
+- A different flag combination
+- Filing a feature request with Anthropic
+
+**This is a blocker.** Do not implement crons until headless resumability is confirmed.
 
 
 Crons
@@ -20,12 +41,21 @@ Crons
 
 A cron is a named, scheduled rule that tells the daemon to create and launch a headless mission at specific times. Each cron definition contains:
 
-- **name** -- unique identifier for the cron (e.g. `daily-git-sync`).
-- **schedule** -- standard 5-field crontab expression (`minute hour day-of-month month day-of-week`).
-- **agent** -- agent template to use (canonical `github.com/owner/repo` format).
-- **prompt** -- the prompt text to pass to Claude.
-- **git** _(optional)_ -- a Git repo from the agenc repo library to copy into the mission's workspace.
-- **enabled** -- boolean, defaults to `true`. Disabled crons are retained in config but do not fire.
+| Field | Required | Description |
+|-------|----------|-------------|
+| `schedule` | yes | Standard 5-field crontab expression (`minute hour day-of-month month day-of-week`). |
+| `agent` | yes | Agent template to use (canonical `github.com/owner/repo` format). |
+| `prompt` | yes | The prompt text to pass to Claude. |
+| `description` | no | Human-readable description of what this cron does. Displayed in `cron ls`. |
+| `git` | no | A Git repo from the agenc repo library to copy into the mission's workspace. |
+| `timeout` | no | Maximum runtime before the mission is killed. Format: `30m`, `2h`, `1h30m`. Default: `1h`. |
+| `overlap` | no | Policy when previous run is still active: `skip` (default), `allow`, or `queue`. |
+| `retention` | no | Number of missions to retain per cron. Older missions are auto-archived. Default: unlimited. |
+| `enabled` | no | Boolean. Disabled crons are retained in config but do not fire. Default: `true`. |
+
+### Timezone Behavior
+
+All crontab expressions are evaluated against the **system's local time**. The daemon uses `time.Now()` truncated to the minute. Agenc does not support per-cron timezone configuration; if you need a cron to fire at a specific time in a different timezone, convert the schedule to local time.
 
 ### Storage
 
@@ -33,40 +63,87 @@ Cron definitions live in `config.yml` under a top-level `crons` key:
 
 ```yaml
 crons:
+  maxConcurrent: 5  # optional, default: 10
+
   daily-git-sync:
+    description: "Check all repos for unpushed changes and report"
     schedule: "0 9 * * *"
     agent: github.com/mieubrisse/git-sync-agent
-    prompt: "Check all repos for unpushed changes and report"
-    enabled: true
+    prompt: "Check all repos for unpushed changes and send me a summary via agenc message send"
+    timeout: 30m
+    overlap: skip
+    retention: 7
+
   weekly-inbox-zero:
+    description: "Organize Todoist inbox into projects"
     schedule: "0 10 * * 1"
     agent: github.com/mieubrisse/todoist-agent
-    prompt: "Clear the Todoist inbox and organize into projects"
+    prompt: "Clear the Todoist inbox and organize tasks into appropriate projects"
     git: github.com/mieubrisse/todoist-config
-    enabled: true
+    timeout: 1h
+    overlap: skip
 ```
+
+### Global Settings
+
+The `crons` section supports one global setting:
+
+- **`maxConcurrent`** — Maximum number of headless cron missions that can run simultaneously. Default: `10`. When the limit is reached, new cron fires are skipped (not queued) and a warning is logged.
 
 ### CLI Commands
 
 Crons are managed through `agenc cron` subcommands:
 
-- `agenc cron add` -- interactive wizard that prompts for name, schedule, agent template (fzf picker), prompt text, and optional git repo. Validates the crontab expression before saving.
-- `agenc cron ls` -- lists all crons with their name, schedule, agent, enabled status, and last-fired time.
-- `agenc cron rm <name>` -- removes a cron definition from config.yml.
-- `agenc cron enable <name>` -- sets `enabled: true` for the named cron.
-- `agenc cron disable <name>` -- sets `enabled: false` for the named cron.
+| Command | Description |
+|---------|-------------|
+| `agenc cron add` | Interactive wizard: prompts for name, schedule, agent template (fzf picker), prompt, and optional fields. Validates inputs and writes to config.yml. |
+| `agenc cron ls` | Lists all crons with name, schedule, agent, enabled, last run status, and next fire time. |
+| `agenc cron rm <name>` | Removes a cron from config.yml. Does not affect missions already created by the cron. |
+| `agenc cron enable <name>` | Sets `enabled: true` for the named cron. |
+| `agenc cron disable <name>` | Sets `enabled: false` for the named cron. |
+| `agenc cron run <name>` | Immediately fires the cron (creates mission, launches Claude). Ignores `enabled` status. Does not update `last_run_at`. Useful for testing. |
+| `agenc cron logs <name>` | Tails the `claude-output.log` of the most recent mission for this cron. Supports `--follow` flag. |
+| `agenc cron history <name>` | Shows recent runs for this cron with timestamps, duration, and exit status. |
+
+### `cron ls` Output Format
+
+```
+NAME             SCHEDULE      ENABLED  LAST RUN              STATUS    NEXT RUN
+daily-git-sync   0 9 * * *     yes      2025-01-15 09:00      success   2025-01-16 09:00
+weekly-review    0 10 * * 1    yes      2025-01-13 10:00      failed    2025-01-20 10:00
+hourly-check     0 * * * *     yes      2025-01-15 14:00      running   2025-01-15 15:00
+disabled-cron    0 6 * * *     no       2025-01-10 06:00      success   -
+```
+
+Use `--verbose` or `-v` to include description and agent columns.
 
 ### Crontab Parsing Library
 
-Use [`adhocore/gronx`](https://github.com/adhocore/gronx) (v1.19.6+, MIT license) for crontab expression parsing and evaluation. It is a zero-dependency library purpose-built for parsing and matching crontab expressions. Key API:
+Use [`adhocore/gronx`](https://github.com/adhocore/gronx) (v1.19.6+, MIT license) for crontab expression parsing and evaluation. Key API:
 
-- `gron.IsValid(expr)` -- validate a cron expression.
-- `gron.IsDue(expr, referenceTime)` -- check if an expression matches a specific time. This is the core function the scheduler uses.
-- `gronx.NextTickAfter(expr, refTime, false)` -- find the next fire time after a reference (useful for `cron ls` display).
+- `gronx.New().IsValid(expr)` — validate a cron expression.
+- `gronx.New().IsDue(expr, referenceTime)` — check if an expression matches a specific time.
+- `gronx.NextTickAfter(expr, refTime, false)` — find the next fire time after a reference.
 
-Alternatives considered:
-- `robfig/cron` -- popular but primarily a job scheduler, not maintained since 2020.
-- `hashicorp/cronexpr` -- maintained but GPL/Apache dual-licensed and lacks a built-in `IsDue` function.
+### Validation
+
+**On `cron add`:**
+- Cron name must be non-empty and contain only `[a-zA-Z0-9_-]`.
+- Cron name must be unique (not already defined in config).
+- Schedule must be a valid 5-field crontab expression.
+- Agent must exist in `agentTemplates` section of config.yml.
+- Git repo (if specified) must exist in `syncedRepos` section of config.yml.
+- Timeout must be a valid Go duration string (e.g., `30m`, `1h`, `2h30m`).
+- Overlap must be one of: `skip`, `allow`, `queue`.
+- Retention must be a positive integer.
+
+**On daemon startup:**
+- Log warnings for crons with invalid agent or git references (don't crash).
+- Invalid crons are skipped during scheduling.
+
+**On cron fire:**
+- If agent template doesn't exist: skip, log error, record failed run.
+- If git repo doesn't exist: skip, log error, record failed run.
 
 ### Daemon Scheduling
 
@@ -78,58 +155,102 @@ The daemon gains a new background goroutine: the **cron scheduler**.
 
 1. Read the `crons` section of `config.yml`.
 2. Get the current time, truncated to the minute.
-3. For each enabled cron, evaluate the crontab expression against the current minute using `gron.IsDue(expr, now)`.
-4. For each cron whose schedule matches:
-   a. Create a new mission via the same code path as `agenc mission new`, passing the cron's agent template, prompt, and optional git repo. Set the mission's `cron_name` field to the cron's name.
-   b. Launch Claude in headless mode using `claude --print -p <prompt>` with the working directory set to the mission's `agent/` subdirectory. The `--print` flag runs Claude non-interactively: it processes the prompt, executes any tool calls, and exits.
-   c. The headless Claude process runs as a child of the daemon. Its stdout and stderr are captured to a log file at `$AGENC_DIRPATH/missions/<uuid>/claude-output.log`.
-   d. Update the mission's `last_heartbeat` in the DB periodically (every 30 seconds) while the Claude process is alive, so the daemon's repo updater knows to keep syncing repos used by active cron missions.
-   e. When Claude exits, stop updating the heartbeat. The mission remains in `active` status -- it is not auto-archived.
-5. Update `last_run_at` for the cron in the DB (see tracking below).
-
-**Cron run tracking:**
-
-A new `cron_last_runs` table tracks when each cron last fired:
-
-```sql
-CREATE TABLE cron_last_runs (
-    cron_name TEXT PRIMARY KEY,
-    last_run_at TEXT NOT NULL
-);
-```
-
-This serves two purposes:
-- `agenc cron ls` can display when each cron last fired.
-- The scheduler uses it as a guard against double-firing: before launching a cron, it checks that `last_run_at` for that cron does not fall within the current minute.
+3. Count currently running headless missions. If >= `maxConcurrent`, log a warning and skip this cycle.
+4. For each enabled cron with valid references, evaluate the crontab expression using `IsDue(expr, now)`.
+5. For each cron whose schedule matches:
+   a. **Double-fire guard:** Check `cron_runs` table. If a run exists for this cron with `started_at` within the current minute, skip (already fired).
+   b. **Overlap policy:**
+      - `skip`: If a run exists with `finished_at IS NULL`, skip this fire and log it.
+      - `allow`: Proceed regardless of running missions.
+      - `queue`: If a run exists with `finished_at IS NULL`, mark this cron as "queued" (in-memory) and check again next cycle. Max queue depth: 1.
+   c. **Concurrency check:** If running headless missions >= `maxConcurrent`, skip and log.
+   d. **Create mission:** Use the same code path as `agenc mission new`, passing the cron's agent template, prompt, and optional git repo. Set `cron_name` field.
+   e. **Record run start:** Insert row into `cron_runs` with `started_at = now`, `finished_at = NULL`.
+   f. **Launch Claude:** Start `claude --print -p <prompt>` with working directory set to mission's `agent/` subdirectory. Capture stdout/stderr to `claude-output.log`.
+   g. **Environment:** Set `AGENC_MISSION_UUID` in the child process. If `agent/.claude/secrets.env` exists, wrap with `op run --env-file`.
+   h. **Track process:** Store PID and mission ID in daemon's in-memory map for cleanup.
+6. **Heartbeat loop:** For each running headless mission, update `last_heartbeat` every 30 seconds.
+7. **Completion handling:** When a Claude process exits:
+   a. Update `cron_runs`: set `finished_at`, `exit_code`, `exit_reason`.
+   b. Stop heartbeat updates for that mission.
+   c. If `retention` is set and exceeded, archive oldest missions for this cron.
+   d. If overlap policy is `queue` and a fire was queued, trigger it now.
+8. **Timeout enforcement:** For each running headless mission, if runtime exceeds `timeout`:
+   a. Send `SIGTERM` to Claude process.
+   b. Wait 30 seconds. If still running, send `SIGKILL`.
+   c. Record `exit_reason: timeout` in `cron_runs`.
 
 **Missed runs:** If the daemon was not running when a cron was scheduled to fire, the run is skipped. The daemon does not backfill missed runs. This matches standard cron behavior.
 
-**Concurrency:** If a cron fires while a previous mission from the same cron is still running, a new mission is created anyway. Each run is independent. The daemon logs a warning noting the overlap.
+### Daemon Startup: Orphan Handling
+
+On daemon startup, handle missions that may have been orphaned by a previous daemon crash:
+
+1. Query `cron_runs` for rows where `finished_at IS NULL`.
+2. For each orphaned run:
+   a. Check if a Claude process is still running (read PID from mission's `pid` file, check `/proc/<pid>` or equivalent).
+   b. If running: adopt the process (add to in-memory tracking, resume heartbeat updates).
+   c. If not running: update `cron_runs` with `finished_at = now`, `exit_code = NULL`, `exit_reason = 'orphaned'`.
+
+### Daemon Shutdown
+
+On `SIGTERM` or `SIGINT`:
+
+1. Stop the cron scheduler loop.
+2. For each running headless Claude process:
+   a. Send `SIGINT` to allow graceful shutdown.
+   b. Wait up to 30 seconds for exit.
+   c. If still running, send `SIGKILL`.
+3. Update `cron_runs` for any missions that didn't finish: `exit_reason = 'daemon_shutdown'`.
+4. Exit.
 
 ### Headless Mission Differences
 
-Headless missions (spawned by crons) differ from interactive missions in these ways:
-
-| Aspect | Interactive mission | Headless mission |
-|---|---|---|
+| Aspect | Interactive Mission | Headless Mission |
+|--------|---------------------|------------------|
 | Launch command | `claude <prompt>` or `claude -c` | `claude --print -p <prompt>` |
-| stdin | Wired to user's terminal | Not connected (no user interaction) |
+| stdin | Wired to user's terminal | Not connected (`/dev/null`) |
 | stdout/stderr | Wired to user's terminal | Captured to `claude-output.log` |
 | Process parent | agenc wrapper (foreground) | agenc daemon (background) |
-| Template live-reload | Yes (wrapper watches for changes) | No (single-shot execution) |
-| Wrapper state machine | Full Running/RestartPending/Restarting | Not applicable |
+| Template live-reload | Yes (wrapper watches) | No (single-shot) |
+| Timeout | None | Configurable (default: 1h) |
+| Secrets | Via wrapper | Via daemon (same mechanism) |
 
-Headless missions reuse the same mission directory structure, DB record, and `AGENC_MISSION_UUID` environment variable as interactive missions. The user can `mission resume` a completed headless mission to interact with it (Claude picks up from the `--print` conversation via `claude -c`).
+Headless missions reuse the same directory structure, DB record, and `AGENC_MISSION_UUID` as interactive missions. Users can `mission resume` a completed headless mission to continue interactively.
+
+### Log Rotation
+
+The `claude-output.log` file uses size-based rotation:
+
+- Maximum size: 10 MB
+- On rotation: rename to `.1`, shift existing `.1` to `.2`, etc.
+- Keep last 3 rotated files (`.1`, `.2`, `.3`)
+- Rotation checked at mission start and every 60 seconds during execution
 
 ### Database Changes
 
-Add `cron_name` column to the `missions` table:
+**New table for cron run history:**
+
+```sql
+CREATE TABLE cron_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cron_name TEXT NOT NULL,
+    mission_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    exit_code INTEGER,
+    exit_reason TEXT,  -- 'success', 'error', 'timeout', 'killed', 'orphaned', 'daemon_shutdown'
+    FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_cron_runs_name_started ON cron_runs(cron_name, started_at DESC);
+CREATE INDEX idx_cron_runs_running ON cron_runs(cron_name) WHERE finished_at IS NULL;
+```
+
+**Add column to missions table:**
 
 ```sql
 ALTER TABLE missions ADD COLUMN cron_name TEXT NOT NULL DEFAULT '';
 ```
-
-Missions created by crons have `cron_name` set to the cron's name. Manually-created missions have an empty `cron_name`. This allows `mission ls` to display which missions were cron-spawned, and enables querying mission history per cron.
 
 
 Messaging
@@ -140,7 +261,7 @@ Messaging
 Agents send messages to the user by running a CLI command via Bash:
 
 ```bash
-agenc message send "I finished checking all repos. 3 have unpushed changes: dotfiles, api-server, blog."
+agenc message send "I finished checking all repos. 3 have unpushed changes."
 ```
 
 Or for longer messages, pipe via stdin:
@@ -159,13 +280,13 @@ All other repos are clean and in sync with remote.
 EOF
 ```
 
-**Sender identification:** The mission wrapper sets `AGENC_MISSION_UUID` in the environment when spawning Claude. The `agenc message send` command reads this variable to associate the message with the correct mission. If the variable is not set, the command exits with an error.
+**Sender identification:** The `agenc message send` command reads `AGENC_MISSION_UUID` from the environment to associate the message with the correct mission. If the variable is not set, the command exits with an error.
 
-**Message format:** Free-text, expected to be Markdown. No subject line.
+**Message format:** Free-text Markdown. No subject line, no size limit (filesystem-based storage).
 
 ### Message Storage
 
-Message bodies live on the filesystem inside the mission directory, not in the database. Each message is a numbered Markdown file:
+Message bodies live on the filesystem inside the mission directory:
 
 ```
 $AGENC_DIRPATH/missions/<uuid>/
@@ -175,21 +296,20 @@ $AGENC_DIRPATH/missions/<uuid>/
         3.md
 ```
 
-Files are numbered sequentially starting at 1, in chronological order. The `messages/` directory is created on first message. Since message files live inside the mission directory, they are automatically cleaned up when the mission is deleted via `agenc mission rm`.
+Files are numbered sequentially starting at 1. The `messages/` directory is created on first message and cleaned up automatically when the mission is deleted.
 
-The `agenc message send` command:
+**`agenc message send` behavior:**
 
-1. Reads `AGENC_MISSION_UUID` to determine the mission directory.
-2. Creates the `messages/` subdirectory if it does not exist.
-3. Determines the next sequence number by reading the DB for the highest existing `seq` value for this mission, then incrementing by 1.
-4. Writes the message body to `<seq>.md`.
-5. Inserts a row into the `messages` table with the sequence number, sender, and metadata.
-
-This separation keeps large message bodies out of the database while still enabling efficient queries on message metadata (unread count, latest timestamp, delivery status).
+1. Read `AGENC_MISSION_UUID` from environment.
+2. Validate mission exists in DB.
+3. Create `messages/` subdirectory if needed.
+4. Query DB for highest `seq` value for this mission, increment by 1.
+5. Write message body to `<seq>.md`.
+6. Insert row into `messages` table.
 
 ### Settings Integration
 
-For `agenc message send` to work, the agent must have Bash permission to run it. The Claude config sync component (Component 2 from the wrapper spec) adds the following to the merged `settings.json`:
+For `agenc message send` to work, agents need Bash permission. The Claude config sync adds this to the merged `settings.json`:
 
 ```json
 {
@@ -201,20 +321,13 @@ For `agenc message send` to work, the agent must have Bash permission to run it.
 }
 ```
 
-This is merged into the agenc Claude config directory (`$AGENC_DIRPATH/claude/settings.json`) alongside the existing hook configurations.
-
 ### Environment Variable
 
-The mission wrapper sets `AGENC_MISSION_UUID` in the Claude child process environment. This applies to both interactive and headless missions:
+Both the mission wrapper (interactive) and daemon (headless) set `AGENC_MISSION_UUID` in the Claude child process environment.
 
-- **Interactive missions:** The wrapper already spawns Claude via `os/exec.Command`. Adding an environment variable is a one-line change.
-- **Headless missions:** The daemon's cron scheduler spawns Claude the same way and sets the same variable.
-
-The agent template's CLAUDE.md should instruct agents that `agenc message send` is available for communicating with the user. Templates that want agents to send messages should include guidance on when and how to use it.
+Agent templates that want agents to send messages should include guidance in their CLAUDE.md on when and how to use `agenc message send`.
 
 ### Data Model
-
-Message metadata is stored in a `messages` table. Message bodies live on the filesystem (see Message Storage above).
 
 ```sql
 CREATE TABLE messages (
@@ -227,16 +340,13 @@ CREATE TABLE messages (
     PRIMARY KEY (mission_id, seq),
     FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
 );
+CREATE INDEX idx_messages_unread ON messages(mission_id) WHERE is_read = 0;
 ```
 
-- `mission_id`: The mission this message belongs to.
-- `seq`: Sequential message number within the mission (1, 2, 3, ...). Maps to the filename `<seq>.md` in the mission's `messages/` directory.
-- `sender`: Either `'agent'` (sent by `agenc message send`) or `'user'` (sent via inbox reply).
-- `is_read`: 0 = unread, 1 = read. New agent messages default to unread. User replies default to read.
-- `delivered`: 0 = not yet delivered to the agent, 1 = delivered (or not applicable). Only meaningful for user replies (`sender = 'user'`). Agent messages always default to 1. User replies are created with 0 and marked 1 upon injection into a resumed mission.
-- `created_at`: ISO 8601 timestamp.
-
-The composite primary key `(mission_id, seq)` enforces uniqueness per mission and eliminates the need for a separate UUID. The `ON DELETE CASCADE` ensures message metadata is cleaned up when a mission is deleted (the filesystem files are removed when the mission directory is deleted).
+- `seq`: Sequential message number (1, 2, 3...). Maps to `<seq>.md` filename.
+- `sender`: `'agent'` or `'user'`.
+- `is_read`: 0 = unread, 1 = read. Agent messages default to unread; user replies default to read.
+- `delivered`: Only meaningful for user replies. 0 = not yet injected into resumed mission, 1 = delivered.
 
 
 Inbox
@@ -244,15 +354,13 @@ Inbox
 
 ### Overview
 
-The inbox is an interactive CLI interface for reading and responding to agent messages. It is the user's primary touchpoint for asynchronous agent communication.
+The inbox is an interactive CLI for reading and responding to agent messages.
 
 ### Command: `agenc inbox`
 
-Launches an interactive fzf-based thread picker showing message threads grouped by mission.
+Launches an fzf-based thread picker showing message threads grouped by mission.
 
 **Thread list view:**
-
-Each line in the fzf picker represents one mission thread:
 
 ```
 [3 unread]  daily-git-sync  2025-01-15 09:02  "I finished checking all repos. 3 have unpushed..."
@@ -261,19 +369,17 @@ Each line in the fzf picker represents one mission thread:
 ```
 
 Each line shows:
-- Unread count (highlighted, omitted if zero).
-- Mission identifier: the cron name (if cron-spawned) or a truncated mission prompt (if manual).
-- Timestamp of the most recent message.
-- Truncated preview of the most recent message body.
+- Unread count (highlighted, omitted if zero)
+- Mission identifier: cron name (if cron-spawned) or truncated prompt (if manual)
+- Timestamp of most recent message
+- Truncated preview of most recent message body
 
-Threads are sorted by most recent message timestamp, descending (newest first).
+Sorted by most recent message, descending.
 
 **Thread detail view:**
 
-Selecting a thread displays all messages in chronological order:
-
 ```
-─── daily-git-sync (mission abc123) ───
+─── daily-git-sync (mission abc12345) ───
 
 [2025-01-15 09:00] Agent:
 Started checking repos for unpushed changes...
@@ -294,37 +400,31 @@ All other repos are clean and in sync with remote.
 [r] Reply  [u] Mark unread  [a] Attach (resume mission)  [q] Back
 ```
 
-Reading a thread marks all its messages as read.
+Reading a thread marks all messages as read.
 
-**Actions from thread detail view:**
+**Actions:**
 
-- **Reply (`r`):** Opens `$EDITOR` with a reply template (see Reply Flow below).
-- **Mark unread (`u`):** Marks all messages in the thread as unread and returns to the thread list. Useful for "I'll deal with this later" triage.
-- **Attach (`a`):** Resumes the mission interactively (equivalent to `agenc mission resume <id>`). If the mission has a queued reply, it is injected as the prompt.
-- **Back (`q`):** Returns to the thread list.
+- **Reply (`r`):** Opens `$EDITOR` with reply template.
+- **Mark unread (`u`):** Marks all messages unread, returns to list.
+- **Attach (`a`):** Resumes mission interactively (equivalent to `mission resume`).
+- **Back (`q`):** Returns to thread list.
 
 ### Reply Flow
 
-When the user presses `r` to reply:
+When the user presses `r`:
 
-1. A temporary file is created with the following template. Earlier messages are included as plain Markdown (no `>` quoting) so that formatting renders correctly as the user reviews them in their editor:
+1. Create temporary file with template:
 
 ```
 
 <!-- Write your reply above this line. Only text above the line will be sent. -->
-<!-- ─────────────────────────────────────────────────────────────────────── -->
+<!-- ─────────────────────────────────────────────────────────────────────────── -->
 
 [2025-01-15 09:02] Agent:
 
 ## Git Sync Report
 
-Checked 12 repositories. Results:
-
-- **dotfiles**: 3 unpushed commits on `main`
-- **api-server**: 1 unpushed commit on `feat/auth`
-- **blog**: uncommitted changes in working tree
-
-All other repos are clean and in sync with remote.
+Checked 12 repositories...
 
 
 [2025-01-15 09:00] Agent:
@@ -332,78 +432,92 @@ All other repos are clean and in sync with remote.
 Started checking repos for unpushed changes...
 ```
 
-The separator is the HTML comment block (two lines). Everything above is the user's reply; everything below is read-only context. The messages below the separator are rendered as plain Markdown so the user can read them naturally with full formatting intact.
-
-2. The user's `$EDITOR` (defaulting to `vim`) opens the file with the cursor at line 1.
-3. The user writes their reply above the separator. The message history below provides context, just like email.
+2. Open `$EDITOR` (default: `vim`) with cursor at line 1.
+3. User writes reply above the separator.
 4. On save and quit:
-   a. The text above the separator is extracted.
-   b. If the text is empty or whitespace-only, the reply is discarded.
-   c. Otherwise, the reply body is written to the next `<seq>.md` file in the mission's `messages/` directory, and a row is inserted into the `messages` table with `sender = 'user'`, `is_read = 1`, and `delivered = 0`.
-5. The reply is now queued. It will be delivered to the agent when the mission is next resumed (see Reply Delivery below).
+   a. Extract text above separator.
+   b. If empty/whitespace: discard reply.
+   c. Otherwise: write to next `<seq>.md`, insert DB row with `sender='user'`, `is_read=1`, `delivered=0`.
 
 ### Reply Delivery
 
-When a mission is resumed (via `agenc mission resume` or the inbox's attach action), the wrapper checks for queued user replies:
+When a mission is resumed (`mission resume` or inbox attach):
 
-1. Query the `messages` table for rows where `mission_id` matches, `sender = 'user'`, and `delivered = 0`.
-2. If one or more undelivered replies exist:
-   a. Read each reply body from the corresponding `<seq>.md` file in the mission's `messages/` directory.
-   b. Concatenate them in chronological order (in case the user replied multiple times), separated by blank lines.
-   c. Use the concatenated text as the prompt for `claude -c -p <reply_text>` (continue conversation with injected prompt).
-   d. Mark the replies as delivered (`delivered = 1`).
-3. If no undelivered replies exist, resume normally with `claude -c` (standard resume behavior).
+1. Query `messages` for undelivered user replies (`sender='user'`, `delivered=0`).
+2. If replies exist:
+   a. Read reply bodies from `<seq>.md` files.
+   b. Concatenate in chronological order, separated by blank lines.
+   c. Launch `claude -c -p <concatenated_reply>`.
+   d. Mark replies as `delivered=1`.
+3. If no replies: launch `claude -c` (standard resume).
 
-### Headless Reply Delivery
+### Headless Mission Resume
 
-For headless cron missions, reply delivery works the same way but with a nuance: `--print` mode doesn't support `-c` (continue). When a completed headless mission is resumed via `mission resume` or inbox attach, it switches to interactive mode:
+When resuming a completed headless mission, it switches to interactive mode:
 
-1. The wrapper detects that this is a resume (not a cron launch).
-2. It uses `claude -c` (or `claude -c -p <reply>` if there's a queued reply), launching Claude interactively.
-3. The user is now in an interactive session, continuing from where the headless run left off.
-
-This is the same behavior as the existing `mission resume` flow -- the only addition is the optional reply injection.
+1. Wrapper detects this is a resume (not cron launch).
+2. Uses `claude -c` (or `claude -c -p <reply>` if queued).
+3. User is now in interactive session, continuing from headless conversation.
 
 
-New CLI Commands Summary
-------------------------
+CLI Commands Summary
+--------------------
 
 ### `agenc cron`
 
 | Command | Description |
-|---|---|
-| `agenc cron add` | Interactive wizard: prompts for name, crontab schedule, agent template (fzf), prompt, optional git repo. Validates inputs and writes to config.yml. |
-| `agenc cron ls` | Lists all crons. Columns: name, schedule, agent, enabled, last fired. |
-| `agenc cron rm <name>` | Removes a cron from config.yml. Does not affect missions already created by the cron. |
-| `agenc cron enable <name>` | Sets `enabled: true` for the named cron. |
-| `agenc cron disable <name>` | Sets `enabled: false` for the named cron. |
+|---------|-------------|
+| `agenc cron add` | Interactive wizard for creating a cron. |
+| `agenc cron ls` | List all crons with status and next fire time. |
+| `agenc cron rm <name>` | Remove a cron from config. |
+| `agenc cron enable <name>` | Enable a cron. |
+| `agenc cron disable <name>` | Disable a cron. |
+| `agenc cron run <name>` | Manually trigger a cron (for testing). |
+| `agenc cron logs <name>` | View output log of most recent run. |
+| `agenc cron history <name>` | Show recent runs with status. |
 
 ### `agenc message`
 
 | Command | Description |
-|---|---|
-| `agenc message send [body]` | Sends a message from the current agent to the user. Reads `AGENC_MISSION_UUID` from environment. Body is a positional argument; if omitted, reads from stdin. |
+|---------|-------------|
+| `agenc message send [body]` | Send message from agent to user. Body as argument or stdin. |
 
 ### `agenc inbox`
 
 | Command | Description |
-|---|---|
-| `agenc inbox` | Opens the interactive inbox. Thread picker → thread detail → reply/mark-unread/attach. |
+|---------|-------------|
+| `agenc inbox` | Interactive inbox for reading/replying to messages. |
+
+### Enhanced `agenc mission ls`
+
+Add `--cron <name>` flag to filter missions by cron:
+
+```
+agenc mission ls --cron daily-git-sync
+```
+
+Display cron name in output when present.
 
 
-Database Schema Changes
+Database Schema Summary
 -----------------------
 
-Two new tables and one column addition:
-
 ```sql
--- Track cron execution history
-CREATE TABLE cron_last_runs (
-    cron_name TEXT PRIMARY KEY,
-    last_run_at TEXT NOT NULL
+-- Cron run history (replaces cron_last_runs)
+CREATE TABLE cron_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cron_name TEXT NOT NULL,
+    mission_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    exit_code INTEGER,
+    exit_reason TEXT,
+    FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
 );
+CREATE INDEX idx_cron_runs_name_started ON cron_runs(cron_name, started_at DESC);
+CREATE INDEX idx_cron_runs_running ON cron_runs(cron_name) WHERE finished_at IS NULL;
 
--- Message metadata (bodies stored as files in mission's messages/ directory)
+-- Message metadata
 CREATE TABLE messages (
     mission_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -414,6 +528,7 @@ CREATE TABLE messages (
     PRIMARY KEY (mission_id, seq),
     FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
 );
+CREATE INDEX idx_messages_unread ON messages(mission_id) WHERE is_read = 0;
 
 -- Link missions to crons
 ALTER TABLE missions ADD COLUMN cron_name TEXT NOT NULL DEFAULT '';
@@ -425,98 +540,95 @@ Changes to Existing Components
 
 ### Daemon
 
-- **New goroutine:** Cron scheduler (60-second cycle). Reads `config.yml`, evaluates crontab expressions, creates and launches headless missions.
-- **Headless mission management:** The daemon must track running headless Claude processes (child PIDs) for cleanup on daemon shutdown. On `SIGTERM`/`SIGINT`, the daemon sends `SIGINT` to all running headless Claude processes before exiting.
+- **New goroutine:** Cron scheduler (60-second cycle).
+- **Orphan handling:** On startup, adopt or mark orphaned headless missions.
+- **Shutdown cleanup:** Gracefully terminate running headless missions.
+- **Process tracking:** Maintain in-memory map of running headless PIDs.
 
-### Mission Directory Structure
+### Mission Wrapper
 
-The mission directory gains a `messages/` subdirectory:
+- **Environment variable:** Set `AGENC_MISSION_UUID`.
+- **Reply injection:** On resume, check for undelivered replies and inject as prompt.
+
+### Claude Config Sync
+
+- **Bash permission:** Add `Bash(agenc message send:*)`.
+
+### Mission Directory
 
 ```
 $AGENC_DIRPATH/missions/<uuid>/
     pid
     claude-state
     template-commit
-    claude-output.log          # (headless missions only)
-    messages/                  # created on first message
+    wrapper.log
+    claude-output.log      # headless only
+    claude-output.log.1    # rotated
+    claude-output.log.2
+    claude-output.log.3
+    messages/
         1.md
         2.md
-        3.md
     agent/
         ...
 ```
 
-The `messages/` directory is outside `agent/` (alongside `pid` and `claude-state`), so it is invisible to Claude and unaffected by template syncs.
-
-### Mission Wrapper
-
-- **Environment variable:** Set `AGENC_MISSION_UUID` in the Claude child process environment.
-- **Reply injection:** On resume, check for undelivered user replies in the `messages` table. If present, read the corresponding `<seq>.md` files, concatenate, and pass as the prompt to `claude -c -p`.
-
-### Claude Config Sync
-
-- **Bash permission:** Add `Bash(agenc message send:*)` to the `permissions.allow` list in the merged settings.json.
-
 ### `agenc mission ls`
 
-- **Cron indicator:** If a mission has a non-empty `cron_name`, display it in the output so the user can distinguish cron-spawned missions from manual ones.
-
-### Config
-
-- **New YAML section:** Parse and validate the `crons` key in config.yml.
-- **Cron validation:** Cron names must be unique, non-empty, and contain only alphanumeric characters, hyphens, and underscores. Crontab expressions must be valid 5-field expressions.
+- Display cron name for cron-spawned missions.
+- Add `--cron <name>` filter flag.
 
 
 What Does NOT Change
 --------------------
 
-- The existing mission lifecycle (new, resume, archive, stop, rm, nuke).
-- The mission wrapper's state machine for interactive missions (Running/RestartPending/Restarting).
-- The template updater daemon goroutine.
-- The Claude config sync daemon goroutine (aside from adding the new Bash permission).
+- Existing mission lifecycle (new, resume, archive, stop, rm, nuke).
+- Mission wrapper state machine for interactive missions.
+- Template updater daemon goroutine.
 - The `agenc template` and `agenc repo` command families.
-- The daemon's repo update loop behavior.
+- Daemon's repo update loop behavior.
 
 
 Implementation Phases
 ---------------------
 
-This spec covers significant surface area. A phased implementation is recommended:
+**Phase 0: Prerequisite verification**
+- Verify `claude --print` conversations can be resumed with `claude -c`.
+- Document findings. If it doesn't work, investigate alternatives before proceeding.
 
 **Phase 1: Messaging foundation**
-- Add the `messages` table (metadata only; bodies on filesystem).
-- Implement `agenc message send` (writes `<seq>.md` to mission's `messages/` directory, inserts DB row).
-- Set `AGENC_MISSION_UUID` in the wrapper's Claude environment.
-- Add `Bash(agenc message send:*)` to the Claude config sync.
+- Add `messages` table.
+- Implement `agenc message send`.
+- Set `AGENC_MISSION_UUID` in wrapper environment.
+- Add `Bash(agenc message send:*)` permission.
 
-**Phase 2: Inbox**
-- Implement `agenc inbox` with the interactive thread picker and detail view.
-- Implement the reply flow ($EDITOR with plain-Markdown message history, separator parsing, filesystem write, queueing).
+**Phase 2: Inbox (read-only)**
+- Implement `agenc inbox` thread list and detail views.
 - Implement mark-unread.
 
-**Phase 3: Reply delivery**
-- Implement reply injection on `mission resume` (read undelivered reply files, concatenate, pass as prompt).
-- Implement the inbox attach action.
+**Phase 3: Reply flow**
+- Implement reply composition in inbox.
+- Implement reply delivery on `mission resume`.
+- Implement inbox attach action.
 
-**Phase 4: Crons**
+**Phase 4: Cron infrastructure**
 - Add `cron_name` column to missions.
-- Parse cron definitions from config.yml.
+- Add `cron_runs` table.
+- Parse `crons` section from config.yml with validation.
 - Implement `agenc cron add/ls/rm/enable/disable`.
-- Implement the daemon cron scheduler goroutine.
-- Implement headless mission launching with `--print`.
-- Add `cron_last_runs` table and double-fire guard.
-- Add daemon shutdown cleanup for headless Claude processes.
 
+**Phase 5: Cron execution**
+- Implement daemon cron scheduler goroutine.
+- Implement headless mission launching.
+- Implement timeout enforcement.
+- Implement overlap policies.
+- Implement orphan handling on daemon startup.
+- Implement graceful shutdown.
 
-Open Questions
---------------
-
-1. **Cron output viewing:** Should there be a dedicated command to view the stdout/stderr output of a headless cron mission (the `claude-output.log`), or is `mission resume` + reading the conversation sufficient?
-
-2. **Message retention:** Should old messages be automatically cleaned up after some period, or retained indefinitely (cleaned up only when the mission is deleted)?
-
-3. **Cron mission cleanup:** Cron missions accumulate over time. Should there be an auto-cleanup policy (e.g., keep only the last N missions per cron), or is manual `mission rm` sufficient?
-
-4. **Concurrent cron limit:** Should there be a configurable limit on how many headless missions can run simultaneously, to prevent resource exhaustion?
-
-5. **`--print` conversation continuability:** Verify that `claude --print` stores its conversation in a way that `claude -c` can resume. If not, an alternative headless execution strategy will be needed.
+**Phase 6: Cron observability**
+- Implement `agenc cron run <name>`.
+- Implement `agenc cron logs <name>`.
+- Implement `agenc cron history <name>`.
+- Implement log rotation.
+- Implement retention policy.
+- Add `--cron` filter to `mission ls`.
