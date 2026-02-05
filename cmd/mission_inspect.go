@@ -57,7 +57,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 }
 
 func selectMissionToInspect(db *database.DB) (string, error) {
-	missions, err := db.ListMissions(true)
+	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: true})
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to list missions")
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -19,6 +20,10 @@ import (
 var agentFlag string
 var cloneFlag string
 var promptFlag string
+var headlessFlag bool
+var timeoutFlag string
+var cronIDFlag string
+var cronNameFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   newCmdStr + " [search-terms...]",
@@ -51,6 +56,13 @@ func init() {
 	missionNewCmd.Flags().StringVar(&agentFlag, agentFlagName, "", "agent template (URL, shorthand, local path, or search terms)")
 	missionNewCmd.Flags().StringVar(&cloneFlag, cloneFlagName, "", "mission UUID to clone workspace from")
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
+	missionNewCmd.Flags().BoolVar(&headlessFlag, headlessFlagName, false, "run in headless mode (no terminal, outputs to log)")
+	missionNewCmd.Flags().StringVar(&timeoutFlag, timeoutFlagName, "1h", "max runtime for headless missions (e.g., '1h', '30m')")
+	missionNewCmd.Flags().StringVar(&cronIDFlag, cronIDFlagName, "", "cron job ID (internal use)")
+	missionNewCmd.Flags().StringVar(&cronNameFlag, cronNameFlagName, "", "cron job name (internal use)")
+	// Hide internal cron flags
+	missionNewCmd.Flags().MarkHidden(cronIDFlagName)
+	missionNewCmd.Flags().MarkHidden(cronNameFlagName)
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -104,7 +116,7 @@ func runMissionNewWithClone(args []string) error {
 			return err
 		}
 
-		missionRecord, err := db.CreateMission(agentTemplate, sourceMission.GitRepo)
+		missionRecord, err := db.CreateMission(agentTemplate, sourceMission.GitRepo, nil)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to create mission record")
 		}
@@ -471,7 +483,19 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	missionRecord, err := db.CreateMission(agentTemplate, gitRepoName)
+	// Build cron params if provided
+	var createParams *database.CreateMissionParams
+	if cronIDFlag != "" || cronNameFlag != "" {
+		createParams = &database.CreateMissionParams{}
+		if cronIDFlag != "" {
+			createParams.CronID = &cronIDFlag
+		}
+		if cronNameFlag != "" {
+			createParams.CronName = &cronNameFlag
+		}
+	}
+
+	missionRecord, err := db.CreateMission(agentTemplate, gitRepoName, createParams)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission record")
 	}
@@ -485,9 +509,29 @@ func createAndLaunchMission(
 	}
 
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
-	fmt.Println("Launching claude...")
 
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, initialPrompt, db)
+
+	// Run in headless mode if requested
+	if headlessFlag {
+		if initialPrompt == "" {
+			return stacktrace.NewError("headless mode requires a prompt (use --%s)", promptFlagName)
+		}
+
+		timeout, err := time.ParseDuration(timeoutFlag)
+		if err != nil {
+			return stacktrace.Propagate(err, "invalid timeout '%s'", timeoutFlag)
+		}
+
+		fmt.Printf("Running in headless mode (timeout: %s)...\n", timeout)
+		return w.RunHeadless(false, wrapper.HeadlessConfig{
+			Timeout:  timeout,
+			CronID:   cronIDFlag,
+			CronName: cronNameFlag,
+		})
+	}
+
+	fmt.Println("Launching claude...")
 	return w.Run(false)
 }
 

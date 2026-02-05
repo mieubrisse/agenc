@@ -20,6 +20,7 @@ import (
 const defaultMissionLsLimit = 20
 
 var lsAllFlag bool
+var lsCronFlag string
 
 var missionLsCmd = &cobra.Command{
 	Use:   lsCmdStr,
@@ -29,6 +30,7 @@ var missionLsCmd = &cobra.Command{
 
 func init() {
 	missionLsCmd.Flags().BoolVarP(&lsAllFlag, allFlagName, "a", false, "include archived missions")
+	missionLsCmd.Flags().StringVar(&lsCronFlag, cronFlagName, "", "filter to missions from a specific cron job")
 	missionCmd.AddCommand(missionLsCmd)
 }
 
@@ -39,7 +41,11 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missions, err := db.ListMissions(lsAllFlag)
+	params := database.ListMissionsParams{IncludeArchived: lsAllFlag}
+	if lsCronFlag != "" {
+		params.CronID = &lsCronFlag
+	}
+	missions, err := db.ListMissions(params)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

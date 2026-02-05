@@ -18,22 +18,23 @@ const (
 	MissionsDirname            = "missions"
 	ReposDirname               = "repos"
 	DaemonDirname              = "daemon"
-	DaemonPIDFilename     = "daemon.pid"
-	DaemonLogFilename     = "daemon.log"
-	DaemonVersionFilename = "daemon.version"
-	ConfigFilename        = "config.yml"
+	DaemonPIDFilename          = "daemon.pid"
+	DaemonLogFilename          = "daemon.log"
+	DaemonVersionFilename      = "daemon.version"
+	ConfigFilename             = "config.yml"
 
-	AgentDirname           = "agent"
-	WorkspaceDirname       = "workspace"
-	PIDFilename            = "pid"
-	ClaudeStateFilename    = "claude-state"
-	GlobalSettingsFilename = "settings.json"
-	GlobalClaudeMdFilename = "CLAUDE.md"
-	TemplateCommitFilename = "template-commit"
-	WrapperLogFilename     = "wrapper.log"
-	SettingsLocalFilename  = "settings.local.json"
-	HistoryFilename        = "history.jsonl"
-	SecretsEnvFilename     = "secrets.env"
+	AgentDirname            = "agent"
+	WorkspaceDirname        = "workspace"
+	PIDFilename             = "pid"
+	ClaudeStateFilename     = "claude-state"
+	GlobalSettingsFilename  = "settings.json"
+	GlobalClaudeMdFilename  = "CLAUDE.md"
+	TemplateCommitFilename  = "template-commit"
+	WrapperLogFilename      = "wrapper.log"
+	SettingsLocalFilename   = "settings.local.json"
+	HistoryFilename         = "history.jsonl"
+	SecretsEnvFilename      = "secrets.env"
+	ClaudeOutputLogFilename = "claude-output.log"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -169,6 +170,12 @@ func GetMissionWorkspaceDirpath(agencDirpath string, missionID string) string {
 // GetRepoDirpath returns the path to a specific repo directory.
 func GetRepoDirpath(agencDirpath string, repoName string) string {
 	return filepath.Join(GetReposDirpath(agencDirpath), repoName)
+}
+
+// GetMissionClaudeOutputLogFilepath returns the path to the claude-output.log
+// file for a headless mission.
+func GetMissionClaudeOutputLogFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), ClaudeOutputLogFilename)
 }
 
 // GetConfigDirpath returns the path to the user-editable config directory

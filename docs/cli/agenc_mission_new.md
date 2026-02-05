@@ -28,10 +28,12 @@ agenc mission new [search-terms...] [flags]
 ### Options
 
 ```
-      --agent string    agent template (URL, shorthand, local path, or search terms)
-      --clone string    mission UUID to clone workspace from
-  -h, --help            help for new
-      --prompt string   initial prompt to start Claude with
+      --agent string     agent template (URL, shorthand, local path, or search terms)
+      --clone string     mission UUID to clone workspace from
+      --headless         run in headless mode (no terminal, outputs to log)
+  -h, --help             help for new
+      --prompt string    initial prompt to start Claude with
+      --timeout string   max runtime for headless missions (e.g., '1h', '30m') (default "1h")
 ```
 
 ### SEE ALSO

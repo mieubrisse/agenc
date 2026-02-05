@@ -8,6 +8,8 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
+
+	"github.com/odyssey/agenc/internal/database"
 )
 
 var nukeForceFlag bool
@@ -31,7 +33,7 @@ func runMissionNuke(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missions, err := db.ListMissions(true)
+	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: true})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

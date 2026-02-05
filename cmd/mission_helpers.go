@@ -254,7 +254,7 @@ type missionSelectConfig struct {
 // selectMissionsInteractive presents an fzf picker for mission selection.
 // Returns the selected mission short IDs, or nil if no missions or user cancels.
 func selectMissionsInteractive(db *database.DB, cfg missionSelectConfig) ([]string, error) {
-	missions, err := db.ListMissions(cfg.IncludeArchived)
+	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: cfg.IncludeArchived})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to list missions")
 	}

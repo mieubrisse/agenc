@@ -11,6 +11,7 @@ The AgenC — agent mission management CLI
 ### SEE ALSO
 
 * [agenc config](agenc_config.md)	 - Manage agenc configuration
+* [agenc cron](agenc_cron.md)	 - Manage scheduled cron jobs
 * [agenc daemon](agenc_daemon.md)	 - Manage the background daemon
 * [agenc login](agenc_login.md)	 - Log in to Claude (credentials stored in $AGENC_DIRPATH/claude/)
 * [agenc mission](agenc_mission.md)	 - Manage agent missions

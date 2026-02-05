@@ -500,3 +500,239 @@ func (w *Wrapper) pollTemplateChanges(ctx context.Context) {
 		}
 	}
 }
+
+// HeadlessConfig holds configuration for running a headless mission.
+type HeadlessConfig struct {
+	Timeout  time.Duration // Maximum runtime before timeout (0 = no timeout)
+	CronID   string        // Cron job ID that spawned this mission (optional)
+	CronName string        // Cron job name (optional)
+}
+
+const (
+	headlessLogMaxSize     = 10 * 1024 * 1024 // 10MB
+	headlessLogMaxBackups  = 3
+	headlessShutdownPeriod = 30 * time.Second
+)
+
+// RunHeadless executes a headless mission using claude --print -p <prompt>.
+// The Claude output is captured to claude-output.log with log rotation.
+// If a previous conversation exists (isResume=true), it uses claude -c -p <prompt>
+// to continue the conversation.
+func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
+	// Set up logger
+	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
+	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open wrapper log file")
+	}
+	defer logFile.Close()
+	w.logger = slog.New(slog.NewTextHandler(logFile, nil))
+
+	w.logger.Info("Starting headless mission",
+		"missionID", w.missionID,
+		"timeout", cfg.Timeout,
+		"cronID", cfg.CronID,
+		"cronName", cfg.CronName,
+		"isResume", isResume,
+	)
+
+	// Write wrapper PID
+	pidFilepath := config.GetMissionPIDFilepath(w.agencDirpath, w.missionID)
+	if err := os.WriteFile(pidFilepath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write wrapper PID file")
+	}
+	defer os.Remove(pidFilepath)
+
+	// Set up context with timeout if specified
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var timeoutTimer *time.Timer
+	if cfg.Timeout > 0 {
+		timeoutTimer = time.AfterFunc(cfg.Timeout, func() {
+			w.logger.Warn("Headless mission timed out", "timeout", cfg.Timeout)
+			cancel()
+		})
+		defer timeoutTimer.Stop()
+	}
+
+	// Catch SIGINT and SIGTERM
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	// Write initial heartbeat and start periodic heartbeat loop
+	if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
+		w.logger.Warn("Failed to write initial heartbeat", "error", err)
+	}
+	go w.writeHeartbeat(ctx)
+
+	// Rotate log file if needed
+	claudeOutputLogFilepath := config.GetMissionClaudeOutputLogFilepath(w.agencDirpath, w.missionID)
+	if err := rotateLogFileIfNeeded(claudeOutputLogFilepath); err != nil {
+		w.logger.Warn("Failed to rotate log file", "error", err)
+	}
+
+	// Open output log file
+	outputFile, err := os.OpenFile(claudeOutputLogFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open claude output log file")
+	}
+	defer outputFile.Close()
+
+	// Build and run the claude command
+	cmd, err := w.buildHeadlessClaudeCmd(isResume)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to build headless claude command")
+	}
+
+	cmd.Stdout = outputFile
+	cmd.Stderr = outputFile
+
+	if err := cmd.Start(); err != nil {
+		return stacktrace.Propagate(err, "failed to start headless claude")
+	}
+
+	w.logger.Info("Claude process started", "pid", cmd.Process.Pid)
+
+	// Wait for completion
+	claudeExited := make(chan error, 1)
+	go func() {
+		claudeExited <- cmd.Wait()
+	}()
+
+	select {
+	case sig := <-sigCh:
+		w.logger.Info("Received signal, shutting down", "signal", sig)
+		if err := w.gracefulShutdownClaude(cmd); err != nil {
+			w.logger.Warn("Graceful shutdown failed", "error", err)
+		}
+		return nil
+
+	case <-ctx.Done():
+		// Timeout or cancellation
+		w.logger.Info("Context cancelled, shutting down")
+		if err := w.gracefulShutdownClaude(cmd); err != nil {
+			w.logger.Warn("Graceful shutdown failed", "error", err)
+		}
+		return stacktrace.NewError("headless mission timed out after %v", cfg.Timeout)
+
+	case err := <-claudeExited:
+		if err != nil {
+			w.logger.Info("Claude process exited with error", "error", err)
+			return stacktrace.Propagate(err, "claude exited with error")
+		}
+		w.logger.Info("Claude process completed successfully")
+		return nil
+	}
+}
+
+// buildHeadlessClaudeCmd constructs the command for headless execution.
+// Uses claude --print -p <prompt> for new missions, or claude -c -p <prompt>
+// for resuming existing conversations.
+func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
+	claudeBinary, err := exec.LookPath("claude")
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
+	}
+
+	claudeConfigDirpath := config.GetGlobalClaudeDirpath(w.agencDirpath)
+
+	var args []string
+	if isResume {
+		// Resume with continuation flag and print mode
+		args = []string{"-c", "--print", "-p", w.initialPrompt}
+	} else {
+		// New conversation with print mode
+		args = []string{"--print", "-p", w.initialPrompt}
+	}
+
+	secretsEnvFilepath := filepath.Join(w.agentDirpath, config.UserClaudeDirname, config.SecretsEnvFilename)
+
+	var cmd *exec.Cmd
+	if _, statErr := os.Stat(secretsEnvFilepath); statErr == nil {
+		// secrets.env exists — wrap with op run
+		opBinary, err := exec.LookPath("op")
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "'op' (1Password CLI) not found in PATH; required because '%s' exists", secretsEnvFilepath)
+		}
+
+		opArgs := []string{
+			"run",
+			"--env-file", secretsEnvFilepath,
+			"--no-masking",
+			"--",
+			claudeBinary,
+		}
+		opArgs = append(opArgs, args...)
+		cmd = exec.Command(opBinary, opArgs...)
+	} else {
+		cmd = exec.Command(claudeBinary, args...)
+	}
+
+	cmd.Dir = w.agentDirpath
+	cmd.Env = append(os.Environ(),
+		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
+		"AGENC_MISSION_UUID="+w.missionID,
+	)
+
+	return cmd, nil
+}
+
+// gracefulShutdownClaude attempts to gracefully shut down a Claude process.
+// First sends SIGTERM, waits for the shutdown period, then sends SIGKILL if needed.
+func (w *Wrapper) gracefulShutdownClaude(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+
+	// Send SIGTERM
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		if err.Error() != "os: process already finished" {
+			return stacktrace.Propagate(err, "failed to send SIGTERM")
+		}
+		return nil
+	}
+
+	// Wait for graceful shutdown
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case <-time.After(headlessShutdownPeriod):
+		w.logger.Warn("Graceful shutdown timed out, sending SIGKILL")
+		_ = cmd.Process.Kill()
+		return nil
+	case <-done:
+		return nil
+	}
+}
+
+// rotateLogFileIfNeeded rotates the log file if it exceeds the max size.
+func rotateLogFileIfNeeded(logFilepath string) error {
+	info, err := os.Stat(logFilepath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	if info.Size() < headlessLogMaxSize {
+		return nil
+	}
+
+	// Rotate existing backups
+	for i := headlessLogMaxBackups - 1; i >= 1; i-- {
+		oldPath := logFilepath + "." + strconv.Itoa(i)
+		newPath := logFilepath + "." + strconv.Itoa(i+1)
+		os.Rename(oldPath, newPath) // Ignore errors
+	}
+
+	// Move current log to .1
+	os.Rename(logFilepath, logFilepath+".1")
+
+	return nil
+}

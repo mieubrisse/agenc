@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
 )
 
@@ -66,7 +67,7 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 
 	// Include repos from missions with a recent heartbeat (active wrapper)
 	now := time.Now().UTC()
-	missions, err := d.db.ListMissions(false)
+	missions, err := d.db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
 	if err != nil {
 		d.logger.Printf("Repo update: failed to list missions: %v", err)
 	} else {

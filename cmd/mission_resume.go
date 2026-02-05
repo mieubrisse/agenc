@@ -37,7 +37,7 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	missions, err := db.ListMissions(false)
+	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

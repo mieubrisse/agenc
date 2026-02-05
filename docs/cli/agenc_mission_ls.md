@@ -9,8 +9,9 @@ agenc mission ls [flags]
 ### Options
 
 ```
-  -a, --all    include archived missions
-  -h, --help   help for ls
+  -a, --all           include archived missions
+      --cron string   filter to missions from a specific cron job
+  -h, --help          help for ls
 ```
 
 ### SEE ALSO

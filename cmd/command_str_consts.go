@@ -17,6 +17,7 @@ const (
 	daemonCmdStr   = "daemon"
 	versionCmdStr  = "version"
 	loginCmdStr    = "login"
+	cronCmdStr     = "cron"
 
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
@@ -39,6 +40,13 @@ const (
 	startCmdStr   = "start"
 	restartCmdStr = "restart"
 	statusCmdStr  = "status"
+
+	// Cron subcommands
+	enableCmdStr  = "enable"
+	disableCmdStr = "disable"
+	runCmdStr     = "run"
+	logsCmdStr    = "logs"
+	historyCmdStr = "history"
 )
 
 // Centralized flag name strings for CLI flags. Use these constants in flag
@@ -72,4 +80,12 @@ const (
 
 	// daemon status flags
 	jsonFlagName = "json"
+
+	// cron flags
+	headlessFlagName = "headless"
+	timeoutFlagName  = "timeout"
+	cronIDFlagName   = "cron-id"
+	cronNameFlagName = "cron-name"
+	followFlagName   = "follow"
+	cronFlagName     = "cron"
 )
