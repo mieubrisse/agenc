@@ -42,23 +42,6 @@ func runRepoEdit(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	// First, try to resolve positional args as a git reference (URL, path, shorthand)
-	if len(args) > 0 {
-		joinedArgs := strings.Join(args, " ")
-		if looksLikeRepoReference(joinedArgs) || (len(args) == 1 && looksLikeRepoReference(args[0])) {
-			input := joinedArgs
-			if len(args) == 1 {
-				input = args[0]
-			}
-			result, err := ResolveRepoInput(agencDirpath, input, false, "Select repo: ")
-			if err != nil {
-				return err
-			}
-			return launchRepoEditMission(cfg, result.RepoName, result.CloneDirpath)
-		}
-	}
-
-	// Fall back to search term matching against repos only (no templates)
 	repos, err := findReposOnDisk(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to scan repos directory")
@@ -69,36 +52,42 @@ func runRepoEdit(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("no repos available to edit")
 	}
 
-	var repoName string
-
-	if len(args) > 0 {
-		// Match using glob-style pattern
-		terms := args
-		matches := matchReposGlob(repos, terms)
-		if len(matches) == 1 {
-			repoName = matches[0]
-			fmt.Printf("Auto-selected: %s\n", displayGitRepo(repoName))
-		} else {
-			// Multiple or no matches - use fzf with search terms as initial query
-			selected, err := selectReposWithFzfAndQuery(repos, "Select repo: ", strings.Join(terms, " "))
+	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
+		TryCanonical: func(input string) (string, bool, error) {
+			if !looksLikeRepoReference(input) {
+				return "", false, nil
+			}
+			// For repo edit, use ResolveRepoInput which handles cloning from external sources
+			resolved, err := ResolveRepoInput(agencDirpath, input, false, "Select repo: ")
 			if err != nil {
-				return err
+				return "", false, err
 			}
-			if len(selected) == 0 {
-				return stacktrace.NewError("no repo selected")
-			}
-			repoName = selected[0]
-		}
-	} else {
-		// No args - show fzf picker with all repos
-		selected, err := selectReposWithFzf(repos, "Select repo: ")
-		if err != nil {
-			return err
-		}
-		if len(selected) == 0 {
-			return stacktrace.NewError("no repo selected")
-		}
-		repoName = selected[0]
+			return resolved.RepoName, true, nil
+		},
+		GetItems:    func() ([]string, error) { return repos, nil },
+		ExtractText: func(repo string) string { return repo },
+		FormatRow:   func(repo string) []string { return []string{displayGitRepo(repo)} },
+		FzfPrompt:   "Select repo: ",
+		FzfHeaders:  []string{"REPO"},
+		MultiSelect: false,
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.WasCancelled {
+		return stacktrace.NewError("no repo selected")
+	}
+
+	if len(result.Items) == 0 {
+		return stacktrace.NewError("no repo selected")
+	}
+
+	repoName := result.Items[0]
+
+	// Print auto-select message if search matched exactly one
+	if len(args) > 0 && !looksLikeRepoReference(strings.Join(args, " ")) {
+		fmt.Printf("Auto-selected: %s\n", displayGitRepo(repoName))
 	}
 
 	cloneDirpath := config.GetRepoDirpath(agencDirpath, repoName)

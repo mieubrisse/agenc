@@ -52,36 +52,31 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var selected *missionPickerEntry
+	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
+		// No canonical resolution for missions (just use search)
+		TryCanonical: nil,
+		GetItems:     func() ([]missionPickerEntry, error) { return entries, nil },
+		ExtractText:  formatMissionMatchLine,
+		FormatRow: func(e missionPickerEntry) []string {
+			return []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo}
+		},
+		FzfPrompt:   "Select mission to resume: ",
+		FzfHeaders:  []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
+		MultiSelect: false,
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.WasCancelled || len(result.Items) == 0 {
+		return nil
+	}
+
+	selected := result.Items[0]
+
+	// Print auto-select message if search matched exactly one
 	if len(args) > 0 {
-		matches := matchMissionEntries(entries, args)
-		if len(matches) == 1 {
-			fmt.Printf("Auto-selected: %s\n", matches[0].ShortID)
-			selected = &matches[0]
-		} else {
-			picked, err := selectMissionsFzf(entries, missionPickerOptions{
-				Prompt:       "Select mission to resume: ",
-				InitialQuery: strings.Join(args, " "),
-			})
-			if err != nil {
-				return err
-			}
-			if len(picked) == 0 {
-				return nil
-			}
-			selected = &picked[0]
-		}
-	} else {
-		picked, err := selectMissionsFzf(entries, missionPickerOptions{
-			Prompt: "Select mission to resume: ",
-		})
-		if err != nil {
-			return err
-		}
-		if len(picked) == 0 {
-			return nil
-		}
-		selected = &picked[0]
+		fmt.Printf("Auto-selected: %s\n", selected.ShortID)
 	}
 
 	return resumeMission(db, selected.MissionID)

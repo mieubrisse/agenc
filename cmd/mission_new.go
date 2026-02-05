@@ -174,53 +174,76 @@ func runMissionNewWithPicker(cfg *config.AgencConfig, args []string) error {
 		entries = reposOnly
 	}
 
-	// First, try to resolve positional args as a git reference (URL, path, shorthand)
-	if len(args) > 0 {
-		joinedArgs := strings.Join(args, " ")
-		if looksLikeRepoReference(joinedArgs) || (len(args) == 1 && looksLikeRepoReference(args[0])) {
-			input := joinedArgs
-			if len(args) == 1 {
-				input = args[0]
-			}
-			result, err := ResolveRepoInput(agencDirpath, input, false, "Select repo: ")
-			if err != nil {
-				return err
-			}
-			selection := &repoLibrarySelection{
-				RepoName:   result.RepoName,
-				IsTemplate: false,
-			}
-			return launchFromLibrarySelection(cfg, selection)
-		}
-	}
+	input := strings.Join(args, " ")
 
-	// Fall back to search term matching
-	var selection *repoLibrarySelection
-
-	if len(args) > 0 {
-		matches := matchRepoLibraryEntries(entries, args)
-		if len(matches) == 1 {
-			entry := matches[0]
-			fmt.Printf("Auto-selected: %s\n", displayGitRepo(entry.RepoName))
-			selection = &repoLibrarySelection{
-				RepoName:   entry.RepoName,
-				IsTemplate: entry.IsTemplate,
-			}
-		} else {
-			picked, err := selectFromRepoLibrary(entries, strings.Join(args, " "))
-			if err != nil {
-				return err
-			}
-			selection = picked
-		}
-	} else {
+	// No args: show fzf picker with sentinel (blank mission option)
+	if input == "" {
 		picked, err := selectFromRepoLibrary(entries, "")
 		if err != nil {
 			return err
 		}
-		selection = picked
+		return launchFromLibrarySelection(cfg, picked)
 	}
 
+	// Try to resolve as a git reference (URL, path, shorthand)
+	if looksLikeRepoReference(input) {
+		result, err := ResolveRepoInput(agencDirpath, input, false, "Select repo: ")
+		if err != nil {
+			return err
+		}
+		selection := &repoLibrarySelection{
+			RepoName:   result.RepoName,
+			IsTemplate: false,
+		}
+		return launchFromLibrarySelection(cfg, selection)
+	}
+
+	// Use generic resolver for search/auto-select
+	// Sentinel is not included since we're searching, not browsing
+	result, err := Resolve(input, Resolver[repoLibraryEntry]{
+		TryCanonical: nil, // Already handled above
+		GetItems:     func() ([]repoLibraryEntry, error) { return entries, nil },
+		ExtractText:  formatLibraryFzfLine,
+		FormatRow: func(e repoLibraryEntry) []string {
+			var typeIcon, item string
+			if e.IsTemplate {
+				typeIcon = "🤖"
+				if e.Nickname != "" {
+					item = fmt.Sprintf("%s (%s)", e.Nickname, displayGitRepo(e.RepoName))
+				} else {
+					item = displayGitRepo(e.RepoName)
+				}
+			} else {
+				typeIcon = "📦"
+				item = displayGitRepo(e.RepoName)
+			}
+			return []string{typeIcon, item}
+		},
+		FzfPrompt:   "Select repo: ",
+		FzfHeaders:  []string{"TYPE", "ITEM"},
+		MultiSelect: false,
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.WasCancelled {
+		return stacktrace.NewError("fzf selection cancelled")
+	}
+
+	if len(result.Items) == 0 {
+		return stacktrace.NewError("no matching repos or templates found")
+	}
+
+	entry := result.Items[0]
+
+	// Print auto-select message if search matched exactly one
+	fmt.Printf("Auto-selected: %s\n", displayGitRepo(entry.RepoName))
+
+	selection := &repoLibrarySelection{
+		RepoName:   entry.RepoName,
+		IsTemplate: entry.IsTemplate,
+	}
 	return launchFromLibrarySelection(cfg, selection)
 }
 
@@ -315,7 +338,6 @@ func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTempl
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
 // Agent templates are prefixed with 🤖; repos are prefixed with 📦.
 // Uses displayGitRepo for consistent repo formatting across all commands.
-// This is used by matchRepoLibraryEntries for pre-filtering before fzf.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
 	coloredRepo := displayGitRepo(entry.RepoName)
 	if entry.IsTemplate {
@@ -381,20 +403,6 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		RepoName:   entry.RepoName,
 		IsTemplate: entry.IsTemplate,
 	}, nil
-}
-
-// matchRepoLibraryEntries filters entries by sequential case-insensitive
-// substring matching. Each arg must appear in order within the formatted
-// fzf line.
-func matchRepoLibraryEntries(entries []repoLibraryEntry, args []string) []repoLibraryEntry {
-	var matches []repoLibraryEntry
-	for _, entry := range entries {
-		line := formatLibraryFzfLine(entry)
-		if matchesSequentialSubstrings(line, args) {
-			matches = append(matches, entry)
-		}
-	}
-	return matches
 }
 
 // resolveAgentTemplate determines which agent template to use for a new

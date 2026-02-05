@@ -49,29 +49,9 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	repoNames, err := resolveRepoRmArgs(cfg, args)
-	if err != nil {
-		return err
-	}
-	if len(repoNames) == 0 {
-		return nil
-	}
-
-	for _, repoName := range repoNames {
-		if err := removeSingleRepo(cfg, cm, repoName); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// resolveRepoRmArgs resolves CLI arguments to canonical repo names for removal.
-// When no arguments are given, opens an fzf picker that excludes agent template
-// repos (since those can't be removed via repo rm).
-func resolveRepoRmArgs(cfg *config.AgencConfig, args []string) ([]string, error) {
 	allRepos, err := findReposOnDisk(agencDirpath)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to scan repos directory")
+		return stacktrace.Propagate(err, "failed to scan repos directory")
 	}
 
 	// Filter out agent templates — they must be removed via 'template rm' first
@@ -84,42 +64,48 @@ func resolveRepoRmArgs(cfg *config.AgencConfig, args []string) ([]string, error)
 
 	if len(removableRepos) == 0 {
 		fmt.Println("No removable repositories in the repo library (all are agent templates).")
-		return nil, nil
+		return nil
 	}
 
-	if len(args) == 0 {
-		// No args - open fzf picker
-		return selectReposWithFzf(removableRepos, "Select repos to remove (TAB to multi-select): ")
-	}
-
-	// Check if the first arg looks like a repo reference
-	if looksLikeRepoReference(args[0]) {
-		// Each arg is a repo reference
-		var repoNames []string
-		for _, arg := range args {
-			repoName, _, parseErr := mission.ParseRepoReference(arg, false)
-			if parseErr != nil {
-				return nil, stacktrace.Propagate(parseErr, "invalid repo reference '%s'", arg)
+	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
+		TryCanonical: func(input string) (string, bool, error) {
+			if !looksLikeRepoReference(input) {
+				return "", false, nil
 			}
-			repoNames = append(repoNames, repoName)
+			name, _, err := mission.ParseRepoReference(input, false)
+			if err != nil {
+				return "", false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)
+			}
+			// Note: canonical resolution returns the parsed name even if not in removableRepos
+			// The actual validation happens in removeSingleRepo
+			return name, true, nil
+		},
+		GetItems:    func() ([]string, error) { return removableRepos, nil },
+		ExtractText: func(repo string) string { return repo },
+		FormatRow:   func(repo string) []string { return []string{displayGitRepo(repo)} },
+		FzfPrompt:   "Select repos to remove (TAB to multi-select): ",
+		FzfHeaders:  []string{"REPO"},
+		MultiSelect: true,
+	})
+	if err != nil {
+		return err
+	}
+
+	if result.WasCancelled || len(result.Items) == 0 {
+		return nil
+	}
+
+	// Print auto-select message if search matched exactly one
+	if len(args) > 0 && len(result.Items) == 1 && !looksLikeRepoReference(strings.Join(args, " ")) {
+		fmt.Printf("Auto-selected: %s\n", displayGitRepo(result.Items[0]))
+	}
+
+	for _, repoName := range result.Items {
+		if err := removeSingleRepo(cfg, cm, repoName); err != nil {
+			return err
 		}
-		return repoNames, nil
 	}
-
-	// Treat args as search terms
-	searchTerms := strings.Join(args, " ")
-	terms := strings.Fields(searchTerms)
-
-	// Match using glob-style pattern
-	matches := matchReposGlob(removableRepos, terms)
-
-	if len(matches) == 1 {
-		fmt.Printf("Auto-selected: %s\n", displayGitRepo(matches[0]))
-		return matches, nil
-	}
-
-	// Multiple or no matches - use fzf with initial query
-	return selectReposWithFzfAndQuery(removableRepos, "Select repos to remove (TAB to multi-select): ", searchTerms)
+	return nil
 }
 
 func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {

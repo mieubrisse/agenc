@@ -120,19 +120,6 @@ func formatMissionMatchLine(entry missionPickerEntry) string {
 	return entry.LastActive + " " + entry.ShortID + " " + stripAnsiCodes(entry.Agent) + " " + entry.Session + " " + stripAnsiCodes(entry.Repo)
 }
 
-// matchMissionEntries filters entries by sequential case-insensitive substring
-// matching against a plain-text representation of each entry.
-func matchMissionEntries(entries []missionPickerEntry, args []string) []missionPickerEntry {
-	var matches []missionPickerEntry
-	for _, entry := range entries {
-		line := formatMissionMatchLine(entry)
-		if matchesSequentialSubstrings(line, args) {
-			matches = append(matches, entry)
-		}
-	}
-	return matches
-}
-
 // extractMissionShortIDs returns the short IDs from a slice of picker entries.
 func extractMissionShortIDs(entries []missionPickerEntry) []string {
 	ids := make([]string, len(entries))

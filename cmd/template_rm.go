@@ -40,6 +40,12 @@ func init() {
 	templateCmd.AddCommand(templateRmCmd)
 }
 
+// templateEntry holds a template repo name and its properties for resolution.
+type templateEntry struct {
+	RepoName string
+	Nickname string
+}
+
 func runTemplateRm(cmd *cobra.Command, args []string) error {
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
@@ -51,106 +57,62 @@ func runTemplateRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	repoNames, err := resolveTemplateRmArgs(cfg, args)
+	// Build sorted list of template entries
+	repoKeys := sortedRepoKeys(cfg.AgentTemplates)
+	entries := make([]templateEntry, len(repoKeys))
+	for i, repo := range repoKeys {
+		entries[i] = templateEntry{
+			RepoName: repo,
+			Nickname: cfg.AgentTemplates[repo].Nickname,
+		}
+	}
+
+	result, err := Resolve(strings.Join(args, " "), Resolver[templateEntry]{
+		TryCanonical: func(input string) (templateEntry, bool, error) {
+			if !looksLikeRepoReference(input) {
+				return templateEntry{}, false, nil
+			}
+			name, _, err := mission.ParseRepoReference(input, false)
+			if err != nil {
+				return templateEntry{}, false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)
+			}
+			// Return the parsed name; validation happens in removeSingleTemplate
+			return templateEntry{RepoName: name}, true, nil
+		},
+		GetItems: func() ([]templateEntry, error) { return entries, nil },
+		ExtractText: func(e templateEntry) string {
+			return formatTemplateFzfLine(e.RepoName, config.AgentTemplateProperties{Nickname: e.Nickname})
+		},
+		FormatRow: func(e templateEntry) []string {
+			nickname := "--"
+			if e.Nickname != "" {
+				nickname = e.Nickname
+			}
+			return []string{nickname, displayGitRepo(e.RepoName)}
+		},
+		FzfPrompt:   "Select templates to remove (TAB to multi-select): ",
+		FzfHeaders:  []string{"NICKNAME", "REPO"},
+		MultiSelect: true,
+	})
 	if err != nil {
 		return err
 	}
-	if len(repoNames) == 0 {
+
+	if result.WasCancelled || len(result.Items) == 0 {
 		return nil
 	}
 
-	for _, repoName := range repoNames {
-		if err := removeSingleTemplate(cfg, cm, repoName); err != nil {
+	// Print auto-select message if search matched exactly one
+	if len(args) > 0 && len(result.Items) == 1 && !looksLikeRepoReference(strings.Join(args, " ")) {
+		fmt.Printf("Auto-selected: %s\n", displayGitRepo(result.Items[0].RepoName))
+	}
+
+	for _, entry := range result.Items {
+		if err := removeSingleTemplate(cfg, cm, entry.RepoName); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// resolveTemplateRmArgs resolves CLI arguments to canonical repo names for template removal.
-// When no arguments are given, opens an fzf picker.
-func resolveTemplateRmArgs(cfg *config.AgencConfig, args []string) ([]string, error) {
-	// Get list of template repo names
-	var templateRepos []string
-	for repoName := range cfg.AgentTemplates {
-		templateRepos = append(templateRepos, repoName)
-	}
-
-	if len(templateRepos) == 0 {
-		return nil, nil
-	}
-
-	if len(args) == 0 {
-		// No args - open fzf picker
-		return selectTemplatesWithFzf(cfg.AgentTemplates, "Select templates to remove (TAB to multi-select): ", "")
-	}
-
-	// Check if the first arg looks like a repo reference
-	if looksLikeRepoReference(args[0]) {
-		// Each arg is a repo reference - resolve to canonical names
-		var repoNames []string
-		for _, arg := range args {
-			repoName, _, parseErr := mission.ParseRepoReference(arg, false)
-			if parseErr != nil {
-				return nil, stacktrace.Propagate(parseErr, "invalid repo reference '%s'", arg)
-			}
-			repoNames = append(repoNames, repoName)
-		}
-		return repoNames, nil
-	}
-
-	// Treat args as search terms
-	matches := matchTemplateEntries(cfg.AgentTemplates, args)
-
-	if len(matches) == 1 {
-		fmt.Printf("Auto-selected: %s\n", displayGitRepo(matches[0]))
-		return matches, nil
-	}
-
-	// Multiple or no matches - use fzf with initial query
-	searchTerms := strings.Join(args, " ")
-	return selectTemplatesWithFzf(cfg.AgentTemplates, "Select templates to remove (TAB to multi-select): ", searchTerms)
-}
-
-// selectTemplatesWithFzf presents an fzf multi-select picker for templates
-// and returns the selected canonical repo names. Returns nil (no error) if the
-// user cancels with Ctrl-C or Escape.
-func selectTemplatesWithFzf(templates map[string]config.AgentTemplateProperties, prompt string, initialQuery string) ([]string, error) {
-	repoKeys := sortedRepoKeys(templates)
-	if len(repoKeys) == 0 {
-		return nil, nil
-	}
-
-	// Build rows for the picker
-	var rows [][]string
-	for _, repo := range repoKeys {
-		props := templates[repo]
-		nickname := "--"
-		if props.Nickname != "" {
-			nickname = props.Nickname
-		}
-		rows = append(rows, []string{nickname, displayGitRepo(repo)})
-	}
-
-	indices, err := runFzfPicker(FzfPickerConfig{
-		Prompt:       prompt,
-		Headers:      []string{"NICKNAME", "REPO"},
-		Rows:         rows,
-		MultiSelect:  true,
-		InitialQuery: initialQuery,
-	})
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass template names as arguments instead")
-	}
-	if indices == nil {
-		return nil, nil
-	}
-
-	var selected []string
-	for _, idx := range indices {
-		selected = append(selected, repoKeys[idx])
-	}
-	return selected, nil
 }
 
 func removeSingleTemplate(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {
