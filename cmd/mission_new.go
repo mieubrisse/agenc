@@ -330,28 +330,30 @@ func formatLibraryFzfLine(entry repoLibraryEntry) string {
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
 // A NONE option is prepended for creating a blank mission.
 func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibrarySelection, error) {
-	// Build rows for the picker
-	// Column 1: 🤖 for templates, spaces for repos (to maintain alignment)
-	// Column 2 (ITEM): "Nickname (repo)" for templates, repo path for repos
+	// Build rows for the picker as a single column with pre-formatted content:
+	// Templates: "🤖  Nickname (repo)" or "🤖  repo"
+	// Repos:     "    repo" (4 spaces to align with "🤖  ")
 	var rows [][]string
 	for _, entry := range entries {
-		typeIcon := "  " // Two spaces to match 🤖 visual width
-		item := displayGitRepo(entry.RepoName)
+		var item string
 		if entry.IsTemplate {
-			typeIcon = "🤖"
 			if entry.Nickname != "" {
-				item = fmt.Sprintf("%s (%s)", entry.Nickname, displayGitRepo(entry.RepoName))
+				item = fmt.Sprintf("🤖  %s (%s)", entry.Nickname, displayGitRepo(entry.RepoName))
+			} else {
+				item = fmt.Sprintf("🤖  %s", displayGitRepo(entry.RepoName))
 			}
+		} else {
+			item = fmt.Sprintf("    %s", displayGitRepo(entry.RepoName))
 		}
-		rows = append(rows, []string{typeIcon, item})
+		rows = append(rows, []string{item})
 	}
 
 	// Use sentinel row for NONE option
-	sentinelRow := []string{"  ", "— blank mission"}
+	sentinelRow := []string{"    — blank mission"}
 
 	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
 		Prompt:       "Select repo: ",
-		Headers:      []string{"", "ITEM"},
+		Headers:      []string{"ITEM"},
 		Rows:         rows,
 		MultiSelect:  false,
 		InitialQuery: initialQuery,
