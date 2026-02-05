@@ -15,12 +15,16 @@ import (
 	"github.com/odyssey/agenc/internal/mission"
 )
 
-const templateNewPublicFlagName = "public"
+const (
+	templateNewPublicFlagName = "public"
+	templateNewCloneFlagName  = "clone"
+)
 
 var (
 	templateNewPublicFlag   bool
 	templateNewNicknameFlag string
 	templateNewDefaultFlag  string
+	templateNewCloneFlag    string
 )
 
 var templateNewCmd = &cobra.Command{
@@ -40,6 +44,10 @@ Behavior depends on the repository state:
   - If the repo exists but is EMPTY: clones it and initializes with template files
   - If the repo exists and is NOT empty: fails with an error
 
+Use --clone to copy files from an existing template in your library. The --clone
+flag accepts the same formats as above, or search terms to match against your
+template library.
+
 The new template is automatically added to your template library and a mission
 is launched to edit it (same as 'template edit').`,
 	Args: cobra.ExactArgs(1),
@@ -50,6 +58,7 @@ func init() {
 	templateNewCmd.Flags().BoolVar(&templateNewPublicFlag, templateNewPublicFlagName, false, "create a public repository (default is private)")
 	templateNewCmd.Flags().StringVar(&templateNewNicknameFlag, templateNicknameFlagName, "", templateNicknameFlagDesc)
 	templateNewCmd.Flags().StringVar(&templateNewDefaultFlag, templateDefaultFlagName, "", templateDefaultFlagDesc())
+	templateNewCmd.Flags().StringVar(&templateNewCloneFlag, templateNewCloneFlagName, "", "copy files from an existing template (accepts repo reference or search terms)")
 	templateCmd.AddCommand(templateNewCmd)
 }
 
@@ -59,6 +68,36 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 	// Ensure gh CLI is available
 	if _, err := exec.LookPath("gh"); err != nil {
 		return stacktrace.NewError("'gh' CLI not found in PATH; install it from https://cli.github.com/")
+	}
+
+	// If --clone is provided, resolve the source template
+	var sourceTemplateName string
+	var sourceTemplateDirpath string
+	if templateNewCloneFlag != "" {
+		cfg, _, err := config.ReadAgencConfig(agencDirpath)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read config")
+		}
+
+		if len(cfg.AgentTemplates) == 0 {
+			return stacktrace.NewError("no templates in library to clone from")
+		}
+
+		// Parse --clone value as search terms (split on spaces)
+		cloneArgs := strings.Fields(templateNewCloneFlag)
+		resolved, err := resolveOrPickTemplate(cfg.AgentTemplates, cloneArgs)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve source template")
+		}
+
+		sourceTemplateName = resolved
+		sourceTemplateDirpath = config.GetRepoDirpath(agencDirpath, sourceTemplateName)
+
+		// Verify the source template directory exists
+		if _, statErr := os.Stat(sourceTemplateDirpath); os.IsNotExist(statErr) {
+			return stacktrace.NewError("source template '%s' not found on disk at '%s'; run '%s %s %s' first",
+				sourceTemplateName, sourceTemplateDirpath, agencCmdStr, templateCmdStr, updateCmdStr)
+		}
 	}
 
 	// Parse the repo reference to get canonical name
@@ -108,9 +147,15 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to clone repository")
 		}
 
-		// Initialize with template files
-		if err := initializeTemplateFiles(cloneDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to initialize template files")
+		// Initialize with template files (from source template or empty)
+		if sourceTemplateDirpath != "" {
+			if err := copyTemplateFiles(sourceTemplateDirpath, cloneDirpath); err != nil {
+				return stacktrace.Propagate(err, "failed to copy template files from '%s'", sourceTemplateName)
+			}
+		} else {
+			if err := initializeTemplateFiles(cloneDirpath); err != nil {
+				return stacktrace.Propagate(err, "failed to initialize template files")
+			}
 		}
 
 		// Commit and push
@@ -126,9 +171,15 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to clone repository")
 		}
 
-		// Initialize with template files
-		if err := initializeTemplateFiles(cloneDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to initialize template files")
+		// Initialize with template files (from source template or empty)
+		if sourceTemplateDirpath != "" {
+			if err := copyTemplateFiles(sourceTemplateDirpath, cloneDirpath); err != nil {
+				return stacktrace.Propagate(err, "failed to copy template files from '%s'", sourceTemplateName)
+			}
+		} else {
+			if err := initializeTemplateFiles(cloneDirpath); err != nil {
+				return stacktrace.Propagate(err, "failed to initialize template files")
+			}
 		}
 
 		// Commit and push
@@ -153,7 +204,12 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate initial prompt based on repo name to guide agent template creation
-	initialPrompt := buildTemplateNewPrompt(ownerRepo)
+	var initialPrompt string
+	if sourceTemplateName != "" {
+		initialPrompt = buildTemplateClonePrompt(ownerRepo, sourceTemplateName)
+	} else {
+		initialPrompt = buildTemplateNewPrompt(ownerRepo)
+	}
 
 	// Launch a mission to edit the new template (reuses template edit infrastructure)
 	return launchTemplateEditMission(agencDirpath, repoName, initialPrompt)
@@ -180,6 +236,35 @@ Based on the repository name, I'd like you to help me build out this agent templ
    - The target users or contexts where this agent will be used
 
 Once you understand my requirements, help me create a well-structured CLAUDE.md with clear instructions, and configure .claude/settings.json and .mcp.json appropriately.`, repoName)
+}
+
+// buildTemplateClonePrompt generates an initial prompt for creating a new agent
+// template that was cloned from an existing template.
+func buildTemplateClonePrompt(ownerRepo string, sourceTemplate string) string {
+	// Extract just the repo names (after the slash)
+	repoName := ownerRepo
+	if idx := strings.LastIndex(ownerRepo, "/"); idx != -1 {
+		repoName = ownerRepo[idx+1:]
+	}
+
+	sourceName := sourceTemplate
+	if idx := strings.LastIndex(sourceTemplate, "/"); idx != -1 {
+		sourceName = sourceTemplate[idx+1:]
+	}
+
+	return fmt.Sprintf(`I just created a new agent template repository called "%s", cloned from "%s".
+
+The template files have been copied from the source template. Please:
+
+1. Review the copied CLAUDE.md, .claude/settings.json, and .mcp.json files
+2. Help me understand what the original template was designed for
+3. Ask me clarifying questions about how I want to modify or customize this template:
+   - What should change about the agent's purpose or behavior?
+   - What capabilities should be added or removed?
+   - What constraints or guardrails need adjustment?
+   - Who will be using this variant and in what contexts?
+
+Once you understand my customization needs, help me update the configuration files appropriately.`, repoName, sourceName)
 }
 
 // checkGitHubRepoState checks if a GitHub repo exists and whether it's empty.
@@ -281,6 +366,96 @@ func initializeTemplateFiles(repoDirpath string) error {
 	mcpFilepath := filepath.Join(repoDirpath, ".mcp.json")
 	if err := os.WriteFile(mcpFilepath, []byte("{}\n"), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to create .mcp.json")
+	}
+
+	return nil
+}
+
+// copyTemplateFiles copies template files from a source template directory to
+// the destination. Copies CLAUDE.md, .claude/ directory, and .mcp.json.
+func copyTemplateFiles(srcDirpath string, dstDirpath string) error {
+	fmt.Printf("Copying template files from source...\n")
+
+	// Copy CLAUDE.md if it exists
+	srcClaudeMd := filepath.Join(srcDirpath, "CLAUDE.md")
+	dstClaudeMd := filepath.Join(dstDirpath, "CLAUDE.md")
+	if err := copyFileIfExists(srcClaudeMd, dstClaudeMd); err != nil {
+		return stacktrace.Propagate(err, "failed to copy CLAUDE.md")
+	}
+
+	// Copy .claude directory if it exists
+	srcClaudeDir := filepath.Join(srcDirpath, ".claude")
+	dstClaudeDir := filepath.Join(dstDirpath, ".claude")
+	if err := copyDirIfExists(srcClaudeDir, dstClaudeDir); err != nil {
+		return stacktrace.Propagate(err, "failed to copy .claude directory")
+	}
+
+	// Copy .mcp.json if it exists
+	srcMcp := filepath.Join(srcDirpath, ".mcp.json")
+	dstMcp := filepath.Join(dstDirpath, ".mcp.json")
+	if err := copyFileIfExists(srcMcp, dstMcp); err != nil {
+		return stacktrace.Propagate(err, "failed to copy .mcp.json")
+	}
+
+	return nil
+}
+
+// copyFileIfExists copies a file from src to dst if the source file exists.
+// If the source doesn't exist, it returns nil without error.
+func copyFileIfExists(srcFilepath string, dstFilepath string) error {
+	srcInfo, err := os.Stat(srcFilepath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to stat source file")
+	}
+
+	content, err := os.ReadFile(srcFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read source file")
+	}
+
+	if err := os.WriteFile(dstFilepath, content, srcInfo.Mode()); err != nil {
+		return stacktrace.Propagate(err, "failed to write destination file")
+	}
+
+	return nil
+}
+
+// copyDirIfExists recursively copies a directory from src to dst if the source
+// directory exists. If the source doesn't exist, it returns nil without error.
+func copyDirIfExists(srcDirpath string, dstDirpath string) error {
+	srcInfo, err := os.Stat(srcDirpath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to stat source directory")
+	}
+
+	if err := os.MkdirAll(dstDirpath, srcInfo.Mode()); err != nil {
+		return stacktrace.Propagate(err, "failed to create destination directory")
+	}
+
+	entries, err := os.ReadDir(srcDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read source directory")
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(srcDirpath, entry.Name())
+		dstPath := filepath.Join(dstDirpath, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDirIfExists(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFileIfExists(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
