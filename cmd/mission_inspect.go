@@ -20,7 +20,7 @@ var missionInspectCmd = &cobra.Command{
 }
 
 func init() {
-	missionInspectCmd.Flags().BoolVar(&inspectDirFlag, "dir", false, "print only the mission directory path")
+	missionInspectCmd.Flags().BoolVar(&inspectDirFlag, dirFlagName, false, "print only the mission directory path")
 	missionCmd.AddCommand(missionInspectCmd)
 }
 

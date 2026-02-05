@@ -24,34 +24,39 @@ var promptFlag string
 var missionNewCmd = &cobra.Command{
 	Use:   newCmdStr + " [search-terms...]",
 	Short: "Create a new mission and launch claude",
-	Long: `Create a new mission and launch claude.
+	Long: fmt.Sprintf(`Create a new mission and launch claude.
 
 Without flags, opens an fzf picker showing all repos and agent templates
 in your library ($AGENC_DIRPATH/repos/). Positional arguments act as search terms
 to filter the list. If exactly one repo matches, it is auto-selected.
 
-Use --git and/or --agent flags for explicit control (cannot be combined
+Use --%s and/or --%s flags for explicit control (cannot be combined
 with positional search terms).
 
-Use --clone <mission-uuid> to create a new mission with a full copy of an
+Use --%s <mission-uuid> to create a new mission with a full copy of an
 existing mission's workspace. The source mission's git repo and agent template
-carry over by default. Override the agent template with --agent or a single
-positional search term. --clone cannot be combined with --git.
+carry over by default. Override the agent template with --%s or a single
+positional search term. --%s cannot be combined with --%s.
 
-The --git flag accepts:
+The --%s flag accepts:
   - Full URLs (git@github.com:owner/repo.git or https://github.com/owner/repo)
   - Shorthand references (owner/repo or github.com/owner/repo)
   - Local filesystem paths (/path/to/repo, ./relative/path, ~/home/path)
   - Search terms to match against repos in your library ("my repo")`,
+		gitFlagName, agentFlagName,
+		cloneFlagName,
+		agentFlagName,
+		cloneFlagName, gitFlagName,
+		gitFlagName),
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
 
 func init() {
-	missionNewCmd.Flags().StringVar(&agentFlag, "agent", "", "agent template name (overrides defaultFor config)")
-	missionNewCmd.Flags().StringVar(&gitFlag, "git", "", "git repo (URL, shorthand, local path, or search terms)")
-	missionNewCmd.Flags().StringVar(&cloneFlag, "clone", "", "mission UUID to clone workspace from")
-	missionNewCmd.Flags().StringVar(&promptFlag, "prompt", "", "initial prompt to start Claude with")
+	missionNewCmd.Flags().StringVar(&agentFlag, agentFlagName, "", "agent template name (overrides defaultFor config)")
+	missionNewCmd.Flags().StringVar(&gitFlag, gitFlagName, "", "git repo (URL, shorthand, local path, or search terms)")
+	missionNewCmd.Flags().StringVar(&cloneFlag, cloneFlagName, "", "mission UUID to clone workspace from")
+	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -79,13 +84,13 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 
 	if cloneFlag != "" {
 		if gitFlag != "" {
-			return stacktrace.NewError("--clone and --git are mutually exclusive")
+			return stacktrace.NewError("--%s and --%s are mutually exclusive", cloneFlagName, gitFlagName)
 		}
 		if agentFlag != "" && len(args) > 0 {
-			return stacktrace.NewError("--clone with --agent cannot be combined with positional arguments")
+			return stacktrace.NewError("--%s with --%s cannot be combined with positional arguments", cloneFlagName, agentFlagName)
 		}
 		if len(args) > 1 {
-			return stacktrace.NewError("--clone accepts at most one positional argument (agent template search term)")
+			return stacktrace.NewError("--%s accepts at most one positional argument (agent template search term)", cloneFlagName)
 		}
 		return runMissionNewWithClone(cfg, args)
 	}
@@ -94,7 +99,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	hasArgs := len(args) > 0
 
 	if hasFlags && hasArgs {
-		return stacktrace.NewError("positional search terms cannot be combined with --git or --agent flags")
+		return stacktrace.NewError("positional search terms cannot be combined with --%s or --%s flags", gitFlagName, agentFlagName)
 	}
 
 	if hasFlags {
@@ -359,7 +364,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		InitialQuery: initialQuery,
 	}, sentinelRow)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or use --git/--agent flags")
+		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or use --%s/--%s flags", gitFlagName, agentFlagName)
 	}
 	if indices == nil {
 		return nil, stacktrace.NewError("fzf selection cancelled")

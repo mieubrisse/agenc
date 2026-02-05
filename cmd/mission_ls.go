@@ -28,7 +28,7 @@ var missionLsCmd = &cobra.Command{
 }
 
 func init() {
-	missionLsCmd.Flags().BoolVarP(&lsAllFlag, "all", "a", false, "include archived missions")
+	missionLsCmd.Flags().BoolVarP(&lsAllFlag, allFlagName, "a", false, "include archived missions")
 	missionCmd.AddCommand(missionLsCmd)
 }
 
@@ -85,8 +85,8 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	if !lsAllFlag && totalCount > defaultMissionLsLimit {
 		remaining := totalCount - defaultMissionLsLimit
-		fmt.Printf("\n...and %d more missions; run '%s %s %s -a' to see all missions\n",
-			remaining, agencCmdStr, missionCmdStr, lsCmdStr)
+		fmt.Printf("\n...and %d more missions; run '%s %s %s --%s' to see all missions\n",
+			remaining, agencCmdStr, missionCmdStr, lsCmdStr, allFlagName)
 	}
 
 	return nil

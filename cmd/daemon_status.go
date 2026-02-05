@@ -22,7 +22,7 @@ var daemonStatusCmd = &cobra.Command{
 }
 
 func init() {
-	daemonStatusCmd.Flags().BoolVar(&daemonStatusJSON, "json", false, "output in JSON format")
+	daemonStatusCmd.Flags().BoolVar(&daemonStatusJSON, jsonFlagName, false, "output in JSON format")
 	daemonCmd.AddCommand(daemonStatusCmd)
 }
 

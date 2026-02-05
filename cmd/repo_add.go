@@ -16,7 +16,7 @@ var repoAddSyncFlag bool
 var repoAddCmd = &cobra.Command{
 	Use:   addCmdStr + " <repo>",
 	Short: "Add a repository to the repo library",
-	Long: `Add a repository to the repo library by cloning it into $AGENC_DIRPATH/repos/.
+	Long: fmt.Sprintf(`Add a repository to the repo library by cloning it into $AGENC_DIRPATH/repos/.
 
 Accepts any of these formats:
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)
@@ -26,19 +26,21 @@ Accepts any of these formats:
   /path/to/local/clone                 - local filesystem path
 
 You can also use search terms to find an existing repo in your library:
-  agenc repo add my repo               - searches for repos matching "my repo"
+  %s %s %s my repo               - searches for repos matching "my repo"
 
 For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
-Use --sync to keep the repo continuously synced by the daemon.`,
+Use --%s to keep the repo continuously synced by the daemon.`,
+		agencCmdStr, repoCmdStr, addCmdStr,
+		syncFlagName),
 	Args: cobra.MinimumNArgs(1),
 	RunE: runRepoAdd,
 }
 
 func init() {
-	repoAddCmd.Flags().BoolVar(&repoAddSyncFlag, "sync", false, "keep this repo continuously synced by the daemon")
+	repoAddCmd.Flags().BoolVar(&repoAddSyncFlag, syncFlagName, false, "keep this repo continuously synced by the daemon")
 	repoCmd.AddCommand(repoAddCmd)
 }
 

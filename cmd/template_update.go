@@ -20,18 +20,18 @@ var templateUpdateCmd = &cobra.Command{
 }
 
 func init() {
-	templateUpdateCmd.Flags().StringVar(&templateUpdateNicknameFlag, "nickname", "", "set or clear the template nickname")
-	templateUpdateCmd.Flags().StringVar(&templateUpdateDefaultFlag, "default", "",
+	templateUpdateCmd.Flags().StringVar(&templateUpdateNicknameFlag, nicknameFlagName, "", "set or clear the template nickname")
+	templateUpdateCmd.Flags().StringVar(&templateUpdateDefaultFlag, defaultFlagName, "",
 		fmt.Sprintf("set or clear the mission context this template is the default for; valid values: %s", config.FormatDefaultForValues()))
 	templateCmd.AddCommand(templateUpdateCmd)
 }
 
 func runTemplateUpdate(cmd *cobra.Command, args []string) error {
-	nicknameChanged := cmd.Flags().Changed("nickname")
-	defaultChanged := cmd.Flags().Changed("default")
+	nicknameChanged := cmd.Flags().Changed(nicknameFlagName)
+	defaultChanged := cmd.Flags().Changed(defaultFlagName)
 
 	if !nicknameChanged && !defaultChanged {
-		return stacktrace.NewError("at least one of --nickname or --default must be provided")
+		return stacktrace.NewError("at least one of --%s or --%s must be provided", nicknameFlagName, defaultFlagName)
 	}
 
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
@@ -64,7 +64,7 @@ func runTemplateUpdate(cmd *cobra.Command, args []string) error {
 	if defaultChanged {
 		if templateUpdateDefaultFlag != "" {
 			if !config.IsValidDefaultForValue(templateUpdateDefaultFlag) {
-				return stacktrace.NewError("invalid --default value '%s'; must be one of: %s", templateUpdateDefaultFlag, config.FormatDefaultForValues())
+				return stacktrace.NewError("invalid --%s value '%s'; must be one of: %s", defaultFlagName, templateUpdateDefaultFlag, config.FormatDefaultForValues())
 			}
 			for otherRepo, props := range cfg.AgentTemplates {
 				if props.DefaultFor == templateUpdateDefaultFlag && otherRepo != repo {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -13,7 +14,7 @@ var templateAddDefaultFlag string
 var templateAddCmd = &cobra.Command{
 	Use:   addCmdStr + " <repo>",
 	Short: "Add an agent template from a GitHub repository",
-	Long: `Add an agent template from a GitHub repository.
+	Long: fmt.Sprintf(`Add an agent template from a GitHub repository.
 
 Accepts any of these formats:
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)
@@ -23,18 +24,19 @@ Accepts any of these formats:
   /path/to/local/clone                 - local filesystem path
 
 You can also use search terms to find an existing repo in your library:
-  agenc template add my repo           - searches for repos matching "my repo"
+  %s %s %s my repo           - searches for repos matching "my repo"
 
 The clone protocol is auto-detected: explicit URLs preserve their protocol,
 while shorthand references (owner/repo) use the protocol inferred from
 existing repos in the library. If no repos exist, you'll be prompted to choose.`,
+		agencCmdStr, templateCmdStr, addCmdStr),
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTemplateAdd,
 }
 
 func init() {
-	templateAddCmd.Flags().StringVar(&templateAddNicknameFlag, templateNicknameFlagName, "", templateNicknameFlagDesc)
-	templateAddCmd.Flags().StringVar(&templateAddDefaultFlag, templateDefaultFlagName, "", templateDefaultFlagDesc())
+	templateAddCmd.Flags().StringVar(&templateAddNicknameFlag, nicknameFlagName, "", nicknameFlagDesc)
+	templateAddCmd.Flags().StringVar(&templateAddDefaultFlag, defaultFlagName, "", defaultFlagDesc())
 	templateCmd.AddCommand(templateAddCmd)
 }
 

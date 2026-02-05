@@ -15,10 +15,6 @@ import (
 	"github.com/odyssey/agenc/internal/mission"
 )
 
-const (
-	templateNewPublicFlagName = "public"
-	templateNewCloneFlagName  = "clone"
-)
 
 var (
 	templateNewPublicFlag   bool
@@ -30,7 +26,7 @@ var (
 var templateNewCmd = &cobra.Command{
 	Use:   newCmdStr + " <repo>",
 	Short: "Create a new agent template repository",
-	Long: `Create a new agent template repository on GitHub.
+	Long: fmt.Sprintf(`Create a new agent template repository on GitHub.
 
 Accepts any of these formats:
   owner/repo                           - shorthand (e.g., mieubrisse/my-agent)
@@ -44,21 +40,21 @@ Behavior depends on the repository state:
   - If the repo exists but is EMPTY: clones it and initializes with template files
   - If the repo exists and is NOT empty: fails with an error
 
-Use --clone to copy files from an existing template in your library. The --clone
+Use --%s to copy files from an existing template in your library. The --%s
 flag accepts the same formats as above, or search terms to match against your
 template library.
 
 The new template is automatically added to your template library and a mission
-is launched to edit it (same as 'template edit').`,
+is launched to edit it (same as 'template edit').`, cloneFlagName, cloneFlagName),
 	Args: cobra.ExactArgs(1),
 	RunE: runTemplateNew,
 }
 
 func init() {
-	templateNewCmd.Flags().BoolVar(&templateNewPublicFlag, templateNewPublicFlagName, false, "create a public repository (default is private)")
-	templateNewCmd.Flags().StringVar(&templateNewNicknameFlag, templateNicknameFlagName, "", templateNicknameFlagDesc)
-	templateNewCmd.Flags().StringVar(&templateNewDefaultFlag, templateDefaultFlagName, "", templateDefaultFlagDesc())
-	templateNewCmd.Flags().StringVar(&templateNewCloneFlag, templateNewCloneFlagName, "", "copy files from an existing template (accepts repo reference or search terms)")
+	templateNewCmd.Flags().BoolVar(&templateNewPublicFlag, publicFlagName, false, "create a public repository (default is private)")
+	templateNewCmd.Flags().StringVar(&templateNewNicknameFlag, nicknameFlagName, "", nicknameFlagDesc)
+	templateNewCmd.Flags().StringVar(&templateNewDefaultFlag, defaultFlagName, "", defaultFlagDesc())
+	templateNewCmd.Flags().StringVar(&templateNewCloneFlag, cloneFlagName, "", "copy files from an existing template (accepts repo reference or search terms)")
 	templateCmd.AddCommand(templateNewCmd)
 }
 
@@ -131,7 +127,7 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 
 		// If --public not specified, confirm private repo creation
 		if !templateNewPublicFlag {
-			if !promptYesNo(fmt.Sprintf("Repository will be private. Continue? (use --%s to create a public repo)", templateNewPublicFlagName)) {
+			if !promptYesNo(fmt.Sprintf("Repository will be private. Continue? (use --%s to create a public repo)", publicFlagName)) {
 				fmt.Println("Aborted.")
 				return nil
 			}

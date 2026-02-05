@@ -8,16 +8,10 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
-// Template flag names (shared across template add and template new)
-const (
-	templateNicknameFlagName = "nickname"
-	templateDefaultFlagName  = "default"
-)
-
 // Template flag descriptions
-const templateNicknameFlagDesc = "optional friendly name for the template"
+const nicknameFlagDesc = "optional friendly name for the template"
 
-func templateDefaultFlagDesc() string {
+func defaultFlagDesc() string {
 	return fmt.Sprintf("make this template the default for a mission context; valid values: %s", config.FormatDefaultForValues())
 }
 

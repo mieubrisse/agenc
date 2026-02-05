@@ -14,7 +14,7 @@ import (
 var repoUpdateCmd = &cobra.Command{
 	Use:   updateCmdStr + " [repo...]",
 	Short: "Fetch and reset repos to match their remote",
-	Long: `Update one or more repositories in the repo library by fetching from
+	Long: fmt.Sprintf(`Update one or more repositories in the repo library by fetching from
 origin and resetting the local default branch to match the remote.
 
 When called without arguments, opens an interactive fzf picker.
@@ -25,7 +25,8 @@ Accepts any of these formats:
   https://github.com/owner/repo        - URL
 
 You can also use search terms to find a repo in your library:
-  agenc repo update my repo            - searches for repos matching "my repo"`,
+  %s %s %s my repo            - searches for repos matching "my repo"`,
+		agencCmdStr, repoCmdStr, updateCmdStr),
 	RunE: runRepoUpdate,
 }
 

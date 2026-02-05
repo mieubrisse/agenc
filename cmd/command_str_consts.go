@@ -40,3 +40,37 @@ const (
 	restartCmdStr = "restart"
 	statusCmdStr  = "status"
 )
+
+// Centralized flag name strings for CLI flags. Use these constants in flag
+// registration, Flags().Changed() calls, and user-facing messages so that
+// flag names are defined in exactly one place.
+
+const (
+	// Flags used across multiple commands
+	nicknameFlagName = "nickname"
+	defaultFlagName  = "default"
+
+	// mission new flags
+	agentFlagName  = "agent"
+	gitFlagName    = "git"
+	cloneFlagName  = "clone"
+	promptFlagName = "prompt"
+
+	// mission ls flags
+	allFlagName = "all"
+
+	// mission inspect flags
+	dirFlagName = "dir"
+
+	// mission nuke flags
+	forceFlagName = "force"
+
+	// template new flags
+	publicFlagName = "public"
+
+	// repo add flags
+	syncFlagName = "sync"
+
+	// daemon status flags
+	jsonFlagName = "json"
+)

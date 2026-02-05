@@ -18,12 +18,12 @@ import (
 var repoRmCmd = &cobra.Command{
 	Use:   rmCmdStr + " [repo...]",
 	Short: "Remove a repository from the repo library",
-	Long: `Remove one or more repositories from the repo library.
+	Long: fmt.Sprintf(`Remove one or more repositories from the repo library.
 
 Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
 syncedRepos list in config.yml if present.
 
-Refuses to remove agent template repos. Use '` + agencCmdStr + ` ` + templateCmdStr + ` ` + rmCmdStr + `' instead.
+Refuses to remove agent template repos. Use '%s %s %s' instead.
 
 When called without arguments, opens an interactive fzf picker.
 
@@ -33,7 +33,9 @@ Accepts any of these formats:
   https://github.com/owner/repo        - URL
 
 You can also use search terms to find a repo in your library:
-  agenc repo rm my repo                - searches for repos matching "my repo"`,
+  %s %s %s my repo                - searches for repos matching "my repo"`,
+		agencCmdStr, templateCmdStr, rmCmdStr,
+		agencCmdStr, repoCmdStr, rmCmdStr),
 	RunE: runRepoRm,
 }
 

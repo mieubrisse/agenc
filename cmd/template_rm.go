@@ -16,7 +16,7 @@ import (
 var templateRmCmd = &cobra.Command{
 	Use:   rmCmdStr + " [template...]",
 	Short: "Remove an installed agent template",
-	Long: `Remove one or more agent templates from the template library.
+	Long: fmt.Sprintf(`Remove one or more agent templates from the template library.
 
 Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
 agentTemplates list in config.yml.
@@ -30,7 +30,8 @@ Accepts any of these formats:
   nickname                             - template nickname
 
 You can also use search terms to find a template:
-  agenc template rm my template        - searches for templates matching "my template"`,
+  %s %s %s my template        - searches for templates matching "my template"`,
+		agencCmdStr, templateCmdStr, rmCmdStr),
 	Args: cobra.ArbitraryArgs,
 	RunE: runTemplateRm,
 }

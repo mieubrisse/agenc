@@ -20,7 +20,7 @@ var missionNukeCmd = &cobra.Command{
 }
 
 func init() {
-	missionNukeCmd.Flags().BoolVarP(&nukeForceFlag, "force", "f", false, "skip confirmation prompt")
+	missionNukeCmd.Flags().BoolVarP(&nukeForceFlag, forceFlagName, "f", false, "skip confirmation prompt")
 	missionCmd.AddCommand(missionNukeCmd)
 }
 
