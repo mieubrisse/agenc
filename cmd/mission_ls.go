@@ -71,7 +71,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "REPO", "SESSION")
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
-		sessionName := resolveSessionName(claudeConfigDirpath, m)
+		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
 		tbl.AddRow(
 			formatLastActive(m.LastHeartbeat),
 			m.ShortID,
@@ -176,14 +176,36 @@ func colorizeStatus(status string) string {
 
 const defaultPromptMaxLen = 50
 
-// resolveSessionName returns the Claude Code session name for a mission,
-// falling back to the mission's cached prompt if no session name is found.
-func resolveSessionName(claudeConfigDirpath string, m *database.Mission) string {
+// resolveSessionName returns the Claude Code session name for a mission.
+// It uses a cached value from the database when the cache is fresh (i.e. the
+// mission's heartbeat has not advanced past the last cache update). Otherwise
+// it performs the expensive file lookup, caches the result, and returns it.
+// Falls back to the mission's cached prompt if no session name is found.
+func resolveSessionName(claudeConfigDirpath string, db *database.DB, m *database.Mission) string {
+	if isSessionNameCacheFresh(m) {
+		return m.SessionName
+	}
+
 	sessionName := session.FindSessionName(claudeConfigDirpath, m.ID)
 	if sessionName != "" {
+		_ = db.UpdateMissionSessionName(m.ID, sessionName)
 		return sessionName
 	}
 	return m.Prompt
+}
+
+// isSessionNameCacheFresh reports whether the cached session name for a
+// mission is still valid. The cache is fresh when it has been populated and
+// the mission's heartbeat has not advanced past the cache timestamp.
+func isSessionNameCacheFresh(m *database.Mission) bool {
+	if m.SessionNameUpdatedAt == nil {
+		return false
+	}
+	if m.LastHeartbeat == nil {
+		// No heartbeat — cache can't be stale from activity.
+		return m.SessionName != ""
+	}
+	return !m.LastHeartbeat.After(*m.SessionNameUpdatedAt)
 }
 
 // resolveMissionPrompt returns the mission's first user prompt, using the DB

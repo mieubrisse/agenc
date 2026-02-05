@@ -30,17 +30,22 @@ const addLastHeartbeatColumnSQL = `ALTER TABLE missions ADD COLUMN last_heartbea
 const addShortIDColumnSQL = `ALTER TABLE missions ADD COLUMN short_id TEXT NOT NULL DEFAULT '';`
 const backfillShortIDSQL = `UPDATE missions SET short_id = SUBSTR(id, 1, 8) WHERE short_id = '';`
 const createShortIDIndexSQL = `CREATE INDEX IF NOT EXISTS idx_missions_short_id ON missions(short_id);`
+const addSessionNameColumnSQL = `ALTER TABLE missions ADD COLUMN session_name TEXT NOT NULL DEFAULT '';`
+const addSessionNameUpdatedAtColumnSQL = `ALTER TABLE missions ADD COLUMN session_name_updated_at TEXT;`
+
 // Mission represents a row in the missions table.
 type Mission struct {
-	ID            string
-	ShortID       string
-	AgentTemplate string
-	Prompt        string
-	Status        string
-	GitRepo       string
-	LastHeartbeat *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                   string
+	ShortID              string
+	AgentTemplate        string
+	Prompt               string
+	Status               string
+	GitRepo              string
+	LastHeartbeat        *time.Time
+	SessionName          string
+	SessionNameUpdatedAt *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // DB wraps a sql.DB connection to the agenc SQLite database.
@@ -82,6 +87,11 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := migrateAddShortID(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to add short_id column")
+	}
+
+	if err := migrateAddSessionName(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add session_name columns")
 	}
 
 	// Drop legacy mission_descriptions table
@@ -181,6 +191,29 @@ func migrateAddShortID(conn *sql.DB) error {
 	return nil
 }
 
+// migrateAddSessionName idempotently adds the session_name and
+// session_name_updated_at columns for caching resolved session names.
+func migrateAddSessionName(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if !columns["session_name"] {
+		if _, err := conn.Exec(addSessionNameColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add session_name column")
+		}
+	}
+
+	if !columns["session_name_updated_at"] {
+		if _, err := conn.Exec(addSessionNameUpdatedAtColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add session_name_updated_at column")
+		}
+	}
+
+	return nil
+}
+
 // Close closes the database connection.
 func (db *DB) Close() error {
 	return db.conn.Close()
@@ -216,7 +249,7 @@ func (db *DB) CreateMission(agentTemplate string, gitRepo string) (*Mission, err
 // end by created_at DESC.
 // If includeArchived is true, all missions are returned; otherwise archived missions are excluded.
 func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
-	query := "SELECT id, short_id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions"
+	query := "SELECT id, short_id, agent_template, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, created_at, updated_at FROM missions"
 	if !includeArchived {
 		query += " WHERE status != 'archived'"
 	}
@@ -234,7 +267,7 @@ func (db *DB) ListMissions(includeArchived bool) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, agent_template, prompt, status, git_repo, last_heartbeat, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, agent_template, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -334,18 +367,37 @@ func (db *DB) UpdateHeartbeat(id string) error {
 	return nil
 }
 
+// UpdateMissionSessionName caches the resolved session name for a mission and
+// sets session_name_updated_at to the current time. This is an internal cache
+// update, so it does not touch updated_at.
+func (db *DB) UpdateMissionSessionName(id string, sessionName string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.conn.Exec(
+		"UPDATE missions SET session_name = ?, session_name_updated_at = ? WHERE id = ?",
+		sessionName, now, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update session name for mission '%s'", id)
+	}
+	return nil
+}
+
 func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	var missions []*Mission
 	for rows.Next() {
 		var m Mission
-		var lastHeartbeat sql.NullString
+		var lastHeartbeat, sessionNameUpdatedAt sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.ShortID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
 			t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
 			m.LastHeartbeat = &t
+		}
+		if sessionNameUpdatedAt.Valid {
+			t, _ := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
+			m.SessionNameUpdatedAt = &t
 		}
 		m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
@@ -359,14 +411,18 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
-	var lastHeartbeat sql.NullString
+	var lastHeartbeat, sessionNameUpdatedAt sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.AgentTemplate, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
 		t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
 		m.LastHeartbeat = &t
+	}
+	if sessionNameUpdatedAt.Valid {
+		t, _ := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
+		m.SessionNameUpdatedAt = &t
 	}
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
