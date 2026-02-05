@@ -178,7 +178,16 @@ Answering **yes** lets you provide a repo reference (`owner/repo`, `github.com/o
 
 Theory
 ------
-TODO
+
+An AI agent is a probabilistic function. It takes some input (context, instructions, tools) and produces a good output some percentage of the time. Not 100% - that's the nature of the beast. Maybe 70%, maybe 90%, but never certain.
+
+Your organization is also a function - a composition of these inner agent functions. When you ask your org to "process my inbox" or "review this PR", the org function routes through various agent functions: the email agent, the code review agent, the coordinator agent. Each contributes its probabilistic output to the whole.
+
+The quality of your org function depends entirely on the quality of its components. If your email agent produces good output 80% of the time and your code review agent 85% of the time, your org inherits those limitations - and compounds them when agents work together.
+
+To improve the outer function, you tune the inner functions. Every time an agent misbehaves, you capture the lesson in its config: a sharper prompt, a new permission, a better example. The agent's success rate ticks up. Do this across all your agents, continuously, and the org function improves with it.
+
+This is the core loop: run agents, observe failures, refine configs, repeat. AgenC makes this loop fast and frictionless - so your organization gets smarter with every interaction.
 
 Design Goals
 ------------
