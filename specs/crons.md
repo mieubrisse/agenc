@@ -152,32 +152,29 @@ The daemon gains a new background goroutine: the **cron scheduler**.
 3. Count currently running headless missions (wrappers). If >= `maxConcurrent`, log a warning and skip this cycle.
 4. For each enabled cron with valid references, evaluate the crontab expression using `IsDue(expr, now)`.
 5. For each cron whose schedule matches:
-   a. **Double-fire guard:** Check `cron_runs` table. If a run exists for this cron with `started_at` within the current minute, skip (already fired).
+   a. **Double-fire guard:** Check `missions` table. If a mission exists for this cron with `created_at` within the current minute, skip (already fired).
    b. **Overlap policy:**
-      - `skip`: If a run exists with `finished_at IS NULL`, skip this fire and log it.
+      - `skip`: If a mission exists with `finished_at IS NULL`, skip this fire and log it.
       - `allow`: Proceed regardless of running missions.
    c. **Concurrency check:** If running headless missions >= `maxConcurrent`, skip and log.
-   d. **Record run start:** Insert row into `cron_runs` with `triggered_by = 'scheduled'`, `started_at = now`, `finished_at = NULL`. Note the row ID.
-   e. **Spawn headless mission:** Fork `agenc mission new --headless --timeout <timeout> --agent <agent> --git <git> -p <prompt>` with:
-      - `AGENC_CRON_RUN_ID` environment variable set to the `cron_runs` row ID
-      - Working directory doesn't matter (mission new handles paths)
-      The subprocess handles everything: mission creation, Claude invocation, heartbeating, output capture, secrets, timeout enforcement, and updating `cron_runs` on exit.
-   f. **Track process:** Store subprocess PID and mission ID in daemon's in-memory map for cleanup.
+   d. **Spawn headless mission:** Fork `agenc mission new --headless --cron-id <id> --cron-name <name> --timeout <timeout> --agent <agent> --git <git> -p <prompt>`.
+      The subprocess handles everything: mission creation (with cron metadata), Claude invocation, heartbeating, output capture, secrets, timeout enforcement, and updating the mission on exit.
+   e. **Track process:** Store subprocess PID and mission ID in daemon's in-memory map for cleanup.
 6. **Completion handling:** When a wrapper process exits, the daemon removes it from the in-memory tracking map.
 
-   Note: The wrapper is responsible for updating `cron_runs` with `finished_at`, `exit_code`, and `exit_reason` before it exits.
+   Note: The wrapper is responsible for updating the mission's `finished_at`, `exit_code`, and `exit_reason` before it exits.
 
 **Missed runs:** If the daemon was not running when a cron was scheduled to fire, the run is skipped. The daemon does not backfill missed runs. This matches standard cron behavior.
 
 ### Daemon Startup: Orphan Handling
 
-On daemon startup, handle missions that may have been orphaned by a previous daemon crash:
+On daemon startup, handle cron missions that may have been orphaned by a previous daemon crash:
 
-1. Query `cron_runs` for rows where `finished_at IS NULL`.
-2. For each orphaned run:
+1. Query `missions` for rows where `cron_id IS NOT NULL` and `finished_at IS NULL`.
+2. For each orphaned mission:
    a. Check if the wrapper process is still running (read PID from mission's `pid` file, check if process exists).
-   b. If running: adopt the wrapper (add to in-memory tracking map). The wrapper continues handling heartbeats and will update `cron_runs` when it finishes.
-   c. If not running: update `cron_runs` with `finished_at = now`, `exit_code = NULL`, `exit_reason = 'orphaned'`.
+   b. If running: adopt the wrapper (add to in-memory tracking map). The wrapper continues handling heartbeats and will update the mission when it finishes.
+   c. If not running: update the mission with `finished_at = now`, `exit_code = NULL`, `exit_reason = 'orphaned'`.
 
 ### Daemon Shutdown
 
@@ -190,7 +187,7 @@ On `SIGTERM` or `SIGINT`:
    c. If wrapper still running, send `SIGKILL`.
 3. Exit.
 
-Note: The wrapper is responsible for updating `cron_runs` on shutdown. If the wrapper is killed before it can update the DB, the orphan handling on next daemon startup will mark it as `orphaned`.
+Note: The wrapper is responsible for updating the mission on shutdown. If the wrapper is killed before it can update the DB, the orphan handling on next daemon startup will mark it as `orphaned`.
 
 ### Headless Mode
 
@@ -212,7 +209,7 @@ agenc mission new --headless --timeout 30m -p "Check all repos for unpushed chan
 | Spawned by | User (foreground) or daemon (background) | User or daemon |
 | Template live-reload | Yes (fsnotify watches) | No (single-shot execution) |
 | Timeout enforcement | No | Yes (kills Claude after timeout) |
-| On completion | Wrapper exits, user returns to shell | Wrapper updates `cron_runs` (if cron-spawned), then exits |
+| On completion | Wrapper exits, user returns to shell | Wrapper updates mission (`finished_at`, `exit_code`, `exit_reason`), then exits |
 
 **Shared behavior (both modes):**
 - Heartbeat updates every 30 seconds
@@ -220,16 +217,7 @@ agenc mission new --headless --timeout 30m -p "Check all repos for unpushed chan
 - Sets `AGENC_MISSION_UUID` environment variable
 - Writes PID to mission's `pid` file
 
-**Cron run tracking via environment variable:**
-
-When the daemon spawns a headless mission for a cron, it sets the `AGENC_CRON_RUN_ID` environment variable to the `cron_runs` row ID. The wrapper checks for this variable:
-
-- If set: On exit, update the `cron_runs` row with `finished_at`, `exit_code`, and `exit_reason`.
-- If not set: Normal exit (user manually ran `mission new --headless`).
-
-This environment variable is internal — not exposed as a CLI flag — to prevent users from accidentally interfering with cron tracking.
-
-**On headless completion:** If `AGENC_CRON_RUN_ID` is set, the wrapper updates the `cron_runs` row before exiting. This ensures the DB is consistent even if the daemon crashes.
+**On headless completion:** The wrapper updates the mission's `finished_at`, `exit_code`, and `exit_reason` before exiting. This ensures the DB is consistent even if the daemon crashes.
 
 Headless missions reuse the same directory structure, DB record, and `AGENC_MISSION_UUID` as interactive missions. Users can `mission resume` a completed headless mission to continue interactively.
 
@@ -244,28 +232,21 @@ The wrapper (in headless mode) manages `claude-output.log` with size-based rotat
 
 ### Database Changes
 
-**New table for cron run history:**
+**Add columns to missions table:**
 
 ```sql
-CREATE TABLE cron_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cron_id TEXT NOT NULL,        -- UUID from cron definition, not the name
-    mission_id TEXT NOT NULL,
-    triggered_by TEXT NOT NULL,   -- 'scheduled' or 'manual'
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    exit_code INTEGER,
-    exit_reason TEXT,             -- 'success', 'error', 'timeout', 'killed', 'orphaned', 'daemon_shutdown'
-    FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_cron_runs_cron_started ON cron_runs(cron_id, started_at DESC);
-CREATE INDEX idx_cron_runs_running ON cron_runs(cron_id) WHERE finished_at IS NULL;
+ALTER TABLE missions ADD COLUMN cron_id TEXT;           -- UUID from cron definition, NULL if not cron-spawned
+ALTER TABLE missions ADD COLUMN cron_name TEXT;         -- name snapshot at creation, NULL if not cron-spawned
+ALTER TABLE missions ADD COLUMN triggered_by TEXT;      -- 'scheduled', 'manual', or NULL
+ALTER TABLE missions ADD COLUMN finished_at TEXT;       -- when mission completed
+ALTER TABLE missions ADD COLUMN exit_code INTEGER;      -- process exit code
+ALTER TABLE missions ADD COLUMN exit_reason TEXT;       -- 'success', 'error', 'timeout', 'killed', 'orphaned', 'daemon_shutdown'
 ```
 
-**Add column to missions table:**
+**Add index for cron queries:**
 
 ```sql
-ALTER TABLE missions ADD COLUMN cron_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX idx_missions_cron ON missions(cron_id, created_at DESC) WHERE cron_id IS NOT NULL;
 ```
 
 
@@ -306,23 +287,15 @@ Database Schema Summary
 -----------------------
 
 ```sql
--- Cron run history
-CREATE TABLE cron_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cron_id TEXT NOT NULL,        -- UUID from cron definition
-    mission_id TEXT NOT NULL,
-    triggered_by TEXT NOT NULL,   -- 'scheduled' or 'manual'
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    exit_code INTEGER,
-    exit_reason TEXT,
-    FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_cron_runs_cron_started ON cron_runs(cron_id, started_at DESC);
-CREATE INDEX idx_cron_runs_running ON cron_runs(cron_id) WHERE finished_at IS NULL;
+-- Cron-related columns on missions table
+ALTER TABLE missions ADD COLUMN cron_id TEXT;           -- UUID from cron definition
+ALTER TABLE missions ADD COLUMN cron_name TEXT;         -- name snapshot at creation
+ALTER TABLE missions ADD COLUMN triggered_by TEXT;      -- 'scheduled', 'manual', or NULL
+ALTER TABLE missions ADD COLUMN finished_at TEXT;       -- when mission completed
+ALTER TABLE missions ADD COLUMN exit_code INTEGER;      -- process exit code
+ALTER TABLE missions ADD COLUMN exit_reason TEXT;       -- 'success', 'error', 'timeout', etc.
 
--- Link missions to crons
-ALTER TABLE missions ADD COLUMN cron_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX idx_missions_cron ON missions(cron_id, created_at DESC) WHERE cron_id IS NOT NULL;
 ```
 
 
@@ -348,7 +321,7 @@ Changes to Existing Components
 - **Headless support:** When `mission new --headless` is used, wrapper runs in headless mode.
 - **Timeout enforcement (headless):** Kill Claude after configured timeout.
 - **Output capture (headless):** Write stdout/stderr to `claude-output.log` with rotation.
-- **Cron tracking:** If `AGENC_CRON_RUN_ID` env var is set, update that `cron_runs` row on exit.
+- **Completion tracking:** Update mission's `finished_at`, `exit_code`, and `exit_reason` on exit.
 - **Environment variable:** Set `AGENC_MISSION_UUID` (both modes).
 
 ### Mission Directory
@@ -391,16 +364,15 @@ Implementation Phases
 - Document findings. If it doesn't work, investigate alternatives before proceeding.
 
 **Phase 1: Cron infrastructure**
-- Add `cron_id` column to missions table.
-- Add `cron_runs` table with `cron_id` and `triggered_by` columns.
+- Add cron columns to missions table (`cron_id`, `cron_name`, `triggered_by`, `finished_at`, `exit_code`, `exit_reason`).
 - Parse `crons` section from config.yml with validation.
 - Implement `agenc cron new/ls/rm/enable/disable`.
 
 **Phase 2: Headless mode**
-- Add `--headless` and `--timeout` flags to `mission new`.
+- Add `--headless`, `--timeout`, `--cron-id`, and `--cron-name` flags to `mission new`.
 - Implement output capture to `claude-output.log` with rotation.
 - Implement timeout enforcement (SIGTERM → SIGKILL).
-- Implement `cron_runs` DB update on exit when `AGENC_CRON_RUN_ID` env var is set.
+- Implement mission completion tracking (`finished_at`, `exit_code`, `exit_reason`).
 - Set `AGENC_MISSION_UUID` environment variable in wrapper.
 - Test headless mode independently (`mission new --headless`) before integrating with daemon.
 
@@ -436,12 +408,6 @@ The following decisions were made during spec development:
 
 **Rationale:** Provides useful debugging information (running goroutines, last activity, running headless missions) without overengineering. Structured logging and health endpoints can be added later if needed.
 
-### `cron_runs` Without Mission
-
-**Decision:** Mark orphaned rows with `exit_reason='orphaned'` and keep them.
-
-**Rationale:** Preserves history that an attempt was made. Users can see failed attempts in `cron history`. Orphan handling on daemon startup marks these appropriately.
-
 ### Retention Policy
 
 **Decision:** No retention policy for crons. Mission retention is handled separately.
@@ -450,15 +416,21 @@ The following decisions were made during spec development:
 
 ### Manual Cron Runs
 
-**Decision:** Track manual runs with `triggered_by='manual'` column in `cron_runs`.
+**Decision:** Track manual runs with `triggered_by='manual'` on the mission.
 
 **Rationale:** Manual runs (`agenc cron run <name>`) appear in `cron history` but can be distinguished from scheduled runs. Useful for testing and audit trails.
 
 ### Cron Identity
 
-**Decision:** Each cron has a UUID (`id` field) that uniquely identifies it across time. The `cron_runs` and `missions` tables reference this UUID, not the cron name.
+**Decision:** Each cron has a UUID (`id` field) that uniquely identifies it across time. Missions store both `cron_id` and `cron_name` (snapshot at creation).
 
-**Rationale:** Follows the Kubernetes model where names are human-readable identifiers that can be reused after deletion, while UIDs provide unique identity across the cluster's lifetime. If a user deletes a cron and creates a new one with the same name, the new cron gets a new UUID, so run history remains correctly associated with the original cron.
+**Rationale:** Follows the Kubernetes model where names are human-readable identifiers that can be reused after deletion, while UIDs provide unique identity across the cluster's lifetime. If a user deletes a cron and creates a new one with the same name, the new cron gets a new UUID, so run history remains correctly associated with the original cron. The name snapshot ensures `cron history` shows meaningful names even for deleted crons.
+
+### No Separate `cron_runs` Table
+
+**Decision:** Store all cron run data on the `missions` table instead of a separate `cron_runs` table.
+
+**Rationale:** Simplifies the data model. A cron run *is* a mission — there's no meaningful distinction. Cron metadata (`cron_id`, `cron_name`, `triggered_by`) and completion data (`finished_at`, `exit_code`, `exit_reason`) belong on the mission itself.
 
 ### Messaging and Inbox
 
