@@ -20,13 +20,18 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
-.PHONY: build clean docs
+.PHONY: build clean docs setup
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o agenc .
 
 docs:
 	go run ./cmd/gendocs
+
+setup:
+	chmod +x scripts/hooks/*
+	ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+	@echo "Git hooks installed."
 
 clean:
 	rm -f agenc

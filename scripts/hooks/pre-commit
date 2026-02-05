@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Regenerate CLI docs if any cmd/ files are staged
+if git diff --cached --name-only | grep -q '^cmd/'; then
+    echo "Regenerating CLI docs..."
+    make docs
+    git add docs/cli/
+fi
