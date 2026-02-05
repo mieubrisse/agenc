@@ -108,6 +108,31 @@ brew update
 brew upgrade agenc
 ```
 
+### Troubleshooting: "Command Line Tools are too outdated"
+
+If you see this error during installation:
+
+```
+Error: Your Command Line Tools are too outdated.
+```
+
+This is a [Homebrew requirement](https://docs.brew.sh/Common-Issues#homebrew-is-slow), not an AgenC issue. Homebrew requires up-to-date Xcode Command Line Tools to function, even when installing pre-built binaries.
+
+To fix, update your Command Line Tools:
+
+```
+xcode-select --install
+```
+
+If that doesn't work, remove and reinstall:
+
+```
+sudo rm -rf /Library/Developer/CommandLineTools
+xcode-select --install
+```
+
+Then retry `brew install agenc`.
+
 Configuration
 -------------
 
