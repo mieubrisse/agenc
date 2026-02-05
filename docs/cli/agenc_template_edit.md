@@ -2,8 +2,20 @@
 
 Edit an agent template via a new mission with a repo copy
 
+### Synopsis
+
+Edit an agent template via a new mission with a repo copy.
+
+Without arguments, opens an interactive fzf picker to select a template.
+With arguments, accepts a template reference (shorthand or full name) or search
+terms to filter the list. If exactly one template matches, it is auto-selected.
+
+Examples:
+  agenc template edit owner/repo
+  agenc template edit my agent
+
 ```
-agenc template edit [search-terms...] [flags]
+agenc template edit [template|search-terms...] [flags]
 ```
 
 ### Options

@@ -2,8 +2,20 @@
 
 Update properties of an installed agent template
 
+### Synopsis
+
+Update properties of an installed agent template.
+
+Without arguments, opens an interactive fzf picker to select a template.
+With arguments, accepts a template reference (shorthand or full name) or search
+terms to filter the list. If exactly one template matches, it is auto-selected.
+
+Examples:
+  agenc template update owner/repo --nickname "My Agent"
+  agenc template update my agent --default repo
+
 ```
-agenc template update [template] [flags]
+agenc template update [template|search-terms...] [flags]
 ```
 
 ### Options

@@ -2,21 +2,34 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/mission"
 )
 
 var templateUpdateNicknameFlag string
 var templateUpdateDefaultFlag string
 
 var templateUpdateCmd = &cobra.Command{
-	Use:   updateCmdStr + " [template]",
+	Use:   updateCmdStr + " [template|search-terms...]",
 	Short: "Update properties of an installed agent template",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runTemplateUpdate,
+	Long: fmt.Sprintf(`Update properties of an installed agent template.
+
+Without arguments, opens an interactive fzf picker to select a template.
+With arguments, accepts a template reference (shorthand or full name) or search
+terms to filter the list. If exactly one template matches, it is auto-selected.
+
+Examples:
+  %s %s %s owner/repo --%s "My Agent"
+  %s %s %s my agent --%s repo`,
+		agencCmdStr, templateCmdStr, updateCmdStr, nicknameFlagName,
+		agencCmdStr, templateCmdStr, updateCmdStr, defaultFlagName),
+	Args: cobra.ArbitraryArgs,
+	RunE: runTemplateUpdate,
 }
 
 func init() {
@@ -43,11 +56,62 @@ func runTemplateUpdate(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("no agent templates available to update")
 	}
 
-	repo, err := resolveOrPickTemplate(cfg.AgentTemplates, args)
+	// Build sorted list of template entries
+	repoKeys := sortedRepoKeys(cfg.AgentTemplates)
+	entries := make([]templateEntry, len(repoKeys))
+	for i, repo := range repoKeys {
+		entries[i] = templateEntry{
+			RepoName: repo,
+			Nickname: cfg.AgentTemplates[repo].Nickname,
+		}
+	}
+
+	input := strings.Join(args, " ")
+	result, err := Resolve(input, Resolver[templateEntry]{
+		TryCanonical: func(input string) (templateEntry, bool, error) {
+			if !looksLikeRepoReference(input) {
+				return templateEntry{}, false, nil
+			}
+			name, _, err := mission.ParseRepoReference(input, false)
+			if err != nil {
+				return templateEntry{}, false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)
+			}
+			if _, exists := cfg.AgentTemplates[name]; !exists {
+				return templateEntry{}, false, stacktrace.NewError("template '%s' not found", name)
+			}
+			return templateEntry{RepoName: name, Nickname: cfg.AgentTemplates[name].Nickname}, true, nil
+		},
+		GetItems: func() ([]templateEntry, error) { return entries, nil },
+		ExtractText: func(e templateEntry) string {
+			return formatTemplateFzfLine(e.RepoName, config.AgentTemplateProperties{Nickname: e.Nickname})
+		},
+		FormatRow: func(e templateEntry) []string {
+			nickname := "--"
+			if e.Nickname != "" {
+				nickname = e.Nickname
+			}
+			return []string{nickname, displayGitRepo(e.RepoName)}
+		},
+		FzfPrompt:   "Select template to update: ",
+		FzfHeaders:  []string{"NICKNAME", "REPO"},
+		MultiSelect: false,
+	})
 	if err != nil {
 		return err
 	}
 
+	if result.WasCancelled || len(result.Items) == 0 {
+		return nil
+	}
+
+	selected := result.Items[0]
+
+	// Print auto-select message if search matched exactly one
+	if input != "" && !looksLikeRepoReference(input) {
+		fmt.Printf("Auto-selected: %s\n", displayGitRepo(selected.RepoName))
+	}
+
+	repo := selected.RepoName
 	existing := cfg.AgentTemplates[repo]
 
 	if nicknameChanged {

@@ -342,8 +342,13 @@ func resolveAsSearchTerms(agencDirpath string, input string, templateOnly bool, 
 		return nil, stacktrace.NewError("no repos in library")
 	}
 
-	// Match using glob-style pattern: *term1*term2*...
-	matches := matchReposGlob(repos, terms)
+	// Match using sequential substring matching
+	var matches []string
+	for _, repo := range repos {
+		if matchesSequentialSubstrings(repo, terms) {
+			matches = append(matches, repo)
+		}
+	}
 
 	if len(matches) == 1 {
 		// Auto-select the single match
@@ -380,21 +385,6 @@ func resolveAsSearchTerms(agencDirpath string, input string, templateOnly bool, 
 	}, nil
 }
 
-// matchReposGlob filters repos by sequential substring matching.
-// Each term must appear in the repo name in order, case-insensitively.
-func matchReposGlob(repos []string, terms []string) []string {
-	if len(terms) == 0 {
-		return repos
-	}
-
-	var matches []string
-	for _, repo := range repos {
-		if matchesSequentialSubstrings(repo, terms) {
-			matches = append(matches, repo)
-		}
-	}
-	return matches
-}
 
 // getOriginRemoteURL reads the origin remote URL from a local git repo.
 func getOriginRemoteURL(repoDirpath string) (string, error) {

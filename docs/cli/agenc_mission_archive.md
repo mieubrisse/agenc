@@ -2,8 +2,16 @@
 
 Stop and archive one or more missions
 
+### Synopsis
+
+Stop and archive one or more missions.
+
+Without arguments, opens an interactive fzf picker showing active missions.
+With arguments, accepts a mission ID (short or full UUID) or search terms to
+filter the list. If exactly one mission matches search terms, it is auto-selected.
+
 ```
-agenc mission archive [mission-id...] [flags]
+agenc mission archive [mission-id|search-terms...] [flags]
 ```
 
 ### Options

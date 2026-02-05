@@ -101,14 +101,62 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 			return stacktrace.NewError("no templates in library to clone from")
 		}
 
-		// Parse --clone value as search terms (split on spaces)
-		cloneArgs := strings.Fields(templateNewCloneFlag)
-		resolved, err := resolveOrPickTemplate(cfg.AgentTemplates, cloneArgs)
+		// Build sorted list of template entries
+		repoKeys := sortedRepoKeys(cfg.AgentTemplates)
+		entries := make([]templateEntry, len(repoKeys))
+		for i, repo := range repoKeys {
+			entries[i] = templateEntry{
+				RepoName: repo,
+				Nickname: cfg.AgentTemplates[repo].Nickname,
+			}
+		}
+
+		cloneInput := strings.TrimSpace(templateNewCloneFlag)
+		result, err := Resolve(cloneInput, Resolver[templateEntry]{
+			TryCanonical: func(input string) (templateEntry, bool, error) {
+				if !looksLikeRepoReference(input) {
+					return templateEntry{}, false, nil
+				}
+				name, _, err := mission.ParseRepoReference(input, false)
+				if err != nil {
+					return templateEntry{}, false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)
+				}
+				if _, exists := cfg.AgentTemplates[name]; !exists {
+					return templateEntry{}, false, stacktrace.NewError("template '%s' not found", name)
+				}
+				return templateEntry{RepoName: name, Nickname: cfg.AgentTemplates[name].Nickname}, true, nil
+			},
+			GetItems: func() ([]templateEntry, error) { return entries, nil },
+			ExtractText: func(e templateEntry) string {
+				return formatTemplateFzfLine(e.RepoName, config.AgentTemplateProperties{Nickname: e.Nickname})
+			},
+			FormatRow: func(e templateEntry) []string {
+				nickname := "--"
+				if e.Nickname != "" {
+					nickname = e.Nickname
+				}
+				return []string{nickname, displayGitRepo(e.RepoName)}
+			},
+			FzfPrompt:   "Select template to clone from: ",
+			FzfHeaders:  []string{"NICKNAME", "REPO"},
+			MultiSelect: false,
+		})
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve source template")
 		}
 
-		sourceTemplateName = resolved
+		if result.WasCancelled || len(result.Items) == 0 {
+			return stacktrace.NewError("no template selected to clone from")
+		}
+
+		selected := result.Items[0]
+
+		// Print auto-select message if search matched exactly one
+		if !looksLikeRepoReference(cloneInput) {
+			fmt.Printf("Auto-selected: %s\n", displayGitRepo(selected.RepoName))
+		}
+
+		sourceTemplateName = selected.RepoName
 		sourceTemplateDirpath = config.GetRepoDirpath(agencDirpath, sourceTemplateName)
 
 		// Verify the source template directory exists

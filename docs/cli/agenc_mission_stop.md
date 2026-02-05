@@ -7,10 +7,11 @@ Stop one or more mission wrapper processes
 Stop one or more mission wrapper processes.
 
 Without arguments, opens an interactive fzf picker showing running missions.
-With arguments, stops the specified missions by ID.
+With arguments, accepts a mission ID (short or full UUID) or search terms to
+filter the list. If exactly one mission matches search terms, it is auto-selected.
 
 ```
-agenc mission stop [mission-id...] [flags]
+agenc mission stop [mission-id|search-terms...] [flags]
 ```
 
 ### Options

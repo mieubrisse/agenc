@@ -7,11 +7,11 @@ Unarchive (if needed) and resume a mission with claude --continue
 Unarchive (if needed) and resume a mission with claude --continue.
 
 Without arguments, opens an interactive fzf picker showing stopped missions.
-Positional arguments act as search terms to filter the list. If exactly one
-mission matches, it is auto-selected.
+With arguments, accepts a mission ID (short or full UUID) or search terms to
+filter the list. If exactly one mission matches search terms, it is auto-selected.
 
 ```
-agenc mission resume [search-terms...] [flags]
+agenc mission resume [mission-id|search-terms...] [flags]
 ```
 
 ### Options
