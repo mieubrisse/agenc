@@ -20,7 +20,7 @@ var repoRmCmd = &cobra.Command{
 	Short: "Remove a repository from the repo library",
 	Long: `Remove one or more repositories from the repo library.
 
-Deletes the cloned repo from ~/.agenc/repos/ and removes it from the
+Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
 syncedRepos list in config.yml if present.
 
 Refuses to remove agent template repos. Use '` + agencCmdStr + ` ` + templateCmdStr + ` ` + rmCmdStr + `' instead.

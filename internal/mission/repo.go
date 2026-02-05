@@ -160,7 +160,7 @@ func ExtractGitHubRepoName(repoDirpath string) (string, error) {
 	return ParseGitHubRemoteURL(strings.TrimSpace(string(output)))
 }
 
-// EnsureRepoClone clones the repo into ~/.agenc/repos/ if not already
+// EnsureRepoClone clones the repo into $AGENC_DIRPATH/repos/ if not already
 // present. Uses the provided cloneURL for the clone. Returns the clone
 // directory path.
 func EnsureRepoClone(agencDirpath string, repoName string, cloneURL string) (string, error) {
@@ -271,7 +271,7 @@ func ResolveRepoCloneDirpath(agencDirpath string, gitRepo string) string {
 	return config.GetRepoDirpath(agencDirpath, gitRepo) // new format: repo name
 }
 
-// DetectPreferredProtocol examines existing repos in ~/.agenc/repos/ to infer
+// DetectPreferredProtocol examines existing repos in $AGENC_DIRPATH/repos/ to infer
 // the user's preferred clone protocol. Returns true if SSH should be preferred,
 // false for HTTPS. If no repos exist or protocols are mixed, defaults to false
 // (HTTPS).

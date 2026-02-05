@@ -37,7 +37,7 @@ const (
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
-// the AGENC_DIRPATH environment variable or defaulting to ~/.agenc.
+// the AGENC_DIRPATH environment variable or defaulting to ~/.agenc (configurable).
 func GetAgencDirpath() (string, error) {
 	if envVal := os.Getenv(agencDirpathEnvVar); envVal != "" {
 		return envVal, nil

@@ -309,7 +309,7 @@ func (w *Wrapper) watchClaudeState(ctx context.Context) {
 }
 
 // watchGlobalConfig uses fsnotify to watch the global Claude config directory
-// (~/.agenc/claude/) for changes to settings.json or CLAUDE.md. When either
+// ($AGENC_DIRPATH/claude/) for changes to settings.json or CLAUDE.md. When either
 // file changes, it debounces for 500ms (to coalesce the two writes the daemon
 // makes in a single sync cycle) and then notifies the main loop via the
 // globalConfigChanged channel.

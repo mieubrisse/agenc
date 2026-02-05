@@ -18,7 +18,7 @@ var templateRmCmd = &cobra.Command{
 	Short: "Remove an installed agent template",
 	Long: `Remove one or more agent templates from the template library.
 
-Deletes the cloned repo from ~/.agenc/repos/ and removes it from the
+Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
 agentTemplates list in config.yml.
 
 When called without arguments, opens an interactive fzf picker.

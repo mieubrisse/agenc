@@ -17,7 +17,7 @@ import (
 // RepoResolutionResult holds the outcome of resolving a repo input.
 type RepoResolutionResult struct {
 	RepoName      string // Canonical repo name (github.com/owner/repo)
-	CloneDirpath  string // Path to the clone in ~/.agenc/repos/
+	CloneDirpath  string // Path to the clone in $AGENC_DIRPATH/repos/
 	WasNewlyCloned bool   // True if the repo was cloned as part of resolution
 }
 
@@ -26,7 +26,7 @@ type RepoResolutionResult struct {
 //   - A repo reference: owner/repo, github.com/owner/repo, https://..., git@..., ssh://..., or local path
 //   - Search terms: one or more space-separated words to match against the repo library
 //
-// For repo references, the repo is cloned into ~/.agenc/repos/ if not already present.
+// For repo references, the repo is cloned into $AGENC_DIRPATH/repos/ if not already present.
 // For search terms, the repo library is searched using glob-style matching (*TERM1*TERM2*).
 // If exactly one repo matches, it's auto-selected. Otherwise, the user is dropped into fzf.
 //
@@ -150,7 +150,7 @@ func isLocalPath(s string) bool {
 }
 
 // resolveAsRepoReference resolves input that looks like a repo reference.
-// Clones the repo into ~/.agenc/repos/ if not already present.
+// Clones the repo into $AGENC_DIRPATH/repos/ if not already present.
 func resolveAsRepoReference(agencDirpath string, input string) (*RepoResolutionResult, error) {
 	// Local filesystem path
 	if isLocalPath(input) {

@@ -51,7 +51,7 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// findReposOnDisk scans ~/.agenc/repos/ for cloned repositories and returns
+// findReposOnDisk scans $AGENC_DIRPATH/repos/ for cloned repositories and returns
 // their canonical names (e.g. "github.com/owner/repo"), sorted alphabetically.
 // The expected directory layout is repos/<host>/<owner>/<repo>/.
 func findReposOnDisk(agencDirpath string) ([]string, error) {

@@ -16,7 +16,7 @@ var repoAddSyncFlag bool
 var repoAddCmd = &cobra.Command{
 	Use:   addCmdStr + " <repo>",
 	Short: "Add a repository to the repo library",
-	Long: `Add a repository to the repo library by cloning it into ~/.agenc/repos/.
+	Long: `Add a repository to the repo library by cloning it into $AGENC_DIRPATH/repos/.
 
 Accepts any of these formats:
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)

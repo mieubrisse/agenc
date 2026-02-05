@@ -82,7 +82,7 @@ The daemon gains a new background goroutine: the **cron scheduler**.
 4. For each cron whose schedule matches:
    a. Create a new mission via the same code path as `agenc mission new`, passing the cron's agent template, prompt, and optional git repo. Set the mission's `cron_name` field to the cron's name.
    b. Launch Claude in headless mode using `claude --print -p <prompt>` with the working directory set to the mission's `agent/` subdirectory. The `--print` flag runs Claude non-interactively: it processes the prompt, executes any tool calls, and exits.
-   c. The headless Claude process runs as a child of the daemon. Its stdout and stderr are captured to a log file at `~/.agenc/missions/<uuid>/claude-output.log`.
+   c. The headless Claude process runs as a child of the daemon. Its stdout and stderr are captured to a log file at `$AGENC_DIRPATH/missions/<uuid>/claude-output.log`.
    d. Update the mission's `last_heartbeat` in the DB periodically (every 30 seconds) while the Claude process is alive, so the daemon's repo updater knows to keep syncing repos used by active cron missions.
    e. When Claude exits, stop updating the heartbeat. The mission remains in `active` status -- it is not auto-archived.
 5. Update `last_run_at` for the cron in the DB (see tracking below).
@@ -168,7 +168,7 @@ EOF
 Message bodies live on the filesystem inside the mission directory, not in the database. Each message is a numbered Markdown file:
 
 ```
-~/.agenc/missions/<uuid>/
+$AGENC_DIRPATH/missions/<uuid>/
     messages/
         1.md
         2.md
@@ -201,7 +201,7 @@ For `agenc message send` to work, the agent must have Bash permission to run it.
 }
 ```
 
-This is merged into the agenc Claude config directory (`~/.agenc/claude/settings.json`) alongside the existing hook configurations.
+This is merged into the agenc Claude config directory (`$AGENC_DIRPATH/claude/settings.json`) alongside the existing hook configurations.
 
 ### Environment Variable
 
@@ -433,7 +433,7 @@ Changes to Existing Components
 The mission directory gains a `messages/` subdirectory:
 
 ```
-~/.agenc/missions/<uuid>/
+$AGENC_DIRPATH/missions/<uuid>/
     pid
     claude-state
     template-commit

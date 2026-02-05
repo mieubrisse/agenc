@@ -30,10 +30,10 @@ When running or testing the `agenc` binary, **always** use the relative path `./
 
 The project's `.claude/settings.json` allows `Bash(./agenc:*)`. Using the absolute path does not match this pattern and will cause avoidable permission prompts on every invocation.
 
-Accessing ~/.agenc
-------------------
+Accessing $AGENC_DIRPATH
+------------------------
 
-You have unrestricted `Read`, `Glob`, and `Grep` access to `~/.agenc/` (configured in `.claude/settings.json`). When you need to explore or search files under `~/.agenc/`, **always** use the `Glob` and `Grep` tools — never Bash commands like `ls`, `find`, or `grep`.
+You have unrestricted `Read`, `Glob`, and `Grep` access to `$AGENC_DIRPATH` (defaults to `~/.agenc/`, configurable via the `AGENC_DIRPATH` environment variable). This is configured in `.claude/settings.json`. When you need to explore or search files under the agenc directory, **always** use the `Glob` and `Grep` tools — never Bash commands like `ls`, `find`, or `grep`.
 
 ```
 # Correct — use native tools

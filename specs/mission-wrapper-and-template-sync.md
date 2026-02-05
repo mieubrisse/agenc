@@ -18,7 +18,7 @@ Together, these components allow a user to push changes to an agent-template rep
 Agent Templates
 ---------------
 
-Each agent template is a Git repository cloned into `~/.agenc/agent-templates/<name>/`. Templates are the single source of truth for mission configuration files. They are hosted on GitHub and managed entirely outside of agenc -- agenc only consumes them.
+Each agent template is a Git repository cloned into `$AGENC_DIRPATH/agent-templates/<name>/`. Templates are the single source of truth for mission configuration files. They are hosted on GitHub and managed entirely outside of agenc -- agenc only consumes them.
 
 A template repo contains the config files that Claude Code needs (e.g., `CLAUDE.md`, `.claude/settings.json`, `.mcp.json`). The set of files in the template repo defines what gets synced into mission directories -- there is no hardcoded file list in agenc.
 
@@ -26,10 +26,10 @@ A template repo contains the config files that Claude Code needs (e.g., `CLAUDE.
 Mission Directory Structure
 ----------------------------
 
-Each mission lives in `~/.agenc/missions/<uuid>/`. The directory contains agenc control files at the top level, and an `agent/` subdirectory that is the Claude Code project root.
+Each mission lives in `$AGENC_DIRPATH/missions/<uuid>/`. The directory contains agenc control files at the top level, and an `agent/` subdirectory that is the Claude Code project root.
 
 ```
-~/.agenc/missions/<uuid>/
+$AGENC_DIRPATH/missions/<uuid>/
     pid                          # PID of the agenc wrapper process running this mission
     claude-state                 # 'idle' or 'busy', written by Claude hooks
     template-commit              # commit hash of the template last synced into agent/
@@ -56,7 +56,7 @@ Component 1: Template Updater
 
 **Behavior:**
 
-For each agent-template directory under `~/.agenc/agent-templates/`:
+For each agent-template directory under `$AGENC_DIRPATH/agent-templates/`:
 
 1. Run `git fetch origin` in the template directory.
 2. Compare the local `main` ref against `origin/main`.
@@ -79,12 +79,12 @@ Component 2: Claude Config Sync (already implemented)
 
 **Purpose:** Agenc needs Claude instances to run with agenc-specific hooks (for state tracking), but the user's own Claude config in `~/.claude/` should otherwise be preserved. This component maintains an agenc-specific Claude config directory that merges the user's config with agenc's additions.
 
-**Config directory:** `~/.agenc/claude/`
+**Config directory:** `$AGENC_DIRPATH/claude/`
 
 **Directory structure:**
 
 ```
-~/.agenc/claude/
+$AGENC_DIRPATH/claude/
     CLAUDE.md              # symlink → ~/.claude/CLAUDE.md
     skills/                # symlink → ~/.claude/skills/
     commands/              # symlink → ~/.claude/commands/
@@ -96,9 +96,9 @@ Component 2: Claude Config Sync (already implemented)
 **Behavior:**
 
 1. For each of `CLAUDE.md`, `skills/`, `commands/`, `agents/`, `plugins/`:
-   a. If the item exists in `~/.claude/`, ensure a symlink exists in `~/.agenc/claude/` pointing to it.
-   b. If the item does not exist in `~/.claude/`, remove the symlink from `~/.agenc/claude/` if present.
-2. Read `~/.claude/settings.json` and merge in the agenc-specific hooks (Stop and UserPromptSubmit). Write the result to a temporary file, then compare it to the existing `~/.agenc/claude/settings.json`. Only overwrite if the contents differ (to preserve the modification time when nothing has changed).
+   a. If the item exists in `~/.claude/`, ensure a symlink exists in `$AGENC_DIRPATH/claude/` pointing to it.
+   b. If the item does not exist in `~/.claude/`, remove the symlink from `$AGENC_DIRPATH/claude/` if present.
+2. Read `~/.claude/settings.json` and merge in the agenc-specific hooks (Stop and UserPromptSubmit). Write the result to a temporary file, then compare it to the existing `$AGENC_DIRPATH/claude/settings.json`. Only overwrite if the contents differ (to preserve the modification time when nothing has changed).
 
 **Hook configuration merged into settings.json:**
 
@@ -133,7 +133,7 @@ The `$CLAUDE_PROJECT_DIR` environment variable is set by Claude Code to the proj
 
 **Merging rules:** The agenc hooks are appended to any existing hook arrays in the user's settings. If the user already has Stop or UserPromptSubmit hooks, the agenc hooks are added to the end of the array -- they do not replace the user's hooks.
 
-The mission wrapper launches Claude with `CLAUDE_CONFIG_DIR` set to `~/.agenc/claude/`, so Claude picks up the merged config instead of `~/.claude/`.
+The mission wrapper launches Claude with `CLAUDE_CONFIG_DIR` set to `$AGENC_DIRPATH/claude/`, so Claude picks up the merged config instead of `~/.claude/`.
 
 
 Component 3: Mission Wrapper
@@ -148,9 +148,9 @@ Component 3: Mission Wrapper
 3. Write the wrapper's own PID to the `pid` file in the mission directory (overwrites any stale value).
 4. Write `busy` to the `claude-state` file (overwrites any stale value from a previous run).
 5. Start watching the `claude-state` file with fsnotify for state change notifications.
-6. Start watching the global Claude config directory (`~/.agenc/claude/`) with fsnotify for changes to `settings.json` or `CLAUDE.md`.
+6. Start watching the global Claude config directory (`$AGENC_DIRPATH/claude/`) with fsnotify for changes to `settings.json` or `CLAUDE.md`.
 7. If the mission has a template, start the template change detection loop (see below).
-8. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`, with the working directory set to the `agent/` subdirectory and `CLAUDE_CONFIG_DIR` set to `~/.agenc/claude/`. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
+8. Spawn `claude <prompt>` (or `claude -c` for resume) as a **child process** using `os/exec.Command`, with the working directory set to the `agent/` subdirectory and `CLAUDE_CONFIG_DIR` set to `$AGENC_DIRPATH/claude/`. Wire the child's stdin/stdout/stderr directly to the terminal so the user interacts with Claude normally.
 9. Enter the main loop: wait for the child to exit, a template change, or a global config change to trigger a restart.
 10. On natural exit (user typed `/exit` or Claude terminated), clean up and exit the wrapper.
 11. On wrapper exit, remove the `pid` file.
@@ -161,7 +161,7 @@ The wrapper must use `os/exec.Command` to spawn Claude, **not** `syscall.Exec`. 
 
 ### State tracking via Claude hooks
 
-Two Claude hooks write the current state to the `claude-state` file in the mission directory (above `agent/`, invisible to Claude). These hooks are configured in the agenc Claude config directory (`~/.agenc/claude/settings.json`) by the Claude config sync component (see Component 2).
+Two Claude hooks write the current state to the `claude-state` file in the mission directory (above `agent/`, invisible to Claude). These hooks are configured in the agenc Claude config directory (`$AGENC_DIRPATH/claude/settings.json`) by the Claude config sync component (see Component 2).
 
 - **`Stop` hook:** Fires when Claude finishes responding and is about to wait for user input. Writes `idle` to `$CLAUDE_PROJECT_DIR/../claude-state`.
 - **`UserPromptSubmit` hook:** Fires when the user submits a prompt. Writes `busy` to `$CLAUDE_PROJECT_DIR/../claude-state`.
@@ -195,13 +195,13 @@ The 10-second poll interval is cheap because it only reads a local Git ref -- no
 
 ### Global config change detection
 
-The wrapper watches the global Claude config directory (`~/.agenc/claude/`) for changes to `settings.json` or `CLAUDE.md` using fsnotify. This runs for **all** missions, including those without a template.
+The wrapper watches the global Claude config directory (`$AGENC_DIRPATH/claude/`) for changes to `settings.json` or `CLAUDE.md` using fsnotify. This runs for **all** missions, including those without a template.
 
 The daemon's Claude config sync cycle writes these files when the user's `~/.claude/` settings change. The wrapper detects those writes and restarts Claude so it picks up the updated config.
 
 **Debouncing:** The daemon may write both files in a single sync cycle. The wrapper debounces fsnotify events with a 500ms quiet period -- the first event starts a timer, subsequent events reset it. Only after 500ms of silence does the wrapper notify the main loop. This coalesces multiple writes into a single restart.
 
-**Restart behavior:** Unlike template changes, no rsync is needed. The daemon already wrote the files to `~/.agenc/claude/`, and Claude reads them on startup via `CLAUDE_CONFIG_DIR`. The wrapper uses the same idle-check-then-restart flow: if Claude is idle, restart immediately; if busy, defer until idle.
+**Restart behavior:** Unlike template changes, no rsync is needed. The daemon already wrote the files to `$AGENC_DIRPATH/claude/`, and Claude reads them on startup via `CLAUDE_CONFIG_DIR`. The wrapper uses the same idle-check-then-restart flow: if Claude is idle, restart immediately; if busy, defer until idle.
 
 **Filtering:** Only `settings.json` and `CLAUDE.md` trigger restarts. Other files in the directory (e.g., `.claude.json`, `.claude.json.backup.*`, symlinks to `~/.claude/`) are ignored.
 
@@ -220,7 +220,7 @@ Because the wrapper only restarts when Claude is idle (finished responding, wait
 PID File
 --------
 
-Each mission has a `pid` file at `~/.agenc/missions/<uuid>/pid` containing the PID of the wrapper process.
+Each mission has a `pid` file at `$AGENC_DIRPATH/missions/<uuid>/pid` containing the PID of the wrapper process.
 
 - Overwritten unconditionally by the wrapper on startup (any previous value from a stale or crashed wrapper is replaced).
 - Removed by the wrapper on graceful exit.
@@ -241,7 +241,7 @@ Config Files
 There are two levels of config:
 
 - **Project-level config** (CLAUDE.md, `.claude/settings.json`, `.mcp.json` inside `agent/`): No merging. The template is the sole source of truth. The entire template directory is rsynced into the mission's `agent/` subdirectory (excluding `workspace/`).
-- **Global-level config** (`~/.agenc/claude/`): The Claude config sync component (Component 2) merges the user's `~/.claude/settings.json` with agenc-specific hooks. All other global config items are symlinked through from `~/.claude/`.
+- **Global-level config** (`$AGENC_DIRPATH/claude/`): The Claude config sync component (Component 2) merges the user's `~/.claude/settings.json` with agenc-specific hooks. All other global config items are symlinked through from `~/.claude/`.
 
 
 What Does NOT Change

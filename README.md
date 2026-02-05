@@ -140,7 +140,7 @@ Configuration
 
 | Variable | Default | Description |
 |---|---|---|
-| `AGENC_DIRPATH` | `~/.agenc` | Root directory for all AgenC state |
+| `AGENC_DIRPATH` | `~/.agenc` | Root directory for all AgenC state (configurable) |
 
 ### config.yml
 

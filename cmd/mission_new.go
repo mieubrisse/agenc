@@ -27,7 +27,7 @@ var missionNewCmd = &cobra.Command{
 	Long: `Create a new mission and launch claude.
 
 Without flags, opens an fzf picker showing all repos and agent templates
-in your library (~/.agenc/repos/). Positional arguments act as search terms
+in your library ($AGENC_DIRPATH/repos/). Positional arguments act as search terms
 to filter the list. If exactly one repo matches, it is auto-selected.
 
 Use --git and/or --agent flags for explicit control (cannot be combined
@@ -56,7 +56,7 @@ func init() {
 }
 
 // repoLibraryEntry represents a single repo or agent template discovered in
-// the ~/.agenc/repos/ directory tree.
+// the $AGENC_DIRPATH/repos/ directory tree.
 type repoLibraryEntry struct {
 	RepoName   string
 	IsTemplate bool
@@ -251,7 +251,7 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 	return createAndLaunchMission(agencDirpath, agentTemplate, selection.RepoName, gitCloneDirpath, promptFlag)
 }
 
-// listRepoLibrary scans ~/.agenc/repos/ three levels deep (github.com/owner/repo)
+// listRepoLibrary scans $AGENC_DIRPATH/repos/ three levels deep (github.com/owner/repo)
 // and cross-references with agentTemplates config. Returns entries sorted with
 // templates first, then repos, alphabetical within each group.
 func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTemplateProperties) []repoLibraryEntry {

@@ -12,7 +12,7 @@ Three components cooperate:
 2. **Mission wrapper** (one per mission) — a foreground process that spawns Claude as a child and manages its lifecycle.
 3. **Claude Code** — the actual shell, running as a child process of the wrapper.
 
-The wrapper runs `claude` (or `claude -c` for resume) via `os/exec`, wiring stdin/stdout/stderr directly to the terminal. It sets `CLAUDE_CONFIG_DIR` to the agenc-managed config directory (`~/.agenc/claude/`) rather than the user's `~/.claude/`, which lets agenc inject hooks and merge settings without modifying the user's config.
+The wrapper runs `claude` (or `claude -c` for resume) via `os/exec`, wiring stdin/stdout/stderr directly to the terminal. It sets `CLAUDE_CONFIG_DIR` to the agenc-managed config directory (`$AGENC_DIRPATH/claude/`) rather than the user's `~/.claude/`, which lets agenc inject hooks and merge settings without modifying the user's config.
 
 Idle Detection
 --------------
@@ -24,7 +24,7 @@ The daemon's config sync injects two hooks into the agenc-managed `settings.json
 - **`Stop` hook** — writes `idle` to a `claude-state` file when Claude finishes responding.
 - **`UserPromptSubmit` hook** — writes `busy` to `claude-state` when the user submits a prompt.
 
-The `claude-state` file lives at `~/.agenc/missions/<uuid>/claude-state`, one directory above Claude's project root (`agent/`). The hooks reference it via `$CLAUDE_PROJECT_DIR/../claude-state`.
+The `claude-state` file lives at `$AGENC_DIRPATH/missions/<uuid>/claude-state`, one directory above Claude's project root (`agent/`). The hooks reference it via `$CLAUDE_PROJECT_DIR/../claude-state`.
 
 The wrapper watches this file using `fsnotify` on the parent directory (not the file itself, because shell redirects like `echo idle > file` may atomically replace the file, which would break a direct file watch).
 
@@ -44,7 +44,7 @@ When a template change is detected, the wrapper rsyncs the template into the mis
 
 ### Global config changes
 
-The wrapper also watches the global Claude config directory (`~/.agenc/claude/`) for changes to `settings.json` or `CLAUDE.md` using fsnotify. These files are maintained by the daemon's Claude config sync cycle, which merges the user's `~/.claude/` config with agenc-specific hooks.
+The wrapper also watches the global Claude config directory (`$AGENC_DIRPATH/claude/`) for changes to `settings.json` or `CLAUDE.md` using fsnotify. These files are maintained by the daemon's Claude config sync cycle, which merges the user's `~/.claude/` config with agenc-specific hooks.
 
 When a global config change is detected, the wrapper debounces for 500ms (to coalesce the two writes the daemon may make in a single sync cycle) and then triggers a restart using the same idle-check-then-restart flow. Unlike template changes, no rsync is needed — the daemon already wrote the files, and Claude picks them up on restart.
 
