@@ -1,4 +1,6 @@
 - [ ] Add Claude Code instructions for installing agenc (CLAUDE.md or skill that explains how to `go install` or clone + build)
+- [ ] Add `fzf` as a dependency (document in README or add to devcontainer)
+- [ ] Add `gh` (GitHub CLI) as a dependency (document in README or add to devcontainer)
 - [ ] Create an MCP server that allows AgenC agents to clone repos into their workspace directory
 - [ ] Roll my agenc-config global CLAUDE settings into agenc defaults
 - [ ] Fix missing logging + race condition in template change reload path
