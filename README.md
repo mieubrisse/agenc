@@ -106,7 +106,10 @@ To update:
 ```
 brew update
 brew upgrade agenc
+agenc daemon restart
 ```
+
+The daemon restart is required after upgrading to pick up the new binary.
 
 ### Troubleshooting: "Command Line Tools are too outdated"
 
