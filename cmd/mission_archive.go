@@ -35,33 +35,17 @@ func selectMissionsToArchive(db *database.DB) ([]string, error) {
 		return nil, nil
 	}
 
-	// Build rows for the picker
-	var rows [][]string
-	for _, m := range missions {
-		label := truncatePrompt(resolveMissionPrompt(db, agencDirpath, m), 60)
-		createdDate := m.CreatedAt.Format("2006-01-02 15:04")
-		rows = append(rows, []string{m.ShortID, label, createdDate})
-	}
-
-	indices, err := runFzfPicker(FzfPickerConfig{
-		Prompt:      "Select missions to archive (TAB to multi-select): ",
-		Headers:     []string{"ID", "PROMPT", "CREATED"},
-		Rows:        rows,
-		MultiSelect: true,
-	})
+	entries, err := buildMissionPickerEntries(db, missions)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass mission IDs as arguments instead")
-	}
-	if indices == nil {
-		return nil, nil
+		return nil, err
 	}
 
-	var selectedIDs []string
-	for _, idx := range indices {
-		selectedIDs = append(selectedIDs, missions[idx].ShortID)
+	selected, err := selectMissionsFzf(entries, "Select missions to archive (TAB to multi-select): ", true, "")
+	if err != nil {
+		return nil, err
 	}
 
-	return selectedIDs, nil
+	return extractMissionShortIDs(selected), nil
 }
 
 func archiveMission(db *database.DB, missionID string) error {

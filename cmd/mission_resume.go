@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -14,14 +13,6 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
-
-// ansiEscapePattern matches ANSI SGR escape sequences.
-var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-// stripAnsi removes ANSI escape sequences from a string.
-func stripAnsi(s string) string {
-	return ansiEscapePattern.ReplaceAllString(s, "")
-}
 
 var missionResumeCmd = &cobra.Command{
 	Use:   resumeCmdStr + " [search-terms...]",
@@ -39,18 +30,6 @@ func init() {
 	missionCmd.AddCommand(missionResumeCmd)
 }
 
-// stoppedMissionEntry holds the display-ready fields for a stopped mission.
-// Fields mirror the mission ls output (minus STATUS) to maintain visual
-// consistency across commands.
-type stoppedMissionEntry struct {
-	MissionID  string
-	LastActive string // formatted timestamp
-	ShortID    string
-	Agent      string // display-formatted (may contain ANSI)
-	Session    string // session name (truncated)
-	Repo       string // display-formatted (may contain ANSI)
-}
-
 func runMissionResume(cmd *cobra.Command, args []string) error {
 	db, err := openDB()
 	if err != nil {
@@ -58,40 +37,46 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	entries, err := listStoppedMissions(db)
+	missions, err := db.ListMissions(false)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list missions")
+	}
+
+	stoppedMissions := filterStoppedMissions(missions)
+	if len(stoppedMissions) == 0 {
+		return stacktrace.NewError("no stopped missions to resume")
+	}
+
+	entries, err := buildMissionPickerEntries(db, stoppedMissions)
 	if err != nil {
 		return err
 	}
 
-	if len(entries) == 0 {
-		return stacktrace.NewError("no stopped missions to resume")
-	}
-
-	var selected *stoppedMissionEntry
+	var selected *missionPickerEntry
 	if len(args) > 0 {
-		matches := matchStoppedMissions(entries, args)
+		matches := matchMissionEntries(entries, args)
 		if len(matches) == 1 {
 			fmt.Printf("Auto-selected: %s\n", matches[0].ShortID)
 			selected = &matches[0]
 		} else {
-			picked, err := selectStoppedMissionFzf(entries, strings.Join(args, " "))
+			picked, err := selectMissionsFzf(entries, "Select mission to resume: ", false, strings.Join(args, " "))
 			if err != nil {
 				return err
 			}
-			if picked == nil {
+			if len(picked) == 0 {
 				return nil
 			}
-			selected = picked
+			selected = &picked[0]
 		}
 	} else {
-		picked, err := selectStoppedMissionFzf(entries, "")
+		picked, err := selectMissionsFzf(entries, "Select mission to resume: ", false, "")
 		if err != nil {
 			return err
 		}
-		if picked == nil {
+		if len(picked) == 0 {
 			return nil
 		}
-		selected = picked
+		selected = &picked[0]
 	}
 
 	return resumeMission(db, selected.MissionID)
@@ -137,83 +122,4 @@ func resumeMission(db *database.DB, missionID string) error {
 
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.GitRepo, "", db)
 	return w.Run(true)
-}
-
-// listStoppedMissions returns all stopped missions with their display fields.
-// Uses the same formatting infrastructure as mission ls for visual consistency.
-func listStoppedMissions(db *database.DB) ([]stoppedMissionEntry, error) {
-	missions, err := db.ListMissions(false)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to list missions")
-	}
-
-	cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
-	if cfgErr != nil {
-		return nil, stacktrace.Propagate(cfgErr, "failed to read config")
-	}
-	nicknames := buildNicknameMap(cfg.AgentTemplates)
-	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
-
-	var entries []stoppedMissionEntry
-	for _, m := range missions {
-		if getMissionStatus(m.ID, m.Status) != "STOPPED" {
-			continue
-		}
-		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
-		entries = append(entries, stoppedMissionEntry{
-			MissionID:  m.ID,
-			LastActive: formatLastActive(m.LastHeartbeat),
-			ShortID:    m.ShortID,
-			Agent:      displayAgentTemplate(m.AgentTemplate, nicknames),
-			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
-			Repo:       displayGitRepo(m.GitRepo),
-		})
-	}
-	return entries, nil
-}
-
-// formatStoppedMissionMatchLine returns a plain-text representation of a
-// stopped mission entry suitable for sequential substring matching.
-func formatStoppedMissionMatchLine(entry stoppedMissionEntry) string {
-	return entry.LastActive + " " + entry.ShortID + " " + stripAnsi(entry.Agent) + " " + entry.Session + " " + stripAnsi(entry.Repo)
-}
-
-// matchStoppedMissions filters entries by sequential case-insensitive
-// substring matching against a plain-text representation of each entry.
-func matchStoppedMissions(entries []stoppedMissionEntry, args []string) []stoppedMissionEntry {
-	var matches []stoppedMissionEntry
-	for _, entry := range entries {
-		line := formatStoppedMissionMatchLine(entry)
-		if matchesSequentialSubstrings(line, args) {
-			matches = append(matches, entry)
-		}
-	}
-	return matches
-}
-
-// selectStoppedMissionFzf presents stopped missions in an fzf picker and
-// returns the selected entry. Returns nil if the user cancels.
-// Column order matches mission ls output (minus STATUS) for visual consistency.
-func selectStoppedMissionFzf(entries []stoppedMissionEntry, initialQuery string) (*stoppedMissionEntry, error) {
-	// Build rows for the picker — column order matches mission ls (minus STATUS)
-	var rows [][]string
-	for _, e := range entries {
-		rows = append(rows, []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo})
-	}
-
-	indices, err := runFzfPicker(FzfPickerConfig{
-		Prompt:       "Select mission to resume: ",
-		Headers:      []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
-		Rows:         rows,
-		MultiSelect:  false,
-		InitialQuery: initialQuery,
-	})
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass a mission ID as an argument")
-	}
-	if indices == nil {
-		return nil, nil
-	}
-
-	return &entries[indices[0]], nil
 }

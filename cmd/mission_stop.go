@@ -20,10 +20,14 @@ const (
 )
 
 var missionStopCmd = &cobra.Command{
-	Use:   stopCmdStr + " <mission-id>",
-	Short: "Stop a mission's wrapper process (no-op if already stopped)",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runMissionStop,
+	Use:   stopCmdStr + " [mission-id...]",
+	Short: "Stop one or more mission wrapper processes",
+	Long: `Stop one or more mission wrapper processes.
+
+Without arguments, opens an interactive fzf picker showing running missions.
+With arguments, stops the specified missions by ID.`,
+	Args: cobra.ArbitraryArgs,
+	RunE: runMissionStop,
 }
 
 func init() {
@@ -31,9 +35,34 @@ func init() {
 }
 
 func runMissionStop(cmd *cobra.Command, args []string) error {
-	return resolveAndRunForMission(args[0], func(_ *database.DB, missionID string) error {
+	return resolveAndRunForEachMission(args, selectMissionsToStop, func(db *database.DB, missionID string) error {
 		return stopMissionWrapper(missionID)
 	})
+}
+
+func selectMissionsToStop(db *database.DB) ([]string, error) {
+	missions, err := db.ListMissions(false)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to list missions")
+	}
+
+	runningMissions := filterRunningMissions(missions)
+	if len(runningMissions) == 0 {
+		fmt.Println("No running missions to stop.")
+		return nil, nil
+	}
+
+	entries, err := buildMissionPickerEntries(db, runningMissions)
+	if err != nil {
+		return nil, err
+	}
+
+	selected, err := selectMissionsFzf(entries, "Select missions to stop (TAB to multi-select): ", true, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return extractMissionShortIDs(selected), nil
 }
 
 // stopMissionWrapper gracefully stops a mission's wrapper process if it is

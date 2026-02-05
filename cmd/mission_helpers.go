@@ -1,11 +1,151 @@
 package cmd
 
 import (
+	"regexp"
+
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
+
+// ============================================================================
+// Mission fzf picker infrastructure
+// ============================================================================
+
+// missionPickerEntry holds the display-ready fields for a mission in fzf pickers.
+// Fields mirror the mission ls output (minus STATUS) to maintain visual
+// consistency across commands.
+type missionPickerEntry struct {
+	MissionID  string
+	LastActive string // formatted timestamp
+	ShortID    string
+	Agent      string // display-formatted (may contain ANSI)
+	Session    string // session name (truncated)
+	Repo       string // display-formatted (may contain ANSI)
+}
+
+// ansiPattern matches ANSI SGR escape sequences for stripping colors.
+var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// stripAnsiCodes removes ANSI escape sequences from a string.
+func stripAnsiCodes(s string) string {
+	return ansiPattern.ReplaceAllString(s, "")
+}
+
+// buildMissionPickerEntries converts database missions to picker entries using
+// the same formatting infrastructure as mission ls.
+func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read config")
+	}
+	nicknames := buildNicknameMap(cfg.AgentTemplates)
+	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
+
+	entries := make([]missionPickerEntry, 0, len(missions))
+	for _, m := range missions {
+		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
+		entries = append(entries, missionPickerEntry{
+			MissionID:  m.ID,
+			LastActive: formatLastActive(m.LastHeartbeat),
+			ShortID:    m.ShortID,
+			Agent:      displayAgentTemplate(m.AgentTemplate, nicknames),
+			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
+			Repo:       displayGitRepo(m.GitRepo),
+		})
+	}
+	return entries, nil
+}
+
+// selectMissionsFzf presents missions in an fzf picker with the standard
+// column layout (matching mission ls minus STATUS). Returns selected entries.
+// Returns nil, nil if the user cancels.
+func selectMissionsFzf(entries []missionPickerEntry, prompt string, multiSelect bool, initialQuery string) ([]missionPickerEntry, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	// Build rows for the picker — column order matches mission ls (minus STATUS)
+	rows := make([][]string, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo})
+	}
+
+	indices, err := runFzfPicker(FzfPickerConfig{
+		Prompt:       prompt,
+		Headers:      []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
+		Rows:         rows,
+		MultiSelect:  multiSelect,
+		InitialQuery: initialQuery,
+	})
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass mission IDs as arguments instead")
+	}
+	if indices == nil {
+		return nil, nil
+	}
+
+	selected := make([]missionPickerEntry, 0, len(indices))
+	for _, idx := range indices {
+		selected = append(selected, entries[idx])
+	}
+	return selected, nil
+}
+
+// formatMissionMatchLine returns a plain-text representation of a mission
+// picker entry suitable for sequential substring matching.
+func formatMissionMatchLine(entry missionPickerEntry) string {
+	return entry.LastActive + " " + entry.ShortID + " " + stripAnsiCodes(entry.Agent) + " " + entry.Session + " " + stripAnsiCodes(entry.Repo)
+}
+
+// matchMissionEntries filters entries by sequential case-insensitive substring
+// matching against a plain-text representation of each entry.
+func matchMissionEntries(entries []missionPickerEntry, args []string) []missionPickerEntry {
+	var matches []missionPickerEntry
+	for _, entry := range entries {
+		line := formatMissionMatchLine(entry)
+		if matchesSequentialSubstrings(line, args) {
+			matches = append(matches, entry)
+		}
+	}
+	return matches
+}
+
+// extractMissionShortIDs returns the short IDs from a slice of picker entries.
+func extractMissionShortIDs(entries []missionPickerEntry) []string {
+	ids := make([]string, len(entries))
+	for i, e := range entries {
+		ids[i] = e.ShortID
+	}
+	return ids
+}
+
+// filterStoppedMissions returns only missions that are currently stopped.
+func filterStoppedMissions(missions []*database.Mission) []*database.Mission {
+	var filtered []*database.Mission
+	for _, m := range missions {
+		if getMissionStatus(m.ID, m.Status) == "STOPPED" {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
+}
+
+// filterRunningMissions returns only missions that are currently running.
+func filterRunningMissions(missions []*database.Mission) []*database.Mission {
+	var filtered []*database.Mission
+	for _, m := range missions {
+		if getMissionStatus(m.ID, m.Status) == "RUNNING" {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
+}
+
+// ============================================================================
+// Database helpers
+// ============================================================================
 
 // openDB centralizes the database opening boilerplate used by every command
 // that touches the mission database.
