@@ -152,8 +152,34 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 		printTemplateAdded(repoName)
 	}
 
+	// Generate initial prompt based on repo name to guide agent template creation
+	initialPrompt := buildTemplateNewPrompt(ownerRepo)
+
 	// Launch a mission to edit the new template (reuses template edit infrastructure)
-	return launchTemplateEditMission(agencDirpath, repoName)
+	return launchTemplateEditMission(agencDirpath, repoName, initialPrompt)
+}
+
+// buildTemplateNewPrompt generates an initial prompt for creating a new agent
+// template, incorporating the repo name to infer user intent.
+func buildTemplateNewPrompt(ownerRepo string) string {
+	// Extract just the repo name (after the slash)
+	repoName := ownerRepo
+	if idx := strings.LastIndex(ownerRepo, "/"); idx != -1 {
+		repoName = ownerRepo[idx+1:]
+	}
+
+	return fmt.Sprintf(`I just created a new agent template repository called "%s".
+
+Based on the repository name, I'd like you to help me build out this agent template. Before writing any code, please:
+
+1. Analyze the repo name and share your interpretation of what kind of agent I might be trying to build
+2. Ask me clarifying questions about:
+   - The agent's primary purpose and use cases
+   - What tools/capabilities the agent should have access to
+   - Any constraints or guardrails that should be in place
+   - The target users or contexts where this agent will be used
+
+Once you understand my requirements, help me create a well-structured CLAUDE.md with clear instructions, and configure .claude/settings.json and .mcp.json appropriately.`, repoName)
 }
 
 // checkGitHubRepoState checks if a GitHub repo exists and whether it's empty.

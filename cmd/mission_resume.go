@@ -132,7 +132,7 @@ func resumeMission(db *database.DB, missionID string) error {
 	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 	fmt.Println("Launching claude --continue...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.GitRepo, db)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.GitRepo, "", db)
 	return w.Run(true)
 }
 

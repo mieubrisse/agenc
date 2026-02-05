@@ -155,7 +155,22 @@ func buildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 // SpawnClaude starts claude as a child process in the given agent directory.
 // Returns the running command. The caller is responsible for calling cmd.Wait().
 func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
-	cmd, err := buildClaudeCmd(agencDirpath, missionID, agentDirpath, nil)
+	return SpawnClaudeWithPrompt(agencDirpath, missionID, agentDirpath, "")
+}
+
+// SpawnClaudeWithPrompt starts claude with an initial prompt as a child process
+// in the given agent directory. Claude always starts in interactive mode; if
+// initialPrompt is non-empty, it is passed as a positional argument to pre-fill
+// the first message. Returns the running command. The caller is responsible for
+// calling cmd.Wait().
+func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, initialPrompt string) (*exec.Cmd, error) {
+	var args []string
+	if initialPrompt != "" {
+		// Pass prompt as positional argument for interactive mode with pre-filled message
+		args = []string{initialPrompt}
+	}
+
+	cmd, err := buildClaudeCmd(agencDirpath, missionID, agentDirpath, args)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude command")
 	}

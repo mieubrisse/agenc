@@ -36,5 +36,5 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return launchTemplateEditMission(agencDirpath, templateName)
+	return launchTemplateEditMission(agencDirpath, templateName, "")
 }

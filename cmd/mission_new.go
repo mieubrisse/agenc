@@ -120,7 +120,7 @@ func runMissionNewWithFlags(cfg *config.AgencConfig) error {
 		return err
 	}
 
-	return createAndLaunchMission(agencDirpath, agentTemplate, gitRepoName, gitCloneDirpath)
+	return createAndLaunchMission(agencDirpath, agentTemplate, gitRepoName, gitCloneDirpath, "")
 }
 
 // runMissionNewWithClone creates a new mission by cloning the workspace of an
@@ -162,7 +162,7 @@ func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
 		fmt.Println("Launching claude...")
 
 		gitRepoName := sourceMission.GitRepo
-		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, db)
+		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, "", db)
 		return w.Run(false)
 	})
 }
@@ -232,12 +232,12 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 		if err != nil {
 			return err
 		}
-		return createAndLaunchMission(agencDirpath, agentTemplate, "", "")
+		return createAndLaunchMission(agencDirpath, agentTemplate, "", "", "")
 	}
 
 	if selection.IsTemplate {
 		// Template selected — use the template as agent, no git repo
-		return createAndLaunchMission(agencDirpath, selection.RepoName, "", "")
+		return createAndLaunchMission(agencDirpath, selection.RepoName, "", "", "")
 	}
 
 	// Regular repo selected — clone into workspace, use default repo agent
@@ -246,7 +246,7 @@ func launchFromLibrarySelection(cfg *config.AgencConfig, selection *repoLibraryS
 		return err
 	}
 	gitCloneDirpath := config.GetRepoDirpath(agencDirpath, selection.RepoName)
-	return createAndLaunchMission(agencDirpath, agentTemplate, selection.RepoName, gitCloneDirpath)
+	return createAndLaunchMission(agencDirpath, agentTemplate, selection.RepoName, gitCloneDirpath, "")
 }
 
 // listRepoLibrary scans ~/.agenc/repos/ three levels deep (github.com/owner/repo)
@@ -456,12 +456,14 @@ func isAgentTemplate(cfg *config.AgencConfig, repoName string) bool {
 // launches the wrapper process. gitRepoName is the canonical repo name
 // stored in the DB (e.g. "github.com/owner/repo"); gitCloneDirpath is
 // the filesystem path to the agenc-owned clone used for git operations. Both
-// are empty when no git repo is involved.
+// are empty when no git repo is involved. initialPrompt is optional; if
+// non-empty, it will be sent to Claude when starting the conversation.
 func createAndLaunchMission(
 	agencDirpath string,
 	agentTemplate string,
 	gitRepoName string,
 	gitCloneDirpath string,
+	initialPrompt string,
 ) error {
 	// Open database and create mission record
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
@@ -487,7 +489,7 @@ func createAndLaunchMission(
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching claude...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, db)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, agentTemplate, gitRepoName, initialPrompt, db)
 	return w.Run(false)
 }
 

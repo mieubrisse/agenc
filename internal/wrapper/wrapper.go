@@ -44,6 +44,7 @@ type Wrapper struct {
 	missionID       string
 	agentTemplate   string
 	gitRepoName     string
+	initialPrompt   string
 	missionDirpath  string
 	agentDirpath    string
 	templateDirpath string
@@ -69,13 +70,16 @@ type Wrapper struct {
 	claudeExited       chan error    // receives the exit error from cmd.Wait()
 }
 
-// NewWrapper creates a new Wrapper for the given mission.
-func NewWrapper(agencDirpath string, missionID string, agentTemplate string, gitRepoName string, db *database.DB) *Wrapper {
+// NewWrapper creates a new Wrapper for the given mission. The initialPrompt
+// parameter is optional; if non-empty, it will be passed to Claude when
+// starting a new conversation (not used for resumes).
+func NewWrapper(agencDirpath string, missionID string, agentTemplate string, gitRepoName string, initialPrompt string, db *database.DB) *Wrapper {
 	return &Wrapper{
 		agencDirpath:    agencDirpath,
 		missionID:       missionID,
 		agentTemplate:   agentTemplate,
 		gitRepoName:     gitRepoName,
+		initialPrompt:   initialPrompt,
 		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
 		templateDirpath: config.GetRepoDirpath(agencDirpath, agentTemplate),
@@ -153,7 +157,7 @@ func (w *Wrapper) Run(isResume bool) error {
 	if isResume {
 		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
 	} else {
-		w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath)
+		w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.initialPrompt)
 	}
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to spawn claude")

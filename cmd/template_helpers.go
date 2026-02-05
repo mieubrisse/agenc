@@ -69,7 +69,9 @@ func addTemplateToLibrary(agencDirpath string, repoName string, nickname string,
 
 // launchTemplateEditMission launches a mission to edit the given template.
 // This is the core logic shared by 'template edit' and 'template new'.
-func launchTemplateEditMission(agencDirpath string, templateName string) error {
+// The initialPrompt parameter is optional; if non-empty, it will be sent to
+// Claude when starting the conversation.
+func launchTemplateEditMission(agencDirpath string, templateName string, initialPrompt string) error {
 	ensureDaemonRunning(agencDirpath)
 
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
@@ -87,7 +89,7 @@ func launchTemplateEditMission(agencDirpath string, templateName string) error {
 	}
 
 	templateCloneDirpath := config.GetRepoDirpath(agencDirpath, templateName)
-	return createAndLaunchMission(agencDirpath, agentTemplate, templateName, templateCloneDirpath)
+	return createAndLaunchMission(agencDirpath, agentTemplate, templateName, templateCloneDirpath, initialPrompt)
 }
 
 // printTemplateAdded prints a message indicating a template was added.
