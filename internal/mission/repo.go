@@ -17,7 +17,7 @@ import (
 // match the remote. This ensures the repo library clone is up-to-date before
 // copying into a mission workspace.
 func ForceUpdateRepo(repoDirpath string) error {
-	fetchCmd := exec.Command("git", "fetch", "origin")
+	fetchCmd := exec.Command("git", "fetch", "origin", "--tags")
 	fetchCmd.Dir = repoDirpath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "git fetch failed: %s", strings.TrimSpace(string(output)))
