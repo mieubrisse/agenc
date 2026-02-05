@@ -1,0 +1,57 @@
+version: 2
+
+project_name: agenc
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agenc
+    main: ./main.go
+    binary: agenc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/odyssey/agenc/internal/version.Version={{.Version}}
+
+archives:
+  - id: agenc
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+brews:
+  - name: agenc
+    repository:
+      owner: mieubrisse
+      name: homebrew-agenc
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/mieubrisse/agenc"
+    description: "AgenC - Agent orchestration system"
+    license: "AGPL-3.0"
+    install: |
+      bin.install "agenc"
+    test: |
+      system "#{bin}/agenc", "--version"
