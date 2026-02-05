@@ -13,6 +13,10 @@ import (
 )
 
 // FzfPickerConfig defines the configuration for an fzf picker.
+//
+// NOTE: fzf strips leading whitespace from displayed lines. If the first column
+// may be empty or contain only spaces, use a visible placeholder character
+// instead to maintain column alignment.
 type FzfPickerConfig struct {
 	Prompt       string     // The prompt displayed to the user
 	Headers      []string   // Column headers for the table
