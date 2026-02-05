@@ -15,7 +15,9 @@ import (
 	"github.com/odyssey/agenc/internal/mission"
 )
 
-var templateNewPrivateFlag bool
+const templateNewPublicFlagName = "public"
+
+var templateNewPublicFlag bool
 
 var templateNewCmd = &cobra.Command{
 	Use:   newCmdStr + " <repo>",
@@ -41,7 +43,7 @@ is launched to edit it (same as 'template edit').`,
 }
 
 func init() {
-	templateNewCmd.Flags().BoolVar(&templateNewPrivateFlag, "private", false, "create a private repository (default is public)")
+	templateNewCmd.Flags().BoolVar(&templateNewPublicFlag, templateNewPublicFlagName, false, "create a public repository (default is private)")
 	templateCmd.AddCommand(templateNewCmd)
 }
 
@@ -82,8 +84,16 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		// Create the repo on GitHub
-		if err := createGitHubRepo(ownerRepo, templateNewPrivateFlag); err != nil {
+		// If --public not specified, confirm private repo creation
+		if !templateNewPublicFlag {
+			if !promptYesNo(fmt.Sprintf("Repository will be private. Continue? (use --%s to create a public repo)", templateNewPublicFlagName)) {
+				fmt.Println("Aborted.")
+				return nil
+			}
+		}
+
+		// Create the repo on GitHub (private by default, public if --public flag is set)
+		if err := createGitHubRepo(ownerRepo, !templateNewPublicFlag); err != nil {
 			return stacktrace.Propagate(err, "failed to create repository on GitHub")
 		}
 
