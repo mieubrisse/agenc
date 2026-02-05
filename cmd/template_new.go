@@ -34,7 +34,8 @@ Behavior depends on the repository state:
   - If the repo exists but is EMPTY: clones it and initializes with template files
   - If the repo exists and is NOT empty: fails with an error
 
-The new template is automatically added to your template library after creation.`,
+The new template is automatically added to your template library and a mission
+is launched to edit it (same as 'template edit').`,
 	Args: cobra.ExactArgs(1),
 	RunE: runTemplateNew,
 }
@@ -140,7 +141,22 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Created and added template '%s'\n", repoName)
-	return nil
+
+	// Launch a mission to edit the new template (same as 'template edit')
+	ensureDaemonRunning(agencDirpath)
+
+	// Re-read config to pick up the newly added template
+	cfg, _, err = config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read config")
+	}
+
+	agentTemplate, err := resolveAgentTemplate(cfg, "", repoName)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to resolve agent template for editing")
+	}
+
+	return createAndLaunchMission(agencDirpath, agentTemplate, repoName, cloneDirpath)
 }
 
 // checkGitHubRepoState checks if a GitHub repo exists and whether it's empty.
