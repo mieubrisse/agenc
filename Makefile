@@ -22,7 +22,7 @@ LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
 .PHONY: build clean docs
 
-build: .git/hooks/pre-commit
+build: .git/hooks/pre-commit docs
 	go build -ldflags "$(LDFLAGS)" -o agenc .
 
 docs:
