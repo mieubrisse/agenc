@@ -313,18 +313,18 @@ const ansiLightBlue = "\033[94m"
 const ansiReset = "\033[0m"
 
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
-// Agent templates are prefixed with 🤖; regular repos have no prefix.
+// Agent templates are prefixed with 🤖; regular repos have spacing to align.
 // Uses displayGitRepo for consistent repo formatting across all commands.
 // This is used by matchRepoLibraryEntries for pre-filtering before fzf.
 func formatLibraryFzfLine(entry repoLibraryEntry) string {
 	coloredRepo := displayGitRepo(entry.RepoName)
 	if entry.IsTemplate {
 		if entry.Nickname != "" {
-			return fmt.Sprintf("🤖 %s (%s)", entry.Nickname, coloredRepo)
+			return fmt.Sprintf("🤖  %s (%s)", entry.Nickname, coloredRepo)
 		}
-		return fmt.Sprintf("🤖 %s", coloredRepo)
+		return fmt.Sprintf("🤖  %s", coloredRepo)
 	}
-	return fmt.Sprintf("  %s", coloredRepo)
+	return fmt.Sprintf("    %s", coloredRepo)
 }
 
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
