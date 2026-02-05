@@ -15,13 +15,13 @@ import (
 )
 
 var missionResumeCmd = &cobra.Command{
-	Use:   resumeCmdStr + " [search-terms...]",
+	Use:   resumeCmdStr + " [mission-id|search-terms...]",
 	Short: "Unarchive (if needed) and resume a mission with claude --continue",
 	Long: `Unarchive (if needed) and resume a mission with claude --continue.
 
 Without arguments, opens an interactive fzf picker showing stopped missions.
-Positional arguments act as search terms to filter the list. If exactly one
-mission matches, it is auto-selected.`,
+With arguments, accepts a mission ID (short or full UUID) or search terms to
+filter the list. If exactly one mission matches search terms, it is auto-selected.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionResume,
 }
