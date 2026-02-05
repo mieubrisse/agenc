@@ -356,7 +356,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 	}
 
 	// Use sentinel row for NONE option
-	sentinelRow := []string{"", "— blank mission"}
+	sentinelRow := []string{"😶", "— blank mission"}
 
 	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
 		Prompt:       "Select repo: ",
