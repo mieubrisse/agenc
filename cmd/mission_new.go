@@ -38,22 +38,25 @@ existing mission's workspace. The source mission's git repo and agent template
 carry over by default. Override the agent template with --%s or a single
 positional search term. --%s cannot be combined with --%s.
 
-The --%s flag accepts:
+The --%s and --%s flags accept the same input formats:
   - Full URLs (git@github.com:owner/repo.git or https://github.com/owner/repo)
   - Shorthand references (owner/repo or github.com/owner/repo)
   - Local filesystem paths (/path/to/repo, ./relative/path, ~/home/path)
-  - Search terms to match against repos in your library ("my repo")`,
+  - Search terms to match against repos in your library ("my repo")
+
+The --%s flag searches all repos; --%s searches only agent templates.`,
 		gitFlagName, agentFlagName,
 		cloneFlagName,
 		agentFlagName,
 		cloneFlagName, gitFlagName,
-		gitFlagName),
+		gitFlagName, agentFlagName,
+		gitFlagName, agentFlagName),
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
 
 func init() {
-	missionNewCmd.Flags().StringVar(&agentFlag, agentFlagName, "", "agent template name (overrides defaultFor config)")
+	missionNewCmd.Flags().StringVar(&agentFlag, agentFlagName, "", "agent template (URL, shorthand, local path, or search terms)")
 	missionNewCmd.Flags().StringVar(&gitFlag, gitFlagName, "", "git repo (URL, shorthand, local path, or search terms)")
 	missionNewCmd.Flags().StringVar(&cloneFlag, cloneFlagName, "", "mission UUID to clone workspace from")
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
@@ -92,7 +95,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		if len(args) > 1 {
 			return stacktrace.NewError("--%s accepts at most one positional argument (agent template search term)", cloneFlagName)
 		}
-		return runMissionNewWithClone(cfg, args)
+		return runMissionNewWithClone(args)
 	}
 
 	hasFlags := gitFlag != "" || agentFlag != ""
@@ -133,14 +136,14 @@ func runMissionNewWithFlags(cfg *config.AgencConfig) error {
 // runMissionNewWithClone creates a new mission by cloning the workspace of an
 // existing mission. The source mission's git_repo carries over to the new
 // mission. The agent template can be overridden with --agent or a positional arg.
-func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
+func runMissionNewWithClone(args []string) error {
 	return resolveAndRunForMission(cloneFlag, func(db *database.DB, sourceMissionID string) error {
 		sourceMission, err := db.GetMission(sourceMissionID)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to get source mission")
 		}
 
-		agentTemplate, err := resolveCloneAgentTemplate(cfg, sourceMission, args)
+		agentTemplate, err := resolveCloneAgentTemplate(sourceMission, args)
 		if err != nil {
 			return err
 		}
@@ -175,23 +178,23 @@ func runMissionNewWithClone(cfg *config.AgencConfig, args []string) error {
 }
 
 // resolveCloneAgentTemplate determines the agent template when cloning a
-// mission. If --agent is set, it resolves via resolveTemplate. If a positional
-// arg is provided, it resolves via resolveTemplate. Otherwise the source
-// mission's agent template is inherited.
-func resolveCloneAgentTemplate(cfg *config.AgencConfig, sourceMission *database.Mission, args []string) (string, error) {
+// mission. If --agent is set, it resolves via ResolveRepoInput with
+// templateOnly=true. If a positional arg is provided, it does the same.
+// Otherwise the source mission's agent template is inherited.
+func resolveCloneAgentTemplate(sourceMission *database.Mission, args []string) (string, error) {
 	if agentFlag != "" {
-		resolved, err := resolveTemplate(cfg.AgentTemplates, agentFlag)
+		result, err := ResolveRepoInput(agencDirpath, agentFlag, true, "Select agent template: ")
 		if err != nil {
-			return "", stacktrace.NewError("agent template '%s' not found", agentFlag)
+			return "", err
 		}
-		return resolved, nil
+		return result.RepoName, nil
 	}
 	if len(args) == 1 {
-		resolved, err := resolveTemplate(cfg.AgentTemplates, args[0])
+		result, err := ResolveRepoInput(agencDirpath, args[0], true, "Select agent template: ")
 		if err != nil {
-			return "", stacktrace.NewError("agent template '%s' not found", args[0])
+			return "", err
 		}
-		return resolved, nil
+		return result.RepoName, nil
 	}
 	return sourceMission.AgentTemplate, nil
 }
@@ -418,15 +421,17 @@ func matchesSequentialSubstrings(text string, substrings []string) bool {
 }
 
 // resolveAgentTemplate determines which agent template to use for a new
-// mission. If agentFlag is set, it resolves via resolveTemplate. Otherwise
-// the per-template defaultFor config is consulted based on the git context.
+// mission. If agentFlag is set, it resolves via ResolveRepoInput with
+// templateOnly=true, which tries repo reference resolution first, then
+// glob matching against configured templates, then falls back to fzf.
+// Otherwise the per-template defaultFor config is consulted based on git context.
 func resolveAgentTemplate(cfg *config.AgencConfig, agentFlag string, gitRepoName string) (string, error) {
 	if agentFlag != "" {
-		resolved, err := resolveTemplate(cfg.AgentTemplates, agentFlag)
+		result, err := ResolveRepoInput(agencDirpath, agentFlag, true, "Select agent template: ")
 		if err != nil {
-			return "", stacktrace.NewError("agent template '%s' not found", agentFlag)
+			return "", err
 		}
-		return resolved, nil
+		return result.RepoName, nil
 	}
 
 	// Pick the defaultFor context based on git context
@@ -616,29 +621,3 @@ func matchTemplateEntries(templates map[string]config.AgentTemplateProperties, a
 	return matches
 }
 
-// resolveTemplate attempts to find exactly one template matching the given
-// query. It tries exact match on repo key, then exact match on nickname, then
-// single substring match on either field.
-func resolveTemplate(templates map[string]config.AgentTemplateProperties, query string) (string, error) {
-	// Exact match by repo key
-	if _, ok := templates[query]; ok {
-		return query, nil
-	}
-	// Exact match by nickname
-	for repo, props := range templates {
-		if props.Nickname == query {
-			return repo, nil
-		}
-	}
-	// Single substring match
-	var matches []string
-	for repo, props := range templates {
-		if strings.Contains(repo, query) || strings.Contains(props.Nickname, query) {
-			matches = append(matches, repo)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	return "", stacktrace.NewError("no unique template match for '%s'", query)
-}
