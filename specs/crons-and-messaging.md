@@ -155,7 +155,7 @@ The daemon gains a new background goroutine: the **cron scheduler**.
 
 1. Read the `crons` section of `config.yml`.
 2. Get the current time, truncated to the minute.
-3. Count currently running headless missions. If >= `maxConcurrent`, log a warning and skip this cycle.
+3. Count currently running headless missions (wrappers). If >= `maxConcurrent`, log a warning and skip this cycle.
 4. For each enabled cron with valid references, evaluate the crontab expression using `IsDue(expr, now)`.
 5. For each cron whose schedule matches:
    a. **Double-fire guard:** Check `cron_runs` table. If a run exists for this cron with `started_at` within the current minute, skip (already fired).
@@ -166,19 +166,14 @@ The daemon gains a new background goroutine: the **cron scheduler**.
    c. **Concurrency check:** If running headless missions >= `maxConcurrent`, skip and log.
    d. **Create mission:** Use the same code path as `agenc mission new`, passing the cron's agent template, prompt, and optional git repo. Set `cron_name` field.
    e. **Record run start:** Insert row into `cron_runs` with `started_at = now`, `finished_at = NULL`.
-   f. **Launch Claude:** Start `claude --print -p <prompt>` with working directory set to mission's `agent/` subdirectory. Capture stdout/stderr to `claude-output.log`.
-   g. **Environment:** Set `AGENC_MISSION_UUID` in the child process. If `agent/.claude/secrets.env` exists, wrap with `op run --env-file`.
-   h. **Track process:** Store PID and mission ID in daemon's in-memory map for cleanup.
-6. **Heartbeat loop:** For each running headless mission, update `last_heartbeat` every 30 seconds.
-7. **Completion handling:** When a Claude process exits:
-   a. Update `cron_runs`: set `finished_at`, `exit_code`, `exit_reason`.
-   b. Stop heartbeat updates for that mission.
-   c. If `retention` is set and exceeded, archive oldest missions for this cron.
-   d. If overlap policy is `queue` and a fire was queued, trigger it now.
-8. **Timeout enforcement:** For each running headless mission, if runtime exceeds `timeout`:
-   a. Send `SIGTERM` to Claude process.
-   b. Wait 30 seconds. If still running, send `SIGKILL`.
-   c. Record `exit_reason: timeout` in `cron_runs`.
+   f. **Launch wrapper in headless mode:** Start the wrapper process with `--headless` flag, passing the mission ID, prompt, and timeout. The wrapper handles everything else (Claude invocation, heartbeating, output capture, secrets, timeout enforcement).
+   g. **Track wrapper:** Store wrapper PID and mission ID in daemon's in-memory map for cleanup.
+6. **Completion handling:** When a wrapper process exits, the daemon:
+   a. Removes it from the in-memory tracking map.
+   b. If `retention` is set and exceeded, archive oldest missions for this cron.
+   c. If overlap policy is `queue` and a fire was queued, trigger it now.
+
+   Note: The wrapper is responsible for updating `cron_runs` with `finished_at`, `exit_code`, and `exit_reason` before it exits.
 
 **Missed runs:** If the daemon was not running when a cron was scheduled to fire, the run is skipped. The daemon does not backfill missed runs. This matches standard cron behavior.
 
@@ -188,8 +183,8 @@ On daemon startup, handle missions that may have been orphaned by a previous dae
 
 1. Query `cron_runs` for rows where `finished_at IS NULL`.
 2. For each orphaned run:
-   a. Check if a Claude process is still running (read PID from mission's `pid` file, check `/proc/<pid>` or equivalent).
-   b. If running: adopt the process (add to in-memory tracking, resume heartbeat updates).
+   a. Check if the wrapper process is still running (read PID from mission's `pid` file, check if process exists).
+   b. If running: adopt the wrapper (add to in-memory tracking map). The wrapper continues handling heartbeats and will update `cron_runs` when it finishes.
    c. If not running: update `cron_runs` with `finished_at = now`, `exit_code = NULL`, `exit_reason = 'orphaned'`.
 
 ### Daemon Shutdown
@@ -197,35 +192,52 @@ On daemon startup, handle missions that may have been orphaned by a previous dae
 On `SIGTERM` or `SIGINT`:
 
 1. Stop the cron scheduler loop.
-2. For each running headless Claude process:
-   a. Send `SIGINT` to allow graceful shutdown.
-   b. Wait up to 30 seconds for exit.
-   c. If still running, send `SIGKILL`.
-3. Update `cron_runs` for any missions that didn't finish: `exit_reason = 'daemon_shutdown'`.
-4. Exit.
+2. For each running headless wrapper process:
+   a. Send `SIGINT` to the wrapper. The wrapper will forward this to Claude and handle graceful shutdown.
+   b. Wait up to 60 seconds for wrapper to exit (wrapper has its own 30-second grace period for Claude).
+   c. If wrapper still running, send `SIGKILL`.
+3. Exit.
 
-### Headless Mission Differences
+Note: The wrapper is responsible for updating `cron_runs` on shutdown. If the wrapper is killed before it can update the DB, the orphan handling on next daemon startup will mark it as `orphaned`.
 
-| Aspect | Interactive Mission | Headless Mission |
-|--------|---------------------|------------------|
-| Launch command | `claude <prompt>` or `claude -c` | `claude --print -p <prompt>` |
-| stdin | Wired to user's terminal | Not connected (`/dev/null`) |
+### Wrapper Headless Mode
+
+Both interactive and headless missions use the same wrapper process. The wrapper accepts a `--headless` flag that changes its behavior:
+
+| Aspect | Interactive Mode | Headless Mode (`--headless`) |
+|--------|------------------|------------------------------|
+| Claude command | `claude <prompt>` or `claude -c` | `claude --print -p <prompt>` |
+| stdin | Wired to user's terminal | `/dev/null` |
 | stdout/stderr | Wired to user's terminal | Captured to `claude-output.log` |
-| Process parent | agenc wrapper (foreground) | agenc daemon (background) |
-| Template live-reload | Yes (wrapper watches) | No (single-shot) |
-| Timeout | None | Configurable (default: 1h) |
-| Secrets | Via wrapper | Via daemon (same mechanism) |
+| Spawned by | CLI (foreground) | Daemon (background) |
+| Template live-reload | Yes (fsnotify watches) | No (single-shot execution) |
+| Timeout enforcement | No | Yes (kills Claude after timeout) |
+| On completion | Wrapper exits, user returns to shell | Wrapper updates `cron_runs`, then exits |
+
+**Shared behavior (both modes):**
+- Heartbeat updates every 30 seconds
+- Secrets handling via `op run --env-file` if `secrets.env` exists
+- Sets `AGENC_MISSION_UUID` environment variable
+- Writes PID to mission's `pid` file
+
+**Headless-specific wrapper flags:**
+- `--headless` — Enable headless mode
+- `--prompt <text>` — The prompt to pass to Claude
+- `--timeout <duration>` — Maximum runtime (e.g., `30m`, `1h`). Wrapper sends SIGTERM to Claude after timeout, SIGKILL after 30-second grace period.
+- `--cron-run-id <id>` — The `cron_runs` row ID to update on completion
+
+**On headless completion:** The wrapper updates the `cron_runs` row with `finished_at`, `exit_code`, and `exit_reason` before exiting. This ensures the DB is consistent even if the daemon crashes.
 
 Headless missions reuse the same directory structure, DB record, and `AGENC_MISSION_UUID` as interactive missions. Users can `mission resume` a completed headless mission to continue interactively.
 
 ### Log Rotation
 
-The `claude-output.log` file uses size-based rotation:
+The wrapper (in headless mode) manages `claude-output.log` with size-based rotation:
 
 - Maximum size: 10 MB
 - On rotation: rename to `.1`, shift existing `.1` to `.2`, etc.
 - Keep last 3 rotated files (`.1`, `.2`, `.3`)
-- Rotation checked at mission start and every 60 seconds during execution
+- Rotation checked at mission start and periodically during execution
 
 ### Database Changes
 
@@ -323,7 +335,7 @@ For `agenc message send` to work, agents need Bash permission. The Claude config
 
 ### Environment Variable
 
-Both the mission wrapper (interactive) and daemon (headless) set `AGENC_MISSION_UUID` in the Claude child process environment.
+The mission wrapper sets `AGENC_MISSION_UUID` in the Claude child process environment. This applies to both interactive and headless modes, since headless missions also run through the wrapper.
 
 Agent templates that want agents to send messages should include guidance in their CLAUDE.md on when and how to use `agenc message send`.
 
@@ -540,15 +552,22 @@ Changes to Existing Components
 
 ### Daemon
 
-- **New goroutine:** Cron scheduler (60-second cycle).
-- **Orphan handling:** On startup, adopt or mark orphaned headless missions.
-- **Shutdown cleanup:** Gracefully terminate running headless missions.
-- **Process tracking:** Maintain in-memory map of running headless PIDs.
+- **New goroutine:** Cron scheduler (60-second cycle). Evaluates cron expressions and spawns wrapper processes.
+- **Wrapper tracking:** Maintain in-memory map of running headless wrapper PIDs.
+- **Orphan handling:** On startup, adopt running wrappers or mark orphaned runs.
+- **Shutdown cleanup:** Send SIGINT to running wrappers, wait for graceful exit.
+- **Retention enforcement:** After wrapper exits, archive old missions if retention policy exceeded.
+- **Queue management:** Track queued cron fires (for `overlap: queue` policy) and trigger when previous run completes.
 
 ### Mission Wrapper
 
-- **Environment variable:** Set `AGENC_MISSION_UUID`.
-- **Reply injection:** On resume, check for undelivered replies and inject as prompt.
+- **New `--headless` mode:** Run in background without terminal interaction.
+- **New flags:** `--headless`, `--prompt`, `--timeout`, `--cron-run-id`.
+- **Timeout enforcement (headless):** Kill Claude after configured timeout.
+- **Output capture (headless):** Write stdout/stderr to `claude-output.log` with rotation.
+- **DB updates (headless):** Update `cron_runs` row on completion with exit status.
+- **Environment variable:** Set `AGENC_MISSION_UUID` (both modes).
+- **Reply injection:** On resume, check for undelivered replies and inject as prompt (both modes).
 
 ### Claude Config Sync
 
@@ -617,18 +636,23 @@ Implementation Phases
 - Parse `crons` section from config.yml with validation.
 - Implement `agenc cron add/ls/rm/enable/disable`.
 
-**Phase 5: Cron execution**
+**Phase 5: Wrapper headless mode**
+- Add `--headless`, `--prompt`, `--timeout`, `--cron-run-id` flags to wrapper.
+- Implement output capture to `claude-output.log` with rotation.
+- Implement timeout enforcement (SIGTERM → SIGKILL).
+- Implement `cron_runs` DB update on exit.
+- Test wrapper headless mode independently before integrating with daemon.
+
+**Phase 6: Cron execution**
 - Implement daemon cron scheduler goroutine.
-- Implement headless mission launching.
-- Implement timeout enforcement.
+- Implement wrapper spawning for headless missions.
 - Implement overlap policies.
 - Implement orphan handling on daemon startup.
-- Implement graceful shutdown.
+- Implement graceful shutdown (signal wrappers).
 
-**Phase 6: Cron observability**
+**Phase 7: Cron observability**
 - Implement `agenc cron run <name>`.
 - Implement `agenc cron logs <name>`.
 - Implement `agenc cron history <name>`.
-- Implement log rotation.
-- Implement retention policy.
+- Implement retention policy enforcement.
 - Add `--cron` filter to `mission ls`.
