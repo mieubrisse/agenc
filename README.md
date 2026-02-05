@@ -181,15 +181,15 @@ Answering **yes** lets you provide a repo reference (`owner/repo`, `github.com/o
 Theory
 ------
 
-An AI agent is a probabilistic function. It takes some input (context, instructions, tools) and produces a good output some percentage of the time. Not 100% - that's the nature of the beast. Maybe 70%, maybe 90%, but never certain.
+An AI agent is a probabilistic function. It takes input - context, instructions, tools - and produces a good output some percentage of the time. Not 100%. Never 100%. That's the fundamental constraint of the medium.
 
-Your organization is also a function - a composition of these inner agent functions. When you ask your org to "process my inbox" or "review this PR", the org function routes through various agent functions: the email agent, the code review agent, the coordinator agent. Each contributes its probabilistic output to the whole.
+This is what makes AI agents different from traditional software. A well-written function returns the correct result every time. An AI agent returns a *useful* result most of the time, and the exact threshold depends on how well you've tuned it.
 
-The quality of your org function depends entirely on the quality of its components. If your email agent produces good output 80% of the time and your code review agent 85% of the time, your org inherits those limitations - and compounds them when agents work together.
+Your organization is a function too - composed of these agent functions. You have a coding agent, an email agent, a writing agent. Each is a probabilistic function with its own success rate. The org's overall capability is bounded by its weakest agents and degraded by uncertainty compounding across them.
 
-To improve the outer function, you tune the inner functions. Every time an agent misbehaves, you capture the lesson in its config: a sharper prompt, a new permission, a better example. The agent's success rate ticks up. Do this across all your agents, continuously, and the org function improves with it.
+This is what it means to "program an organization." The industrial capitalists could only approximate it - writing policies, training workers, hoping the message got through. You can do it precisely: adjust a prompt, add a permission, provide a better example. The agent updates immediately. The org function improves.
 
-This is the core loop: run agents, observe failures, refine configs, repeat. AgenC makes this loop fast and frictionless - so your organization gets smarter with every interaction.
+The key insight is that refining the outer function means refining the inner functions. Every time an agent misbehaves, that's signal. Capture it in the agent's config, and you've permanently raised its success rate. Do this systematically across all your agents, and the organization compounds in capability rather than in error.
 
 Design Goals
 ------------
