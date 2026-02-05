@@ -397,21 +397,6 @@ func matchRepoLibraryEntries(entries []repoLibraryEntry, args []string) []repoLi
 	return matches
 }
 
-// matchesSequentialSubstrings returns true if all substrings appear in text
-// in order, case-insensitively.
-func matchesSequentialSubstrings(text string, substrings []string) bool {
-	lower := strings.ToLower(text)
-	pos := 0
-	for _, sub := range substrings {
-		idx := strings.Index(lower[pos:], strings.ToLower(sub))
-		if idx == -1 {
-			return false
-		}
-		pos += idx + len(sub)
-	}
-	return true
-}
-
 // resolveAgentTemplate determines which agent template to use for a new
 // mission. If agentFlag is set, it resolves via ResolveRepoInput with
 // templateOnly=true, which tries repo reference resolution first, then

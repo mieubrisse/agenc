@@ -380,7 +380,7 @@ func resolveAsSearchTerms(agencDirpath string, input string, templateOnly bool, 
 	}, nil
 }
 
-// matchReposGlob filters repos using glob-style matching (*term1*term2*...).
+// matchReposGlob filters repos by sequential substring matching.
 // Each term must appear in the repo name in order, case-insensitively.
 func matchReposGlob(repos []string, terms []string) []string {
 	if len(terms) == 0 {
@@ -389,26 +389,11 @@ func matchReposGlob(repos []string, terms []string) []string {
 
 	var matches []string
 	for _, repo := range repos {
-		if matchesGlobTerms(repo, terms) {
+		if matchesSequentialSubstrings(repo, terms) {
 			matches = append(matches, repo)
 		}
 	}
 	return matches
-}
-
-// matchesGlobTerms checks if repo matches the pattern *term1*term2*...
-func matchesGlobTerms(repo string, terms []string) bool {
-	lower := strings.ToLower(repo)
-	pos := 0
-	for _, term := range terms {
-		termLower := strings.ToLower(term)
-		idx := strings.Index(lower[pos:], termLower)
-		if idx == -1 {
-			return false
-		}
-		pos += idx + len(termLower)
-	}
-	return true
 }
 
 // getOriginRemoteURL reads the origin remote URL from a local git repo.
