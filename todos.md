@@ -1,3 +1,4 @@
+- [ ] Add Claude Code instructions for installing agenc (CLAUDE.md or skill that explains how to `go install` or clone + build)
 - [ ] Create an MCP server that allows AgenC agents to clone repos into their workspace directory
 - [ ] Roll my agenc-config global CLAUDE settings into agenc defaults
 - [ ] Fix missing logging + race condition in template change reload path
