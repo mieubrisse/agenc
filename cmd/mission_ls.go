@@ -238,7 +238,7 @@ func truncatePrompt(prompt string, maxLen int) string {
 	if len(collapsed) <= maxLen {
 		return collapsed
 	}
-	return collapsed[:maxLen] + "..."
+	return collapsed[:maxLen] + "…"
 }
 
 // getMissionStatus returns the unified status for a mission: RUNNING, STOPPED,
