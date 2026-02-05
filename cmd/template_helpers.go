@@ -68,9 +68,9 @@ func addTemplateToLibrary(agencDirpath string, repoName string, nickname string,
 func launchTemplateEditMission(agencDirpath string, templateName string, initialPrompt string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	if _, exists := cfg.AgentTemplates[templateName]; !exists {

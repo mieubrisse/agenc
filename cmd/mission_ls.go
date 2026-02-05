@@ -33,10 +33,9 @@ func init() {
 }
 
 func runMissionLs(cmd *cobra.Command, args []string) error {
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	db, err := openDB()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
+		return err
 	}
 	defer db.Close()
 
@@ -54,9 +53,9 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
@@ -161,9 +160,9 @@ func formatLastActive(lastHeartbeat *time.Time) string {
 func colorizeStatus(status string) string {
 	switch status {
 	case "RUNNING":
-		return "\033[32m" + status + "\033[0m"
+		return ansiGreen + status + ansiReset
 	case "ARCHIVED":
-		return "\033[33m" + status + "\033[0m"
+		return ansiYellow + status + ansiReset
 	default:
 		return status
 	}

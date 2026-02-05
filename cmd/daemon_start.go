@@ -14,7 +14,6 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
-	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/version"
 )
 
@@ -60,10 +59,9 @@ func runDaemonLoop() error {
 
 	logger := log.New(logFile, "", log.LstdFlags)
 
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	db, err := openDB()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
+		return err
 	}
 	defer db.Close()
 

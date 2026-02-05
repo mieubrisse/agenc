@@ -25,42 +25,16 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 }
 
 func selectMissionsToArchive(db *database.DB) ([]string, error) {
-	missions, err := db.ListMissions(false)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to list active missions")
-	}
-
-	if len(missions) == 0 {
-		fmt.Println("No active missions to archive.")
-		return nil, nil
-	}
-
-	entries, err := buildMissionPickerEntries(db, missions)
-	if err != nil {
-		return nil, err
-	}
-
-	selected, err := selectMissionsFzf(entries, missionPickerOptions{
-		Prompt:      "Select missions to archive (TAB to multi-select): ",
-		MultiSelect: true,
+	return selectMissionsInteractive(db, missionSelectConfig{
+		IncludeArchived: false,
+		EmptyMessage:    "No active missions to archive.",
+		Prompt:          "Select missions to archive (TAB to multi-select): ",
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return extractMissionShortIDs(selected), nil
 }
 
 func archiveMission(db *database.DB, missionID string) error {
-	// Verify mission exists
-	_, err := db.GetMission(missionID)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get mission")
-	}
-
-	// Stop the wrapper if running (idempotent)
-	if err := stopMissionWrapper(missionID); err != nil {
-		return stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
+	if _, err := prepareMissionForAction(db, missionID); err != nil {
+		return err
 	}
 
 	if err := db.ArchiveMission(missionID); err != nil {

@@ -316,9 +316,9 @@ func resolveAsSearchTerms(agencDirpath string, input string, templateOnly bool, 
 	terms := strings.Fields(input)
 
 	// Get the list of repos to search
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to read config")
+		return nil, err
 	}
 
 	var repos []string

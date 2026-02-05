@@ -27,44 +27,19 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 }
 
 func selectMissionsToRemove(db *database.DB) ([]string, error) {
-	missions, err := db.ListMissions(true)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to list missions")
-	}
-
-	if len(missions) == 0 {
-		fmt.Println("No missions to remove.")
-		return nil, nil
-	}
-
-	entries, err := buildMissionPickerEntries(db, missions)
-	if err != nil {
-		return nil, err
-	}
-
-	selected, err := selectMissionsFzf(entries, missionPickerOptions{
-		Prompt:      "Select missions to remove (TAB to multi-select): ",
-		MultiSelect: true,
-		ShowStatus:  true,
+	return selectMissionsInteractive(db, missionSelectConfig{
+		IncludeArchived: true,
+		EmptyMessage:    "No missions to remove.",
+		Prompt:          "Select missions to remove (TAB to multi-select): ",
+		ShowStatus:      true,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return extractMissionShortIDs(selected), nil
 }
 
 // removeMission tears down a mission in the reverse order of `mission new`:
 // mission new creates DB record then directory, so we remove directory then DB record.
 func removeMission(db *database.DB, missionID string) error {
-	// Fetch mission record to confirm it exists
-	if _, err := db.GetMission(missionID); err != nil {
-		return stacktrace.Propagate(err, "failed to get mission")
-	}
-
-	// Stop the wrapper if running (idempotent)
-	if err := stopMissionWrapper(missionID); err != nil {
-		return stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
+	if _, err := prepareMissionForAction(db, missionID); err != nil {
+		return err
 	}
 
 	// Remove the mission directory (workspace is just a directory copy, so RemoveAll handles it)

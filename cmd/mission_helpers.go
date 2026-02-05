@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"regexp"
 
 	"github.com/mieubrisse/stacktrace"
@@ -36,9 +37,9 @@ func stripAnsiCodes(s string) string {
 // buildMissionPickerEntries converts database missions to picker entries using
 // the same formatting infrastructure as mission ls.
 func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to read config")
+		return nil, err
 	}
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
@@ -237,4 +238,79 @@ func resolveAndRunForEachMission(
 	}
 
 	return nil
+}
+
+// prepareMissionForAction verifies a mission exists and stops its wrapper.
+// This is the common setup needed before destructive operations (remove, archive).
+func prepareMissionForAction(db *database.DB, missionID string) (*database.Mission, error) {
+	mission, err := db.GetMission(missionID)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get mission")
+	}
+
+	if err := stopMissionWrapper(missionID); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
+	}
+
+	return mission, nil
+}
+
+// missionSelectConfig configures the interactive mission selection picker.
+type missionSelectConfig struct {
+	IncludeArchived bool                                                 // pass to db.ListMissions
+	Filter          func([]*database.Mission) []*database.Mission        // optional post-fetch filter
+	EmptyMessage    string                                               // message when no missions match
+	Prompt          string                                               // fzf prompt
+	ShowStatus      bool                                                 // whether to show STATUS column
+}
+
+// selectMissionsInteractive presents an fzf picker for mission selection.
+// Returns the selected mission short IDs, or nil if no missions or user cancels.
+func selectMissionsInteractive(db *database.DB, cfg missionSelectConfig) ([]string, error) {
+	missions, err := db.ListMissions(cfg.IncludeArchived)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to list missions")
+	}
+
+	if cfg.Filter != nil {
+		missions = cfg.Filter(missions)
+	}
+
+	if len(missions) == 0 {
+		if cfg.EmptyMessage != "" {
+			fmt.Println(cfg.EmptyMessage)
+		}
+		return nil, nil
+	}
+
+	entries, err := buildMissionPickerEntries(db, missions)
+	if err != nil {
+		return nil, err
+	}
+
+	selected, err := selectMissionsFzf(entries, missionPickerOptions{
+		Prompt:      cfg.Prompt,
+		MultiSelect: true,
+		ShowStatus:  cfg.ShowStatus,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return extractMissionShortIDs(selected), nil
+}
+
+// ============================================================================
+// Config helpers
+// ============================================================================
+
+// readConfig centralizes the config reading boilerplate. It returns the config
+// only; use config.ReadAgencConfig directly when the config manager is needed
+// for modifications.
+func readConfig() (*config.AgencConfig, error) {
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read config")
+	}
+	return cfg, nil
 }

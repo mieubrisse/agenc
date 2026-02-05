@@ -5,8 +5,6 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/config"
 )
 
 var templateEditCmd = &cobra.Command{
@@ -21,9 +19,9 @@ func init() {
 }
 
 func runTemplateEdit(cmd *cobra.Command, args []string) error {
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	if len(cfg.AgentTemplates) == 0 {

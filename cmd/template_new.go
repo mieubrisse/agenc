@@ -92,9 +92,9 @@ func runTemplateNew(cmd *cobra.Command, args []string) error {
 	var sourceTemplateName string
 	var sourceTemplateDirpath string
 	if templateNewCloneFlag != "" {
-		cfg, _, err := config.ReadAgencConfig(agencDirpath)
+		cfg, err := readConfig()
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to read config")
+			return err
 		}
 
 		if len(cfg.AgentTemplates) == 0 {

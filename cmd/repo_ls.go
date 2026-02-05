@@ -25,9 +25,9 @@ func init() {
 }
 
 func runRepoLs(cmd *cobra.Command, args []string) error {
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	repoNames, err := findReposOnDisk(agencDirpath)

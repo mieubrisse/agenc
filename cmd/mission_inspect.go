@@ -99,9 +99,9 @@ func inspectMission(db *database.DB, missionID string) error {
 		return nil
 	}
 
-	cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
+	cfg, cfgErr := readConfig()
 	if cfgErr != nil {
-		return stacktrace.Propagate(cfgErr, "failed to read config")
+		return cfgErr
 	}
 	nicknames := buildNicknameMap(cfg.AgentTemplates)
 

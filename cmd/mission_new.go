@@ -71,9 +71,9 @@ type repoLibrarySelection struct {
 func runMissionNew(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
 
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	if cloneFlag != "" {
@@ -312,9 +312,6 @@ func listRepoLibrary(agencDirpath string, templates map[string]config.AgentTempl
 	return entries
 }
 
-const ansiLightBlue = "\033[94m"
-const ansiReset = "\033[0m"
-
 // formatLibraryFzfLine formats a repo library entry for display in fzf.
 // Agent templates are prefixed with 🤖; repos are prefixed with 📦.
 // Uses displayGitRepo for consistent repo formatting across all commands.
@@ -475,10 +472,9 @@ func createAndLaunchMission(
 	initialPrompt string,
 ) error {
 	// Open database and create mission record
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
+	db, err := openDB()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open database")
+		return err
 	}
 	defer db.Close()
 

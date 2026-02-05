@@ -41,31 +41,12 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 }
 
 func selectMissionsToStop(db *database.DB) ([]string, error) {
-	missions, err := db.ListMissions(false)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to list missions")
-	}
-
-	runningMissions := filterRunningMissions(missions)
-	if len(runningMissions) == 0 {
-		fmt.Println("No running missions to stop.")
-		return nil, nil
-	}
-
-	entries, err := buildMissionPickerEntries(db, runningMissions)
-	if err != nil {
-		return nil, err
-	}
-
-	selected, err := selectMissionsFzf(entries, missionPickerOptions{
-		Prompt:      "Select missions to stop (TAB to multi-select): ",
-		MultiSelect: true,
+	return selectMissionsInteractive(db, missionSelectConfig{
+		IncludeArchived: false,
+		Filter:          filterRunningMissions,
+		EmptyMessage:    "No running missions to stop.",
+		Prompt:          "Select missions to stop (TAB to multi-select): ",
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return extractMissionShortIDs(selected), nil
 }
 
 // stopMissionWrapper gracefully stops a mission's wrapper process if it is

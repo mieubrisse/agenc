@@ -40,122 +40,26 @@ func validateHeaders(headers []string) error {
 // Returns nil, nil if the user cancels (Ctrl-C/Escape).
 // Returns the selected row indices (0-based, corresponding to cfg.Rows).
 func runFzfPicker(cfg FzfPickerConfig) ([]int, error) {
-	if err := validateHeaders(cfg.Headers); err != nil {
-		return nil, err
-	}
-
-	if len(cfg.Rows) == 0 {
-		return nil, nil
-	}
-
-	fzfBinary, err := exec.LookPath("fzf")
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH")
-	}
-
-	// Build the table output with hidden index column
-	// Format: <index>\t<formatted row>
-	// The index is hidden from the user via --with-nth 2..
-	var buf bytes.Buffer
-
-	// Convert headers to any slice for tableprinter
-	headerRow := make([]any, len(cfg.Headers))
-	for i, h := range cfg.Headers {
-		headerRow[i] = h
-	}
-	tbl := tableprinter.NewTable(headerRow...).WithWriter(&buf)
-
-	// Add all data rows to the table
-	for _, row := range cfg.Rows {
-		rowAny := make([]any, len(row))
-		for i, v := range row {
-			rowAny[i] = v
-		}
-		tbl.AddRow(rowAny...)
-	}
-	tbl.Print()
-
-	// Parse the table output and prepend indices
-	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
-	if len(lines) == 0 {
-		return nil, nil
-	}
-
-	// Build fzf input with index prefixes
-	// Header line gets index -1 (will be shown as header, not selectable)
-	// Data lines get 0-based indices
-	var fzfInput strings.Builder
-	fzfInput.WriteString("-1\t")
-	fzfInput.WriteString(lines[0]) // header line
-	fzfInput.WriteString("\n")
-
-	for i, line := range lines[1:] {
-		fzfInput.WriteString(strconv.Itoa(i))
-		fzfInput.WriteString("\t")
-		fzfInput.WriteString(line)
-		fzfInput.WriteString("\n")
-	}
-
-	// Build fzf arguments
-	fzfArgs := []string{
-		"--ansi",
-		"--header-lines", "1",
-		"--with-nth", "2..",
-		"--prompt", cfg.Prompt,
-	}
-
-	if cfg.MultiSelect {
-		fzfArgs = append(fzfArgs, "--multi")
-	}
-
-	if cfg.InitialQuery != "" {
-		fzfArgs = append(fzfArgs, "--query", cfg.InitialQuery)
-	}
-
-	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
-	fzfCmd.Stdin = strings.NewReader(fzfInput.String())
-	fzfCmd.Stderr = os.Stderr
-
-	output, err := fzfCmd.Output()
-	if err != nil {
-		// fzf returns exit code 130 on Ctrl-C, and exit code 1 when no match
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
-			return nil, nil
-		}
-		return nil, stacktrace.Propagate(err, "fzf selection failed")
-	}
-
-	// Parse selected indices from output
-	var indices []int
-	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Extract the index from the first tab-separated field
-		idxStr, _, found := strings.Cut(line, "\t")
-		if !found {
-			continue
-		}
-		idx, parseErr := strconv.Atoi(idxStr)
-		if parseErr != nil {
-			continue
-		}
-		indices = append(indices, idx)
-	}
-
-	return indices, nil
+	return runFzfPickerCore(cfg, nil)
 }
 
 // runFzfPickerWithSentinel is like runFzfPicker but prepends a sentinel row
 // (e.g., "NONE") at index -1. Returns the selected indices where -1 represents
 // the sentinel row. Use this when you need a "none/skip" option.
 func runFzfPickerWithSentinel(cfg FzfPickerConfig, sentinelRow []string) ([]int, error) {
+	return runFzfPickerCore(cfg, sentinelRow)
+}
+
+// runFzfPickerCore is the shared implementation for fzf pickers. When sentinelRow
+// is nil, it behaves like runFzfPicker. When sentinelRow is provided, it behaves
+// like runFzfPickerWithSentinel.
+func runFzfPickerCore(cfg FzfPickerConfig, sentinelRow []string) ([]int, error) {
 	if err := validateHeaders(cfg.Headers); err != nil {
 		return nil, err
 	}
 
-	if len(cfg.Rows) == 0 && len(sentinelRow) == 0 {
+	hasSentinel := len(sentinelRow) > 0
+	if len(cfg.Rows) == 0 && !hasSentinel {
 		return nil, nil
 	}
 
@@ -174,8 +78,8 @@ func runFzfPickerWithSentinel(cfg FzfPickerConfig, sentinelRow []string) ([]int,
 	}
 	tbl := tableprinter.NewTable(headerRow...).WithWriter(&buf)
 
-	// Add sentinel row first
-	if len(sentinelRow) > 0 {
+	// Add sentinel row first (if provided)
+	if hasSentinel {
 		sentinelAny := make([]any, len(sentinelRow))
 		for i, v := range sentinelRow {
 			sentinelAny[i] = v
@@ -200,16 +104,20 @@ func runFzfPickerWithSentinel(cfg FzfPickerConfig, sentinelRow []string) ([]int,
 	}
 
 	// Build fzf input with index prefixes
-	// Header line gets index -2 (placeholder, will be shown as header)
-	// Sentinel row gets index -1
-	// Data lines get 0-based indices
+	// Without sentinel: header=-1, data starts at 0
+	// With sentinel: header=-2, sentinel=-1, data starts at 0
 	var fzfInput strings.Builder
-	fzfInput.WriteString("-2\t")
+	headerIdx := "-1"
+	if hasSentinel {
+		headerIdx = "-2"
+	}
+	fzfInput.WriteString(headerIdx)
+	fzfInput.WriteString("\t")
 	fzfInput.WriteString(lines[0]) // header line
 	fzfInput.WriteString("\n")
 
 	dataStartIdx := 1
-	if len(sentinelRow) > 0 && len(lines) > 1 {
+	if hasSentinel && len(lines) > 1 {
 		fzfInput.WriteString("-1\t")
 		fzfInput.WriteString(lines[1]) // sentinel row
 		fzfInput.WriteString("\n")
