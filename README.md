@@ -3,17 +3,19 @@
 AgenC
 =========
 
-The industrial capitalists of the late 1800s were programmers. They "programmed" organizations using the lossy language of English and the unreliable processors of humans. The results were revolutionary—but the medium was imprecise, slow to iterate, and expensive to scale.
+The industrial capitalists of the late 1800s were programmers. They "programmed" organizations using the lossy language of English and the unreliable processors of humans. The results were revolutionary... but the medium was imprecise, slow to iterate, and expensive to scale.
 
-Now we have AI agents. AgenC (pronounced "agency") lets you program your own organization of them, with yourself at the head—assembling interlocking parts into one cohesive, effective whole.
+Now we have AI agents. AgenC (pronounced "agency") lets you program your own organization of them, with yourself at the head - assembling interlocking parts into one cohesive, effective whole.
 
-AI agents are probabilistic functions: they produce good outputs some percentage of the time. That percentage needs constant tuning—refining prompts, adjusting permissions, capturing lessons from failures. AgenC makes this organization-building and agent-tuning easy, so you can focus on directing your AI workforce rather than wrestling with configuration.
+AI agents are probabilistic functions: they produce good outputs some percentage of the time. That percentage needs constant tuning - refining prompts, adjusting permissions, capturing lessons from failures.
+
+AgenC makes this organization-building and agent-tuning easy, so you can focus on directing your AI workforce rather than wrestling with configuration.
 
 How it works
 ------------
 
 1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). The agent then hot-reloads to pick up the new config.
-2. Sandboxing and session management let you run 5+ agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a supersmart team who understand your every whim.
+2. Sandboxing and session management let you run dozens of agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a supersmart team who understand your every whim.
 
 <!-- TODO something about clear separation of "allow just this session" vs "allow always?" via the agent template mechanism and the sandboxing in a mission directory? -->
 
