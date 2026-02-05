@@ -2,18 +2,18 @@
 
 AgenC
 =========
-AgenC (pronounced "agency") is session management + personal LLMOps + live-reload for your multi-agent vibeworking.
 
-It goes like this: `--dangerously-skip-permissions` is too dangerous and default Claude too dumb.
+The industrial capitalists of the late 1800s were programmers. They "programmed" organizations using the lossy language of English and the unreliable processors of humans. The results were revolutionary—but the medium was imprecise, slow to iterate, and expensive to scale.
 
-Better is project-local Claude `CLAUDE.md` to train the agent on how to be awesome, and `settings.json` to ensure it doesn't go off the rails.
+Now we have AI agents. AgenC (pronounced "agency") lets you program your own organization of them, with yourself at the head—assembling interlocking parts into one cohesive, effective whole.
 
-In practice, this requires a LOT of `CLAUDE.md` and `settings.json` refinement while you're in the middle of doing other work... which requires finding the right config files + painful Git branch juggling + manually reloading Claude.
+AI agents are probabilistic functions: they produce good outputs some percentage of the time. That percentage needs constant tuning—refining prompts, adjusting permissions, capturing lessons from failures. AgenC makes this organization-building and agent-tuning easy, so you can focus on directing your AI workforce rather than wrestling with configuration.
 
-The AgenC idea:
+How it works
+------------
 
-1. Any time you have a negative interaction with Claude (bad output, missing permissions in `settings.json`), it's trivial to roll the lesson back into the Claude config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). Claude then hot-reloads to pick up the new config.
-2. Provide sandboxing + session management infra so you can run 5+ agents simultaneously, constantly rolling lesson "exhaust" back into your AI agents' configs. They become a supersmart team of Avengers who understand your every whim.
+1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). The agent then hot-reloads to pick up the new config.
+2. Sandboxing and session management let you run 5+ agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a supersmart team who understand your every whim.
 
 <!-- TODO something about clear separation of "allow just this session" vs "allow always?" via the agent template mechanism and the sandboxing in a mission directory? -->
 
