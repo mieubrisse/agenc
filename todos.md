@@ -18,6 +18,7 @@
 - [ ] Agent-switching mid-conversation
 - [ ] Claude command to fire off edits to agent templates
 - [ ] Rename agent templates
+- [ ] Agent autonomy metric for sessions
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
