@@ -17,6 +17,7 @@
 - [ ] Integrate beads
 - [ ] Agent-switching mid-conversation
 - [ ] Claude command to fire off edits to agent templates
+- [ ] Rename agent templates
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
