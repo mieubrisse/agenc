@@ -14,6 +14,7 @@
 - [ ] Find or build an inter-agent chat system
 - [ ] Create frontend app
 - [ ] Add observability and mission metrics
+- [ ] Integrate beads
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
