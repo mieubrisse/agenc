@@ -15,6 +15,7 @@
 - [ ] Create frontend app
 - [ ] Add observability and mission metrics
 - [ ] Integrate beads
+- [ ] Agent-switching mid-conversation
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
