@@ -20,6 +20,7 @@
 - [ ] Rename agent templates
 - [ ] Agent autonomy metric for sessions
 - [ ] Plan out a better way to stay at a higher level, not needing to be so down-in-the-weeds
+- [ ] Fix 'asking for permissions to read repos inside the workspace' error (potentially through Docker?)
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
