@@ -15,26 +15,35 @@ Agency stores knowledge and files of all kinds in the Knowledge Base.
     - `None`: the agent knows the file exists (UUID and description visible) but cannot read its contents
     - `Read`: the agent can read the file and its description
     - `Write`: the agent can read, create, and edit the file and its description
-- Files are concurrency-controlled via optimistic locking:
-    - Arbitrary many agents can read simultaneously
-    - Writing requires passing the hash of the last-seen version, ensuring the agent is working from current state
+- Access control is enforced at the filesystem level via the Agent's Claude `settings.json`. Agency compiles a `settings.json` for each Agent that grants filesystem access only to the KB files the Handler has access to. Agents cannot bypass this by guessing filesystem paths.
+
+### Storage Model
+
+Each KB file's UUID corresponds to a directory on the filesystem. Within that directory, each version of the file is stored as a file named after its content hash. The KB database maintains a mapping of version number to hash for each file.
+
+This provides:
+- **Version history**: Agents can view previous versions of any file they have access to
+- **Optimistic locking**: writing requires the caller to pass the version number and hash of the version it last read. The KB only allows the write if this matches the latest version, preventing lost updates from stale reads.
+- **Concurrent reads**: arbitrarily many agents can read simultaneously
 
 ### Knowledge Base MCP Tool
 
 - **List files**: lists files the agent has `Read` or `Write` access to
 - **Browse files**: searches descriptions of files the agent has at least `None` access to
 - **Get paths**: returns full paths of files the agent has `Read` or `Write` access to (for direct filesystem reads, copies, etc.)
-- **Write file**: updates a file in the Knowledge Base (requires last-seen version hash)
+- **Read file**: returns file contents along with the current version number and content hash
+- **Write file**: updates a file in the Knowledge Base (requires the version number and hash of the last-seen version)
 - **Create file**: creates a new file in the Knowledge Base
-- Write operations acquire a write lock
+- **View version history**: lists all versions of a file (version numbers, hashes, timestamps)
+- **Read file version**: reads a specific historical version of a file by version number
 
 ### Repos
 
-Repos are managed via the Knowledge Base as either:
-- A whole repo registered as a UUID in the Knowledge Base, or
-- An MCP tool backed by a repo library that manages local clones (avoiding redundant clones when multiple agents need the same repo)
+Repos are managed separately from the Knowledge Base via a dedicated Repo MCP tool. The Repo MCP tool is backed by a repo library that manages local clones, so that:
+- Cloning a repo into an Agent's workspace is fast (pulled from local cache, not GitHub)
+- Multiple agents needing the same repo don't hammer GitHub with redundant clone requests
 
-Agents can clone repos into their ephemeral workspace to do development work.
+Agents clone repos into their ephemeral workspace to do development work.
 
 
 Outcomes
@@ -48,19 +57,30 @@ Agency uses Fractal Outcomes to model work.
 - Outcomes relate to each other in a directed acyclic graph (DAG):
     - An outcome's children represent **how** to accomplish it
     - An outcome's parents represent **why** it's being accomplished
-- Every outcome is a hypothesis: attempting it may prove it's not achievable as described
-    - An outcome may have competing child hypotheses (e.g., "get lunch" may have children: "get a sandwich", "order sushi", "get a burger")
+    - An outcome can have multiple parents (it can be the "how" for more than one "why")
+- Every outcome is a hypothesis: attempting it may prove it's not achievable as described. If a sub-Outcome doesn't look like it's going to pan out, the responsible Handler should close it and create a new one. This is handled through Agent instructions rather than structural encoding in the DAG.
 - Outcomes can be decomposed into children as much as necessary, but no more; Fractal Outcomes is a thinking framework, not a prescription to always decompose
+
+**Important**: while Outcomes form a DAG (an outcome can have multiple parents), Handlers form a strict tree. Each Handler has exactly one Boss Handler (the one that created it). See "Handlers & Agents" for details.
+
+### Outcome Audit History
+
+Each Outcome maintains an audit history tracking:
+- When it was created and by which Handler/Agent
+- When it was updated and by which Handler/Agent
+- When it was completed or closed, by whom, and with what rationale
+
+This history is stored within the Outcome's KB directory and is visible to any agent with at least `Read` access to the Outcome. It enables identifying stale or abandoned Outcomes for future cleanup.
 
 ### Outcome MCP Tool
 
-- **View outcome**: read an outcome and its immediate children/parents
-- **View ancestor chain**: read the chain of parent outcomes (the "why?" chain)
+- **View outcome**: read an outcome, its immediate children/parents, and its audit history
+- **View ancestor chains**: read all ancestor paths to the root (the "why?" chains — there may be multiple paths if an outcome has multiple parents)
 - **View subtree**: read an outcome and all descendants
-- **Create outcome**: create a new outcome as a child of an existing one
-- **Update outcome**: modify an outcome's description, status, or relationships
-- **Complete outcome**: mark an outcome as accomplished
-- **Close outcome**: mark an outcome as disproven or abandoned (rationale is written into the outcome's Markdown file, so any agent with Read access to the outcome can understand why it was closed)
+- **Create outcome**: create a new outcome as a child of an existing one (records the creating Handler/Agent in the audit history)
+- **Update outcome**: modify an outcome's description, status, or relationships (recorded in audit history)
+- **Complete outcome**: mark an outcome as accomplished (recorded in audit history)
+- **Close outcome**: mark an outcome as disproven or abandoned (rationale is written into the outcome's Markdown file and recorded in audit history, so any agent with Read access can understand why it was closed)
 
 
 Capabilities & Secrets
@@ -70,12 +90,12 @@ Agency uses **capability-based access control**. Rather than maintaining a globa
 
 ### Capabilities
 
-A capability grants a Handler access to a specific resource: a Knowledge Base file, an MCP server, a repo, etc. Capabilities have the following properties:
+A capability grants a Handler access to a specific resource: a Knowledge Base file, an MCP server, a repo, messaging permission to a specific Handler, etc. Capabilities have the following properties:
 
 - **Delegatable**: a Handler can grant any capability it holds to an Underling Handler
 - **Outcome-scoped**: capabilities granted during delegation are tied to the Outcome's lifetime. When the Outcome is completed or closed, all capabilities granted for it are automatically revoked.
 - **Restrictable**: a Handler can delegate a restricted version of a capability (e.g., grant `Read` when it holds `Write`)
-- **Non-forgeable**: an Agent cannot fabricate capabilities it was not granted
+- **Non-forgeable**: an Agent cannot fabricate capabilities it was not granted (enforced by Agency compiling each Agent's `settings.json` to restrict filesystem and MCP access)
 
 When an Agent needs a capability it doesn't have:
 1. The Agent messages its Boss Handler requesting the capability
@@ -83,6 +103,28 @@ When an Agent needs a capability it doesn't have:
 3. If the Boss Handler doesn't hold it either, it escalates to its own Boss Handler
 4. The capability flows back down the chain, outcome-scoped at each level
 5. When the Outcome completes, all capabilities granted for it are revoked at every level — no zombie permissions accumulate
+
+To minimize the cost of this escalation chain, Handlers should **pre-delegate capabilities** they expect the Underling will need at delegation time, following the principle of least privilege.
+
+### Messaging Capabilities
+
+Sending messages is an explicit capability. An Agent can only send messages to:
+- Its Boss Handler
+- Its direct Underling Handlers
+
+These messaging capabilities are granted automatically when a Handler is created (Boss <-> Underling). An Agent cannot message arbitrary Handlers in the tree.
+
+### Capability Changes at Runtime
+
+Because KB access control is enforced via the Agent's Claude `settings.json`, granting a new capability to a Handler requires regenerating the `settings.json` and restarting the Agent. When a new capability is granted:
+
+1. Agency updates the Handler's capability set
+2. Agency generates a new `settings.json` reflecting the updated permissions
+3. If an Agent is currently running, it receives a message notifying it of the new capability
+4. The Agent saves its current state to the state document and terminates
+5. Agency spawns a new Agent with the updated `settings.json`
+
+Agents must be aware of this protocol: when notified of a capability change, save state and exit promptly.
 
 ### MCP Server Access
 
@@ -106,44 +148,42 @@ Agency uses Handlers and Agents to accomplish work.
 
 ### Handlers
 
-A Handler is a durable process responsible for driving one or more Outcomes towards completion.
+A Handler is a durable entity responsible for driving one or more Outcomes towards completion.
 
 - Each Handler is responsible for a set of Outcomes
 - Each Handler has `Read` access to the Outcome it was delegated (only the Boss Handler can modify it)
 - Each Handler has `Write` access to any child Outcomes it creates under its delegated Outcome
-- Each Handler has an inbox for receiving messages from other Handlers
+- Each Handler has an inbox for receiving messages
 - Each Handler has a state document (see "Handler State Document" below)
 - Each Handler has an audit log (see "Handler Audit Log" below)
-- Each Handler has a Boss Handler: the Handler that delegated the Outcome to it
+- Each Handler has exactly one Boss Handler: the Handler that created it
     - Exception: the root Handler (see "The User & the Root Handler" below)
-- A Handler may delegate an Outcome to a new child Handler, creating a new Handler with its own inbox responsible for that Outcome
-- A Handler spawns Agents to do its work (see below)
+- A Handler may delegate an Outcome to a new child Handler, creating a new Handler responsible for that Outcome
+- A Handler has at most one live Agent at any time
 
-**Handler activation triggers** — a Handler spawns a new Agent (if one is not already running) when:
-- A message arrives in its inbox
-- An Outcome state change occurs that may require action:
-    - A child Outcome is completed (the Handler may need to take next steps or synthesize results)
-    - A child Outcome is closed/disproven (the Handler may need to renavigate — try a competing hypothesis or decompose differently)
-    - An Outcome the Handler is responsible for becomes unblocked (a dependency it was waiting on has been resolved)
-    - A new Outcome is delegated to this Handler
+**Agent spawning** — the Agency daemon periodically checks each Handler: "Does this Handler have a live Agent? If not, does it have one or more unblocked Outcomes?" If the Handler has unblocked Outcomes and no live Agent, Agency spawns one.
+
+Inbox messages are integrated into this model: when a message arrives at a Handler's inbox, Agency creates a "Process Inbox" Outcome for the Handler (if one doesn't already exist). This ensures the Handler has an unblocked Outcome, triggering Agent spawning if needed. The Agent processes the inbox by transforming messages into Outcomes, then marks the "Process Inbox" Outcome as complete.
 
 ### Agents
 
-An Agent is an ephemeral Claude instance spawned by a Handler to do work.
+An Agent is an ephemeral Claude instance spawned by Agency on behalf of a Handler to do work.
 
 - Each Agent is identified by a UUID
-- Agents are intended to be "functions": wake up, assess state, act, update durable state, and terminate
-- An Agent inherits its Handler's permissions and Knowledge Base access
+- An Agent inherits its Handler's permissions and Knowledge Base access (enforced via compiled `settings.json`)
 - An Agent operates in an ephemeral workspace that is destroyed when the Agent terminates
 - **Anything the Agent wants to persist must be explicitly written to the Knowledge Base.** The workspace is destroyed on termination. If it wasn't written to the KB, it's gone.
+- Agency uses prompt caching for Agent system prompts, since all Agents of the same Handler share the same prompt. This reduces startup cost.
 
-**Messaging is asynchronous.** Sending a message is a fire-and-forget operation. Checking the inbox is a separate operation. Agents are never blocked waiting for a reply — they send a message, continue with other work or terminate, and process responses on their next activation.
+**Agent lifecycle**: an Agent stays alive as long as its Handler has unblocked Outcomes to work on. The Agent loops: process inbox, create Outcomes, work on highest-priority unblocked Outcome, check inbox again, repeat. When all Outcomes are blocked or completed and the inbox is empty, the Agent updates the state document, submits the audit log entry, and terminates.
 
-When spawned, an Agent operates in two phases:
+Context window limits may force termination before all work is done. In this case, the Agent should update the state document to reflect progress so far, submit the audit log entry, and terminate. Agency will spawn a new Agent if unblocked Outcomes remain.
 
-**Phase 1: Inbox processing.** The Agent reads the Handler's inbox and processes all pending messages. The goal is to empty the inbox by transforming messages into Outcomes, updating the state document, or sending replies. The Agent should not begin deep work during this phase — it should focus on triage and organization.
+**Messaging is asynchronous.** Sending a message is a fire-and-forget operation. Checking the inbox is a separate operation. Agents are never blocked waiting for a reply — they send a message, continue with other work, and process responses when they next check the inbox.
 
-**Phase 2: Work.** The Agent reads the Handler's state document, assesses the current state of its Outcomes, and prioritizes work using the Eisenhower Matrix (urgent vs. important). It then takes action: reads/writes KB files, works on Outcomes, delegates to new Handlers, clones repos, does development work, sends messages, etc.
+**Inbox processing**: when the Agent processes the inbox, the goal is to transform messages into Outcomes and update the state document. The Agent should not begin deep work during inbox processing — it should focus on triage and organization. Deep work happens when the Agent works on individual Outcomes.
+
+**Self-messaging**: an Agent can send a deferred message to its own Handler's inbox, scheduled for a future time. Agency's mail system holds the message and delivers it at the specified time, creating a "Process Inbox" Outcome and triggering Agent spawning if needed. This enables Agents to set reminders or schedule future work.
 
 Before terminating, the Agent:
 1. Updates the Handler's state document to reflect current context
@@ -156,9 +196,10 @@ Each Handler has a **state document** — a Knowledge Base file that represents 
 
 - The Handler's Agent has `Read` and `Write` access to the state document
 - The Agent reads the state document on activation to understand current context: what's been done, what's in progress, what's blocked, key decisions made, and relevant facts discovered
-- The Agent updates the state document before terminating to reflect what changed during this activation
+- The Agent updates the state document before terminating to reflect what changed
 - This is the primary continuity mechanism across Agent lifetimes: each new Agent reads the state document to pick up where the last one left off
 - The state document should be kept concise and current — it represents the Handler's "working memory," not a full history
+- Because the KB supports versioning, previous versions of the state document are available. If an Agent detects the state document is stale or inconsistent (e.g., after a crash or forced termination), it can consult previous versions and the audit log to reconstruct context.
 
 ### Handler Audit Log
 
@@ -171,11 +212,14 @@ Each Handler also has an **audit log** — a Knowledge Base file that records wh
 
 ### The User & the Root Handler
 
-The user interacts with Agency through the root Handler — the Handler responsible for the root-level Outcome (e.g., "Live an effective life").
+The user interacts with Agency through the root Handler.
 
-- To the root Handler, the user functions as its Boss Agent
+**Bootstrapping**: Agency starts with a single root Outcome — a perpetual Outcome along the lines of "Help the user accomplish all their work." This Outcome is never completed. The root Handler is a regular Handler responsible for this root Outcome, behaving like any other Handler.
+
+- To the root Handler, the user functions as its Boss
 - The user has an inbox where the root Handler sends messages: completion requests, escalation questions, progress updates, and requests for information or decisions
 - The user sends messages to the root Handler's inbox to assign work, provide feedback, answer questions, and give direction
+- When the user sends a message, Agency creates a "Process Inbox" Outcome for the root Handler, triggering Agent spawning like any other Handler
 - The root Handler otherwise behaves like any other Handler: it decomposes Outcomes, delegates to child Handlers, and manages its subtree
 
 This means the entire system has a uniform interface at every level: Handlers communicate with their boss via messaging, whether that boss is another Handler or the user.
@@ -209,9 +253,11 @@ When a Handler delegates an Outcome to a new child Handler:
 
 - A new Handler is created, responsible for that Outcome
 - The delegating Handler becomes the Boss Handler of the new child Handler
-- The delegating Handler's Agent curates what capabilities to grant the child Handler (following the principle of least privilege): Knowledge Base file access, MCP server access, repo access, etc.
+- The delegating Handler's Agent curates what capabilities to grant the child Handler, following the principle of least privilege: Knowledge Base file access, MCP server access, repo access, messaging permissions, etc.
+- Handlers should **pre-delegate** capabilities they expect the child will need, to avoid costly escalation chains later
 - All granted capabilities are scoped to the delegated Outcome's lifetime
 - The child Handler receives `Read` access to all Outcome documents in the ancestor chain (the "why?" context)
+- The child Handler automatically receives messaging capabilities to communicate with its Boss Handler
 - The child Handler can request additional capabilities from its Boss Handler via messaging
 
 ### Delegation Boundary
@@ -222,26 +268,27 @@ Delegation means true transfer of responsibility. A Boss Handler does NOT reach 
 - The Boss Handler **cannot** directly interact with the Underling's own Underling Handlers (no skip-level meddling)
 - The Boss Handler **can** message the Underling Handler to ask for status, provide guidance, or request changes
 - The Boss Handler **can** read the delegated Outcome's status (to know whether it's complete, in progress, or closed)
-- The Boss Handler **can** shut down the Underling Handler, reclaiming responsibility for the Outcome (a last resort — the organizational equivalent of firing someone and taking their work back)
+- The Boss Handler **can** force-stop the Underling's Agent and reclaim responsibility for the Outcome (a last resort — the organizational equivalent of firing someone and taking their work back)
 
-If the Boss Handler is unhappy with an Underling's approach, the recourse is communication (messaging) or replacement (shut down and re-delegate), not direct intervention in the Underling's outcome subtree.
+If the Boss Handler is unhappy with an Underling's approach, the recourse is communication (messaging) or replacement (force-stop and re-delegate), not direct intervention in the Underling's outcome subtree.
 
 ### Completing & Escalating Outcomes
 
 - **Root outcome accomplished**: when an Agent believes the Handler's root Outcome is accomplished, it sends a message to its Boss Handler requesting verification and completion. The Boss Handler verifies and, if satisfied, completes the Outcome and shuts down the child Handler.
-- **Sub-outcome disproven**: when a sub-Outcome the Agent created for itself proves unviable, the Agent closes it directly and renavigate (try a competing hypothesis, decompose differently, etc.).
+- **Sub-outcome disproven**: when a sub-Outcome the Agent created for itself proves unviable, the Agent closes it directly and renavigates (try a competing hypothesis, decompose differently, etc.).
 - **Root outcome disproven**: when the Handler's root Outcome itself proves unviable, the Agent sends a message to its Boss Handler explaining what happened and why. The Boss Handler then renavigates.
 - In all cases, the Agent documents what happened in the Handler's audit log. Closure rationale is written into the Outcome file itself (not just the audit log), so it's visible to any agent with access to that Outcome.
 
 ### Handler Shutdown & Cascading Cleanup
 
-When a Boss Handler completes or reclaims a delegated Outcome:
+When a Boss Handler force-stops an Underling and reclaims a delegated Outcome:
 
-1. The Underling Handler is shut down
-2. All Handlers within the Underling's subtree are shut down recursively
-3. The Boss Handler re-owns the Outcome and all sub-Outcomes that were within the shut-down subtree
-4. All outcome-scoped capabilities granted to the shut-down Handlers are revoked
-5. State documents and audit logs of shut-down Handlers remain in the Knowledge Base for historical reference
+1. The Underling's live Agent (if any) is force-stopped
+2. All Agents within the Underling's subtree are force-stopped recursively
+3. The Underling Handler and all Handlers in its subtree are deactivated (not deleted — their state is preserved)
+4. The Boss Handler re-owns the Outcome and all sub-Outcomes that were within the deactivated subtree
+5. All outcome-scoped capabilities granted to the deactivated Handlers are revoked
+6. State documents, audit logs, and Outcome audit histories of deactivated Handlers remain in the Knowledge Base for historical reference and potential review by the Boss Handler's Agent
 
 
 Agent Prompt
@@ -257,35 +304,39 @@ You must drive your Outcome towards completion.
 ### What you can do
 
 **Outcomes** (via Outcome MCP Tool):
-- View your Outcome and its ancestor chain (the "why?" context)
+- View your Outcome and its ancestor chains (the "why?" context — there may be multiple paths if an outcome has multiple parents)
 - Create child Outcomes under your Outcome
 - Update, complete, or close Outcomes you own (that you have not delegated)
 - View the status of Outcomes you've delegated (read-only — you cannot modify outcomes inside a delegated subtree)
 
 **Knowledge Base** (via Knowledge Base MCP Tool):
 - Browse and list files you have access to
-- Read files you have Read or Write access to
-- Write to files you have Write access to
+- Read files you have Read or Write access to (returns version number and hash)
+- Write to files you have Write access to (requires version number and hash of last-seen version)
 - Create new files in the Knowledge Base
+- View version history and read previous versions of files
 
 **Messaging** (via Messaging MCP Tool):
 - Send messages to your Boss Handler
-- Send messages to your child Handlers (Handlers you've delegated to)
-- Send a deferred message to yourself (for your next activation)
+- Send messages to your Underling Handlers (Handlers you've delegated to)
+- Send a deferred message to yourself, scheduled for a future time (for reminders and scheduled work)
+- You can only message Handlers you have messaging capabilities for (Boss and direct Underlings)
 
 **Delegation**:
 - Delegate any Outcome you're responsible for to a new child Handler
-- Grant the child Handler any capabilities you hold: KB file access, MCP server access, repo access (follow the principle of least privilege)
+- Grant the child Handler capabilities you hold: KB file access, MCP server access, repo access (follow the principle of least privilege)
+- Pre-delegate capabilities you expect the child will need to avoid costly escalation chains
 - All granted capabilities are scoped to the delegated Outcome's lifetime
 - Once delegated, you interact with that Outcome only through messaging the Underling Handler — you cannot modify the delegated subtree directly
-- Shut down an Underling Handler to reclaim responsibility for its Outcome (last resort)
+- Force-stop an Underling Handler's Agent to reclaim responsibility for its Outcome (last resort)
 
 **Repos** (via Repo MCP Tool):
 - Clone repos into your workspace for development work
 
 **State Document** (via Knowledge Base MCP Tool):
 - Read the Handler's state document to understand current context
-- Update the state document before terminating to reflect what changed
+- Update the state document to reflect what changed during your work
+- View previous versions of the state document if the current version seems stale or inconsistent
 
 **Audit Log** (via Audit Log MCP Tool):
 - Read the Handler's audit log for detailed history when the state document isn't sufficient
@@ -293,21 +344,25 @@ You must drive your Outcome towards completion.
 
 ### How to work
 
-**Phase 1: Inbox processing.** Read your inbox and process all pending messages. Your goal is to empty the inbox: transform messages into Outcomes, update your state document, send replies. Do not begin deep work during this phase — focus on triage and organization.
+You stay alive as long as there are unblocked Outcomes to work on. Your work loop is:
 
-**Phase 2: Work.** Read your state document. Assess the current state of your Outcomes. Prioritize using the Eisenhower Matrix (urgent vs. important). Then take action.
+1. **Check inbox.** Read your inbox. Transform messages into Outcomes and update your state document. Focus on triage and organization — do not begin deep work during inbox processing.
+2. **Work.** Read your state document. Assess the current state of your Outcomes. Prioritize using the Eisenhower Matrix (urgent vs. important). Work on the highest-priority unblocked Outcome.
+3. **Repeat.** Periodically check your inbox between Outcomes for new messages that may change your priorities.
+4. **Terminate.** When all Outcomes are blocked or completed and your inbox is empty, update your state document, submit your audit log entry, and terminate.
 
-**Messaging is asynchronous.** Sending a message is fire-and-forget. You are never blocked waiting for a reply. Send your message, continue with other work or terminate, and process responses on your next activation.
+**Messaging is asynchronous.** Sending a message is fire-and-forget. You are never blocked waiting for a reply. Send your message and continue with other work.
 
 ### Important rules
 
 1. **You are ephemeral.** Your workspace is destroyed when you terminate. Anything you want to persist must be written to the Knowledge Base.
 2. **Maintain your state document.** Before terminating, update the state document so the next Agent can pick up where you left off. Keep it concise and current.
 3. **Document your work.** Before terminating, submit an audit log entry describing what you did and why.
-4. **Principle of least privilege.** When delegating, grant only the permissions necessary for the child Handler to accomplish its Outcome.
-5. **Outcomes are hypotheses.** If an Outcome proves unviable, close it with a rationale written into the Outcome file and renavigate rather than forcing a failed approach.
+4. **Principle of least privilege.** When delegating, grant only the permissions necessary for the child Handler to accomplish its Outcome. Pre-delegate capabilities you expect it will need.
+5. **Outcomes are hypotheses.** If a sub-Outcome doesn't look like it's going to pan out, close it with a rationale and create a new one. Don't force a failing approach.
 6. **Escalate when appropriate.** If your root Outcome is accomplished or disproven, message your Boss Handler. Do not silently terminate.
 7. **Inbox first, then work.** Always process your inbox before starting deep work. Unprocessed messages represent unincorporated information that may change your priorities.
+8. **Capability changes require restart.** If you receive a message that new capabilities have been granted, save your current state to the state document and terminate. You will be restarted with updated permissions.
 
 ### Completing your work
 
@@ -331,16 +386,20 @@ Knowledge Base files should be kept small and focused — a graph of many small 
 ### Self-Tuning Delegation
 
 When to delegate vs. do-it-yourself is a judgment call that significantly impacts system performance. Potential signals that a Handler should delegate more:
-- The Handler's inbox is growing faster than the Agent can process it (messages piling up)
-- Agents are running long sessions with large context windows (too much work in one scope)
-- Mail messages are going unanswered for extended periods (the Agent is doing too much work and too little communication)
+- The Handler's Agent is running long sessions with large context windows (too much work in one scope)
+- Outcomes are staying unblocked for extended periods without progress (the Agent is spread too thin)
+- The Handler's inbox frequently has unprocessed messages when the Agent starts work (messages piling up)
 
 These metrics could allow Agency to suggest or automate delegation decisions over time.
 
 ### Lateral Communication (Future Consideration)
 
-The current design only allows Handlers to communicate with their Boss and their Underlings — no sibling-to-sibling communication. This is intentional: it prevents cross-communication happening without the Boss's knowledge and keeps the delegation boundary clean.
+The current design only allows Handlers to communicate with their Boss and their direct Underlings — no sibling-to-sibling communication. This is intentional: it prevents cross-communication happening without the Boss's knowledge and keeps the delegation boundary clean.
 
 When sibling Handlers need to coordinate, the Boss Handler mediates — or explicitly tells each Underling about the other's existence and relevant context, so the Underling can account for it in its work.
 
 Direct lateral communication may be worth revisiting if the mediation pattern proves too slow in practice, but it introduces significant complexity around oversight and information control.
+
+### Human Approval Gates (Future Consideration)
+
+The current design controls action authorization through capabilities: if a Handler has a capability, it can use it freely for the lifetime of the Outcome. Per-use human approval gates (e.g., requiring human confirmation before sending an email or deploying code) are not yet modeled. For now, the user controls this by being selective about which capabilities are granted. Fine-grained approval gates may be added in the future if the capability model proves insufficient.
