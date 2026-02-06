@@ -12,6 +12,8 @@
 - [ ] Maybe some way to save information for later???? E.g. I'm doing research in a research tab, and I want to come back to it later
 - [ ] Check on perf of the daemon constantly running a bunch of "is this PID alive?" checks
 - [ ] Find or build an inter-agent chat system
+- [ ] Create frontend app
+- [ ] Add observability and mission metrics
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
