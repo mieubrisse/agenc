@@ -19,6 +19,7 @@
 - [ ] Claude command to fire off edits to agent templates
 - [ ] Rename agent templates
 - [ ] Agent autonomy metric for sessions
+- [ ] Plan out a better way to stay at a higher level, not needing to be so down-in-the-weeds
 
 ### Docker
 - [ ] Figure out how to run missions in Docker
