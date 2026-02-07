@@ -253,6 +253,26 @@ Stack-based quick-switch between missions. Push saves the current mission to a s
 
 Use case: "I noticed something in this session that needs a quick fix in another repo. Let me pop over, fix it, and come back." This replaces the ad-hoc tab-hunting that developers do today.
 
+#### File Popout Pane
+
+**Hotkey:** `prefix + O` (open)
+
+When Claude mentions or modifies a file, the developer can quickly open that file in a popout tmux pane — a vertical or horizontal split that displays the file contents (via `$EDITOR`, `less`, or a configured viewer). This lets the developer inspect what Claude is talking about without leaving the session or scrolling through Claude's output.
+
+Implementation: The hotkey triggers a picker (e.g., fzf-based) that lists recently mentioned or modified files in the current session's workspace. Selecting a file opens it in a new tmux split pane. The file list is derived from the session's git diff (modified files) and optionally from parsing recent Claude output for file paths.
+
+Use case: "Claude says it modified `internal/wrapper/wrapper.go` — let me quickly look at what it did." One hotkey, pick the file, see it side-by-side with the conversation.
+
+#### Terminal in Mission Directory
+
+**Hotkey:** `prefix + T`
+
+Opens a new tmux pane with a shell session whose working directory is the mission's workspace repo directory. This gives the developer immediate terminal access to the repo the agent is operating on — for running tests, inspecting files, checking git status, or any other manual investigation.
+
+Implementation: The hotkey runs `tmux split-window -c <mission-workspace-dir>`, where the workspace directory is resolved from the active mission's metadata. The shell inherits the user's normal environment.
+
+Use case: "I want to run the tests myself to see if the agent's changes actually work." One hotkey, and the developer has a shell right where the agent is working.
+
 ### Session Orchestrator
 
 A background component that manages the tmux session lifecycle:
