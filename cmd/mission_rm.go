@@ -105,7 +105,7 @@ func removeMission(db *database.DB, missionID string) error {
 		return err
 	}
 
-	// Remove the mission directory (workspace is just a directory copy, so RemoveAll handles it)
+	// Remove the mission directory (agent/ is just a directory copy, so RemoveAll handles it)
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	if _, err := os.Stat(missionDirpath); err == nil {
 		if err := os.RemoveAll(missionDirpath); err != nil {

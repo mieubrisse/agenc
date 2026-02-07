@@ -372,32 +372,51 @@ func (w *Wrapper) watchGlobalConfig(ctx context.Context) {
 	}
 }
 
-// watchWorkspaceRemoteRefs uses fsnotify to watch the workspace repo's
+// resolveRepoDirpath returns the path to the git repository within the
+// mission's agent directory. It supports both the new structure (repo is
+// directly in agent/) and the legacy structure (repo is in
+// agent/workspace/<repo-short-name>/).
+func (w *Wrapper) resolveRepoDirpath() string {
+	agentDirpath := config.GetMissionAgentDirpath(w.agencDirpath, w.missionID)
+
+	// Check for legacy workspace/<repo>/ structure
+	legacyWorkspaceDirpath := filepath.Join(agentDirpath, "workspace")
+	if entries, err := os.ReadDir(legacyWorkspaceDirpath); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				return filepath.Join(legacyWorkspaceDirpath, entry.Name())
+			}
+		}
+	}
+
+	// New structure: repo is directly in agent/
+	return agentDirpath
+}
+
+// watchWorkspaceRemoteRefs uses fsnotify to watch the mission repo's
 // .git/refs/remotes/origin/ directory for changes to the default branch ref.
 // When the ref changes (e.g. after `git push origin main`), force-updates the
 // repo library clone so other missions get fresh copies.
 func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
-	workspaceDirpath := config.GetMissionWorkspaceDirpath(w.agencDirpath, w.missionID)
-	repoShortName := filepath.Base(w.gitRepoName)
-	workspaceRepoDirpath := filepath.Join(workspaceDirpath, repoShortName)
+	repoDirpath := w.resolveRepoDirpath()
 
-	defaultBranch, err := mission.GetDefaultBranch(workspaceRepoDirpath)
+	defaultBranch, err := mission.GetDefaultBranch(repoDirpath)
 	if err != nil {
-		w.logger.Warn("Failed to determine default branch for workspace repo", "error", err)
+		w.logger.Warn("Failed to determine default branch for mission repo", "error", err)
 		return
 	}
 
-	refsDirpath := filepath.Join(workspaceRepoDirpath, ".git", "refs", "remotes", "origin")
+	refsDirpath := filepath.Join(repoDirpath, ".git", "refs", "remotes", "origin")
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		w.logger.Warn("Failed to create fsnotify watcher for workspace remote refs", "error", err)
+		w.logger.Warn("Failed to create fsnotify watcher for remote refs", "error", err)
 		return
 	}
 	defer watcher.Close()
 
 	if err := watcher.Add(refsDirpath); err != nil {
-		w.logger.Warn("Failed to watch workspace remote refs directory", "dir", refsDirpath, "error", err)
+		w.logger.Warn("Failed to watch remote refs directory", "dir", refsDirpath, "error", err)
 		return
 	}
 
@@ -433,7 +452,7 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 		case <-debounceTimer.C:
 			timerActive = false
 			repoLibraryDirpath := config.GetRepoDirpath(w.agencDirpath, w.gitRepoName)
-			w.logger.Info("Workspace remote ref changed, updating repo library", "repo", w.gitRepoName)
+			w.logger.Info("Remote ref changed, updating repo library", "repo", w.gitRepoName)
 			if _, err := os.Stat(repoLibraryDirpath); os.IsNotExist(err) {
 				w.logger.Error("Repo library clone not found; was it removed? Skipping update", "repo", w.gitRepoName, "expected", repoLibraryDirpath)
 			} else if err := mission.ForceUpdateRepo(repoLibraryDirpath); err != nil {
@@ -443,7 +462,7 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 			if !ok {
 				return
 			}
-			w.logger.Warn("fsnotify error watching workspace remote refs", "error", err)
+			w.logger.Warn("fsnotify error watching remote refs", "error", err)
 		}
 	}
 }

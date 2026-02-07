@@ -24,7 +24,6 @@ const (
 	ConfigFilename             = "config.yml"
 
 	AgentDirname            = "agent"
-	WorkspaceDirname        = "workspace"
 	PIDFilename             = "pid"
 	ClaudeStateFilename     = "claude-state"
 	GlobalSettingsFilename  = "settings.json"
@@ -159,12 +158,6 @@ func GetMissionTemplateCommitFilepath(agencDirpath string, missionID string) str
 // a mission.
 func GetMissionWrapperLogFilepath(agencDirpath string, missionID string) string {
 	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), WrapperLogFilename)
-}
-
-// GetMissionWorkspaceDirpath returns the path to the workspace/ subdirectory
-// within a mission's agent directory.
-func GetMissionWorkspaceDirpath(agencDirpath string, missionID string) string {
-	return filepath.Join(GetMissionAgentDirpath(agencDirpath, missionID), WorkspaceDirname)
 }
 
 // GetRepoDirpath returns the path to a specific repo directory.

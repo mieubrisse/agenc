@@ -11,31 +11,28 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
-// CreateMissionDir sets up the mission directory structure and rsyncs config
-// files from the agent template into the agent/ subdirectory. When
-// gitRepoSource is non-empty, the repository is copied into a subdirectory
-// of workspace/ named after the repo (e.g. workspace/some-repo/). gitRepoName
-// is the canonical name (e.g. "github.com/owner/repo") used to derive the
-// subdirectory name. Returns the mission root directory path (not the agent/
-// subdirectory).
+// CreateMissionDir sets up the mission directory structure. When gitRepoSource
+// is non-empty, the repository is copied directly as the agent/ directory
+// (agent/ IS the repo). When gitRepoSource is empty, an empty agent/ directory
+// is created. If agentTemplate is non-empty, the template is rsynced into
+// agent/ on top of whatever is already there. Returns the mission root
+// directory path (not the agent/ subdirectory).
 func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string, gitRepoName string, gitRepoSource string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
-	workspaceDirpath := config.GetMissionWorkspaceDirpath(agencDirpath, missionID)
 
-	// Always create mission, agent, and workspace directories
-	for _, dirpath := range []string{missionDirpath, agentDirpath, workspaceDirpath} {
-		if err := os.MkdirAll(dirpath, 0755); err != nil {
-			return "", stacktrace.Propagate(err, "failed to create directory '%s'", dirpath)
-		}
+	if err := os.MkdirAll(missionDirpath, 0755); err != nil {
+		return "", stacktrace.Propagate(err, "failed to create directory '%s'", missionDirpath)
 	}
 
 	if gitRepoSource != "" {
-		// Copy the repo into workspace/<repo-short-name>/
-		repoShortName := filepath.Base(gitRepoName)
-		repoDirpath := filepath.Join(workspaceDirpath, repoShortName)
-		if err := CopyRepo(gitRepoSource, repoDirpath); err != nil {
-			return "", stacktrace.Propagate(err, "failed to copy git repo into workspace")
+		// Copy the repo directly as agent/ (CopyRepo creates the destination)
+		if err := CopyRepo(gitRepoSource, agentDirpath); err != nil {
+			return "", stacktrace.Propagate(err, "failed to copy git repo into agent directory")
+		}
+	} else {
+		if err := os.MkdirAll(agentDirpath, 0755); err != nil {
+			return "", stacktrace.Propagate(err, "failed to create directory '%s'", agentDirpath)
 		}
 	}
 
@@ -62,9 +59,10 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 }
 
 // RsyncTemplate rsyncs a template directory into the agent directory,
-// excluding the workspace/ subdirectory, .git/ metadata, and
-// .claude/settings.local.json (mission-local overrides). Uses --delete
-// to remove files no longer in the template.
+// excluding .git/ metadata and .claude/settings.local.json (mission-local
+// overrides). Also excludes workspace/ for backward compatibility with
+// legacy mission layouts. Uses --delete to remove files no longer in the
+// template.
 func RsyncTemplate(templateDirpath string, agentDirpath string) error {
 	srcPath := templateDirpath + "/"
 	dstPath := agentDirpath + "/"
@@ -74,7 +72,7 @@ func RsyncTemplate(templateDirpath string, agentDirpath string) error {
 	cmd := exec.Command("rsync",
 		"-a",
 		"--delete",
-		"--exclude", config.WorkspaceDirname+"/",
+		"--exclude", "workspace/",
 		"--exclude", ".git/",
 		"--exclude", settingsLocalRelFilepath,
 		srcPath,

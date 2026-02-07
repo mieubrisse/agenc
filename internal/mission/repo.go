@@ -15,7 +15,7 @@ import (
 
 // ForceUpdateRepo fetches from origin and resets the local default branch to
 // match the remote. This ensures the repo library clone is up-to-date before
-// copying into a mission workspace.
+// copying into a mission's agent directory.
 func ForceUpdateRepo(repoDirpath string) error {
 	fetchCmd := exec.Command("git", "fetch", "origin", "--tags")
 	fetchCmd.Dir = repoDirpath
@@ -78,14 +78,14 @@ func ValidateGitRepo(repoDirpath string) error {
 }
 
 // CopyRepo copies an entire git repository from srcRepoDirpath to
-// dstWorkspaceDirpath using rsync. The destination receives a full
-// independent copy including the .git/ directory.
-func CopyRepo(srcRepoDirpath string, dstWorkspaceDirpath string) error {
+// dstRepoDirpath using rsync. The destination receives a full independent
+// copy including the .git/ directory.
+func CopyRepo(srcRepoDirpath string, dstRepoDirpath string) error {
 	srcPath := srcRepoDirpath + "/"
-	dstPath := dstWorkspaceDirpath + "/"
+	dstPath := dstRepoDirpath + "/"
 
-	if err := os.MkdirAll(dstWorkspaceDirpath, 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to create directory '%s'", dstWorkspaceDirpath)
+	if err := os.MkdirAll(dstRepoDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create directory '%s'", dstRepoDirpath)
 	}
 
 	cmd := exec.Command("rsync", "-a", srcPath, dstPath)
@@ -96,25 +96,25 @@ func CopyRepo(srcRepoDirpath string, dstWorkspaceDirpath string) error {
 	return nil
 }
 
-// CopyWorkspace copies an entire workspace directory from srcWorkspaceDirpath
-// to dstWorkspaceDirpath using rsync. If the source directory does not exist,
-// this is a no-op (empty workspace = nothing to copy).
-func CopyWorkspace(srcWorkspaceDirpath string, dstWorkspaceDirpath string) error {
-	if _, err := os.Stat(srcWorkspaceDirpath); os.IsNotExist(err) {
+// CopyAgentDir copies an entire agent directory from srcAgentDirpath to
+// dstAgentDirpath using rsync. If the source directory does not exist,
+// this is a no-op (empty agent directory = nothing to copy).
+func CopyAgentDir(srcAgentDirpath string, dstAgentDirpath string) error {
+	if _, err := os.Stat(srcAgentDirpath); os.IsNotExist(err) {
 		return nil
 	}
 
-	srcPath := srcWorkspaceDirpath + "/"
-	dstPath := dstWorkspaceDirpath + "/"
+	srcPath := srcAgentDirpath + "/"
+	dstPath := dstAgentDirpath + "/"
 
-	if err := os.MkdirAll(dstWorkspaceDirpath, 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to create directory '%s'", dstWorkspaceDirpath)
+	if err := os.MkdirAll(dstAgentDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create directory '%s'", dstAgentDirpath)
 	}
 
 	cmd := exec.Command("rsync", "-a", srcPath, dstPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to copy workspace: %s", strings.TrimSpace(string(output)))
+		return stacktrace.Propagate(err, "failed to copy agent directory: %s", strings.TrimSpace(string(output)))
 	}
 	return nil
 }
