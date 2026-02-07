@@ -179,7 +179,7 @@ const defaultPromptMaxLen = 53
 // It uses a cached value from the database when the cache is fresh (i.e. the
 // mission's heartbeat has not advanced past the last cache update). Otherwise
 // it performs the expensive file lookup, caches the result, and returns it.
-// Falls back to the mission's cached prompt if no session name is found.
+// Falls back to the mission's first user prompt if no session name is found.
 func resolveSessionName(claudeConfigDirpath string, db *database.DB, m *database.Mission) string {
 	if isSessionNameCacheFresh(m) {
 		return m.SessionName
@@ -190,7 +190,7 @@ func resolveSessionName(claudeConfigDirpath string, db *database.DB, m *database
 		_ = db.UpdateMissionSessionName(m.ID, sessionName)
 		return sessionName
 	}
-	return m.Prompt
+	return resolveMissionPrompt(db, agencDirpath, m)
 }
 
 // isSessionNameCacheFresh reports whether the cached session name for a
