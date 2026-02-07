@@ -81,12 +81,14 @@ Repo-Oriented Missions
 
 ### Core Change
 
-`agenc mission new` always takes a repo. There are no more "empty missions." Every mission is a session inside a repo clone.
+`agenc mission new` defaults to repo selection. Most missions are sessions inside a repo clone.
 
 ```
 agenc mission new github.com/owner/repo "Fix the authentication bug"
 agenc mission new github.com/owner/repo   # interactive, no preset prompt
 ```
+
+**Blank missions** are still supported as an escape hatch — selecting the "blank mission" option in the picker creates a mission with an empty `agent/` directory and no git repo. Blank missions have no repo commit in their state tuple (the `repo_commit` field is null). This is useful for quick Claude sessions that don't need a repo context (research, brainstorming, one-off questions).
 
 ### Per-Session Branches
 
@@ -186,7 +188,7 @@ The state tuple is stored in a new database table:
 CREATE TABLE turns (
     id TEXT PRIMARY KEY,             -- UUID
     mission_id TEXT NOT NULL,        -- FK to missions.id
-    repo_commit TEXT NOT NULL,       -- commit hash on session branch
+    repo_commit TEXT,                -- commit hash on session branch (nullable for blank missions)
     config_commit TEXT,              -- commit hash of Claude config repo (nullable if not configured)
     cli_invocation TEXT NOT NULL,    -- full claude command line
     session_id TEXT NOT NULL,        -- Claude Code session identifier
@@ -496,8 +498,8 @@ This is the highest-value first step: it removes significant complexity with no 
 
 **Dependencies:** Phase 1 (templates removed, so mission creation logic is simpler).
 
-1. Make repo argument required in `mission new`
-2. Implement per-session branch creation (`agenc/session/<short-id>`)
+1. Default `mission new` to repo selection (blank missions still available as escape hatch)
+2. Implement per-session branch creation (`agenc/session/<short-id>`) for repo-based missions
 3. Add auto-commit to Stop hook
 4. Add auto-push after commit
 5. Add behind-main detection and `mission ls` indicator
