@@ -21,9 +21,6 @@
             "Read(./secrets/**)",
             "Bash(rm -rf:*)",
             "Bash(sudo:*)"
-        ],
-        "ask": [
-            "Bash(git push:*)"
         ]
     }
 }
