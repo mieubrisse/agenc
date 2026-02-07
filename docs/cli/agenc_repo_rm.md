@@ -9,8 +9,6 @@ Remove one or more repositories from the repo library.
 Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
 syncedRepos list in config.yml if present.
 
-Refuses to remove agent template repos. Use 'agenc template rm' instead.
-
 When called without arguments, opens an interactive fzf picker.
 
 Accepts any of these formats:

@@ -22,8 +22,8 @@ const (
 	repoUpdateInterval = 60 * time.Second
 )
 
-// runRepoUpdateLoop periodically fetches and fast-forwards repos
-// for all agent templates listed in config.yml.
+// runRepoUpdateLoop periodically fetches and fast-forwards synced repos
+// and active mission repos.
 func (d *Daemon) runRepoUpdateLoop(ctx context.Context) {
 	d.runRepoUpdateCycle(ctx)
 
@@ -56,11 +56,8 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		return
 	}
 
-	// Collect all unique repos to sync: agent templates + synced repos + active mission repos
+	// Collect all unique repos to sync: synced repos + active mission repos
 	reposToSync := make(map[string]bool)
-	for repo := range cfg.AgentTemplates {
-		reposToSync[repo] = true
-	}
 	for _, repo := range cfg.SyncedRepos {
 		reposToSync[repo] = true
 	}

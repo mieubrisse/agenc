@@ -6,20 +6,12 @@ Create a new mission and launch claude
 
 Create a new mission and launch claude.
 
-Positional arguments select a repo or agent template. They can be:
+Positional arguments select a repo. They can be:
   - A git reference (URL, shorthand like owner/repo, or local path)
   - Search terms to match against your library ("my repo")
 
-Without --agent, both repos and agent templates are shown. Selecting an agent
-template creates a blank mission using that template. Selecting a repo clones
-it into the workspace and uses the default agent template.
-
-With --agent, only repos are shown. The flag value specifies the agent template
-using the same format as positional args (git reference or search terms).
-
 Use --clone <mission-uuid> to create a new mission with a full copy of an
-existing mission's agent directory. Override the agent template with --agent or a
-positional search term.
+existing mission's agent directory.
 
 ```
 agenc mission new [search-terms...] [flags]
@@ -28,7 +20,6 @@ agenc mission new [search-terms...] [flags]
 ### Options
 
 ```
-      --agent string     agent template (URL, shorthand, local path, or search terms)
       --clone string     mission UUID to clone agent directory from
       --headless         run in headless mode (no terminal, outputs to log)
   -h, --help             help for new

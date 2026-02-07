@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -59,13 +58,6 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cfg, err := readConfig()
-	if err != nil {
-		return err
-	}
-
-	nicknames := buildNicknameMap(cfg.AgentTemplates)
-
 	totalCount := len(missions)
 	displayMissions := missions
 	if !lsAllFlag && totalCount > defaultMissionLsLimit {
@@ -73,7 +65,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
-	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "AGENT", "SESSION", "REPO")
+	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
 		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
@@ -81,7 +73,6 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			formatLastActive(m.LastHeartbeat),
 			m.ShortID,
 			colorizeStatus(status),
-			displayAgentTemplate(m.AgentTemplate, nicknames),
 			truncatePrompt(sessionName, defaultPromptMaxLen),
 			displayGitRepo(m.GitRepo),
 		)
@@ -97,16 +88,6 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func displayAgentTemplate(repo string, nicknames map[string]string) string {
-	if repo == "" {
-		return "--"
-	}
-	if nick, ok := nicknames[repo]; ok {
-		return nick
-	}
-	return displayGitRepo(repo)
-}
-
 // displayGitRepo formats a canonical repo name for user-facing display.
 // GitHub repos have their "github.com/" prefix stripped; non-GitHub repos are
 // shown in full. The repo name (final path segment) is colored light blue.
@@ -120,36 +101,6 @@ func displayGitRepo(gitRepo string) string {
 		return display[:idx+1] + ansiLightBlue + display[idx+1:] + ansiReset
 	}
 	return ansiLightBlue + display + ansiReset
-}
-
-// buildNicknameMap creates a map from repo -> nickname for all templates
-// that have a nickname set.
-func buildNicknameMap(templates map[string]config.AgentTemplateProperties) map[string]string {
-	m := make(map[string]string)
-	for repo, props := range templates {
-		if props.Nickname != "" {
-			m[repo] = props.Nickname
-		}
-	}
-	return m
-}
-
-// sortedRepoKeys returns the map keys sorted alphabetically.
-func sortedRepoKeys(templates map[string]config.AgentTemplateProperties) []string {
-	repos := make([]string, 0, len(templates))
-	for repo := range templates {
-		repos = append(repos, repo)
-	}
-	sort.Strings(repos)
-	return repos
-}
-
-// formatTemplateFzfLine formats a template entry for matching in fzf.
-func formatTemplateFzfLine(repo string, props config.AgentTemplateProperties) string {
-	if props.Nickname != "" {
-		return fmt.Sprintf("%s  (%s)", props.Nickname, repo)
-	}
-	return repo
 }
 
 // formatLastActive returns a human-readable representation of the last

@@ -258,7 +258,7 @@ type CreateMissionParams struct {
 }
 
 // CreateMission inserts a new mission and returns it.
-func (db *DB) CreateMission(agentTemplate string, gitRepo string, params *CreateMissionParams) (*Mission, error) {
+func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Mission, error) {
 	id := uuid.New().String()
 	shortID := ShortID(id)
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -271,22 +271,21 @@ func (db *DB) CreateMission(agentTemplate string, gitRepo string, params *Create
 
 	_, err := db.conn.Exec(
 		"INSERT INTO missions (id, short_id, agent_template, git_repo, status, cron_id, cron_name, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
-		id, shortID, agentTemplate, gitRepo, cronID, cronName, now, now,
+		id, shortID, "", gitRepo, cronID, cronName, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
 	}
 
 	return &Mission{
-		ID:            id,
-		ShortID:       shortID,
-		AgentTemplate: agentTemplate,
-		GitRepo:       gitRepo,
-		Status:        "active",
-		CronID:        cronID,
-		CronName:      cronName,
-		CreatedAt:     time.Now().UTC(),
-		UpdatedAt:     time.Now().UTC(),
+		ID:        id,
+		ShortID:   shortID,
+		GitRepo:   gitRepo,
+		Status:    "active",
+		CronID:    cronID,
+		CronName:  cronName,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}, nil
 }
 

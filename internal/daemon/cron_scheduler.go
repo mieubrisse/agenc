@@ -174,10 +174,6 @@ func (s *CronScheduler) spawnCronMission(ctx context.Context, logger logger, cro
 		args[5] = fmt.Sprintf("%v", config.DefaultCronTimeout)
 	}
 
-	if cronCfg.Agent != "" {
-		args = append(args, "--agent", cronCfg.Agent)
-	}
-
 	// If git repo is specified, use it as the positional argument
 	if cronCfg.Git != "" {
 		args = append(args, cronCfg.Git)

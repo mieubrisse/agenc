@@ -20,7 +20,6 @@ type missionPickerEntry struct {
 	LastActive string // formatted timestamp
 	ShortID    string
 	Status     string // colorized status (RUNNING/STOPPED/ARCHIVED)
-	Agent      string // display-formatted (may contain ANSI)
 	Session    string // session name (truncated)
 	Repo       string // display-formatted (may contain ANSI)
 }
@@ -48,11 +47,6 @@ func stripAnsiCodes(s string) string {
 // buildMissionPickerEntries converts database missions to picker entries using
 // the same formatting infrastructure as mission ls.
 func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
-	cfg, err := readConfig()
-	if err != nil {
-		return nil, err
-	}
-	nicknames := buildNicknameMap(cfg.AgentTemplates)
 	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 
 	entries := make([]missionPickerEntry, 0, len(missions))
@@ -64,7 +58,6 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 			LastActive: formatLastActive(m.LastHeartbeat),
 			ShortID:    m.ShortID,
 			Status:     colorizeStatus(status),
-			Agent:      displayAgentTemplate(m.AgentTemplate, nicknames),
 			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
 			Repo:       displayGitRepo(m.GitRepo),
 		})
@@ -75,7 +68,7 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 // formatMissionMatchLine returns a plain-text representation of a mission
 // picker entry suitable for sequential substring matching.
 func formatMissionMatchLine(entry missionPickerEntry) string {
-	return entry.LastActive + " " + entry.ShortID + " " + stripAnsiCodes(entry.Agent) + " " + entry.Session + " " + stripAnsiCodes(entry.Repo)
+	return entry.LastActive + " " + entry.ShortID + " " + entry.Session + " " + stripAnsiCodes(entry.Repo)
 }
 
 // filterStoppedMissions returns only missions that are currently stopped.

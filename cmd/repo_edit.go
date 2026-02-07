@@ -10,37 +10,24 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
-var repoEditAgentFlag string
-
 var repoEditCmd = &cobra.Command{
 	Use:   editCmdStr + " [search-terms...]",
 	Short: "Edit a repo via a new mission with a repo copy",
-	Long: fmt.Sprintf(`Edit a repo via a new mission with a repo copy.
+	Long: `Edit a repo via a new mission with a repo copy.
 
 Positional arguments select a repo. They can be:
   - A git reference (URL, shorthand like owner/repo, or local path)
-  - Search terms to match against your repo library ("my repo")
-
-The --%s flag specifies the agent template using the same format as
-positional args (git reference or search terms). Without it, the default
-agent template for repos is used.`,
-		agentFlagName),
+  - Search terms to match against your repo library ("my repo")`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runRepoEdit,
 }
 
 func init() {
-	repoEditCmd.Flags().StringVar(&repoEditAgentFlag, agentFlagName, "", "agent template (URL, shorthand, local path, or search terms)")
 	repoCmd.AddCommand(repoEditCmd)
 }
 
 func runRepoEdit(cmd *cobra.Command, args []string) error {
 	ensureDaemonRunning(agencDirpath)
-
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
-	}
 
 	repos, err := findReposOnDisk(agencDirpath)
 	if err != nil {
@@ -58,7 +45,7 @@ func runRepoEdit(cmd *cobra.Command, args []string) error {
 				return "", false, nil
 			}
 			// For repo edit, use ResolveRepoInput which handles cloning from external sources
-			resolved, err := ResolveRepoInput(agencDirpath, input, false, "Select repo: ")
+			resolved, err := ResolveRepoInput(agencDirpath, input, "Select repo: ")
 			if err != nil {
 				return "", false, err
 			}
@@ -91,16 +78,5 @@ func runRepoEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	cloneDirpath := config.GetRepoDirpath(agencDirpath, repoName)
-	return launchRepoEditMission(cfg, repoName, cloneDirpath)
-}
-
-// launchRepoEditMission launches a mission to edit the given repo.
-// The agent template is resolved from the --agent flag or config defaults.
-func launchRepoEditMission(cfg *config.AgencConfig, repoName string, cloneDirpath string) error {
-	agentTemplate, err := resolveAgentTemplate(cfg, repoEditAgentFlag, repoName)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to resolve agent template")
-	}
-
-	return createAndLaunchMission(agencDirpath, agentTemplate, repoName, cloneDirpath, "")
+	return createAndLaunchMission(agencDirpath, repoName, cloneDirpath, "")
 }

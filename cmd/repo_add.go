@@ -55,7 +55,7 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	result, err := ResolveRepoInput(agencDirpath, input, false, "Select repo to add: ")
+	result, err := ResolveRepoInput(agencDirpath, input, "Select repo to add: ")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to resolve repo")
 	}

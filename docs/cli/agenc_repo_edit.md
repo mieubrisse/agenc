@@ -10,10 +10,6 @@ Positional arguments select a repo. They can be:
   - A git reference (URL, shorthand like owner/repo, or local path)
   - Search terms to match against your repo library ("my repo")
 
-The --agent flag specifies the agent template using the same format as
-positional args (git reference or search terms). Without it, the default
-agent template for repos is used.
-
 ```
 agenc repo edit [search-terms...] [flags]
 ```
@@ -21,8 +17,7 @@ agenc repo edit [search-terms...] [flags]
 ### Options
 
 ```
-      --agent string   agent template (URL, shorthand, local path, or search terms)
-  -h, --help           help for edit
+  -h, --help   help for edit
 ```
 
 ### SEE ALSO

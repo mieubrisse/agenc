@@ -73,10 +73,10 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		GetItems:    func() ([]missionPickerEntry, error) { return entries, nil },
 		ExtractText: formatMissionMatchLine,
 		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.LastActive, e.ShortID, e.Status, e.Agent, e.Session, e.Repo}
+			return []string{e.LastActive, e.ShortID, e.Status, e.Session, e.Repo}
 		},
 		FzfPrompt:   "Select mission to inspect: ",
-		FzfHeaders:  []string{"LAST ACTIVE", "ID", "STATUS", "AGENT", "SESSION", "REPO"},
+		FzfHeaders:  []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
 		MultiSelect: false,
 	})
 	if err != nil {
@@ -110,16 +110,9 @@ func inspectMission(db *database.DB, missionID string) error {
 		return nil
 	}
 
-	cfg, cfgErr := readConfig()
-	if cfgErr != nil {
-		return cfgErr
-	}
-	nicknames := buildNicknameMap(cfg.AgentTemplates)
-
 	fmt.Printf("ID:          %s\n", mission.ShortID)
 	fmt.Printf("Full ID:     %s\n", mission.ID)
 	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
-	fmt.Printf("Agent:       %s\n", displayAgentTemplate(mission.AgentTemplate, nicknames))
 	if mission.GitRepo != "" {
 		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
 	}

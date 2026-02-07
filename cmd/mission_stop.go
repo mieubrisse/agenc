@@ -80,10 +80,10 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 		GetItems:    func() ([]missionPickerEntry, error) { return entries, nil },
 		ExtractText: formatMissionMatchLine,
 		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo}
+			return []string{e.LastActive, e.ShortID, e.Session, e.Repo}
 		},
 		FzfPrompt:   "Select missions to stop (TAB to multi-select): ",
-		FzfHeaders:  []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
+		FzfHeaders:  []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
 		MultiSelect: true,
 	})
 	if err != nil {

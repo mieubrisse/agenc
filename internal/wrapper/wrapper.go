@@ -22,7 +22,6 @@ import (
 )
 
 const (
-	templatePollInterval       = 10 * time.Second
 	globalConfigDebouncePeriod = 500 * time.Millisecond
 	repoRefDebouncePeriod      = 5 * time.Second
 	heartbeatInterval          = 30 * time.Second
@@ -38,16 +37,14 @@ const (
 )
 
 // Wrapper manages a Claude child process for a single mission, watching for
-// template changes and gracefully restarting Claude when idle.
+// config changes and gracefully restarting Claude when idle.
 type Wrapper struct {
 	agencDirpath    string
 	missionID       string
-	agentTemplate   string
 	gitRepoName     string
 	initialPrompt   string
 	missionDirpath  string
 	agentDirpath    string
-	templateDirpath string
 	db              *database.DB
 
 	state     WrapperState
@@ -64,7 +61,6 @@ type Wrapper struct {
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
 	// goroutine leaks.
-	configChanged      chan string   // receives new commit hash when template changes
 	globalConfigChanged chan struct{} // notified when settings.json or CLAUDE.md change
 	claudeStateIdle    chan struct{} // notified when claude-state becomes "idle"
 	claudeExited       chan error    // receives the exit error from cmd.Wait()
@@ -73,19 +69,16 @@ type Wrapper struct {
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
 // parameter is optional; if non-empty, it will be passed to Claude when
 // starting a new conversation (not used for resumes).
-func NewWrapper(agencDirpath string, missionID string, agentTemplate string, gitRepoName string, initialPrompt string, db *database.DB) *Wrapper {
+func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initialPrompt string, db *database.DB) *Wrapper {
 	return &Wrapper{
 		agencDirpath:    agencDirpath,
 		missionID:       missionID,
-		agentTemplate:   agentTemplate,
 		gitRepoName:     gitRepoName,
 		initialPrompt:   initialPrompt,
 		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
-		templateDirpath: config.GetRepoDirpath(agencDirpath, agentTemplate),
 		db:              db,
 		state:              StateRunning,
-		configChanged:      make(chan string, 1),
 		globalConfigChanged: make(chan struct{}, 1),
 		claudeStateIdle:    make(chan struct{}, 1),
 		claudeExited:       make(chan error, 1),
@@ -139,9 +132,6 @@ func (w *Wrapper) Run(isResume bool) error {
 	// Start background watchers for config and state changes
 	go w.watchClaudeState(ctx)
 	go w.watchGlobalConfig(ctx)
-	if w.agentTemplate != "" {
-		go w.pollTemplateChanges(ctx)
-	}
 	if w.gitRepoName != "" {
 		go w.watchWorkspaceRemoteRefs(ctx)
 	}
@@ -203,35 +193,12 @@ func (w *Wrapper) Run(isResume bool) error {
 			// Natural exit -- wrapper exits
 			return nil
 
-		case newHash := <-w.configChanged:
-			// Config has changed -- rsync template and schedule restart.
-			// We always defer the restart to the next busy→idle transition
-			// rather than restarting immediately, because the user may be
-			// composing a prompt (e.g. in vim editing mode) even though
-			// claude-state says "idle". The Stop hook fires when Claude
-			// finishes responding, but the UserPromptSubmit hook doesn't
-			// fire until the user actually submits -- so the entire
-			// composition window looks "idle" to us.
-			w.logger.Info("Template changed, syncing", "newHash", newHash)
-			if err := mission.RsyncTemplate(w.templateDirpath, w.agentDirpath); err != nil {
-				w.logger.Warn("Failed to rsync template update", "error", err)
-				continue
-			}
-			commitFilepath := config.GetMissionTemplateCommitFilepath(w.agencDirpath, w.missionID)
-			_ = os.WriteFile(commitFilepath, []byte(newHash), 0644)
-
-			if w.state == StateRunning {
-				w.logger.Info("Deferring restart until next idle transition")
-				w.state = StateRestartPending
-			}
-
 		case <-w.globalConfigChanged:
 			if w.state != StateRunning {
 				continue // restart already in progress
 			}
-			// Same rationale as configChanged above: always defer to the
-			// next busy→idle transition to avoid killing Claude while the
-			// user is composing a prompt.
+			// Always defer to the next busy→idle transition to avoid
+			// killing Claude while the user is composing a prompt.
 			w.logger.Info("Global Claude config changed, deferring restart until next idle transition")
 			w.state = StateRestartPending
 
@@ -480,40 +447,6 @@ func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 		case <-ticker.C:
 			if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
 				w.logger.Warn("Failed to write heartbeat", "error", err)
-			}
-		}
-	}
-}
-
-// pollTemplateChanges polls the template repo every 10 seconds for changes
-// to the main branch commit hash. When a change is detected, it sends the
-// new hash on the configChanged channel.
-func (w *Wrapper) pollTemplateChanges(ctx context.Context) {
-	ticker := time.NewTicker(templatePollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			currentHash, err := mission.ReadTemplateCommitHash(w.templateDirpath)
-			if err != nil {
-				continue
-			}
-
-			commitFilepath := config.GetMissionTemplateCommitFilepath(w.agencDirpath, w.missionID)
-			storedData, err := os.ReadFile(commitFilepath)
-			if err != nil {
-				continue
-			}
-			storedHash := strings.TrimSpace(string(storedData))
-
-			if currentHash != storedHash {
-				select {
-				case w.configChanged <- currentHash:
-				default:
-				}
 			}
 		}
 	}

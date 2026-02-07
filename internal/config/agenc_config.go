@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/adhocore/gronx"
@@ -14,16 +13,6 @@ import (
 
 // canonicalRepoRegex matches the canonical repo format: github.com/owner/repo
 var canonicalRepoRegex = regexp.MustCompile(`^github\.com/[^/]+/[^/]+$`)
-
-// ValidDefaultForValues lists the recognized values for the defaultFor field.
-// This is the single source of truth; all validation and help text derive from it.
-var ValidDefaultForValues = []string{"emptyMission", "repo", "agentTemplate"}
-
-// AgentTemplateProperties holds optional properties for an agent template.
-type AgentTemplateProperties struct {
-	Nickname   string `yaml:"nickname,omitempty"`
-	DefaultFor string `yaml:"defaultFor,omitempty"`
-}
 
 // CronOverlapPolicy defines how the scheduler handles overlapping cron runs.
 type CronOverlapPolicy string
@@ -44,7 +33,6 @@ const DefaultCronTimeout = 1 * time.Hour
 // CronConfig represents the configuration for a single cron job.
 type CronConfig struct {
 	Schedule    string            `yaml:"schedule"`              // Cron expression (5 or 6 fields)
-	Agent       string            `yaml:"agent,omitempty"`       // Agent template (canonical repo name)
 	Prompt      string            `yaml:"prompt"`                // Initial prompt for the mission
 	Description string            `yaml:"description,omitempty"` // Human-readable description
 	Git         string            `yaml:"git,omitempty"`         // Git repo to clone into workspace
@@ -83,7 +71,6 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	AgentTemplates     map[string]AgentTemplateProperties `yaml:"agentTemplates"`
 	SyncedRepos        []string                           `yaml:"syncedRepos,omitempty"`
 	Crons              map[string]CronConfig              `yaml:"crons,omitempty"`
 	CronsMaxConcurrent int                                `yaml:"cronsMaxConcurrent,omitempty"`
@@ -103,9 +90,8 @@ func GetConfigFilepath(agencDirpath string) string {
 }
 
 // ReadAgencConfig reads and parses config.yml. Returns an empty config if the
-// file does not exist. Returns an error if any agentTemplates key is not in
-// canonical format (github.com/owner/repo), if a defaultFor value is
-// unrecognized, or if two templates share the same defaultFor value.
+// file does not exist. Returns an error if any syncedRepos entry is not in
+// canonical format (github.com/owner/repo).
 // The returned yaml.CommentMap captures any YAML comments for round-trip
 // preservation; callers that only read config may discard it with _.
 func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error) {
@@ -114,9 +100,7 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 	data, err := os.ReadFile(configFilepath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &AgencConfig{
-				AgentTemplates: make(map[string]AgentTemplateProperties),
-			}, nil, nil
+			return &AgencConfig{}, nil, nil
 		}
 		return nil, nil, stacktrace.Propagate(err, "failed to read config file '%s'", configFilepath)
 	}
@@ -127,19 +111,6 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		return nil, nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
 	}
 
-	if cfg.AgentTemplates == nil {
-		cfg.AgentTemplates = make(map[string]AgentTemplateProperties)
-	}
-
-	for repo := range cfg.AgentTemplates {
-		if !canonicalRepoRegex.MatchString(repo) {
-			return nil, nil, stacktrace.NewError(
-				"invalid agentTemplates key '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				repo, configFilepath,
-			)
-		}
-	}
-
 	for _, repo := range cfg.SyncedRepos {
 		if !canonicalRepoRegex.MatchString(repo) {
 			return nil, nil, stacktrace.NewError(
@@ -147,27 +118,6 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 				repo, configFilepath,
 			)
 		}
-	}
-
-	// Validate defaultFor values
-	seenDefaultFor := make(map[string]string) // defaultFor value -> repo that claimed it
-	for repo, props := range cfg.AgentTemplates {
-		if props.DefaultFor == "" {
-			continue
-		}
-		if !IsValidDefaultForValue(props.DefaultFor) {
-			return nil, nil, stacktrace.NewError(
-				"invalid defaultFor value '%s' on template '%s' in %s; must be one of: %s",
-				props.DefaultFor, repo, configFilepath, FormatDefaultForValues(),
-			)
-		}
-		if otherRepo, exists := seenDefaultFor[props.DefaultFor]; exists {
-			return nil, nil, stacktrace.NewError(
-				"duplicate defaultFor value '%s' in %s: claimed by both '%s' and '%s'",
-				props.DefaultFor, configFilepath, otherRepo, repo,
-			)
-		}
-		seenDefaultFor[props.DefaultFor] = repo
 	}
 
 	// Validate cron configurations
@@ -183,12 +133,6 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		}
 		if cronCfg.Prompt == "" {
 			return nil, nil, stacktrace.NewError("cron '%s' in %s must have a prompt", name, configFilepath)
-		}
-		if cronCfg.Agent != "" && !canonicalRepoRegex.MatchString(cronCfg.Agent) {
-			return nil, nil, stacktrace.NewError(
-				"invalid agent '%s' for cron '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				cronCfg.Agent, name, configFilepath,
-			)
 		}
 		if cronCfg.Git != "" && !canonicalRepoRegex.MatchString(cronCfg.Git) {
 			return nil, nil, stacktrace.NewError(
@@ -233,21 +177,8 @@ func WriteAgencConfig(agencDirpath string, cfg *AgencConfig, cm yaml.CommentMap)
 	return nil
 }
 
-// FindDefaultTemplate returns the repo key of the template whose DefaultFor
-// matches the given context value (e.g. "emptyMission", "repo", "agentTemplate").
-// Returns an empty string if no template claims that context.
-func FindDefaultTemplate(templates map[string]AgentTemplateProperties, context string) string {
-	for repo, props := range templates {
-		if props.DefaultFor == context {
-			return repo
-		}
-	}
-	return ""
-}
-
-// EnsureConfigFile creates config.yml with a default configuration if it does
-// not already exist. The default configuration includes the AgenC Engineer
-// template pre-installed as the default for editing agent templates.
+// EnsureConfigFile creates config.yml with a minimal empty configuration if it
+// does not already exist.
 func EnsureConfigFile(agencDirpath string) error {
 	configFilepath := GetConfigFilepath(agencDirpath)
 
@@ -255,31 +186,11 @@ func EnsureConfigFile(agencDirpath string) error {
 		return nil
 	}
 
-	seed := `agentTemplates:
-  github.com/mieubrisse/agenc-agent-template_agenc-engineer:
-    nickname: "🤖 AgenC Engineer"
-    defaultFor: agentTemplate
-`
-	if err := os.WriteFile(configFilepath, []byte(seed), 0644); err != nil {
+	if err := os.WriteFile(configFilepath, []byte("{}\n"), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to create config file '%s'", configFilepath)
 	}
 
 	return nil
-}
-
-// IsValidDefaultForValue returns true if the given value is a recognized defaultFor value.
-func IsValidDefaultForValue(value string) bool {
-	for _, v := range ValidDefaultForValues {
-		if v == value {
-			return true
-		}
-	}
-	return false
-}
-
-// FormatDefaultForValues returns a human-readable comma-separated list of valid defaultFor values.
-func FormatDefaultForValues() string {
-	return strings.Join(ValidDefaultForValues, ", ")
 }
 
 // cronNameRegex matches valid cron names: alphanumeric, hyphens, underscores.

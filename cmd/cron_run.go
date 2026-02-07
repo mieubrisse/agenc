@@ -70,10 +70,6 @@ func runCronRun(cmd *cobra.Command, args []string) error {
 		"--timeout", timeout,
 	}
 
-	if cronCfg.Agent != "" {
-		cmdArgs = append(cmdArgs, "--agent", cronCfg.Agent)
-	}
-
 	if cronCfg.Git != "" {
 		cmdArgs = append(cmdArgs, cronCfg.Git)
 	}

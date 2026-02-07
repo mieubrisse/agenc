@@ -98,23 +98,6 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("prompt cannot be empty")
 	}
 
-	// Optional: agent template
-	fmt.Print("\nAgent template (press Enter to skip): ")
-	agentInput, err := reader.ReadString('\n')
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
-	}
-	agent := strings.TrimSpace(agentInput)
-
-	if agent != "" {
-		// Resolve agent template
-		result, err := ResolveRepoInput(agencDirpath, agent, true, "Select agent template: ")
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to resolve agent template")
-		}
-		agent = result.RepoName
-	}
-
 	// Optional: git repo
 	fmt.Print("\nGit repo to clone (press Enter to skip): ")
 	gitInput, err := reader.ReadString('\n')
@@ -125,7 +108,7 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 
 	if gitRepo != "" {
 		// Resolve git repo
-		result, err := ResolveRepoInput(agencDirpath, gitRepo, false, "Select repo: ")
+		result, err := ResolveRepoInput(agencDirpath, gitRepo, "Select repo: ")
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve git repo")
 		}
@@ -150,7 +133,6 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 	cronCfg := config.CronConfig{
 		Schedule: schedule,
 		Prompt:   prompt,
-		Agent:    agent,
 		Git:      gitRepo,
 		Timeout:  timeout,
 	}

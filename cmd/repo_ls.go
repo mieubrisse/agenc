@@ -40,11 +40,10 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	tbl := tableprinter.NewTable("REPO", "SYNCED", "TEMPLATE")
+	tbl := tableprinter.NewTable("REPO", "SYNCED")
 	for _, repoName := range repoNames {
 		synced := formatCheckmark(slices.Contains(cfg.SyncedRepos, repoName))
-		template := formatCheckmark(isAgentTemplate(cfg, repoName))
-		tbl.AddRow(displayGitRepo(repoName), synced, template)
+		tbl.AddRow(displayGitRepo(repoName), synced)
 	}
 	tbl.Print()
 

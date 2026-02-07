@@ -10,8 +10,8 @@ var cronCmd = &cobra.Command{
 	Long: `Manage scheduled cron jobs that run headless Claude missions on a schedule.
 
 Cron jobs are defined in config.yml under the 'crons' key. Each cron job
-specifies a schedule (cron expression), prompt, optional agent template,
-and optional git repository to clone into the workspace.
+specifies a schedule (cron expression), prompt, and optional git repository
+to clone into the workspace.
 
 Example config.yml:
 
@@ -19,7 +19,7 @@ Example config.yml:
     daily-report:
       schedule: "0 9 * * *"
       prompt: "Generate the daily status report"
-      agent: github.com/owner/my-agent
+      git: github.com/owner/my-repo
       timeout: 30m
       enabled: true
 

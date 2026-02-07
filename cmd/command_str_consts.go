@@ -10,14 +10,13 @@ const (
 	agencCmdStr = "agenc"
 
 	// Top-level commands
-	configCmdStr   = "config"
-	missionCmdStr  = "mission"
-	repoCmdStr     = "repo"
-	templateCmdStr = "template"
-	daemonCmdStr   = "daemon"
-	versionCmdStr  = "version"
-	loginCmdStr    = "login"
-	cronCmdStr     = "cron"
+	configCmdStr  = "config"
+	missionCmdStr = "mission"
+	repoCmdStr    = "repo"
+	daemonCmdStr  = "daemon"
+	versionCmdStr = "version"
+	loginCmdStr   = "login"
+	cronCmdStr    = "cron"
 
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
@@ -33,7 +32,7 @@ const (
 	inspectCmdStr = "inspect"
 	nukeCmdStr    = "nuke"
 
-	// Template subcommands
+	// Repo subcommands
 	editCmdStr = "edit"
 
 	// Daemon subcommands
@@ -54,12 +53,7 @@ const (
 // flag names are defined in exactly one place.
 
 const (
-	// Flags used across multiple commands
-	nicknameFlagName = "nickname"
-	defaultFlagName  = "default"
-
 	// mission new flags
-	agentFlagName  = "agent"
 	cloneFlagName  = "clone"
 	promptFlagName = "prompt"
 
@@ -71,9 +65,6 @@ const (
 
 	// mission nuke flags
 	forceFlagName = "force"
-
-	// template new flags
-	publicFlagName = "public"
 
 	// repo add flags
 	syncFlagName = "sync"

@@ -28,7 +28,6 @@ const (
 	ClaudeStateFilename     = "claude-state"
 	GlobalSettingsFilename  = "settings.json"
 	GlobalClaudeMdFilename  = "CLAUDE.md"
-	TemplateCommitFilename  = "template-commit"
 	WrapperLogFilename      = "wrapper.log"
 	SettingsLocalFilename   = "settings.local.json"
 	HistoryFilename         = "history.jsonl"
@@ -146,12 +145,6 @@ func GetMissionPIDFilepath(agencDirpath string, missionID string) string {
 // a mission.
 func GetMissionClaudeStateFilepath(agencDirpath string, missionID string) string {
 	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), ClaudeStateFilename)
-}
-
-// GetMissionTemplateCommitFilepath returns the path to the template-commit file
-// for a mission.
-func GetMissionTemplateCommitFilepath(agencDirpath string, missionID string) string {
-	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), TemplateCommitFilename)
 }
 
 // GetMissionWrapperLogFilepath returns the path to the wrapper log file for

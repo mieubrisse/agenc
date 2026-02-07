@@ -23,8 +23,6 @@ var repoRmCmd = &cobra.Command{
 Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
 syncedRepos list in config.yml if present.
 
-Refuses to remove agent template repos. Use '%s %s %s' instead.
-
 When called without arguments, opens an interactive fzf picker.
 
 Accepts any of these formats:
@@ -34,7 +32,6 @@ Accepts any of these formats:
 
 You can also use search terms to find a repo in your library:
   %s %s %s my repo                - searches for repos matching "my repo"`,
-		agencCmdStr, templateCmdStr, rmCmdStr,
 		agencCmdStr, repoCmdStr, rmCmdStr),
 	RunE: runRepoRm,
 }
@@ -49,21 +46,13 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
-	allRepos, err := findReposOnDisk(agencDirpath)
+	repos, err := findReposOnDisk(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to scan repos directory")
 	}
 
-	// Filter out agent templates — they must be removed via 'template rm' first
-	var removableRepos []string
-	for _, repoName := range allRepos {
-		if _, isTemplate := cfg.AgentTemplates[repoName]; !isTemplate {
-			removableRepos = append(removableRepos, repoName)
-		}
-	}
-
-	if len(removableRepos) == 0 {
-		fmt.Println("No removable repositories in the repo library (all are agent templates).")
+	if len(repos) == 0 {
+		fmt.Println("No repositories in the repo library.")
 		return nil
 	}
 
@@ -76,11 +65,11 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return "", false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)
 			}
-			// Note: canonical resolution returns the parsed name even if not in removableRepos
+			// Note: canonical resolution returns the parsed name even if not in repos list
 			// The actual validation happens in removeSingleRepo
 			return name, true, nil
 		},
-		GetItems:    func() ([]string, error) { return removableRepos, nil },
+		GetItems:    func() ([]string, error) { return repos, nil },
 		ExtractText: func(repo string) string { return repo },
 		FormatRow:   func(repo string) []string { return []string{displayGitRepo(repo)} },
 		FzfPrompt:   "Select repos to remove (TAB to multi-select): ",
@@ -109,13 +98,6 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 }
 
 func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {
-	if _, isTemplate := cfg.AgentTemplates[repoName]; isTemplate {
-		return stacktrace.NewError(
-			"'%s' is an agent template; use '%s %s %s %s' instead",
-			repoName, agencCmdStr, templateCmdStr, rmCmdStr, repoName,
-		)
-	}
-
 	// Check whether the repo exists (on disk or in config) before removing
 	repoDirpath := config.GetRepoDirpath(agencDirpath, repoName)
 	_, statErr := os.Stat(repoDirpath)

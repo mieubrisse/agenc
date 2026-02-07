@@ -72,10 +72,10 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		GetItems:    func() ([]missionPickerEntry, error) { return entries, nil },
 		ExtractText: formatMissionMatchLine,
 		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.LastActive, e.ShortID, e.Agent, e.Session, e.Repo}
+			return []string{e.LastActive, e.ShortID, e.Session, e.Repo}
 		},
 		FzfPrompt:   "Select mission to resume: ",
-		FzfHeaders:  []string{"LAST ACTIVE", "ID", "AGENT", "SESSION", "REPO"},
+		FzfHeaders:  []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
 		MultiSelect: false,
 	})
 	if err != nil {
@@ -135,6 +135,6 @@ func resumeMission(db *database.DB, missionID string) error {
 	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 	fmt.Println("Launching claude --continue...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.AgentTemplate, missionRecord.GitRepo, "", db)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, "", db)
 	return w.Run(true)
 }

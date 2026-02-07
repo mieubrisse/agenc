@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -14,10 +13,9 @@ import (
 // CreateMissionDir sets up the mission directory structure. When gitRepoSource
 // is non-empty, the repository is copied directly as the agent/ directory
 // (agent/ IS the repo). When gitRepoSource is empty, an empty agent/ directory
-// is created. If agentTemplate is non-empty, the template is rsynced into
-// agent/ on top of whatever is already there. Returns the mission root
-// directory path (not the agent/ subdirectory).
-func CreateMissionDir(agencDirpath string, missionID string, agentTemplate string, gitRepoName string, gitRepoSource string) (string, error) {
+// is created. Returns the mission root directory path (not the agent/
+// subdirectory).
+func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string, gitRepoSource string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
@@ -36,70 +34,7 @@ func CreateMissionDir(agencDirpath string, missionID string, agentTemplate strin
 		}
 	}
 
-	if agentTemplate == "" {
-		return missionDirpath, nil
-	}
-
-	templateDirpath := config.GetRepoDirpath(agencDirpath, agentTemplate)
-
-	if err := RsyncTemplate(templateDirpath, agentDirpath); err != nil {
-		return "", stacktrace.Propagate(err, "failed to rsync template into agent directory")
-	}
-
-	commitHash, err := ReadTemplateCommitHash(templateDirpath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to read template commit hash")
-	}
-	commitFilepath := config.GetMissionTemplateCommitFilepath(agencDirpath, missionID)
-	if err := os.WriteFile(commitFilepath, []byte(commitHash), 0644); err != nil {
-		return "", stacktrace.Propagate(err, "failed to write template-commit file")
-	}
-
 	return missionDirpath, nil
-}
-
-// RsyncTemplate rsyncs a template directory into the agent directory,
-// excluding .git/ metadata and .claude/settings.local.json (mission-local
-// overrides). Also excludes workspace/ for backward compatibility with
-// legacy mission layouts. Uses --delete to remove files no longer in the
-// template.
-func RsyncTemplate(templateDirpath string, agentDirpath string) error {
-	srcPath := templateDirpath + "/"
-	dstPath := agentDirpath + "/"
-
-	settingsLocalRelFilepath := config.UserClaudeDirname + "/" + config.SettingsLocalFilename
-
-	cmd := exec.Command("rsync",
-		"-a",
-		"--delete",
-		"--exclude", "workspace/",
-		"--exclude", ".git/",
-		"--exclude", settingsLocalRelFilepath,
-		srcPath,
-		dstPath,
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return stacktrace.Propagate(err, "rsync failed: %s", string(output))
-	}
-	return nil
-}
-
-// ReadTemplateCommitHash reads the current commit hash of the default branch
-// in the given template repository directory.
-func ReadTemplateCommitHash(templateDirpath string) (string, error) {
-	defaultBranch, err := GetDefaultBranch(templateDirpath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to determine default branch in '%s'", templateDirpath)
-	}
-
-	cmd := exec.Command("git", "rev-parse", defaultBranch)
-	cmd.Dir = templateDirpath
-	output, err := cmd.Output()
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to read git commit hash in '%s'", templateDirpath)
-	}
-	return strings.TrimSpace(string(output)), nil
 }
 
 // buildClaudeCmd constructs an exec.Cmd for running Claude in the given agent

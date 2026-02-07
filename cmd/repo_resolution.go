@@ -30,9 +30,8 @@ type RepoResolutionResult struct {
 // For search terms, the repo library is searched using glob-style matching (*TERM1*TERM2*).
 // If exactly one repo matches, it's auto-selected. Otherwise, the user is dropped into fzf.
 //
-// If templateOnly is true, only agent templates are considered for search-term matching.
 // If fzfPrompt is empty, a default prompt is used.
-func ResolveRepoInput(agencDirpath string, input string, templateOnly bool, fzfPrompt string) (*RepoResolutionResult, error) {
+func ResolveRepoInput(agencDirpath string, input string, fzfPrompt string) (*RepoResolutionResult, error) {
 	// Normalize the input
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -45,19 +44,19 @@ func ResolveRepoInput(agencDirpath string, input string, templateOnly bool, fzfP
 	}
 
 	// Treat input as search terms
-	return resolveAsSearchTerms(agencDirpath, input, templateOnly, fzfPrompt)
+	return resolveAsSearchTerms(agencDirpath, input, fzfPrompt)
 }
 
 // ResolveRepoInputs handles multiple inputs, where each input can be a repo
 // reference or search terms. Returns the resolved repos in order.
-func ResolveRepoInputs(agencDirpath string, inputs []string, templateOnly bool, fzfPrompt string) ([]*RepoResolutionResult, error) {
+func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) ([]*RepoResolutionResult, error) {
 	if len(inputs) == 0 {
 		return nil, nil
 	}
 
 	// If there's only one input, resolve it directly
 	if len(inputs) == 1 {
-		result, err := ResolveRepoInput(agencDirpath, inputs[0], templateOnly, fzfPrompt)
+		result, err := ResolveRepoInput(agencDirpath, inputs[0], fzfPrompt)
 		if err != nil {
 			return nil, err
 		}
@@ -68,7 +67,7 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, templateOnly bool, 
 	// If the first input doesn't look like a repo reference, join all as search terms
 	if !looksLikeRepoReference(inputs[0]) {
 		joined := strings.Join(inputs, " ")
-		result, err := ResolveRepoInput(agencDirpath, joined, templateOnly, fzfPrompt)
+		result, err := ResolveRepoInput(agencDirpath, joined, fzfPrompt)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +77,7 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, templateOnly bool, 
 	// Each input is a separate repo reference
 	var results []*RepoResolutionResult
 	for _, input := range inputs {
-		result, err := ResolveRepoInput(agencDirpath, input, templateOnly, fzfPrompt)
+		result, err := ResolveRepoInput(agencDirpath, input, fzfPrompt)
 		if err != nil {
 			return nil, err
 		}
@@ -312,33 +311,16 @@ func promptForProtocolPreference() (bool, error) {
 
 // resolveAsSearchTerms handles input that looks like search terms.
 // Searches the repo library using glob-style matching (*TERM1*TERM2*).
-func resolveAsSearchTerms(agencDirpath string, input string, templateOnly bool, fzfPrompt string) (*RepoResolutionResult, error) {
+func resolveAsSearchTerms(agencDirpath string, input string, fzfPrompt string) (*RepoResolutionResult, error) {
 	terms := strings.Fields(input)
 
 	// Get the list of repos to search
-	cfg, err := readConfig()
+	repos, err := findReposOnDisk(agencDirpath)
 	if err != nil {
-		return nil, err
-	}
-
-	var repos []string
-	if templateOnly {
-		// Only agent templates
-		for repoName := range cfg.AgentTemplates {
-			repos = append(repos, repoName)
-		}
-	} else {
-		// All repos on disk
-		repos, err = findReposOnDisk(agencDirpath)
-		if err != nil {
-			return nil, stacktrace.Propagate(err, "failed to scan repos directory")
-		}
+		return nil, stacktrace.Propagate(err, "failed to scan repos directory")
 	}
 
 	if len(repos) == 0 {
-		if templateOnly {
-			return nil, stacktrace.NewError("no agent templates found")
-		}
 		return nil, stacktrace.NewError("no repos in library")
 	}
 
