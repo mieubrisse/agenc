@@ -49,6 +49,24 @@ grep -r "pattern" ~/.agenc/
 
 The native tools run without permission prompts and provide better-structured output. Reserve Bash for operations that genuinely require shell execution.
 
+Never Hardcode the Agenc Directory
+-----------------------------------
+
+The agenc base directory (`~/.agenc` by default) is configurable via the `$AGENC_DIRPATH` environment variable. **Never hardcode `~/.agenc` or any absolute path derived from it** in Go source code, tests, or scripts.
+
+All path construction must flow from `config.GetAgencDirpath()`, which reads `$AGENC_DIRPATH` and falls back to `~/.agenc`. From that root, use the existing path helpers in `internal/config/config.go` (e.g., `GetConfigDirpath`, `GetRepoDirpath`, `GetMissionDirpath`).
+
+```go
+// Correct — derive from the dynamic root
+agencDirpath, _ := config.GetAgencDirpath()
+configDirpath := config.GetConfigDirpath(agencDirpath)
+
+// Wrong — hardcoded path breaks when $AGENC_DIRPATH is set
+configDirpath := filepath.Join(os.Getenv("HOME"), ".agenc", "config")
+```
+
+In tests, create a temporary directory and pass it as `agencDirpath` — never reference `~/.agenc` directly.
+
 Database Functions
 ------------------
 
