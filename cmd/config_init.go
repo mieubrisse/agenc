@@ -210,9 +210,27 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 
 // setupClaudeConfig prompts the user to register a Claude config source repo.
 func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.CommentMap) error {
-	fmt.Println("\nNo Claude config source registered.")
-	fmt.Print("Claude config repo (e.g., owner/repo or github.com/owner/repo; press Enter to skip): ")
+	fmt.Println()
+	fmt.Println("AgenC can sync your Claude Code configuration (CLAUDE.md, settings.json)")
+	fmt.Println("from a git repo. This keeps your Claude config versioned and consistent")
+	fmt.Println("across machines.")
+	fmt.Println()
+	fmt.Println("Point AgenC at the repo, and optionally a subdirectory within it that")
+	fmt.Println("contains your Claude config files.")
+	fmt.Println()
+	fmt.Print("Do you have a repo with your Claude configuration? [y/N] ")
 
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read input")
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+
+	if answer != "y" && answer != "yes" {
+		return nil
+	}
+
+	fmt.Print("\nRepo (e.g., owner/repo or github.com/owner/repo): ")
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read input")
@@ -220,8 +238,7 @@ func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.Co
 	repoInput := strings.TrimSpace(input)
 
 	if repoInput == "" {
-		fmt.Println("Skipping Claude config setup.")
-		return nil
+		return stacktrace.NewError("repo cannot be empty")
 	}
 
 	// Resolve the repo input (handles cloning, fzf selection, all formats)
@@ -230,7 +247,7 @@ func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.Co
 		return stacktrace.Propagate(err, "failed to resolve repo")
 	}
 
-	fmt.Print("Subdirectory within repo (press Enter to skip): ")
+	fmt.Print("Subdirectory within repo (press Enter for repo root): ")
 	subdirInput, err := reader.ReadString('\n')
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read input")
