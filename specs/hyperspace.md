@@ -440,6 +440,40 @@ Friction annotations can be queried to find patterns:
 The personal orchestrator agent periodically reviews friction annotations and suggests corrective actions: "You've had 3 friction events this week related to file targeting. Consider adding project structure documentation to your CLAUDE.md."
 
 
+Complementary Tools
+-------------------
+
+Several existing tools in the Claude ecosystem complement or overlap with Hyperspace's goals. Awareness of these tools should inform design decisions — both to avoid reinventing what already exists and to identify integration opportunities.
+
+### claude-reflect
+
+[claude-reflect](https://github.com/anthropics/claude-reflect) extracts learnings from Claude Code sessions. It analyzes conversation history to identify what went well, what went wrong, and what patterns emerged — then distills those into actionable CLAUDE.md improvements or developer insights.
+
+This directly complements the Friction Capture System. Where friction capture records *that* something went wrong (with full state context), claude-reflect can analyze *why* it went wrong and *what to change*. A natural integration: feed friction-annotated sessions into claude-reflect for automated root-cause analysis and CLAUDE.md improvement suggestions.
+
+### Crystal and Plural (Diff Across Worktrees)
+
+Both [Crystal](https://github.com/nichochar/crystal) and [Plural](https://github.com/pluralai/plural) support comparing diffs across worktrees — effectively diffing the outputs of forked conversations. This is directly relevant to the Fork Conversation hotkey (`prefix + F`).
+
+When a developer forks a session to explore two alternative approaches, they need to compare the results. Crystal and Plural already solve this problem: they can show a structured diff of what changed across two worktrees (i.e., two session branches). Rather than building custom diff tooling for forked sessions, Hyperspace should consider integrating with or learning from these tools.
+
+Use cases:
+- After forking a session and letting both branches run, compare the code changes side-by-side
+- A/B test two different prompts from the same starting state and compare the resulting diffs
+- Review which fork produced cleaner, more correct changes before deciding which to merge
+
+### Conversation Cloning into Repos
+
+With Claude Code's conversation cloning capability, an existing conversation can be ported into a new context — including into editing a specific repository. This opens a workflow that complements repo-oriented missions: a developer could start an exploratory conversation (discussing architecture, debugging a concept, or prototyping an approach) and then clone that conversation into a mission that targets a real repo, carrying the full context forward.
+
+This means missions don't always need to start cold. A developer can:
+1. Have a freeform conversation about an approach
+2. Clone that conversation into a repo-targeted mission
+3. The agent begins implementation with full context of the prior discussion
+
+Hyperspace should account for this pattern — it may affect how mission creation works (allowing missions to be initialized from a cloned conversation rather than only from a fresh prompt).
+
+
 Migration Path
 --------------
 
