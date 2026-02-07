@@ -39,17 +39,48 @@ func init() {
 }
 
 func runConfigInit(cmd *cobra.Command, args []string) error {
+	return runOnboarding(true)
+}
+
+// runOnboarding walks through incomplete configuration steps, prompting the
+// user interactively for each. It is called automatically from PersistentPreRunE
+// (with alwaysPrintSummary=false) and explicitly from 'config init'
+// (with alwaysPrintSummary=true).
+//
+// When alwaysPrintSummary is false the summary is only printed if at least one
+// step was incomplete (i.e. the user was prompted). When true the summary is
+// always printed — even if nothing needed configuring.
+//
+// Returns nil immediately if stdin is not a TTY.
+func runOnboarding(alwaysPrintSummary bool) error {
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
-		return stacktrace.NewError("config init requires an interactive terminal")
+		return nil
+	}
+
+	configDirpath := config.GetConfigDirpath(agencDirpath)
+	configIsGitRepo := isGitRepo(configDirpath)
+
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read config")
+	}
+
+	needsConfigRepo := !configIsGitRepo
+	needsClaudeConfig := cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == ""
+
+	// Everything already configured
+	if !needsConfigRepo && !needsClaudeConfig {
+		if alwaysPrintSummary {
+			fmt.Println()
+			printConfigSummary(configIsGitRepo, cfg)
+		}
+		return nil
 	}
 
 	reader := bufio.NewReader(os.Stdin)
 
-	// Step 1: Ensure config directory is backed by a git repo
-	configDirpath := config.GetConfigDirpath(agencDirpath)
-	configIsGitRepo := isGitRepo(configDirpath)
-
-	if !configIsGitRepo {
+	// Step 1: Config repo
+	if needsConfigRepo {
 		changed, err := setupConfigRepo(reader, configDirpath)
 		if err != nil {
 			return stacktrace.Propagate(err, "config repo setup failed")
@@ -59,19 +90,26 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Step 2: Ensure claudeConfig is registered
+	// Re-read config — the cloned repo may have brought in a config.yml with
+	// claudeConfig already set.
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
 
+	// Step 2: Claude config
 	if cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == "" {
 		if err := setupClaudeConfig(reader, cfg, cm); err != nil {
 			return stacktrace.Propagate(err, "Claude config setup failed")
 		}
+
+		// Re-read for accurate summary
+		cfg, _, err = config.ReadAgencConfig(agencDirpath)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read config")
+		}
 	}
 
-	// Print summary
 	fmt.Println()
 	printConfigSummary(configIsGitRepo, cfg)
 
@@ -221,8 +259,8 @@ func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.Co
 	cfg.ClaudeConfig.Repo = result.RepoName
 	cfg.ClaudeConfig.Subdirectory = subdirectory
 
-	if err := writeConfigWithComments(cfg, cm); err != nil {
-		return err
+	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
+		return stacktrace.Propagate(err, "failed to write config")
 	}
 
 	fmt.Printf("Registered Claude config: %s", result.RepoName)
@@ -232,11 +270,6 @@ func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.Co
 	fmt.Println()
 
 	return nil
-}
-
-// writeConfigWithComments writes the config back, preserving YAML comments.
-func writeConfigWithComments(cfg *config.AgencConfig, cm yaml.CommentMap) error {
-	return config.WriteAgencConfig(agencDirpath, cfg, cm)
 }
 
 // printConfigSummary prints the current configuration state.

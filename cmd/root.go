@@ -28,6 +28,14 @@ var rootCmd = &cobra.Command{
 			return stacktrace.Propagate(err, "failed to ensure directory structure")
 		}
 
+		// Auto-onboarding: prompt for incomplete config steps.
+		// Skip for 'config init' (handles it in RunE) and daemon commands.
+		if cmd != configInitCmd && !isUnderDaemonCmd(cmd) {
+			if err := runOnboarding(false); err != nil {
+				return stacktrace.Propagate(err, "configuration check failed")
+			}
+		}
+
 		if !isUnderDaemonCmd(cmd) {
 			checkDaemonVersion(agencDirpath)
 		}
