@@ -35,6 +35,27 @@ var agencHookEntries = map[string]json.RawMessage{
 	"UserPromptSubmit": json.RawMessage(`[{"hooks":[{"type":"command","command":"echo busy > \"$CLAUDE_PROJECT_DIR/../claude-state\""}]}]`),
 }
 
+// agencDenyPermissionTools lists the Claude Code tools to deny access for
+// on the repo library directory. Used by buildRepoLibraryDenyEntries.
+var agencDenyPermissionTools = []string{
+	"Read",
+	"Glob",
+	"Grep",
+	"Write",
+	"Edit",
+}
+
+// buildRepoLibraryDenyEntries constructs permission deny entries that prevent
+// agents from accessing the shared repo library under the given agenc dir.
+func buildRepoLibraryDenyEntries(agencDirpath string) []string {
+	reposPattern := agencDirpath + "/repos/**"
+	entries := make([]string, 0, len(agencDenyPermissionTools))
+	for _, tool := range agencDenyPermissionTools {
+		entries = append(entries, tool+"("+reposPattern+")")
+	}
+	return entries
+}
+
 // runConfigSyncLoop periodically syncs the user's Claude config into the agenc
 // Claude config directory.
 func (d *Daemon) runConfigSyncLoop(ctx context.Context) {
@@ -72,7 +93,7 @@ func (d *Daemon) runConfigSyncCycle() {
 		d.logger.Printf("Config sync: CLAUDE.md sync failed: %v", err)
 	}
 
-	if err := syncSettings(userClaudeDirpath, agencModsDirpath, agencClaudeDirpath); err != nil {
+	if err := syncSettings(userClaudeDirpath, agencModsDirpath, agencClaudeDirpath, d.agencDirpath); err != nil {
 		d.logger.Printf("Config sync: settings sync failed: %v", err)
 	}
 
@@ -174,7 +195,7 @@ func pathExists(path string) (bool, error) {
 // syncSettings reads the user's settings.json and the agenc-modifications
 // settings.json, deep-merges them, appends agenc hooks, and writes the
 // result to the agenc Claude config dir. Only writes if the contents differ.
-func syncSettings(userClaudeDirpath string, agencModsDirpath string, agencClaudeDirpath string) error {
+func syncSettings(userClaudeDirpath string, agencModsDirpath string, agencClaudeDirpath string, agencDirpath string) error {
 	userSettingsFilepath := filepath.Join(userClaudeDirpath, settingsFilename)
 	modsSettingsFilepath := filepath.Join(agencModsDirpath, settingsFilename)
 	agencSettingsFilepath := filepath.Join(agencClaudeDirpath, settingsFilename)
@@ -222,10 +243,10 @@ func syncSettings(userClaudeDirpath string, agencModsDirpath string, agencClaude
 		return stacktrace.Propagate(err, "failed to marshal merged settings base")
 	}
 
-	// Append agenc operational hooks on top of the merged base
-	mergedData, err := mergeSettingsWithAgencHooks(mergedBase)
+	// Append agenc operational overrides (hooks + deny permissions)
+	mergedData, err := mergeSettingsWithAgencOverrides(mergedBase, agencDirpath)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to merge settings with agenc hooks")
+		return stacktrace.Propagate(err, "failed to merge settings with agenc overrides")
 	}
 
 	// Only write if contents differ (preserves mtime when nothing changed)
@@ -364,16 +385,17 @@ func deepMergeJSON(base map[string]json.RawMessage, overlay map[string]json.RawM
 	return result, nil
 }
 
-// mergeSettingsWithAgencHooks takes raw JSON bytes of the user's settings.json,
-// merges in the agenc-specific hooks, and returns the merged JSON bytes.
-// The user's existing hooks are preserved; agenc hooks are appended to the end
-// of each relevant hook array.
-func mergeSettingsWithAgencHooks(userSettingsData []byte) ([]byte, error) {
+// mergeSettingsWithAgencOverrides takes raw JSON bytes of the user's settings.json,
+// merges in agenc-specific hooks and deny permissions, and returns the merged JSON bytes.
+// The user's existing hooks and permissions are preserved; agenc entries are appended.
+func mergeSettingsWithAgencOverrides(userSettingsData []byte, agencDirpath string) ([]byte, error) {
 	// Parse into map[string]json.RawMessage to preserve all fields as raw JSON
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal(userSettingsData, &settings); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse user settings JSON")
 	}
+
+	// --- Hooks ---
 
 	// Extract existing hooks map, or create empty one
 	var hooksMap map[string]json.RawMessage
@@ -412,6 +434,41 @@ func mergeSettingsWithAgencHooks(userSettingsData []byte) ([]byte, error) {
 		return nil, stacktrace.Propagate(err, "failed to marshal merged hooks map")
 	}
 	settings["hooks"] = json.RawMessage(hooksData)
+
+	// --- Permissions (deny) ---
+
+	// Extract existing permissions map, or create empty one
+	var permsMap map[string]json.RawMessage
+	if existingPerms, ok := settings["permissions"]; ok {
+		if err := json.Unmarshal(existingPerms, &permsMap); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse existing permissions object")
+		}
+	} else {
+		permsMap = make(map[string]json.RawMessage)
+	}
+
+	// Append agenc deny entries to the existing deny array
+	var existingDeny []string
+	if denyData, ok := permsMap["deny"]; ok {
+		if err := json.Unmarshal(denyData, &existingDeny); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse existing deny array")
+		}
+	}
+
+	mergedDeny := append(existingDeny, buildRepoLibraryDenyEntries(agencDirpath)...)
+	denyBytes, err := json.Marshal(mergedDeny)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal merged deny array")
+	}
+	permsMap["deny"] = json.RawMessage(denyBytes)
+
+	permsBytes, err := json.Marshal(permsMap)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal merged permissions")
+	}
+	settings["permissions"] = json.RawMessage(permsBytes)
+
+	// --- Serialize ---
 
 	result, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {

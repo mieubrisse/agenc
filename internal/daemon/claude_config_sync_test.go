@@ -7,19 +7,22 @@ import (
 	"testing"
 )
 
-func TestMergeSettingsWithAgencHooks(t *testing.T) {
+const testAgencDirpath = "/tmp/test-agenc"
+
+func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 	tests := []struct {
 		name        string
 		inputJSON   string
 		checkMerged func(t *testing.T, settings map[string]json.RawMessage)
 	}{
 		{
-			name:      "empty settings gets agenc hooks",
+			name:      "empty settings gets agenc hooks and deny permissions",
 			inputJSON: `{}`,
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
 				hooks := parseHooksMap(t, settings)
 				assertHookArrayLen(t, hooks, "Stop", 1)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
+				assertDenyContainsAgencEntries(t, settings)
 			},
 		},
 		{
@@ -35,6 +38,7 @@ func TestMergeSettingsWithAgencHooks(t *testing.T) {
 				hooks := parseHooksMap(t, settings)
 				assertHookArrayLen(t, hooks, "Stop", 2)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
+				assertDenyContainsAgencEntries(t, settings)
 			},
 		},
 		{
@@ -54,21 +58,41 @@ func TestMergeSettingsWithAgencHooks(t *testing.T) {
 			},
 		},
 		{
-			name: "non-hooks fields are preserved",
+			name: "non-hooks fields are preserved and deny permissions added",
 			inputJSON: `{
 				"permissions": {"allow": ["Read(./**)"]},
 				"enabledPlugins": {"foo": true}
 			}`,
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
-				if _, ok := settings["permissions"]; !ok {
-					t.Error("permissions field was lost")
-				}
 				if _, ok := settings["enabledPlugins"]; !ok {
 					t.Error("enabledPlugins field was lost")
 				}
 				hooks := parseHooksMap(t, settings)
 				assertHookArrayLen(t, hooks, "Stop", 1)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
+				// permissions.allow should be preserved
+				perms := parsePermsMap(t, settings)
+				if _, ok := perms["allow"]; !ok {
+					t.Error("permissions.allow was lost")
+				}
+				assertDenyContainsAgencEntries(t, settings)
+			},
+		},
+		{
+			name: "existing deny entries are preserved and agenc entries appended",
+			inputJSON: `{
+				"permissions": {"deny": ["Read(./.env)", "Bash(rm -rf:*)"]}
+			}`,
+			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
+				deny := parseDenyArray(t, settings)
+				// Should contain the 2 original + 5 agenc entries
+				expectedLen := 2 + len(agencDenyPermissionTools)
+				if len(deny) != expectedLen {
+					t.Errorf("expected deny array length %d, got %d", expectedLen, len(deny))
+				}
+				assertDenyContains(t, deny, "Read(./.env)")
+				assertDenyContains(t, deny, "Bash(rm -rf:*)")
+				assertDenyContainsAgencEntries(t, settings)
 			},
 		},
 		{
@@ -86,9 +110,6 @@ func TestMergeSettingsWithAgencHooks(t *testing.T) {
 				"enabledPlugins": {"gopls-lsp": true}
 			}`,
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
-				if _, ok := settings["permissions"]; !ok {
-					t.Error("permissions field was lost")
-				}
 				if _, ok := settings["enabledPlugins"]; !ok {
 					t.Error("enabledPlugins field was lost")
 				}
@@ -96,15 +117,16 @@ func TestMergeSettingsWithAgencHooks(t *testing.T) {
 				assertHookArrayLen(t, hooks, "Stop", 2)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
 				assertHookArrayLen(t, hooks, "PreToolUse", 1)
+				assertDenyContainsAgencEntries(t, settings)
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := mergeSettingsWithAgencHooks([]byte(tt.inputJSON))
+			result, err := mergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath)
 			if err != nil {
-				t.Fatalf("mergeSettingsWithAgencHooks returned error: %v", err)
+				t.Fatalf("mergeSettingsWithAgencOverrides returned error: %v", err)
 			}
 
 			var settings map[string]json.RawMessage
@@ -117,8 +139,8 @@ func TestMergeSettingsWithAgencHooks(t *testing.T) {
 	}
 }
 
-func TestMergeSettingsWithAgencHooks_InvalidJSON(t *testing.T) {
-	_, err := mergeSettingsWithAgencHooks([]byte(`not json`))
+func TestMergeSettingsWithAgencOverrides_InvalidJSON(t *testing.T) {
+	_, err := mergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath)
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}
@@ -263,7 +285,7 @@ func TestSyncSettings(t *testing.T) {
 	}
 
 	// First sync should write the file
-	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
+	if err := syncSettings(userDir, modsDir, agencDir, testAgencDirpath); err != nil {
 		t.Fatalf("syncSettings failed: %v", err)
 	}
 
@@ -289,7 +311,7 @@ func TestSyncSettings(t *testing.T) {
 
 	// Second sync with same input should not rewrite (mtime preserved)
 	info1, _ := os.Stat(filepath.Join(agencDir, settingsFilename))
-	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
+	if err := syncSettings(userDir, modsDir, agencDir, testAgencDirpath); err != nil {
 		t.Fatalf("syncSettings (second) failed: %v", err)
 	}
 	info2, _ := os.Stat(filepath.Join(agencDir, settingsFilename))
@@ -304,7 +326,7 @@ func TestSyncSettings_NoUserFile(t *testing.T) {
 	agencDir := t.TempDir()
 
 	// No settings.json in userDir or modsDir — should produce agenc-only hooks
-	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
+	if err := syncSettings(userDir, modsDir, agencDir, testAgencDirpath); err != nil {
 		t.Fatalf("syncSettings failed: %v", err)
 	}
 
@@ -340,7 +362,7 @@ func TestSyncSettings_WithModifications(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := syncSettings(userDir, modsDir, agencDir); err != nil {
+	if err := syncSettings(userDir, modsDir, agencDir, testAgencDirpath); err != nil {
 		t.Fatalf("syncSettings failed: %v", err)
 	}
 
@@ -695,5 +717,50 @@ func assertJSONKey(t *testing.T, m map[string]json.RawMessage, key string, expec
 	}
 	if string(raw) != expectedRaw {
 		t.Errorf("key '%s': expected %s, got %s", key, expectedRaw, string(raw))
+	}
+}
+
+func parsePermsMap(t *testing.T, settings map[string]json.RawMessage) map[string]json.RawMessage {
+	t.Helper()
+	permsRaw, ok := settings["permissions"]
+	if !ok {
+		t.Fatal("merged settings missing 'permissions' key")
+	}
+	var perms map[string]json.RawMessage
+	if err := json.Unmarshal(permsRaw, &perms); err != nil {
+		t.Fatalf("failed to parse permissions map: %v", err)
+	}
+	return perms
+}
+
+func parseDenyArray(t *testing.T, settings map[string]json.RawMessage) []string {
+	t.Helper()
+	perms := parsePermsMap(t, settings)
+	denyRaw, ok := perms["deny"]
+	if !ok {
+		t.Fatal("permissions missing 'deny' key")
+	}
+	var deny []string
+	if err := json.Unmarshal(denyRaw, &deny); err != nil {
+		t.Fatalf("failed to parse deny array: %v", err)
+	}
+	return deny
+}
+
+func assertDenyContains(t *testing.T, deny []string, entry string) {
+	t.Helper()
+	for _, d := range deny {
+		if d == entry {
+			return
+		}
+	}
+	t.Errorf("deny array does not contain expected entry %q", entry)
+}
+
+func assertDenyContainsAgencEntries(t *testing.T, settings map[string]json.RawMessage) {
+	t.Helper()
+	deny := parseDenyArray(t, settings)
+	for _, expected := range buildRepoLibraryDenyEntries(testAgencDirpath) {
+		assertDenyContains(t, deny, expected)
 	}
 }
