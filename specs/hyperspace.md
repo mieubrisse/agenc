@@ -464,6 +464,14 @@ Use cases:
 - A/B test two different prompts from the same starting state and compare the resulting diffs
 - Review which fork produced cleaner, more correct changes before deciding which to merge
 
+Crystal also has interesting **session management** capabilities worth paying attention to. As Hyperspace develops its tmux control plane and mission lifecycle management, Crystal's approach to managing and navigating between sessions may offer useful patterns or integration points.
+
+### Forky
+
+[Forky](https://github.com/anthropics/forky) has an interesting technical approach: it treats conversation history as a Git file rather than as a flat list. This models the branching, forking nature of conversations more naturally — a conversation is a tree of exchanges, not a linear sequence.
+
+This is relevant to Hyperspace's Fork Conversation feature. When forking a session, the underlying conversation history does branch — the two forks share a common prefix but diverge from the fork point. Representing this as Git-style history (with commits, branches, and merge points) rather than as separate linear lists could enable richer operations: diffing conversation branches, merging insights from two forks back together, or navigating the conversation tree visually.
+
 ### Conversation Cloning into Repos
 
 With Claude Code's conversation cloning capability, an existing conversation can be ported into a new context — including into editing a specific repository. This opens a workflow that complements repo-oriented missions: a developer could start an exploratory conversation (discussing architecture, debugging a concept, or prototyping an approach) and then clone that conversation into a mission that targets a real repo, carrying the full context forward.
