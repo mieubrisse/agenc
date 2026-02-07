@@ -14,7 +14,7 @@ User Workflow
 
 1. User runs `agenc tmux attach` from any terminal
 2. AgenC creates the tmux session `agenc` if it doesn't exist, then attaches
-3. The session starts with a "lobby" window (shell prompt in `$AGENC_DIRPATH`)
+3. The session starts by running `agenc mission new` — the user lands in the repo picker immediately
 4. User presses a hotkey (e.g., `prefix + N`) — a popup overlay appears running `agenc mission new`
 5. User selects a repo — the popup closes, a new tmux window opens with Claude running in it
 6. When the user's side mission ends (Claude exits), the window closes and tmux switches back to the window the user was on before
@@ -62,16 +62,11 @@ The window name uses the mission's `short_id` as a prefix so it's always unique 
 | `AGENC_MISSION_UUID` | Full mission UUID for this window |
 | `AGENC_PARENT_WINDOW` | tmux window ID of the window that spawned this mission (for return-on-exit) |
 
-### The Lobby Window
+### The Initial Window
 
-When the session is first created, it starts with a single **lobby window** — a shell in `$AGENC_DIRPATH`. This window:
+When the session is first created, it runs `agenc mission new` — the user lands directly in the repo picker. There is no idle "lobby" window. Once a repo is selected, the initial window becomes the first mission window.
 
-- Serves as the landing page when attaching
-- Is the "home" window that side missions return to if spawned from the lobby
-- Runs the user's default shell
-- Has window name `lobby`
-
-The lobby is optional — if the user's workflow is always "hotkey → create mission", they can ignore it. But it provides a stable anchor point.
+If the user cancels the picker, the window closes and the session is destroyed (no empty windows lingering).
 
 
 Commands
@@ -88,7 +83,7 @@ agenc tmux attach
 Behavior:
 1. Check if tmux session `agenc` exists (`tmux has-session -t agenc`)
 2. If not, create it:
-   a. `tmux new-session -d -s agenc -n lobby`
+   a. `tmux new-session -d -s agenc "agenc mission new"`
    b. Set session environment: `tmux set-environment -t agenc AGENC_TMUX 1`
    c. Inject hotkey bindings (see Hotkeys section)
 3. Attach: `tmux attach-session -t agenc`
@@ -134,12 +129,14 @@ Instead of calling `wrapper.Run()` directly (which blocks), the command:
 3. Creates a new tmux window running the wrapper:
 
 ```bash
-tmux new-window -t agenc \
+tmux new-window -a -t <parent-window-id> \
     -n "<short-id> <repo-display>" \
     -e "AGENC_MISSION_UUID=<uuid>" \
     -e "AGENC_PARENT_WINDOW=<parent-window-id>" \
     "agenc mission _run-wrapper <uuid>"
 ```
+
+The `-a` flag inserts the new window immediately after the parent window, so side missions appear adjacent to the mission that spawned them.
 
 4. The new window becomes active (tmux switches to it automatically)
 5. The command exits (returning control to the popup or shell)
@@ -163,17 +160,21 @@ This is hidden from `--help` — it's an implementation detail for tmux integrat
 Return-to-Parent on Mission Exit
 ---------------------------------
 
-When a mission ends (Claude exits and the wrapper returns), the `_run-wrapper` command checks for `AGENC_PARENT_WINDOW` in its environment:
+Return-to-parent only applies to **interactive** missions. Headless missions have no tmux window and no return behavior.
+
+When an interactive mission's wrapper exits, it checks for `AGENC_PARENT_WINDOW` in its environment:
 
 1. If set, switch tmux to that window: `tmux select-window -t <parent-window-id>`
 2. The current window closes naturally because the command exited (tmux auto-removes windows whose command exits)
+
+This logic lives in the wrapper (not the Claude process), because the wrapper outlives individual Claude restarts — Claude may be restarted multiple times during a mission's lifecycle due to config hot-reload.
 
 This creates the "side mission" UX: press hotkey → new window opens → do work → Claude exits → you're back where you started.
 
 **Edge cases:**
 - Parent window no longer exists (user closed it): Do nothing. tmux will select the next window automatically.
 - Multiple side missions deep (A → B → C): Each tracks its own parent. When C ends, returns to B. When B ends, returns to A. Stack-like behavior emerges naturally.
-- User manually switches windows before mission ends: Return still happens. This might be surprising — see Open Questions.
+- User manually switches to window C before mission B ends: Return still goes to A (the spawner). This matches the "side mission" mental model — the spawner is the conceptual parent, regardless of where the user navigated in the meantime.
 
 
 Hotkeys
@@ -312,19 +313,19 @@ Implementation Plan
 13. Handle edge cases (parent window gone, multiple side missions, etc.)
 
 
-Open Questions
---------------
+Decisions
+---------
 
-1. **Return-to-parent when user manually switches away**: If the user is on window A, spawns side mission B, then manually switches to window C — when B ends, should it return to A (the spawner) or C (the current window)? Returning to A (the spawner) matches the "side mission" mental model. Returning to C (current) respects the user's explicit navigation. The spec currently proposes returning to A.
+1. **Return-to-parent when user manually switches away**: Return to the spawner (A), not the current window (C). Matches the "side mission" mental model. Only applies to interactive missions — headless missions have no return behavior.
 
-2. **Lobby window behavior**: Should the lobby window run a specific command (like `agenc status` dashboard) or just be a plain shell? A plain shell is simpler and lets the user do whatever they want. A dashboard is more opinionated but could be useful.
+2. **Initial window behavior**: Run `agenc mission new` immediately — the user lands in the repo picker. No idle lobby window.
 
-3. **Multiple agenc tmux sessions**: Should AgenC support multiple named tmux sessions (e.g., `agenc-work`, `agenc-personal`)? Or is one `agenc` session sufficient? Starting with one is simpler. Multiple sessions add configuration surface area.
+3. **Multiple tmux sessions**: One session only (`agenc`). No support for multiple named sessions.
 
-4. **Existing mission windows on attach**: When attaching to an existing session, should AgenC check for running missions that don't have windows and create windows for them? This handles the case where missions were started outside tmux and the user later attaches.
+4. **Existing missions on attach**: No adoption. Only missions started via tmux get windows. Missions started outside tmux stay outside.
 
-5. **Popup size and positioning**: The popup dimensions (`-w 80% -h 60%`) are hardcoded. Should these be configurable? Or are sensible defaults sufficient?
+5. **Popup size**: Hardcoded defaults (`-w 80% -h 60%`). Not configurable.
 
-6. **Keybinding conflicts**: The proposed bindings (`prefix + N`, `prefix + J`) might conflict with user's existing tmux bindings. Should AgenC use a secondary prefix (e.g., `prefix + a` then `N`)? Or are direct bindings acceptable since they're scoped to the `agenc` session?
+6. **Keybinding strategy**: Deferred (tracked in agenc-95q). Build the commands first, decide on bindings after hands-on usage. Key consideration: tmux bindings are server-global (not per-session), so direct prefix+key bindings would affect all tmux sessions. A key table (`prefix + a` then action key) isolates cleanly but adds a keystroke.
 
-7. **Window ordering**: Should mission windows be ordered by creation time (default tmux behavior) or by some other criterion (repo name, activity)?
+7. **Window ordering**: Side missions are inserted immediately after their parent window using `tmux new-window -a`. Other windows use default creation order.
