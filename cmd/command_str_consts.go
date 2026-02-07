@@ -75,10 +75,6 @@ const (
 	// daemon status flags
 	jsonFlagName = "json"
 
-	// config init flags
-	repoFlagName         = "repo"
-	subdirectoryFlagName = "subdirectory"
-
 	// cron flags
 	headlessFlagName = "headless"
 	timeoutFlagName  = "timeout"

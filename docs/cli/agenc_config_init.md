@@ -1,21 +1,19 @@
 ## agenc config init
 
-Register a Claude config source repo
+Initialize agenc configuration (interactive)
 
 ### Synopsis
 
-Register a git repo containing your Claude configuration.
+Initialize agenc configuration through an interactive wizard.
 
-Non-interactive usage:
-  agenc config init --repo github.com/owner/dotfiles --subdirectory claude/
+This command walks through all configuration steps that haven't been completed yet:
 
-Interactive usage (prompts for repo and subdirectory):
-  agenc config init
+1. Config repo — if your config directory isn't backed by a git repo, prompts
+   you to clone an existing agenc-config repo.
+2. Claude config — if no Claude config source is registered, prompts you to
+   register a repo containing your Claude configuration files.
 
-The repo reference accepts the same formats as 'agenc repo add':
-  owner/repo, github.com/owner/repo, https://..., git@..., or search terms.
-
-If a subdirectory is specified, it must exist in the cloned repo.
+The command is idempotent: steps that are already configured are skipped.
 
 
 ```
@@ -25,9 +23,7 @@ agenc config init [flags]
 ### Options
 
 ```
-  -h, --help                  help for init
-      --repo string           repo reference (any format accepted by 'agenc repo add')
-      --subdirectory string   subdirectory within the repo containing Claude config
+  -h, --help   help for init
 ```
 
 ### SEE ALSO
