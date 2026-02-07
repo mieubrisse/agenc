@@ -60,8 +60,8 @@ The repo must already exist and contain the expected config files in the specifi
 
 **NOT tracked** (runtime/machine state, never copied):
 
-- `.claude.json` — auth account identity (symlinked separately; see Authentication)
-- `.credentials.json` — auth tokens on Linux
+- `.claude.json` — auth account identity (symlinked from user's Claude install; see Authentication)
+- `.credentials.json` — auth tokens (hardlinked from AgenC central copy; see Authentication)
 - `history.jsonl`, `stats-cache.json`, `projects/` — machine-generated runtime
 
 Per-Mission Config Directory
@@ -75,7 +75,8 @@ Per-Mission Config Directory
 │   └── .claude/                    # project-level Claude config (from repo)
 │       └── settings.json
 ├── claude-config/                  # per-mission CLAUDE_CONFIG_DIR (NEW)
-│   ├── .claude.json                # → symlink to ~/.agenc/claude/.claude.json
+│   ├── .claude.json                # → symlink to ~/.claude/.claude.json
+│   ├── .credentials.json           # → hardlink to ~/.agenc/claude/.credentials.json
 │   ├── CLAUDE.md                   # from config source + agenc modifications
 │   ├── settings.json               # from config source + agenc modifications + hooks
 │   ├── skills/                     # from config source
@@ -122,7 +123,8 @@ With worktrees, the structure becomes:
 ├── config-source/                                   # worktree from main clone
 │   └── claude/                                      # subdir with user's config
 ├── claude-config/                                   # rendered CLAUDE_CONFIG_DIR
-│   ├── .claude.json → ~/.agenc/claude/.claude.json
+│   ├── .claude.json → ~/.claude/.claude.json
+│   ├── .credentials.json ← ~/.agenc/claude/.credentials.json  # hardlink
 │   ├── CLAUDE.md                                    # rendered: source + agenc mods
 │   ├── settings.json                                # rendered: source + agenc mods + hooks
 │   ├── skills/ → ../config-source/claude/skills/    # symlink to worktree (optional)
@@ -148,8 +150,10 @@ When `mission new` is called:
       - Append AgenC's CLAUDE.md content to the user's CLAUDE.md
       - Deep-merge AgenC's settings.json into the user's settings.json
       - Append AgenC operational hooks (Stop/UserPromptSubmit for state tracking)
-   d. Symlink `.claude.json` → `~/.agenc/claude/.claude.json`
-   e. Record config source HEAD commit hash to `config-commit` file
+   d. Symlink `.claude.json` → `~/.claude/.claude.json` (fallback: `~/.claude.json`)
+   e. Ensure central credentials exist at `~/.agenc/claude/.credentials.json` (see Authentication)
+   f. Hardlink `.credentials.json` from `~/.agenc/claude/.credentials.json`
+   g. Record config source HEAD commit hash to `config-commit` file
 5. Launch wrapper with `CLAUDE_CONFIG_DIR=~/.agenc/missions/<uuid>/claude-config/`
 
 Config Update Flow
@@ -175,18 +179,43 @@ This command:
 Authentication
 --------------
 
-### macOS
+No `agenc login` command is needed. AgenC relies on the user having already logged in via `claude login` (which stores credentials in the OS and creates `.claude.json`).
 
-- OAuth tokens live in macOS Keychain (service: `"Claude Code-credentials"`) — system-wide, independent of config dir
-- `.claude.json` contains `oauthAccount` block (account UUID, email, org info) — needed for Claude to identify the user without re-login
-- Each mission's `claude-config/.claude.json` symlinks to `~/.agenc/claude/.claude.json`
-- `agenc login` creates this file by running `claude login` with `CLAUDE_CONFIG_DIR=~/.agenc/claude/`
-- Single-level symlinks work correctly with Claude Code's atomic write mechanism
+### `.claude.json` (account identity)
 
-### Linux
+- Contains the `oauthAccount` block (account UUID, email, org info) — needed for Claude to identify the logged-in user
+- Each mission's `claude-config/.claude.json` is a **symlink** to the user's existing file
+- Lookup order: `~/.claude/.claude.json` (primary), `~/.claude.json` (fallback)
+- If neither exists, mission creation fails with a message telling the user to run `claude login` first
 
-- `.credentials.json` holds actual OAuth tokens (no Keychain equivalent)
-- Also symlinked from each mission's config dir to `~/.agenc/claude/.credentials.json`
+### `.credentials.json` (auth tokens)
+
+Claude Code reads auth tokens from `$CLAUDE_CONFIG_DIR/.credentials.json`. On macOS, the canonical source is the Keychain; on Linux, the file is the only source. AgenC manages a **central copy** and **hardlinks** it into each mission's config dir.
+
+**Central copy location:** `~/.agenc/claude/.credentials.json` (mode `0600`)
+
+**macOS — dumping from Keychain:**
+
+```bash
+security find-generic-password -a "$USER" -w -s "Claude Code-credentials" \
+  > ~/.agenc/claude/.credentials.json
+chmod 600 ~/.agenc/claude/.credentials.json
+```
+
+AgenC runs this dump once when it first needs the credentials (e.g., during mission creation). If the central copy already exists and is non-empty, the dump is skipped. If the Keychain entry doesn't exist, mission creation fails with a message telling the user to run `claude login` first.
+
+**Linux — copying from default location:**
+
+```bash
+cp ~/.claude/.credentials.json ~/.agenc/claude/.credentials.json
+chmod 600 ~/.agenc/claude/.credentials.json
+```
+
+**Per-mission linkage:**
+
+Each mission's `claude-config/.credentials.json` is a **hardlink** to the central copy. Hardlinks are used (not symlinks) so that the file appears as a regular file at the expected path. Since all hardlinks share the same inode, updating the central copy (e.g., after token refresh) is visible to all missions immediately.
+
+**Token refresh:** If credentials expire or are rotated (user re-runs `claude login`), AgenC re-dumps from Keychain (macOS) or re-copies (Linux) to the central location. All missions see the update via the hardlink. This can be triggered manually via `agenc auth refresh` or automatically by the daemon when it detects a stale token.
 
 ### Open Question: Concurrent `.claude.json` Writes
 
@@ -236,13 +265,14 @@ Changes to Existing Systems
 
 - Keep the config source repo synced (git fetch/pull in `~/.agenc/repos/`)
 - Remove the global merge loop (`syncSymlinks`, `syncClaudeMd`, `syncSettings`) — no longer needed for missions
-- Retain minimal functionality for non-mission Claude usage (`agenc login`)
+- Add credential freshness check: periodically verify `~/.agenc/claude/.credentials.json` is valid; re-dump from Keychain (macOS) or re-copy (Linux) if stale
 
 ### CLI commands
 
 - `agenc config set claude-config-repo <repo>` — register config source
 - `agenc config set claude-config-subdir <subdir>` — set subdir within repo
 - `agenc mission update-config [mission-id] [--all]` — update pinned config
+- `agenc auth refresh` — re-dump credentials from Keychain (macOS) or re-copy from `~/.claude/` (Linux) to central location; all missions pick up the update via hardlinks
 
 ### Database
 
@@ -272,7 +302,7 @@ Each bead is independently shippable. Parent: `agenc-3l2`.
 
 1. **Add config source registration to schema** — Add `ClaudeConfigRepo` and `ClaudeConfigSubdir` to `AgencConfig`. Add `agenc config set/get` support for these fields. Validate that registered repo exists in repo library (or offer to add it). No blocking dependencies.
 
-2. **Build per-mission config dir** — Implement `BuildMissionConfigDir()`: copy from config source subdir, apply AgenC modifications (CLAUDE.md merge, settings.json deep-merge + hooks), symlink `.claude.json`. Update `CreateMissionDir()` to call it. Add `GetMissionClaudeConfigDirpath()`. Blocked by: #1.
+2. **Build per-mission config dir** — Implement `BuildMissionConfigDir()`: copy from config source subdir, apply AgenC modifications (CLAUDE.md merge, settings.json deep-merge + hooks), symlink `.claude.json` from `~/.claude/.claude.json` (fallback `~/.claude.json`), ensure central `.credentials.json` exists (dump from Keychain on macOS / copy on Linux), hardlink `.credentials.json` into mission config dir. Update `CreateMissionDir()` to call it. Add `GetMissionClaudeConfigDirpath()`. Blocked by: #1.
 
 3. **Switch wrapper to per-mission CLAUDE_CONFIG_DIR** — Change `buildClaudeCmd()` to use `GetMissionClaudeConfigDirpath()`. Add legacy fallback for missions without `claude-config/`. Remove `watchGlobalConfig()` from wrapper. Blocked by: #2.
 
