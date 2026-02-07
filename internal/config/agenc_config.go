@@ -69,9 +69,16 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 	return c.Overlap
 }
 
+// ClaudeConfig represents the user's registered Claude configuration source repo.
+type ClaudeConfig struct {
+	Repo         string `yaml:"repo,omitempty"`
+	Subdirectory string `yaml:"subdirectory,omitempty"`
+}
+
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
 	SyncedRepos        []string                           `yaml:"syncedRepos,omitempty"`
+	ClaudeConfig       *ClaudeConfig                      `yaml:"claudeConfig,omitempty"`
 	Crons              map[string]CronConfig              `yaml:"crons,omitempty"`
 	CronsMaxConcurrent int                                `yaml:"cronsMaxConcurrent,omitempty"`
 }
@@ -82,6 +89,27 @@ func (c *AgencConfig) GetCronsMaxConcurrent() int {
 		return DefaultCronsMaxConcurrent
 	}
 	return c.CronsMaxConcurrent
+}
+
+// GetAllSyncedRepos returns the deduplicated union of SyncedRepos and ClaudeConfig.Repo (if set).
+// This centralizes the set of repos that should be kept in sync so callers don't need to
+// inspect every config field that implies a repo.
+func (c *AgencConfig) GetAllSyncedRepos() []string {
+	seen := make(map[string]bool, len(c.SyncedRepos)+1)
+	var repos []string
+
+	for _, repo := range c.SyncedRepos {
+		if !seen[repo] {
+			seen[repo] = true
+			repos = append(repos, repo)
+		}
+	}
+
+	if c.ClaudeConfig != nil && c.ClaudeConfig.Repo != "" && !seen[c.ClaudeConfig.Repo] {
+		repos = append(repos, c.ClaudeConfig.Repo)
+	}
+
+	return repos
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -116,6 +144,15 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 			return nil, nil, stacktrace.NewError(
 				"invalid syncedRepos entry '%s' in %s; must be in canonical format 'github.com/owner/repo'",
 				repo, configFilepath,
+			)
+		}
+	}
+
+	if cfg.ClaudeConfig != nil && cfg.ClaudeConfig.Repo != "" {
+		if !canonicalRepoRegex.MatchString(cfg.ClaudeConfig.Repo) {
+			return nil, nil, stacktrace.NewError(
+				"invalid claudeConfig.repo '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				cfg.ClaudeConfig.Repo, configFilepath,
 			)
 		}
 	}

@@ -32,6 +32,9 @@ const (
 	inspectCmdStr = "inspect"
 	nukeCmdStr    = "nuke"
 
+	// Config subcommands
+	initCmdStr = "init"
+
 	// Repo subcommands
 	editCmdStr = "edit"
 
@@ -71,6 +74,10 @@ const (
 
 	// daemon status flags
 	jsonFlagName = "json"
+
+	// config init flags
+	repoFlagName         = "repo"
+	subdirectoryFlagName = "subdirectory"
 
 	// cron flags
 	headlessFlagName = "headless"

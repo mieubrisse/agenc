@@ -56,9 +56,9 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		return
 	}
 
-	// Collect all unique repos to sync: synced repos + active mission repos
+	// Collect all unique repos to sync: synced repos + claude config repo + active mission repos
 	reposToSync := make(map[string]bool)
-	for _, repo := range cfg.SyncedRepos {
+	for _, repo := range cfg.GetAllSyncedRepos() {
 		reposToSync[repo] = true
 	}
 
