@@ -56,28 +56,30 @@ State Machine
 The wrapper is a three-state machine:
 
 ```
-StateRunning ──[config changed + idle]──> StateRestarting
-StateRunning ──[config changed + busy]──> StateRestartPending
+StateRunning ──[config changed]──> StateRestartPending
 StateRestartPending ──[becomes idle]────> StateRestarting
 StateRestarting ──[claude exits]────────> StateRunning (relaunched)
 ```
 
 - **`StateRunning`** — Claude is alive, no restart needed.
-- **`StateRestartPending`** — Config has changed, but Claude is busy. Waiting for idle.
+- **`StateRestartPending`** — Config has changed, waiting for the next idle transition.
 - **`StateRestarting`** — Wrapper has sent `SIGINT` to Claude and is waiting for it to exit so it can relaunch.
+
+Config changes always transition to `StateRestartPending`, regardless of whether Claude is currently idle or busy. The restart is deferred until the next `busy → idle` transition (i.e. the next time Claude finishes generating a response). This prevents the wrapper from killing Claude while the user is composing a prompt — since the `Stop` hook fires when Claude finishes but `UserPromptSubmit` doesn't fire until the user actually submits, the entire prompt-composition window (including vim editing mode) appears "idle" to the wrapper.
 
 Restart Procedure
 -----------------
 
 1. Config change detected.
-2. Rsync updated template into `agent/`.
-3. Check `claude-state`. If busy, transition to `StateRestartPending` and wait.
-4. When idle: send `SIGINT` to the Claude child process.
-5. Wait for the process to exit.
-6. Spawn `claude -c` (continue last conversation) as a new child process.
-7. Transition back to `StateRunning`.
+2. Rsync updated template into `agent/` (for template changes).
+3. Transition to `StateRestartPending`.
+4. Wait for the next `busy → idle` transition (Claude finishes generating a response).
+5. Send `SIGINT` to the Claude child process.
+6. Wait for the process to exit.
+7. Spawn `claude -c` (continue last conversation) as a new child process.
+8. Transition back to `StateRunning`.
 
-Because restarts only happen when Claude is idle, no generation is interrupted. `claude -c` resumes with the full conversation history, so the user experience is seamless.
+Restarts are always deferred to the next idle transition rather than triggering immediately. This ensures the user is never interrupted while composing a prompt. `claude -c` resumes with the full conversation history, so the user experience is seamless.
 
 Signal Handling
 ---------------

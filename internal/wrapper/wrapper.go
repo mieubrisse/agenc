@@ -204,8 +204,15 @@ func (w *Wrapper) Run(isResume bool) error {
 			return nil
 
 		case newHash := <-w.configChanged:
-			// Config has changed -- rsync template and decide whether to restart
-			w.logger.Info("Template changed, syncing and scheduling restart", "newHash", newHash)
+			// Config has changed -- rsync template and schedule restart.
+			// We always defer the restart to the next busy→idle transition
+			// rather than restarting immediately, because the user may be
+			// composing a prompt (e.g. in vim editing mode) even though
+			// claude-state says "idle". The Stop hook fires when Claude
+			// finishes responding, but the UserPromptSubmit hook doesn't
+			// fire until the user actually submits -- so the entire
+			// composition window looks "idle" to us.
+			w.logger.Info("Template changed, syncing", "newHash", newHash)
 			if err := mission.RsyncTemplate(w.templateDirpath, w.agentDirpath); err != nil {
 				w.logger.Warn("Failed to rsync template update", "error", err)
 				continue
@@ -213,13 +220,8 @@ func (w *Wrapper) Run(isResume bool) error {
 			commitFilepath := config.GetMissionTemplateCommitFilepath(w.agencDirpath, w.missionID)
 			_ = os.WriteFile(commitFilepath, []byte(newHash), 0644)
 
-			claudeState := w.readClaudeState()
-			if claudeState == "idle" {
-				w.logger.Info("Claude is idle, restarting now")
-				w.state = StateRestarting
-				_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			} else {
-				w.logger.Info("Claude is busy, deferring restart until idle", "claudeState", claudeState)
+			if w.state == StateRunning {
+				w.logger.Info("Deferring restart until next idle transition")
 				w.state = StateRestartPending
 			}
 
@@ -227,14 +229,11 @@ func (w *Wrapper) Run(isResume bool) error {
 			if w.state != StateRunning {
 				continue // restart already in progress
 			}
-			w.logger.Info("Global Claude config changed, scheduling restart")
-			claudeState := w.readClaudeState()
-			if claudeState == "idle" {
-				w.state = StateRestarting
-				_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			} else {
-				w.state = StateRestartPending
-			}
+			// Same rationale as configChanged above: always defer to the
+			// next busy→idle transition to avoid killing Claude while the
+			// user is composing a prompt.
+			w.logger.Info("Global Claude config changed, deferring restart until next idle transition")
+			w.state = StateRestartPending
 
 		case <-w.claudeStateIdle:
 			if w.state == StateRestartPending {
