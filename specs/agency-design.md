@@ -87,6 +87,27 @@ Agency uses Fractal Outcomes to model work.
 - Every outcome is a hypothesis: attempting it may prove it's not achievable as described. If a sub-Outcome doesn't look like it's going to pan out, the Responsible Agent should close it and create a new one. This is handled through Session instructions rather than structural encoding in the DAG.
 - Outcomes can be decomposed into children as much as necessary, but no more; Fractal Outcomes is a thinking framework, not a prescription to always decompose
 
+### Outcome Statuses
+
+An Outcome has one of three statuses:
+- **Open**: the Outcome is active and needs work
+- **Completed**: the Outcome has been accomplished
+- **Closed**: the Outcome has been disproven, abandoned, or deemed unnecessary (closure rationale is written into the Outcome file)
+
+There is no explicit "blocked" or "in progress" status. An Outcome is considered **unblocked** if it is `Open` and has no `Open` children. This means:
+- A leaf Outcome (no children) is unblocked — it needs direct work (execution, delegation, decomposition, or closure)
+- An Outcome whose children are all `Completed` or `Closed` is unblocked — it may need verification, further decomposition, or completion itself
+- An Outcome with any `Open` children is blocked — work is happening (or needed) in the subtree
+
+Agency uses this definition to drive Session spawning: an Agent gets a Session when it has at least one unblocked Outcome and no live Session.
+
+### Outcome Storage
+
+Outcome relationships (the parent/child DAG edges) are stored in a **database**, not in Markdown files. The Markdown file for each Outcome contains only descriptive content (what the Outcome is, rationale if closed, etc.). The DAG structure — parent/child links, Responsible Agent, status — lives in the database. This ensures:
+- **Atomic link creation**: adding a parent-child edge is a single database operation, not a two-file write that can leave a half-linked edge on crash
+- **Fast graph queries**: finding an Outcome's children, ancestors, or the set of unblocked Outcomes for an Agent is a database query, not a filesystem traversal
+- **Consistency**: the graph structure is always consistent regardless of Markdown file state
+
 **Important**: while Outcomes form a DAG (an outcome can have multiple parents), Agents form a strict tree. Each Agent has exactly one Boss Agent (the one that created it). See "Agents & Sessions" for details.
 
 ### Responsible Agent
@@ -198,7 +219,9 @@ This means messages are durable, versioned, and auditable like any other KB file
 
 - **Send message**: deliver a message (by KB UUID) to a target Agent's inbox. The Mail MCP tool checks the Permissions database to verify the sending Agent has messaging capability to the target Agent.
 - **Send deferred message**: deliver a message at a scheduled future time. Agency's mail system holds the message and delivers it at the specified time. This includes self-messaging — a Session can schedule a message to its own Agent's inbox for reminders and future work.
-- **Read inbox**: list pending messages in the Agent's inbox
+- **Read inbox**: list pending messages in the Agent's inbox, in FIFO order (oldest first)
+
+Messages are delivered in FIFO order — the order they were sent. When a Session reads its inbox, messages appear oldest-first. This ensures that sequences like "do X" followed by "cancel X" are processed in the correct order.
 
 When a message arrives at an Agent's inbox, Agency creates a "Process Inbox" Outcome for the Agent (if one doesn't already exist). This ensures the Agent has an unblocked Outcome, triggering Session spawning if needed.
 
@@ -248,6 +271,7 @@ A Session is an ephemeral Claude instance spawned by Agency on behalf of an Agen
 - Each Session is identified by the tuple `(agent_outcome_uuid, session_uuid)`. The Session UUID is for auditing — it tracks which specific Session performed an action.
 - A Session operates in an ephemeral workspace that is destroyed when the Session terminates
 - **Anything the Session wants to persist must be explicitly written to the Knowledge Base.** The workspace is destroyed on termination. If it wasn't written to the KB, it's gone.
+- Sessions use **Claude Opus** by default. Model selection may become per-Agent in the future (e.g., Haiku for simple coordination, Opus for complex reasoning), but for now all Sessions run the same model.
 - Agency uses prompt caching for Session system prompts, since all Sessions of the same Agent share the same prompt. This reduces startup cost.
 
 **Session lifecycle**: a Session stays alive as long as its Agent has unblocked Outcomes to work on. The Session loops: process inbox, create Outcomes, work on highest-priority unblocked Outcome, check inbox again, repeat. When all Outcomes are blocked or completed and the inbox is empty, the Session updates the state document, submits the audit log entry, and terminates.
@@ -305,6 +329,8 @@ The user interacts with Agency through the root Agent.
 - The user sends messages to the root Agent's inbox to assign work, provide feedback, answer questions, and give direction
 - When the user sends a message, Agency creates a "Process Inbox" Outcome for the root Agent, triggering Session spawning like any other Agent
 - The root Agent otherwise behaves like any other Agent: it decomposes Outcomes, delegates to child Agents, and manages its subtree
+
+**Cold start**: the user bootstraps the system by sending messages to the root Agent. There is no bulk-import mechanism — the user describes what they want, and the root Agent creates KB files, stores context for itself, and builds up its own understanding over time. The root Agent's state document and KB files accumulate organically as the user provides direction. This mirrors how a new employee is onboarded: you give them instructions and context through conversation, and they organize it for themselves.
 
 This means the entire system has a uniform interface at every level: Agents communicate with their boss via messaging, whether that boss is another Agent or the user.
 
@@ -514,7 +540,7 @@ Questions To Answer
 
 ### Scalability & Resource Management
 
-1. **Session cost control.** Sessions consume API tokens. What prevents a runaway Agent from spawning infinite child Agents, each spawning Sessions, creating an exponential cost explosion? Is there a budget or depth limit per Agent subtree?
+1. **Session cost control.** Sessions consume API tokens. What prevents a runaway Agent from spawning infinite child Agents, each spawning Sessions, creating an exponential cost explosion? Is there a budget or depth limit per Agent subtree? *(Deferred: Claude's own rate limits provide a natural ceiling for now. Revisit when the system can sustain enough concurrency for this to matter.)*
 
 2. **Polling frequency.** The daemon "periodically checks each Agent" for unblocked Outcomes. What determines the polling interval? With thousands of Agents, does this become a bottleneck? Has an event-driven model (Outcome unblocked -> trigger check) been considered instead?
 
@@ -538,80 +564,70 @@ Questions To Answer
 
 ### Consistency & Ordering
 
-11. **Inbox ordering.** Are messages delivered in send-order, arrival-order, or unordered? If an Agent receives "do X" followed by "cancel X," processing them out of order produces wrong behavior. What ordering guarantees does the Mail system provide?
+11. **Permission propagation timing.** Permissions take effect immediately for most operations but require Session restart for MCP servers. During the window between "permission granted" and "Session restarted," the Agent has the capability in the database but can't use it. Can this lead to confusing failure modes where the Agent repeatedly tries and fails?
 
-12. **Permission propagation timing.** Permissions take effect immediately for most operations but require Session restart for MCP servers. During the window between "permission granted" and "Session restarted," the Agent has the capability in the database but can't use it. Can this lead to confusing failure modes where the Agent repeatedly tries and fails?
-
-13. **Outcome DAG consistency.** Outcomes form a DAG, but edits to parent/child relationships are per-Outcome writes. If creating a parent-child link requires updating both the parent and child Outcome files, and the Session crashes between the two writes, you have a half-linked edge. Is link creation atomic?
-
-14. **Deferred message timing.** Deferred messages are delivered "at a scheduled future time." What clock is used? What's the precision guarantee? If Agency is down at the scheduled time, is the message delivered when it comes back up, or lost?
+12. **Deferred message timing.** Deferred messages are delivered "at a scheduled future time." What clock is used? What's the precision guarantee? If Agency is down at the scheduled time, is the message delivered when it comes back up, or lost?
 
 ### Security & Trust
 
-15. **Session prompt injection.** A Session reads KB files written by other Agents. A malicious or confused Agent could write KB content designed to manipulate the reading Session's behavior (prompt injection via KB). What mitigations exist beyond the LLM's own resistance?
+13. **Session prompt injection.** A Session reads KB files written by other Agents. A malicious or confused Agent could write KB content designed to manipulate the reading Session's behavior (prompt injection via KB). What mitigations exist beyond the LLM's own resistance?
 
-16. **Capability escalation via messaging.** An Underling can message its Boss requesting capabilities. The Boss's Session is an LLM that may grant the request if the message is persuasive enough. What prevents a sophisticated Underling from social-engineering its Boss into granting excessive capabilities?
+14. **Capability escalation via messaging.** An Underling can message its Boss requesting capabilities. The Boss's Session is an LLM that may grant the request if the message is persuasive enough. What prevents a sophisticated Underling from social-engineering its Boss into granting excessive capabilities?
 
-17. **Force-stop authorization.** Who can force-stop an Agent? Only its direct Boss? What about the root user? If a mid-level Agent goes rogue (burning tokens, spamming messages), can the user intervene at that specific level, or must they work through the root Agent?
+15. **Force-stop authorization.** Who can force-stop an Agent? Only its direct Boss? What about the root user? If a mid-level Agent goes rogue (burning tokens, spamming messages), can the user intervene at that specific level, or must they work through the root Agent?
 
-18. **Secrets scope.** Secrets are passed via environment variables at Session launch. The Session "never sees or handles the underlying secrets directly" — but environment variables are visible to any process in the Session. If the Session spawns a subprocess (e.g., a build tool), that subprocess inherits the secrets. Is this an acceptable risk?
+16. **Secrets scope.** Secrets are passed via environment variables at Session launch. The Session "never sees or handles the underlying secrets directly" — but environment variables are visible to any process in the Session. If the Session spawns a subprocess (e.g., a build tool), that subprocess inherits the secrets. Is this an acceptable risk?
 
 ### Delegation & Organizational Design
 
-19. **Single Boss constraint vs. multi-parent Outcomes.** Each Agent has exactly one Boss, but Outcomes can have multiple parents. If Outcome X has parents A and B, and a child Agent is created for X, which Agent is the Boss? The one that created the child? What if the other parent's Agent needs to communicate with or influence the child?
+17. **Single Boss constraint vs. multi-parent Outcomes.** Each Agent has exactly one Boss, but Outcomes can have multiple parents. If Outcome X has parents A and B, and a child Agent is created for X, which Agent is the Boss? The one that created the child? What if the other parent's Agent needs to communicate with or influence the child?
 
-20. **Delegation granularity.** The Boss "loses Write access" to the delegated subtree. But what if the Boss creates Outcome Y, delegates it, then later realizes Y should be a child of a different parent Outcome Z? The Boss can't modify Y anymore. Must it force-stop the child, reclaim, restructure, and re-delegate?
+18. **Delegation granularity.** The Boss "loses Write access" to the delegated subtree. But what if the Boss creates Outcome Y, delegates it, then later realizes Y should be a child of a different parent Outcome Z? The Boss can't modify Y anymore. Must it force-stop the child, reclaim, restructure, and re-delegate?
 
-21. **Reclaiming delegation.** When a Boss force-stops an Underling and reclaims the subtree, the Boss's state document has no record of what the Underling was doing internally. The Underling's state/audit logs remain in KB. But does the Boss's Session know to read them? Is there a structured protocol for "reclaiming and understanding an Underling's work"?
+19. **Reclaiming delegation.** When a Boss force-stops an Underling and reclaims the subtree, the Boss's state document has no record of what the Underling was doing internally. The Underling's state/audit logs remain in KB. But does the Boss's Session know to read them? Is there a structured protocol for "reclaiming and understanding an Underling's work"?
 
-22. **Delegation depth.** Is there a maximum delegation depth? In an unbounded tree, an Agent could delegate to a child that delegates to a grandchild, ad infinitum. Each level adds latency to capability escalation and message relaying. What prevents pathological depth?
+20. **Delegation depth.** Is there a maximum delegation depth? In an unbounded tree, an Agent could delegate to a child that delegates to a grandchild, ad infinitum. Each level adds latency to capability escalation and message relaying. What prevents pathological depth?
 
 ### Session Lifecycle & Context Management
 
-23. **Context window exhaustion.** The spec acknowledges Sessions may terminate due to context limits. But how does Agency detect this? Does the Session self-report ("I'm running low on context"), or does Agency monitor token usage externally? If the Session is mid-operation (e.g., halfway through a KB write) when it hits the limit, what happens?
+21. **Context window exhaustion.** The spec acknowledges Sessions may terminate due to context limits. But how does Agency detect this? Does the Session self-report ("I'm running low on context"), or does Agency monitor token usage externally? If the Session is mid-operation (e.g., halfway through a KB write) when it hits the limit, what happens?
 
-24. **Session startup cost.** Each new Session must: read the state document, read the inbox, read relevant Outcomes, read relevant KB files. This consumes a large portion of the context window before any work begins. Has the startup overhead been estimated? What fraction of a Session's useful life is spent on initialization?
+22. **Session startup cost.** Each new Session must: read the state document, read the inbox, read relevant Outcomes, read relevant KB files. This consumes a large portion of the context window before any work begins. Has the startup overhead been estimated? What fraction of a Session's useful life is spent on initialization? *(Important to monitor empirically once a prototype exists.)*
 
-25. **Work loop interruption.** The Session loops: inbox -> work -> inbox -> work. But "periodically check your inbox" is vague. If the Session is deep in a complex coding task across multiple files, checking the inbox mid-task could be disruptive. Is there guidance on when to checkpoint vs. when to finish the current unit of work?
+23. **Work loop interruption.** The Session loops: inbox -> work -> inbox -> work. But "periodically check your inbox" is vague. If the Session is deep in a complex coding task across multiple files, checking the inbox mid-task could be disruptive. Is there guidance on when to checkpoint vs. when to finish the current unit of work?
 
-26. **Session identity across restarts.** When a Session terminates and a new one spawns for the same Agent, the new Session gets a new UUID. If the old Session sent messages referencing its Session UUID, the new Session is a different identity. Does this cause confusion for recipients?
+24. **Session identity across restarts.** When a Session terminates and a new one spawns for the same Agent, the new Session gets a new UUID. If the old Session sent messages referencing its Session UUID, the new Session is a different identity. Does this cause confusion for recipients?
 
 ### Knowledge Base Design
 
-27. **File size limits.** Is there a maximum size for a KB file? If an Agent writes a 500MB artifact, it goes through the MCP tool (write to workspace, then import). What are the performance implications? Is there a separate mechanism for large binary artifacts?
+25. **File size limits.** Is there a maximum size for a KB file? If an Agent writes a 500MB artifact, it goes through the MCP tool (write to workspace, then import). What are the performance implications? Is there a separate mechanism for large binary artifacts?
 
-28. **KB file deletion.** The spec describes creation, reading, writing, and versioning — but not deletion. Can KB files be deleted? If not, storage grows monotonically. If so, what happens to `kb://UUID` links pointing to deleted files?
+26. **KB file deletion.** The spec describes creation, reading, writing, and versioning — but not deletion. Can KB files be deleted? If not, storage grows monotonically. If so, what happens to `kb://UUID` links pointing to deleted files?
 
-29. **Search and discovery.** "Browse files" searches descriptions, but what about full-text search of file contents? If an Agent needs to find "the KB file that contains the database schema," and the description doesn't mention "database schema," how does it find it?
+27. **Search and discovery.** "Browse files" searches descriptions, but what about full-text search of file contents? If an Agent needs to find "the KB file that contains the database schema," and the description doesn't mention "database schema," how does it find it?
 
-30. **Content type awareness.** Are KB files typed (Markdown, JSON, binary, image)? If a Session reads a KB file, does it know what format to expect? Can the KB enforce schema validation for structured files?
+28. **Content type awareness.** Are KB files typed (Markdown, JSON, binary, image)? If a Session reads a KB file, does it know what format to expect? Can the KB enforce schema validation for structured files?
 
 ### Outcome Model
 
-31. **Outcome status model.** The spec mentions Outcomes can be "accomplished" or "closed/disproven," but doesn't define a full status lifecycle. Is there an "in progress" status? "Blocked"? How does Agency determine which Outcomes are "unblocked" to trigger Session spawning?
+29. **Outcome priority.** The Session prompt says "prioritize using the Eisenhower Matrix," but Outcomes don't have a priority field. Is prioritization purely a Session judgment call? If so, different Sessions of the same Agent may prioritize differently across restarts.
 
-32. **Outcome priority.** The Session prompt says "prioritize using the Eisenhower Matrix," but Outcomes don't have a priority field. Is prioritization purely a Session judgment call? If so, different Sessions of the same Agent may prioritize differently across restarts.
+30. **Multiple-parent Outcomes and completion.** If Outcome X has parents A and B, and X is completed, both parents are notified. But if A's Agent later realizes X's completion was premature and wants to reopen it, can it? Who has authority to reopen a completed Outcome — the Responsible Agent, or any parent's Agent?
 
-33. **Multiple-parent Outcomes and completion.** If Outcome X has parents A and B, and X is completed, both parents are notified. But if A's Agent later realizes X's completion was premature and wants to reopen it, can it? Who has authority to reopen a completed Outcome — the Responsible Agent, or any parent's Agent?
-
-34. **Outcome scope creep.** An Agent can "update an Outcome's description." What prevents an Agent from rewriting an Outcome's description to mean something entirely different, effectively changing its mandate without its Boss knowing? Is there any structural constraint on how much an Outcome can change?
+31. **Outcome scope creep.** An Agent can "update an Outcome's description." What prevents an Agent from rewriting an Outcome's description to mean something entirely different, effectively changing its mandate without its Boss knowing? Is there any structural constraint on how much an Outcome can change?
 
 ### Observability & Debugging
 
-35. **System-wide visibility.** The user can "inspect any Agent" and "view any audit log." But with hundreds of Agents, how does the user find the one that's stuck? Is there a system-wide dashboard showing Agent health, Session durations, inbox depths, and stalled Outcomes?
+32. **System-wide visibility.** The user can "inspect any Agent" and "view any audit log." But with hundreds of Agents, how does the user find the one that's stuck? Is there a system-wide dashboard showing Agent health, Session durations, inbox depths, and stalled Outcomes?
 
-36. **Cost attribution.** Which Outcome consumed the most tokens? Which Agent subtree is the most expensive? Without cost tracking per Agent/Session, the user can't identify waste or optimize delegation strategies.
+33. **Cost attribution.** Which Outcome consumed the most tokens? Which Agent subtree is the most expensive? Without cost tracking per Agent/Session, the user can't identify waste or optimize delegation strategies.
 
-37. **Replay and debugging.** If something goes wrong deep in the Agent tree, can the user replay a Session's actions? The audit log records what happened, but can you reconstruct the exact sequence of MCP tool calls, KB reads/writes, and messages to diagnose a subtle bug?
+34. **Replay and debugging.** If something goes wrong deep in the Agent tree, can the user replay a Session's actions? The audit log records what happened, but can you reconstruct the exact sequence of MCP tool calls, KB reads/writes, and messages to diagnose a subtle bug?
 
 ### Bootstrapping & Practical Concerns
 
-38. **Cold start.** The root Agent starts with a single perpetual Outcome. But it has no knowledge, no KB files, no context. How does the user bootstrap the system with initial knowledge, repos, and context? Is there a bulk-import mechanism, or must everything flow through the root Agent's inbox?
+35. **Prompt versioning.** The Session prompt is baked into the spec. When the prompt needs to change (bug fix, improvement), how are running Agents affected? Do all future Sessions get the new prompt? Can you A/B test prompt changes on a subset of Agents?
 
-39. **Model selection.** The spec says Sessions are "Claude instances." Which model? Can different Agents use different models (e.g., Haiku for simple coordination, Opus for complex reasoning)? Is model selection per-Agent or per-Session?
+36. **Testing.** The spec mentions testability as a benefit of the uniform interface. But what does the actual test harness look like? Can you run an Agent in a sandboxed environment with a mocked Boss, deterministic inbox, and assertion-checkable KB state?
 
-40. **Prompt versioning.** The Session prompt is baked into the spec. When the prompt needs to change (bug fix, improvement), how are running Agents affected? Do all future Sessions get the new prompt? Can you A/B test prompt changes on a subset of Agents?
-
-41. **Testing.** The spec mentions testability as a benefit of the uniform interface. But what does the actual test harness look like? Can you run an Agent in a sandboxed environment with a mocked Boss, deterministic inbox, and assertion-checkable KB state?
-
-42. **Migration path.** If the Outcome schema, KB storage model, or Permissions model changes, how are existing Agents and KB files migrated? Is there a versioning scheme for the system's own data model?
+37. **Migration path.** If the Outcome schema, KB storage model, or Permissions model changes, how are existing Agents and KB files migrated? Is there a versioning scheme for the system's own data model?
