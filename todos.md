@@ -20,6 +20,10 @@
 - [ ] Rename agent templates
 - [ ] Agent autonomy metric for sessions
 - [ ] Plan out a better way to stay at a higher level, not needing to be so down-in-the-weeds
+- [ ] Handoff command: dump the current conversation context to a document, then reload it into a fresh session
+    - Enables mid-conversation handoffs without losing context (e.g. switching models, recovering from context bloat, resuming later)
+    - Could serialize key context (task description, decisions made, current state, open questions) into a structured doc
+    - Fresh session loads the doc and picks up where the previous one left off
 - [ ] Fix 'asking for permissions to read repos inside the workspace' error (potentially through Docker?)
 
 ### Docker
