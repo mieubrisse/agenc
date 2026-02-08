@@ -31,9 +31,6 @@ const (
 	agencTmuxEnvVar    = "AGENC_TMUX"
 	agencDirpathEnvVar = "AGENC_DIRPATH"
 
-	// Environment variable set per-pane for return-on-exit behavior.
-	agencParentPaneEnvVar = "AGENC_PARENT_PANE"
-
 	// Minimum tmux version required (new-window -e flag).
 	minTmuxMajor = 3
 	minTmuxMinor = 0

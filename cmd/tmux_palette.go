@@ -61,15 +61,13 @@ On selection, the chosen command runs in a new tmux window. On cancel
 (Ctrl-C or Esc), the popup closes with no action.
 
 This command is designed to be invoked by the palette keybinding
-(prefix + a, k) and requires --parent-pane.`,
+(prefix + a, k).`,
 	Args: cobra.NoArgs,
 	RunE: runTmuxPalette,
 }
 
 func init() {
 	tmuxCmd.AddCommand(tmuxPaletteCmd)
-	tmuxPaletteCmd.Flags().String(parentPaneFlagName, "", "Parent pane ID (required, passed from keybinding via #{pane_id})")
-	_ = tmuxPaletteCmd.MarkFlagRequired(parentPaneFlagName)
 }
 
 // buildPaletteEntries returns the built-in palette entries plus any user-defined
@@ -144,8 +142,6 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
-	parentPaneID, _ := cmd.Flags().GetString(parentPaneFlagName)
-
 	entries, err := buildPaletteEntries()
 	if err != nil {
 		return err
@@ -209,11 +205,10 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Dispatch: exec `<binary> tmux window new --parent-pane <pane> -- <binary> <args...>`
+	// Dispatch: exec `<binary> tmux window new -- <binary> <args...>`
 	windowNewArgs := []string{
 		binaryFilepath,
 		tmuxCmdStr, windowCmdStr, newCmdStr,
-		"--" + parentPaneFlagName, parentPaneID,
 		"--",
 		binaryFilepath,
 	}

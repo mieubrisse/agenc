@@ -14,25 +14,19 @@ var tmuxWindowNewCmd = &cobra.Command{
 	Short: "Create a new window in the AgenC tmux session and run a command",
 	Long: `Create a new window in the AgenC tmux session and run a command inside it.
 The new window is inserted adjacent to the current window. When the command
-exits, the pane closes and tmux focuses back to the pane that spawned it.
+exits, the pane closes and tmux auto-selects an adjacent window.
 
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
 
-The --parent-pane flag allows specifying the parent pane explicitly, which
-is needed for tmux keybindings where $TMUX_PANE is not available. Use
-#{pane_id} in tmux config to pass the current pane.
-
 Example:
-  agenc tmux window new -- agenc mission new mieubrisse/agenc
-  agenc tmux window new --parent-pane "#{pane_id}" -- agenc mission new`,
+  agenc tmux window new -- agenc mission new mieubrisse/agenc`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTmuxWindowNew,
 }
 
 func init() {
 	tmuxWindowCmd.AddCommand(tmuxWindowNewCmd)
-	tmuxWindowNewCmd.Flags().String(parentPaneFlagName, "", "Parent pane ID to return focus to on exit (defaults to $TMUX_PANE)")
 }
 
 func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
@@ -47,47 +41,21 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
-	// Determine the parent pane: explicit flag takes priority over $TMUX_PANE.
-	// The flag is needed for tmux keybindings where $TMUX_PANE isn't available
-	// but #{pane_id} can be expanded by tmux.
-	parentPaneID, _ := cmd.Flags().GetString(parentPaneFlagName)
-	if parentPaneID == "" {
-		parentPaneID = os.Getenv("TMUX_PANE")
-	}
-	tmuxDebugLog("parentPaneID=%q", parentPaneID)
-	if parentPaneID == "" {
-		tmuxDebugLog("FAIL: empty parentPaneID")
-		return stacktrace.NewError("could not determine parent pane; pass --parent-pane or ensure $TMUX_PANE is set")
-	}
-
-	// Get the parent's window ID via tmux
-	windowIDOutput, err := exec.Command("tmux", "display-message", "-t", parentPaneID, "-p", "#{window_id}").Output()
-	if err != nil {
-		tmuxDebugLog("FAIL: display-message for pane %s: %v", parentPaneID, err)
-		return stacktrace.Propagate(err, "failed to get window ID for pane %s", parentPaneID)
-	}
-	parentWindowID := strings.TrimSpace(string(windowIDOutput))
-	tmuxDebugLog("parentWindowID=%q", parentWindowID)
-
 	// Build the command string for the new window. We pass the user's command
 	// directly (without shell wrapping) so that tmux's shell can exec into it.
 	// This is critical: if the command is a simple command (no ; or &&), the
 	// shell execs and the target process becomes the process group leader.
 	// tmux reads pane_current_path from the process group leader's CWD, so
 	// os.Chdir() in the wrapper will be visible to tmux.
-	//
-	// Focus-return to the parent pane is handled by the wrapper process itself
-	// (via AGENC_PARENT_PANE env var) rather than shell wrapping, which would
-	// force the shell to stay alive as the process group leader with the wrong CWD.
 	userCommand := buildShellCommand(args)
 	tmuxDebugLog("userCommand=%q", userCommand)
 
-	// Create a new window adjacent to the parent's window
+	// Create a new window adjacent to the session's active window.
+	// tmux resolves the active window from the current client context,
+	// which is correct even from run-shell and display-popup invocations.
 	tmuxArgs := []string{
 		"new-window",
 		"-a",
-		"-t", parentWindowID,
-		"-e", agencParentPaneEnvVar + "=" + parentPaneID,
 		userCommand,
 	}
 	tmuxDebugLog("tmux args: %v", tmuxArgs)

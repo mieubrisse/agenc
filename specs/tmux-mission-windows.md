@@ -4,9 +4,9 @@ Tmux Mission Windows
 Overview
 --------
 
-AgenC manages a tmux session where each active mission runs in its own pane (in a new window). A general-purpose `agenc tmux window new` command creates new windows and tracks parent panes for automatic return-on-exit. `mission new` and the wrapper are largely unchanged — the tmux layer wraps them rather than modifying them.
+AgenC manages a tmux session where each active mission runs in its own pane (in a new window). A general-purpose `agenc tmux window new` command creates new windows adjacent to the current one. `mission new` and the wrapper are largely unchanged — the tmux layer wraps them rather than modifying them.
 
-This spec covers the foundational tmux layer — the session lifecycle, window/pane management, and the "side mission" return behavior.
+This spec covers the foundational tmux layer — the session lifecycle and window/pane management.
 
 
 Prerequisites
@@ -22,7 +22,7 @@ User Workflow
 2. AgenC creates the tmux session `agenc` if it doesn't exist, then attaches
 3. The session starts by running `agenc mission new` — the user lands in the repo picker immediately
 4. From within a running mission, the user (or Claude) runs `agenc tmux window new -- agenc mission new <repo>` to spawn a side mission in a new window
-5. When the side mission ends (wrapper exits), the pane is killed and tmux focuses back to the pane that spawned it
+5. When the side mission ends (wrapper exits), the pane closes and tmux auto-selects an adjacent window
 
 
 Architecture
@@ -55,12 +55,6 @@ deadbeef
 ```
 
 Blank missions show just the `short_id` with no repo suffix. The wrapper only renames when `$AGENC_TMUX == 1` — in regular tmux sessions, it leaves the window name alone so the user can organize however they please.
-
-**Pane environment variables** (set by `agenc tmux window new`):
-
-| Variable | Purpose |
-|----------|---------|
-| `AGENC_PARENT_PANE` | tmux pane ID (`%N` format) of the pane that spawned this window. Used for return-on-exit. |
 
 Note: `AGENC_MISSION_UUID` is set inside `buildClaudeCmd` and is only available to the Claude child process, not to the tmux pane environment.
 
@@ -125,20 +119,16 @@ This is the core primitive for spawning side missions. It is general-purpose —
 
 Behavior:
 1. Must be run inside the `agenc` tmux session (checks `$AGENC_TMUX == 1`)
-2. Gets the current pane ID from the `$TMUX_PANE` environment variable
-3. Gets the current window ID via `tmux display-message -t $TMUX_PANE -p '#{window_id}'`
-4. Creates a new tmux window immediately after the current one:
+2. Creates a new tmux window adjacent to the session's active window:
 
 ```bash
-tmux new-window -a -t <current-window-id> \
-    -e "AGENC_PARENT_PANE=<current-pane-id>" \
-    "/abs/path/to/command" "arg1" "arg2" ...
+tmux new-window -a "/abs/path/to/command" "arg1" "arg2" ...
 ```
 
-5. The new window becomes active (tmux switches to it automatically)
-6. The command exits
+3. The new window becomes active (tmux switches to it automatically)
+4. When the command exits, the pane closes and tmux auto-selects an adjacent window
 
-The `-a` flag inserts the new window adjacent to the current one, so side missions appear next to their parent.
+The `-a` flag inserts the new window adjacent to the current one, so side missions appear next to their parent. tmux resolves the active window from the current client context, which is correct even from `run-shell` and `display-popup` invocations.
 
 **Example usage from Claude or user:**
 ```
@@ -156,9 +146,9 @@ The tmux integration happens one layer up: the caller runs `agenc tmux window ne
 
 ### Wrapper Changes
 
-The wrapper gets two small additions:
+The wrapper has one tmux-specific behavior:
 
-**1. Window renaming on startup.** When the wrapper starts inside the AgenC tmux session (checks `$AGENC_TMUX == 1`), it renames the window:
+**Window renaming on startup.** When the wrapper starts inside the AgenC tmux session (checks `$AGENC_TMUX == 1`), it renames the window:
 
 ```go
 shortID := missionRecord.ShortID
@@ -169,48 +159,16 @@ exec.Command("tmux", "rename-window", "-t", os.Getenv("TMUX_PANE"), windowTitle)
 
 This only happens inside the AgenC tmux session. In regular tmux sessions, the wrapper leaves the window name alone.
 
-**2. Return-to-parent on exit.** When the wrapper exits (after `Run()` returns), it checks `$AGENC_PARENT_PANE`:
+When the wrapper process exits, the pane closes automatically (tmux kills panes whose command exits) and tmux auto-selects an adjacent window. No explicit cleanup or focus-return needed.
 
-```go
-parentPane := os.Getenv("AGENC_PARENT_PANE")
-if parentPane != "" {
-    // Get the window containing the parent pane
-    windowID, err := exec.Command("tmux", "display-message", "-t", parentPane, "-p", "#{window_id}").Output()
-    if err == nil {
-        exec.Command("tmux", "select-window", "-t", strings.TrimSpace(string(windowID))).Run()
-        exec.Command("tmux", "select-pane", "-t", parentPane).Run()
-    }
-}
-```
-
-If the parent pane no longer exists, the tmux commands fail silently and tmux selects the next window automatically.
-
-When the wrapper process exits, the pane closes automatically (tmux kills panes whose command exits). No explicit pane cleanup needed.
-
-
-Return-to-Parent on Mission Exit
----------------------------------
-
-When the wrapper exits, it checks `$AGENC_PARENT_PANE`:
-
-1. Reads `$AGENC_PARENT_PANE` from its environment
-2. If set, resolves the parent pane's window via `tmux display-message -t <pane> -p '#{window_id}'`
-3. Focuses that window and pane: `tmux select-window` then `tmux select-pane`
-
-This logic lives in the wrapper (not the Claude process), because the wrapper outlives individual Claude restarts — Claude may be restarted multiple times during a mission's lifecycle due to config hot-reload.
 
 ### SIGHUP Handling
 
-The wrapper currently catches SIGINT and SIGTERM. In a tmux environment, it must also catch **SIGHUP**, which tmux sends when a window or session is destroyed (e.g., user presses `prefix + &`, or the session is killed).
+The wrapper catches SIGINT, SIGTERM, and **SIGHUP**. tmux sends SIGHUP when a window or session is destroyed (e.g., user presses `prefix + &`, or the session is killed).
 
-Without SIGHUP handling, the wrapper process terminates via Go's default handler, which means deferred cleanup (PID file removal) does not run, leaving stale PID files. DB and return-to-parent are lower risk — SQLite WAL recovers from unclean shutdowns, and if the session is being killed there's nothing to return to.
+Without SIGHUP handling, the wrapper process terminates via Go's default handler, which means deferred cleanup (PID file removal) does not run, leaving stale PID files.
 
-The wrapper should add `syscall.SIGHUP` to its signal handler and treat it identically to SIGINT — forward to Claude, wait for exit, then shut down gracefully.
-
-**Edge cases:**
-- Parent pane no longer exists (user closed it): tmux commands fail silently. tmux selects the next window automatically.
-- Multiple side missions deep (A -> B -> C): Each tracks its own parent pane. When C ends, returns to B. When B ends, returns to A. Stack-like behavior emerges naturally.
-- User manually switches to window C before mission B ends: Return still goes to A (the spawner). This matches the "side mission" mental model.
+The wrapper treats SIGHUP identically to SIGINT — forward to Claude, wait for exit, then shut down gracefully.
 
 
 Window Lifecycle
@@ -235,7 +193,7 @@ If the wrapper is still running but the user detached and re-attached, the windo
 Database Changes
 ----------------
 
-No schema changes required. The tmux pane/window mapping is ephemeral — it exists only while the tmux session is alive. Parent tracking is passed via the `AGENC_PARENT_PANE` environment variable, not stored in the database.
+No schema changes required. The tmux pane/window mapping is ephemeral — it exists only while the tmux session is alive.
 
 ### Concurrent Database Access
 
@@ -254,23 +212,21 @@ Implementation Plan
 
 ### Phase 2: Window New
 
-5. Implement `agenc tmux window new -- <command>` — create window, set `AGENC_PARENT_PANE`, run command
+5. Implement `agenc tmux window new -- <command>` — create window adjacent to current, run command
 6. Add SIGHUP to wrapper's signal handler (alongside SIGINT/SIGTERM)
 7. Add wrapper window renaming on startup (when `$AGENC_TMUX == 1`)
-8. Add return-to-parent on wrapper exit (when `$AGENC_PARENT_PANE` is set)
 
 ### Phase 3: Testing
 
 10. Test: `agenc tmux attach` -> mission new -> Claude -> exit -> pane closes
-11. Test: `agenc tmux window new -- agenc mission new <repo>` -> side mission -> exit -> returns to parent
-12. Test: nested side missions (A -> B -> C) -> stack-like return behavior
+11. Test: `agenc tmux window new -- agenc mission new <repo>` -> side mission -> exit -> tmux selects adjacent window
 13. Test: `agenc tmux rm` -> all missions stopped, session destroyed
 
 
 Decisions
 ---------
 
-1. **Return-to-parent when user manually switches away**: Return to the spawner (A), not the current window (C). Matches the "side mission" mental model.
+1. **No explicit return-to-parent**: When a mission window closes, tmux auto-selects an adjacent window. This is simpler than tracking parent panes and provides equivalent UX.
 
 2. **Initial window behavior**: Run `agenc mission new` immediately — the user lands in the repo picker. No idle lobby window.
 

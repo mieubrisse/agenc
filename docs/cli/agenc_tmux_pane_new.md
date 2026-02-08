@@ -5,8 +5,7 @@ Create a new pane in the current window and run a command
 ### Synopsis
 
 Create a new pane in the current tmux window by splitting it, and run a
-command inside the new pane. When the command exits, the pane closes and
-tmux focuses back to the parent pane.
+command inside the new pane. When the command exits, the pane closes.
 
 By default the split is vertical (side-by-side). Use --vertical for a
 top/bottom split.
@@ -14,14 +13,9 @@ top/bottom split.
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
 
-The --parent-pane flag allows specifying the parent pane explicitly, which
-is needed for tmux keybindings where $TMUX_PANE is not available. Use
-#{pane_id} in tmux config to pass the current pane.
-
 Example:
   agenc tmux pane new -- agenc mission new mieubrisse/agenc
   agenc tmux pane new --vertical -- agenc mission new
-  agenc tmux pane new --parent-pane "#{pane_id}" -- agenc mission new
 
 ```
 agenc tmux pane new -- <command> [args...] [flags]
@@ -30,9 +24,8 @@ agenc tmux pane new -- <command> [args...] [flags]
 ### Options
 
 ```
-  -h, --help                 help for new
-      --parent-pane string   Parent pane ID to return focus to on exit (defaults to $TMUX_PANE)
-  -V, --vertical             Split vertically (top/bottom) instead of the default side-by-side
+  -h, --help       help for new
+  -V, --vertical   Split vertically (top/bottom) instead of the default side-by-side
 ```
 
 ### SEE ALSO

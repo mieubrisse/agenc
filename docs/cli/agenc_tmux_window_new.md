@@ -6,18 +6,13 @@ Create a new window in the AgenC tmux session and run a command
 
 Create a new window in the AgenC tmux session and run a command inside it.
 The new window is inserted adjacent to the current window. When the command
-exits, the pane closes and tmux focuses back to the pane that spawned it.
+exits, the pane closes and tmux auto-selects an adjacent window.
 
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
 
-The --parent-pane flag allows specifying the parent pane explicitly, which
-is needed for tmux keybindings where $TMUX_PANE is not available. Use
-#{pane_id} in tmux config to pass the current pane.
-
 Example:
   agenc tmux window new -- agenc mission new mieubrisse/agenc
-  agenc tmux window new --parent-pane "#{pane_id}" -- agenc mission new
 
 ```
 agenc tmux window new -- <command> [args...] [flags]
@@ -26,8 +21,7 @@ agenc tmux window new -- <command> [args...] [flags]
 ### Options
 
 ```
-  -h, --help                 help for new
-      --parent-pane string   Parent pane ID to return focus to on exit (defaults to $TMUX_PANE)
+  -h, --help   help for new
 ```
 
 ### SEE ALSO

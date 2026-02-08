@@ -33,19 +33,19 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string) st
 
 	// agenc table: n — new mission in a new window
 	sb.WriteString("# New mission in a new window (prefix + a, n)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s n run-shell '%s tmux window new --parent-pane \"#{pane_id}\" -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
+	fmt.Fprintf(&sb, "bind-key -T %s n run-shell '%s tmux window new -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
 
 	sb.WriteString("\n")
 
 	// agenc table: p — new mission in a side-by-side pane
 	sb.WriteString("# New mission in a side-by-side pane (prefix + a, p)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s p run-shell '%s tmux pane new --parent-pane \"#{pane_id}\" -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
+	fmt.Fprintf(&sb, "bind-key -T %s p run-shell '%s tmux pane new -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
 
 	// Command palette (requires tmux >= 3.2 for display-popup)
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
 		sb.WriteString("# Command palette (prefix + a, k)\n")
-		fmt.Fprintf(&sb, "bind-key -T %s k run-shell 'tmux display-popup -E -w 60%% -h 50%% \"%s tmux palette --parent-pane #{pane_id}\"'\n", agencKeyTable, agencBinary)
+		fmt.Fprintf(&sb, "bind-key -T %s k run-shell 'tmux display-popup -E -w 60%% -h 50%% \"%s tmux palette\"'\n", agencKeyTable, agencBinary)
 	}
 
 	return sb.String()

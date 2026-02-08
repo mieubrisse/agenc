@@ -141,10 +141,6 @@ func (w *Wrapper) Run(isResume bool) error {
 	// AgenC tmux session.
 	w.renameWindowForTmux()
 
-	// Return focus to the parent pane when the wrapper exits (e.g., when
-	// Claude exits or the mission is stopped).
-	defer w.returnFocusToParentPane()
-
 	// Spawn initial Claude process
 	if isResume {
 		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)

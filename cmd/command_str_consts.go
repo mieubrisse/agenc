@@ -87,9 +87,6 @@ const (
 	// daemon status flags
 	jsonFlagName = "json"
 
-	// tmux window new flags
-	parentPaneFlagName = "parent-pane"
-
 	// custom-command flags
 	customCommandArgsFlagName        = "args"
 	customCommandPaletteNameFlagName = "palette-name"

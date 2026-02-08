@@ -9,7 +9,7 @@ On selection, the chosen command runs in a new tmux window. On cancel
 (Ctrl-C or Esc), the popup closes with no action.
 
 This command is designed to be invoked by the palette keybinding
-(prefix + a, k) and requires --parent-pane.
+(prefix + a, k).
 
 ```
 agenc tmux palette [flags]
@@ -18,8 +18,7 @@ agenc tmux palette [flags]
 ### Options
 
 ```
-  -h, --help                 help for palette
-      --parent-pane string   Parent pane ID (required, passed from keybinding via #{pane_id})
+  -h, --help   help for palette
 ```
 
 ### SEE ALSO
