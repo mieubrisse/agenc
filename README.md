@@ -72,6 +72,8 @@ How it works
 1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). The agent then hot-reloads to pick up the new config.
 2. Sandboxing and session management let you run dozens of agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a super team who understand your every whim.
 
+For a detailed technical overview of the system's components and how they interact, see [System Architecture](docs/system-architecture.md).
+
 <!--
 > ⚠️ Addiction Warning
 >

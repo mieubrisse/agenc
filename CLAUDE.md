@@ -1,6 +1,21 @@
 Agent Factory
 =============
 
+Architecture Reference
+----------------------
+
+Read `docs/system-architecture.md` before making non-trivial changes to the codebase. It is the canonical map of how the system fits together — runtime processes, directory layout, package responsibilities, and cross-cutting patterns.
+
+**Keep it current.** When you make a change that affects any of the following, update `docs/system-architecture.md` in the same commit:
+
+- Adding, removing, or renaming an `internal/` package
+- Changing process boundaries (CLI, daemon, wrapper) or their goroutine structure
+- Modifying the runtime directory layout under `$AGENC_DIRPATH`
+- Altering the database schema
+- Adding or changing a key architectural pattern (config merging, idle detection, cron scheduling, etc.)
+
+The architecture doc describes the system at the **filepath level** — no code snippets, no function signatures. If you need to reference something more specific than a file path, that detail belongs in code comments, not in the architecture doc.
+
 Building the Binary
 -------------------
 
