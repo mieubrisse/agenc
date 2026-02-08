@@ -70,6 +70,9 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 	vertical, _ := cmd.Flags().GetBool(verticalFlagName)
 	tmuxDebugLog("vertical=%v", vertical)
 
+	parentDirpath := getParentPaneDirpath(parentPaneID)
+	tmuxDebugLog("parentDirpath=%q", parentDirpath)
+
 	// Build the command string for the new pane. We wrap the user's command
 	// in a shell snippet that returns focus to the parent pane on exit,
 	// regardless of how the command exits.
@@ -89,8 +92,11 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 	tmuxArgs = append(tmuxArgs,
 		"-t", parentPaneID,
 		"-e", agencParentPaneEnvVar+"="+parentPaneID,
-		wrappedCommand,
 	)
+	if parentDirpath != "" {
+		tmuxArgs = append(tmuxArgs, "-c", parentDirpath)
+	}
+	tmuxArgs = append(tmuxArgs, wrappedCommand)
 	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	splitCmd := exec.Command("tmux", tmuxArgs...)
