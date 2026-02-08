@@ -45,7 +45,14 @@ func init() {
 }
 
 func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
+	tmuxDebugLog("=== tmux pane new ===")
+	tmuxDebugLog("args: %v", args)
+	tmuxDebugLog("AGENC_TMUX=%q", os.Getenv(agencTmuxEnvVar))
+	tmuxDebugLog("TMUX_PANE=%q", os.Getenv("TMUX_PANE"))
+	tmuxDebugLog("PATH=%q", os.Getenv("PATH"))
+
 	if !isInsideAgencTmux() {
+		tmuxDebugLog("FAIL: isInsideAgencTmux() returned false")
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
@@ -54,11 +61,14 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 	if parentPaneID == "" {
 		parentPaneID = os.Getenv("TMUX_PANE")
 	}
+	tmuxDebugLog("parentPaneID=%q", parentPaneID)
 	if parentPaneID == "" {
+		tmuxDebugLog("FAIL: empty parentPaneID")
 		return stacktrace.NewError("could not determine parent pane; pass --parent-pane or ensure $TMUX_PANE is set")
 	}
 
 	vertical, _ := cmd.Flags().GetBool(verticalFlagName)
+	tmuxDebugLog("vertical=%v", vertical)
 
 	// Build the command string for the new pane. We wrap the user's command
 	// in a shell snippet that returns focus to the parent pane on exit,
@@ -68,6 +78,7 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 		`%s; tmux select-pane -t %s 2>/dev/null`,
 		userCommand, parentPaneID,
 	)
+	tmuxDebugLog("wrappedCommand=%q", wrappedCommand)
 
 	// Split the current window to create a new pane.
 	// Default is side-by-side (-h); --vertical omits -h for top/bottom.
@@ -80,14 +91,17 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 		"-e", agencParentPaneEnvVar+"="+parentPaneID,
 		wrappedCommand,
 	)
+	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	splitCmd := exec.Command("tmux", tmuxArgs...)
 	splitCmd.Stdout = os.Stdout
 	splitCmd.Stderr = os.Stderr
 
 	if err := splitCmd.Run(); err != nil {
+		tmuxDebugLog("FAIL: split-window: %v", err)
 		return stacktrace.Propagate(err, "failed to create new tmux pane")
 	}
 
+	tmuxDebugLog("SUCCESS: pane created")
 	return nil
 }

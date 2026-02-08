@@ -6,9 +6,24 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 )
+
+const tmuxDebugLogFilepath = "/tmp/agenc-tmux.log"
+
+// tmuxDebugLog appends a timestamped line to /tmp/agenc-tmux.log for diagnosing
+// keybinding issues. Temporary — remove after debugging.
+func tmuxDebugLog(format string, args ...any) {
+	f, err := os.OpenFile(tmuxDebugLogFilepath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	msg := fmt.Sprintf(format, args...)
+	fmt.Fprintf(f, "[%s] %s\n", time.Now().Format("2006-01-02 15:04:05.000"), msg)
+}
 
 const (
 	tmuxSessionName = "agenc"

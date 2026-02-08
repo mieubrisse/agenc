@@ -37,7 +37,14 @@ func init() {
 }
 
 func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
+	tmuxDebugLog("=== tmux window new ===")
+	tmuxDebugLog("args: %v", args)
+	tmuxDebugLog("AGENC_TMUX=%q", os.Getenv(agencTmuxEnvVar))
+	tmuxDebugLog("TMUX_PANE=%q", os.Getenv("TMUX_PANE"))
+	tmuxDebugLog("PATH=%q", os.Getenv("PATH"))
+
 	if !isInsideAgencTmux() {
+		tmuxDebugLog("FAIL: isInsideAgencTmux() returned false")
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
@@ -48,16 +55,20 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 	if parentPaneID == "" {
 		parentPaneID = os.Getenv("TMUX_PANE")
 	}
+	tmuxDebugLog("parentPaneID=%q", parentPaneID)
 	if parentPaneID == "" {
+		tmuxDebugLog("FAIL: empty parentPaneID")
 		return stacktrace.NewError("could not determine parent pane; pass --parent-pane or ensure $TMUX_PANE is set")
 	}
 
 	// Get the parent's window ID via tmux
 	windowIDOutput, err := exec.Command("tmux", "display-message", "-t", parentPaneID, "-p", "#{window_id}").Output()
 	if err != nil {
+		tmuxDebugLog("FAIL: display-message for pane %s: %v", parentPaneID, err)
 		return stacktrace.Propagate(err, "failed to get window ID for pane %s", parentPaneID)
 	}
 	parentWindowID := strings.TrimSpace(string(windowIDOutput))
+	tmuxDebugLog("parentWindowID=%q", parentWindowID)
 
 	// Build the command string for the new window. We wrap the user's command
 	// in a shell snippet that always returns focus to the parent pane on exit,
@@ -69,6 +80,7 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 		`%s; _pw=$(tmux display-message -t %s -p '#{window_id}' 2>/dev/null) && tmux select-window -t "$_pw" 2>/dev/null; tmux select-pane -t %s 2>/dev/null`,
 		userCommand, parentPaneID, parentPaneID,
 	)
+	tmuxDebugLog("wrappedCommand=%q", wrappedCommand)
 
 	// Create a new window adjacent to the parent's window
 	tmuxArgs := []string{
@@ -78,15 +90,18 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 		"-e", agencParentPaneEnvVar + "=" + parentPaneID,
 		wrappedCommand,
 	}
+	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	newWindowCmd := exec.Command("tmux", tmuxArgs...)
 	newWindowCmd.Stdout = os.Stdout
 	newWindowCmd.Stderr = os.Stderr
 
 	if err := newWindowCmd.Run(); err != nil {
+		tmuxDebugLog("FAIL: new-window: %v", err)
 		return stacktrace.Propagate(err, "failed to create new tmux window")
 	}
 
+	tmuxDebugLog("SUCCESS: window created")
 	return nil
 }
 
