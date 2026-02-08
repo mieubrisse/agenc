@@ -19,8 +19,8 @@ const (
 	ingestDebounce = 500 * time.Millisecond
 )
 
-// runConfigWatcherLoop watches ~/.claude for changes to tracked files and
-// ingests them into the shadow repo with path normalization.
+// runConfigWatcherLoop initializes the shadow repo (if needed), performs an
+// initial ingest from ~/.claude, then watches for ongoing changes.
 func (d *Daemon) runConfigWatcherLoop(ctx context.Context) {
 	userClaudeDirpath, err := config.GetUserClaudeDirpath()
 	if err != nil {
@@ -28,13 +28,14 @@ func (d *Daemon) runConfigWatcherLoop(ctx context.Context) {
 		return
 	}
 
-	shadowDirpath := claudeconfig.GetShadowRepoDirpath(d.agencDirpath)
-
-	// Wait for shadow repo to exist before starting
-	if !waitForDirectory(ctx, shadowDirpath, 30*time.Second) {
-		d.logger.Println("Config watcher: shadow repo not found, stopping")
+	// Ensure shadow repo exists (creates + initial ingest if first run)
+	if err := claudeconfig.EnsureShadowRepo(d.agencDirpath); err != nil {
+		d.logger.Printf("Config watcher: failed to initialize shadow repo: %v", err)
 		return
 	}
+
+	shadowDirpath := claudeconfig.GetShadowRepoDirpath(d.agencDirpath)
+	d.logger.Println("Config watcher: shadow repo ready, starting watch")
 
 	d.watchClaudeDir(ctx, userClaudeDirpath, shadowDirpath)
 }
@@ -183,26 +184,3 @@ func (d *Daemon) ingestClaudeConfig(userClaudeDirpath string, shadowDirpath stri
 	}
 }
 
-// waitForDirectory blocks until the given directory exists or the context is
-// cancelled. Returns true if the directory was found, false if the context
-// was cancelled or the timeout expired.
-func waitForDirectory(ctx context.Context, dirpath string, timeout time.Duration) bool {
-	deadline := time.After(timeout)
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		if _, err := os.Stat(dirpath); err == nil {
-			return true
-		}
-
-		select {
-		case <-ctx.Done():
-			return false
-		case <-deadline:
-			return false
-		case <-ticker.C:
-			continue
-		}
-	}
-}
