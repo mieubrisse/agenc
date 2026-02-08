@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/adhocore/gronx"
@@ -69,12 +70,24 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 	return c.Overlap
 }
 
+// CustomCommandConfig represents a user-defined command palette entry.
+type CustomCommandConfig struct {
+	Args        string `yaml:"args"`        // Whitespace-separated agenc subcommand arguments
+	PaletteName string `yaml:"paletteName"` // User-visible label in the palette picker
+}
+
+// GetArgs returns the command arguments split on whitespace.
+func (c *CustomCommandConfig) GetArgs() []string {
+	return strings.Fields(c.Args)
+}
+
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	SyncedRepos        []string              `yaml:"syncedRepos,omitempty"`
-	TmuxAgencFilepath  string                `yaml:"tmuxAgencFilepath,omitempty"`
-	Crons              map[string]CronConfig `yaml:"crons,omitempty"`
-	CronsMaxConcurrent int                   `yaml:"cronsMaxConcurrent,omitempty"`
+	SyncedRepos        []string                       `yaml:"syncedRepos,omitempty"`
+	TmuxAgencFilepath  string                         `yaml:"tmuxAgencFilepath,omitempty"`
+	Crons              map[string]CronConfig          `yaml:"crons,omitempty"`
+	CronsMaxConcurrent int                            `yaml:"cronsMaxConcurrent,omitempty"`
+	CustomCommands     map[string]CustomCommandConfig `yaml:"customCommands,omitempty"`
 }
 
 // GetTmuxAgencBinary returns the agenc binary name/path used in tmux
@@ -173,6 +186,30 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		}
 	}
 
+	// Validate custom commands
+	if cfg.CustomCommands == nil {
+		cfg.CustomCommands = make(map[string]CustomCommandConfig)
+	}
+	seenPaletteNames := make(map[string]string) // paletteName → command name
+	for name, cmdCfg := range cfg.CustomCommands {
+		if err := ValidateCustomCommandName(name); err != nil {
+			return nil, nil, stacktrace.Propagate(err, "invalid custom command name in %s", configFilepath)
+		}
+		if cmdCfg.PaletteName == "" {
+			return nil, nil, stacktrace.NewError("custom command '%s' in %s must have a paletteName", name, configFilepath)
+		}
+		if cmdCfg.Args == "" {
+			return nil, nil, stacktrace.NewError("custom command '%s' in %s must have args", name, configFilepath)
+		}
+		if existingName, ok := seenPaletteNames[cmdCfg.PaletteName]; ok {
+			return nil, nil, stacktrace.NewError(
+				"duplicate paletteName '%s' in %s: used by both '%s' and '%s'",
+				cmdCfg.PaletteName, configFilepath, existingName, name,
+			)
+		}
+		seenPaletteNames[cmdCfg.PaletteName] = name
+	}
+
 	return &cfg, cm, nil
 }
 
@@ -220,6 +257,22 @@ func EnsureConfigFile(agencDirpath string) error {
 
 // cronNameRegex matches valid cron names: alphanumeric, hyphens, underscores.
 var cronNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
+
+// ValidateCustomCommandName checks whether a custom command name is valid.
+// Custom command names follow the same rules as cron names: start with a letter,
+// contain only letters, numbers, hyphens, and underscores, max 64 characters.
+func ValidateCustomCommandName(name string) error {
+	if name == "" {
+		return stacktrace.NewError("custom command name cannot be empty")
+	}
+	if len(name) > 64 {
+		return stacktrace.NewError("custom command name too long (max 64 characters)")
+	}
+	if !cronNameRegex.MatchString(name) {
+		return stacktrace.NewError("custom command name '%s' is invalid; must start with a letter and contain only letters, numbers, hyphens, and underscores", name)
+	}
+	return nil
+}
 
 // ValidateCronName checks whether a cron name is valid.
 // Cron names must start with a letter and contain only letters, numbers, hyphens, and underscores.

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -172,5 +173,172 @@ func TestEnsureConfigFile(t *testing.T) {
 	}
 	if string(data2) != expected {
 		t.Errorf("file was modified by second EnsureConfigFile call")
+	}
+}
+
+// --- Custom commands tests ---
+
+func writeConfigYAML(t *testing.T, tmpDir string, content string) {
+	t.Helper()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	configFilepath := filepath.Join(configDirpath, ConfigFilename)
+	if err := os.WriteFile(configFilepath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCustomCommands_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &AgencConfig{
+		CustomCommands: map[string]CustomCommandConfig{
+			"dotfiles": {
+				Args:        "mission new github.com/mieubrisse/dotfiles",
+				PaletteName: "Open dotfiles",
+			},
+			"logs": {
+				Args:        "daemon logs",
+				PaletteName: "View daemon logs",
+			},
+		},
+	}
+
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if len(got.CustomCommands) != 2 {
+		t.Fatalf("expected 2 custom commands, got %d", len(got.CustomCommands))
+	}
+
+	dotfiles, ok := got.CustomCommands["dotfiles"]
+	if !ok {
+		t.Fatal("expected 'dotfiles' custom command to exist")
+	}
+	if dotfiles.PaletteName != "Open dotfiles" {
+		t.Errorf("expected paletteName 'Open dotfiles', got '%s'", dotfiles.PaletteName)
+	}
+	if dotfiles.Args != "mission new github.com/mieubrisse/dotfiles" {
+		t.Errorf("expected args 'mission new github.com/mieubrisse/dotfiles', got '%s'", dotfiles.Args)
+	}
+}
+
+func TestCustomCommands_MissingPaletteName(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+customCommands:
+  dotfiles:
+    args: mission new github.com/mieubrisse/dotfiles
+`)
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for missing paletteName, got nil")
+	}
+	if !strings.Contains(err.Error(), "paletteName") {
+		t.Errorf("expected error mentioning paletteName, got: %v", err)
+	}
+}
+
+func TestCustomCommands_MissingArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+customCommands:
+  dotfiles:
+    paletteName: "Open dotfiles"
+`)
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for missing args, got nil")
+	}
+	if !strings.Contains(err.Error(), "args") {
+		t.Errorf("expected error mentioning args, got: %v", err)
+	}
+}
+
+func TestCustomCommands_DuplicatePaletteName(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+customCommands:
+  dotfiles:
+    args: mission new github.com/mieubrisse/dotfiles
+    paletteName: "Same Name"
+  other:
+    args: daemon logs
+    paletteName: "Same Name"
+`)
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for duplicate paletteName, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate paletteName") {
+		t.Errorf("expected error mentioning duplicate paletteName, got: %v", err)
+	}
+}
+
+func TestCustomCommands_InvalidName(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+customCommands:
+  123bad:
+    args: mission new foo
+    paletteName: "Bad Name"
+`)
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for invalid command name, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("expected error mentioning invalid name, got: %v", err)
+	}
+}
+
+func TestCustomCommandConfig_GetArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     string
+		expected []string
+	}{
+		{
+			name:     "simple args",
+			args:     "mission new",
+			expected: []string{"mission", "new"},
+		},
+		{
+			name:     "args with extra whitespace",
+			args:     "  mission   new   github.com/owner/repo  ",
+			expected: []string{"mission", "new", "github.com/owner/repo"},
+		},
+		{
+			name:     "single arg",
+			args:     "status",
+			expected: []string{"status"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &CustomCommandConfig{Args: tt.args}
+			got := cfg.GetArgs()
+			if !reflect.DeepEqual(got, tt.expected) {
+				t.Errorf("GetArgs() = %v, want %v", got, tt.expected)
+			}
+		})
 	}
 }
