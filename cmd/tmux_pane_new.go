@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	horizontalFlagName = "horizontal"
+	verticalFlagName = "vertical"
 )
 
 var tmuxPaneNewCmd = &cobra.Command{
@@ -20,8 +20,8 @@ var tmuxPaneNewCmd = &cobra.Command{
 command inside the new pane. When the command exits, the pane closes and
 tmux focuses back to the parent pane.
 
-By default the split is vertical (top/bottom). Use --horizontal for a
-side-by-side split.
+By default the split is vertical (side-by-side). Use --vertical for a
+top/bottom split.
 
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
@@ -32,7 +32,7 @@ is needed for tmux keybindings where $TMUX_PANE is not available. Use
 
 Example:
   agenc tmux pane new -- agenc mission new mieubrisse/agenc
-  agenc tmux pane new --horizontal -- agenc mission new
+  agenc tmux pane new --vertical -- agenc mission new
   agenc tmux pane new --parent-pane "#{pane_id}" -- agenc mission new`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTmuxPaneNew,
@@ -41,7 +41,7 @@ Example:
 func init() {
 	tmuxPaneCmd.AddCommand(tmuxPaneNewCmd)
 	tmuxPaneNewCmd.Flags().String(parentPaneFlagName, "", "Parent pane ID to return focus to on exit (defaults to $TMUX_PANE)")
-	tmuxPaneNewCmd.Flags().BoolP(horizontalFlagName, "H", false, "Split horizontally (side-by-side) instead of vertically (top/bottom)")
+	tmuxPaneNewCmd.Flags().BoolP(verticalFlagName, "V", false, "Split vertically (top/bottom) instead of the default side-by-side")
 }
 
 func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
@@ -58,7 +58,7 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("could not determine parent pane; pass --parent-pane or ensure $TMUX_PANE is set")
 	}
 
-	horizontal, _ := cmd.Flags().GetBool(horizontalFlagName)
+	vertical, _ := cmd.Flags().GetBool(verticalFlagName)
 
 	// Build the command string for the new pane. We wrap the user's command
 	// in a shell snippet that returns focus to the parent pane on exit,
@@ -69,9 +69,10 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 		userCommand, parentPaneID,
 	)
 
-	// Split the current window to create a new pane
+	// Split the current window to create a new pane.
+	// Default is side-by-side (-h); --vertical omits -h for top/bottom.
 	tmuxArgs := []string{"split-window"}
-	if horizontal {
+	if !vertical {
 		tmuxArgs = append(tmuxArgs, "-h")
 	}
 	tmuxArgs = append(tmuxArgs,
