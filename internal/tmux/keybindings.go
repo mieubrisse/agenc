@@ -42,8 +42,8 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int) string {
 	// Command palette (requires tmux >= 3.2 for display-popup)
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
-		sb.WriteString("# Command palette (prefix + a, Space)\n")
-		fmt.Fprintf(&sb, "bind-key -T %s Space run-shell 'tmux display-popup -E -w 60%% -h 50%% \"agenc tmux palette --parent-pane #{pane_id}\"'\n", agencKeyTable)
+		sb.WriteString("# Command palette (prefix + a, k)\n")
+		fmt.Fprintf(&sb, "bind-key -T %s k run-shell 'tmux display-popup -E -w 60%% -h 50%% \"agenc tmux palette --parent-pane #{pane_id}\"'\n", agencKeyTable)
 	}
 
 	return sb.String()

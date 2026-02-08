@@ -43,7 +43,7 @@ On selection, the chosen command runs in a new tmux window. On cancel
 (Ctrl-C or Esc), the popup closes with no action.
 
 This command is designed to be invoked by the palette keybinding
-(prefix + a, Space) and requires --parent-pane.`,
+(prefix + a, k) and requires --parent-pane.`,
 	Args: cobra.NoArgs,
 	RunE: runTmuxPalette,
 }
