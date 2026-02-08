@@ -96,9 +96,9 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, configSourceDi
 		return stacktrace.Propagate(err, "failed to symlink .claude.json")
 	}
 
-	// Ensure central credentials and symlink .credentials.json
-	if err := ensureAndSymlinkCredentials(agencDirpath, claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to set up .credentials.json")
+	// Dump credentials directly into the mission config directory
+	if err := writeCredentialsToDir(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to write .credentials.json")
 	}
 
 	return nil
@@ -206,30 +206,12 @@ func symlinkClaudeJSON(claudeConfigDirpath string) error {
 	return ensureSymlink(linkPath, targetPath)
 }
 
-// ensureAndSymlinkCredentials ensures a central credentials file exists at
-// ~/.agenc/claude/.credentials.json and creates a symlink from the mission
-// config directory to it.
-func ensureAndSymlinkCredentials(agencDirpath string, claudeConfigDirpath string) error {
-	centralCredentialsFilepath := filepath.Join(config.GetGlobalClaudeDirpath(agencDirpath), ".credentials.json")
-
-	// If central copy doesn't exist or is empty, dump from platform source
-	if !fileExistsAndNonEmpty(centralCredentialsFilepath) {
-		if err := dumpCredentials(centralCredentialsFilepath); err != nil {
-			return stacktrace.Propagate(err, "failed to dump credentials to central location")
-		}
-	}
-
-	linkPath := filepath.Join(claudeConfigDirpath, ".credentials.json")
-	return ensureSymlink(linkPath, centralCredentialsFilepath)
-}
-
-// RefreshCentralCredentials re-dumps credentials from the platform source
-// (Keychain on macOS, file on Linux) to the central credentials file at
-// ~/.agenc/claude/.credentials.json. Called periodically by the daemon to
-// ensure all per-mission symlinks pick up credential changes.
-func RefreshCentralCredentials(agencDirpath string) error {
-	centralCredentialsFilepath := filepath.Join(config.GetGlobalClaudeDirpath(agencDirpath), ".credentials.json")
-	return dumpCredentials(centralCredentialsFilepath)
+// writeCredentialsToDir dumps credentials directly into the given directory
+// as a real file (not a symlink). On macOS this reads from Keychain; on Linux
+// it copies from ~/.claude/.credentials.json.
+func writeCredentialsToDir(claudeConfigDirpath string) error {
+	credentialsFilepath := filepath.Join(claudeConfigDirpath, ".credentials.json")
+	return dumpCredentials(credentialsFilepath)
 }
 
 // dumpCredentials dumps auth credentials to the specified file.
@@ -344,15 +326,6 @@ func ensureSymlink(linkPath string, targetPath string) error {
 		return stacktrace.Propagate(err, "failed to create symlink '%s' -> '%s'", linkPath, targetPath)
 	}
 	return nil
-}
-
-// fileExistsAndNonEmpty returns true if the file exists and has content.
-func fileExistsAndNonEmpty(filepath string) bool {
-	info, err := os.Stat(filepath)
-	if err != nil {
-		return false
-	}
-	return info.Size() > 0
 }
 
 // copyDir recursively copies a directory tree from src to dst.

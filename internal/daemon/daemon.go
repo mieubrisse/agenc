@@ -35,12 +35,6 @@ func (d *Daemon) Run(ctx context.Context) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		d.runCredentialSyncLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
 		d.runRepoUpdateLoop(ctx)
 	}()
 
