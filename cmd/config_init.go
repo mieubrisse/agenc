@@ -211,12 +211,12 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 // setupClaudeConfig prompts the user to register a Claude config source repo.
 func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.CommentMap) error {
 	fmt.Println()
-	fmt.Println("AgenC can sync your Claude Code configuration (CLAUDE.md, settings.json)")
-	fmt.Println("from a git repo. This keeps your Claude config versioned and consistent")
-	fmt.Println("across machines.")
+	fmt.Println("AgenC needs your Claude Code configuration (CLAUDE.md, settings.json) to be")
+	fmt.Println("version-controlled in a git repo. This is required for conversation rollback,")
+	fmt.Println("forking, and reproducing agent state across sessions.")
 	fmt.Println()
-	fmt.Println("Point AgenC at the repo, and optionally a subdirectory within it that")
-	fmt.Println("contains your Claude config files.")
+	fmt.Println("Point AgenC at the repo containing your Claude config. If the config lives in")
+	fmt.Println("a subdirectory (e.g., a dotfiles repo), you'll specify that next.")
 	fmt.Println()
 	fmt.Print("Do you have a repo with your Claude configuration? [y/N] ")
 
