@@ -186,12 +186,12 @@ $AGENC_DIRPATH/
 │       ├── claude-config/                 # Per-mission CLAUDE_CONFIG_DIR
 │       │   ├── CLAUDE.md                  # Merged: shadow repo + claude-modifications
 │       │   ├── settings.json              # Merged + hooks + deny entries
-│       │   ├── .claude.json               # Symlink to user's account identity
+│       │   ├── .claude.json               # Copy of user's account identity + trust entry
 │       │   ├── .credentials.json          # Dumped from Keychain (macOS) or file (Linux)
-│       │   ├── skills/                    # From shadow repo (path-expanded)
-│       │   ├── hooks/                     # From shadow repo (path-expanded)
-│       │   ├── commands/                  # From shadow repo (path-expanded)
-│       │   ├── agents/                    # From shadow repo (path-expanded)
+│       │   ├── skills/                    # From shadow repo (path-rewritten)
+│       │   ├── hooks/                     # From shadow repo (path-rewritten)
+│       │   ├── commands/                  # From shadow repo (path-rewritten)
+│       │   ├── agents/                    # From shadow repo (path-rewritten)
 │       │   └── plugins/                   # Symlink to ~/.claude/plugins/
 │       ├── pid                            # Wrapper process ID
 │       ├── claude-state                   # "idle" or "busy" (written by Claude hooks)
@@ -233,8 +233,8 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 Per-mission Claude configuration building, merging, and shadow repo management.
 
-- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path expansion, merges CLAUDE.md and settings.json, symlinks account identity, dumps credentials, symlinks plugins), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
-- `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides)
+- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, dumps credentials, symlinks plugins), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
+- `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop and UserPromptSubmit hooks for idle detection), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
 
@@ -277,7 +277,7 @@ Key Architectural Patterns
 
 Each mission gets its own `claude-config/` directory, built at creation time from three sources:
 
-1. **Shadow repo** — a normalized copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `${CLAUDE_CONFIG_DIR}` placeholders expanded to the mission's concrete config path. See "Shadow repo" below.
+1. **Shadow repo** — a verbatim copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `~/.claude` paths rewritten at build time to point to the mission's concrete config path. See "Shadow repo" below.
 2. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
 3. **AgenC operational overrides** — programmatically injected hooks and deny permissions
 
@@ -288,7 +288,7 @@ Merging logic (`internal/claudeconfig/merge.go`):
 - settings.json: recursive deep merge (user as base, modifications as overlay), then append operational overrides (hooks and deny entries)
 - Deep merge rules: objects merge recursively, arrays concatenate, scalars from the overlay win
 
-Credentials are handled separately: `.claude.json` is symlinked to the user's account identity file; `.credentials.json` is dumped as a real file from the macOS Keychain (via `security find-generic-password`) or copied from `~/.claude/.credentials.json` on Linux.
+Credentials are handled separately: `.claude.json` is copied from the user's account identity file and patched with a trust entry for the mission's agent directory; `.credentials.json` is dumped as a real file from the macOS Keychain (via `security find-generic-password`) or copied from `~/.claude/.credentials.json` on Linux.
 
 ### Shadow repo
 
@@ -298,11 +298,11 @@ The shadow repo (`internal/claudeconfig/shadow.go`) tracks the user's `~/.claude
 - Files: `CLAUDE.md`, `settings.json`
 - Directories: `skills/`, `hooks/`, `commands/`, `agents/`
 
-**Path normalization:** When ingesting files, absolute paths referencing `~/.claude` are replaced with the `${CLAUDE_CONFIG_DIR}` placeholder. This covers three path forms: absolute (`/Users/name/.claude/`), `${HOME}/.claude/`, and `~/.claude/`. The normalization applies only to text files (detected by extension: `.json`, `.md`, `.sh`, `.bash`, `.py`, `.yml`, `.yaml`, `.toml`, `.txt`). The inverse operation (`ExpandPaths`) restores concrete paths when needed.
+**Storage:** Files are stored verbatim — no path transformation on ingest. The shadow repo is a faithful copy of `~/.claude` tracked items.
 
-**Safety:** A pre-commit hook installed in the shadow repo's `.git/hooks/` rejects any commit that contains un-normalized `~/.claude` paths, catching normalization failures before they are committed.
+**Path rewriting:** Path rewriting is a one-way operation at build time only (`RewriteClaudePaths`). When `BuildMissionConfigDir` creates the per-mission config, `~/.claude` paths (absolute, `${HOME}/.claude`, and `~/.claude` forms) are rewritten to point to the mission's `claude-config/` directory. For `settings.json`, rewriting is selective: the `permissions` block is preserved unchanged while all other fields (hooks, etc.) are rewritten (`RewriteSettingsPaths`).
 
-**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo, applies normalization, and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The daemon's config watcher loop (`internal/daemon/config_watcher.go`) triggers ingestion automatically whenever `~/.claude` changes are detected via fsnotify.
+**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo as-is and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The daemon's config watcher loop (`internal/daemon/config_watcher.go`) triggers ingestion automatically whenever `~/.claude` changes are detected via fsnotify.
 
 ### Idle detection via Claude Code hooks
 

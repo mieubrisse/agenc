@@ -10,14 +10,13 @@ import (
 	"github.com/mieubrisse/stacktrace"
 )
 
+// userClaudeDirname is the standard name for the user's Claude config directory.
+const userClaudeDirname = ".claude"
+
 const (
 	// ShadowRepoDirname is the directory name for the internal shadow repo
 	// that tracks the user's ~/.claude config files.
 	ShadowRepoDirname = "claude-config-shadow"
-
-	// claudeConfigDirVar is the placeholder used in the shadow repo for paths
-	// that would otherwise reference ~/.claude.
-	claudeConfigDirVar = "${CLAUDE_CONFIG_DIR}"
 )
 
 // TrackedFileNames lists the files that are shadowed from ~/.claude into the
@@ -65,21 +64,16 @@ func InitShadowRepo(agencDirpath string) (string, error) {
 		return "", stacktrace.NewError("git init failed in '%s': %s (error: %v)", shadowDirpath, string(output), err)
 	}
 
-	if err := installPreCommitHook(shadowDirpath); err != nil {
-		return "", stacktrace.Propagate(err, "failed to install pre-commit hook")
-	}
-
 	return shadowDirpath, nil
 }
 
 // IngestFromClaudeDir copies tracked files from the user's ~/.claude directory
-// into the shadow repo, applying path normalization. If any files changed, it
-// auto-commits them.
+// into the shadow repo as-is (no path transformation). If any files changed,
+// it auto-commits them.
 //
 // userClaudeDirpath is the path to ~/.claude (or equivalent).
 // shadowDirpath is the path to the shadow repo.
 func IngestFromClaudeDir(userClaudeDirpath string, shadowDirpath string) error {
-	homeDirpath := filepath.Dir(userClaudeDirpath)
 	changed := false
 
 	// Ingest tracked files
@@ -87,7 +81,7 @@ func IngestFromClaudeDir(userClaudeDirpath string, shadowDirpath string) error {
 		srcFilepath := filepath.Join(userClaudeDirpath, fileName)
 		dstFilepath := filepath.Join(shadowDirpath, fileName)
 
-		didChange, err := ingestFile(srcFilepath, dstFilepath, homeDirpath)
+		didChange, err := ingestFile(srcFilepath, dstFilepath)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to ingest file '%s'", fileName)
 		}
@@ -101,7 +95,7 @@ func IngestFromClaudeDir(userClaudeDirpath string, shadowDirpath string) error {
 		srcDirpath := filepath.Join(userClaudeDirpath, dirName)
 		dstDirpath := filepath.Join(shadowDirpath, dirName)
 
-		didChange, err := ingestDir(srcDirpath, dstDirpath, homeDirpath)
+		didChange, err := ingestDir(srcDirpath, dstDirpath)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to ingest directory '%s'", dirName)
 		}
@@ -119,53 +113,56 @@ func IngestFromClaudeDir(userClaudeDirpath string, shadowDirpath string) error {
 	return nil
 }
 
-// NormalizePaths replaces absolute and shorthand ~/.claude paths with the
-// ${CLAUDE_CONFIG_DIR} placeholder. homeDirpath is the user's home directory
-// (e.g., /Users/odyssey).
-func NormalizePaths(content []byte, homeDirpath string) []byte {
-	claudeDirpath := filepath.Join(homeDirpath, ".claude")
+// RewriteClaudePaths replaces all forms of ~/.claude paths with the given
+// target path. This is a one-way rewrite used at build time to redirect
+// ~/.claude references to the per-mission config directory.
+//
+// Handles three path forms (most specific first to avoid partial matches):
+//   - Absolute: /Users/name/.claude → targetDirpath
+//   - ${HOME}/.claude → targetDirpath
+//   - ~/.claude → targetDirpath
+func RewriteClaudePaths(content []byte, targetDirpath string) []byte {
+	homeDirpath, err := os.UserHomeDir()
+	if err != nil {
+		// If we can't determine home, only rewrite tilde form
+		homeDirpath = ""
+	}
 
-	// Order matters: most specific (longest) first to avoid partial matches.
+	if homeDirpath != "" {
+		claudeDirpath := filepath.Join(homeDirpath, userClaudeDirname)
 
-	// 1. Absolute path with trailing slash: /Users/odyssey/.claude/ → ${CLAUDE_CONFIG_DIR}/
-	content = bytes.ReplaceAll(content,
-		[]byte(claudeDirpath+"/"),
-		[]byte(claudeConfigDirVar+"/"))
+		// 1. Absolute path with trailing slash
+		content = bytes.ReplaceAll(content,
+			[]byte(claudeDirpath+"/"),
+			[]byte(targetDirpath+"/"))
 
-	// 2. Absolute path without trailing slash (end of value, before quote, etc.)
-	content = bytes.ReplaceAll(content,
-		[]byte(claudeDirpath),
-		[]byte(claudeConfigDirVar))
+		// 2. Absolute path without trailing slash
+		content = bytes.ReplaceAll(content,
+			[]byte(claudeDirpath),
+			[]byte(targetDirpath))
+	}
 
-	// 3. ${HOME}/.claude/ → ${CLAUDE_CONFIG_DIR}/
+	// 3. ${HOME}/.claude/ with trailing slash
 	content = bytes.ReplaceAll(content,
 		[]byte("${HOME}/.claude/"),
-		[]byte(claudeConfigDirVar+"/"))
+		[]byte(targetDirpath+"/"))
 
-	// 4. ${HOME}/.claude (no trailing slash)
+	// 4. ${HOME}/.claude without trailing slash
 	content = bytes.ReplaceAll(content,
 		[]byte("${HOME}/.claude"),
-		[]byte(claudeConfigDirVar))
+		[]byte(targetDirpath))
 
-	// 5. ~/.claude/ → ${CLAUDE_CONFIG_DIR}/
+	// 5. ~/.claude/ with trailing slash
 	content = bytes.ReplaceAll(content,
 		[]byte("~/.claude/"),
-		[]byte(claudeConfigDirVar+"/"))
+		[]byte(targetDirpath+"/"))
 
-	// 6. ~/.claude (no trailing slash)
+	// 6. ~/.claude without trailing slash
 	content = bytes.ReplaceAll(content,
 		[]byte("~/.claude"),
-		[]byte(claudeConfigDirVar))
+		[]byte(targetDirpath))
 
 	return content
-}
-
-// ExpandPaths replaces ${CLAUDE_CONFIG_DIR} placeholders with the actual
-// config directory path.
-func ExpandPaths(content []byte, claudeConfigDirpath string) []byte {
-	return bytes.ReplaceAll(content,
-		[]byte(claudeConfigDirVar),
-		[]byte(claudeConfigDirpath))
 }
 
 // isTextFile returns true if the file extension suggests a text file that
@@ -196,10 +193,10 @@ func getFileExtension(path string) string {
 	return base[idx:]
 }
 
-// ingestFile copies a single file from src to dst, applying path normalization
-// if it's a text file. Returns true if the destination was changed.
+// ingestFile copies a single file from src to dst as-is (no path
+// transformation). Returns true if the destination was changed.
 // If the source doesn't exist, removes the destination if it exists.
-func ingestFile(srcFilepath string, dstFilepath string, homeDirpath string) (bool, error) {
+func ingestFile(srcFilepath string, dstFilepath string) (bool, error) {
 	// Resolve symlinks so we read actual content
 	resolvedSrc, err := resolveSymlink(srcFilepath)
 	if err != nil {
@@ -221,13 +218,6 @@ func ingestFile(srcFilepath string, dstFilepath string, homeDirpath string) (boo
 		return false, stacktrace.Propagate(err, "failed to read '%s'", resolvedSrc)
 	}
 
-	// Apply path normalization for text files, but skip settings.json —
-	// it contains permission entries with user-specified paths that must
-	// not be rewritten.
-	if isTextFile(srcFilepath) && filepath.Base(srcFilepath) != "settings.json" {
-		data = NormalizePaths(data, homeDirpath)
-	}
-
 	// Check if destination already has the same content
 	existingData, readErr := os.ReadFile(dstFilepath)
 	if readErr == nil && bytes.Equal(existingData, data) {
@@ -241,10 +231,10 @@ func ingestFile(srcFilepath string, dstFilepath string, homeDirpath string) (boo
 	return true, nil
 }
 
-// ingestDir copies a directory from src to dst, applying path normalization
-// to text files. Returns true if any files were changed.
+// ingestDir copies a directory from src to dst as-is (no path transformation).
+// Returns true if any files were changed.
 // If the source doesn't exist, removes the destination if it exists.
-func ingestDir(srcDirpath string, dstDirpath string, homeDirpath string) (bool, error) {
+func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 	// Resolve the source in case it's a symlink
 	resolvedSrc, err := resolveSymlink(srcDirpath)
 	if err != nil {
@@ -286,10 +276,8 @@ func ingestDir(srcDirpath string, dstDirpath string, homeDirpath string) (bool, 
 			return os.MkdirAll(dstPath, info.Mode())
 		}
 
-		// For files within the directory, use the original source path
-		// (before symlink resolution) for extension detection
 		origFilepath := filepath.Join(srcDirpath, relPath)
-		didChange, err := ingestFile(path, dstPath, homeDirpath)
+		didChange, err := ingestFile(path, dstPath)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to ingest '%s'", origFilepath)
 		}
@@ -349,43 +337,3 @@ func commitShadowChanges(shadowDirpath string, message string) error {
 	return nil
 }
 
-// installPreCommitHook installs a pre-commit hook in the shadow repo that
-// rejects commits containing un-normalized ~/.claude paths.
-func installPreCommitHook(shadowDirpath string) error {
-	hooksDirpath := filepath.Join(shadowDirpath, ".git", "hooks")
-	if err := os.MkdirAll(hooksDirpath, 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to create hooks directory")
-	}
-
-	hookFilepath := filepath.Join(hooksDirpath, "pre-commit")
-	hookScript := `#!/usr/bin/env bash
-set -euo pipefail
-
-# Reject commits that contain un-normalized ~/.claude paths.
-# All paths in the shadow repo must use ${CLAUDE_CONFIG_DIR} instead.
-# Exception: settings.json is excluded because it contains permission entries
-# with user-specified paths that must not be rewritten.
-
-# Get the home directory to check for absolute paths
-home_dirpath="${HOME}"
-
-# Check staged file contents for un-normalized paths (excluding settings.json)
-if git diff --cached -U0 --diff-filter=ACM -- ':!settings.json' | \
-   grep -qE "(${home_dirpath}/\.claude[/\"]|\\$\{HOME\}/\.claude[/\"]|~/\.claude[/\"])"; then
-    echo "ERROR: Staged changes contain un-normalized ~/.claude paths." >&2
-    echo "All paths must use \${CLAUDE_CONFIG_DIR} instead of:" >&2
-    echo "  - ${home_dirpath}/.claude/" >&2
-    echo "  - \${HOME}/.claude/" >&2
-    echo "  - ~/.claude/" >&2
-    echo "" >&2
-    echo "Run 'agenc config sync' to re-normalize, or fix manually." >&2
-    exit 1
-fi
-`
-
-	if err := os.WriteFile(hookFilepath, []byte(hookScript), 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to write pre-commit hook")
-	}
-
-	return nil
-}

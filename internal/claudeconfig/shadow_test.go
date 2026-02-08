@@ -1,14 +1,21 @@
 package claudeconfig
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 )
 
-func TestNormalizePaths(t *testing.T) {
-	homeDirpath := "/Users/testuser"
+func TestRewriteClaudePaths(t *testing.T) {
+	targetDirpath := "/Users/testuser/.agenc/missions/abc-123/claude-config"
+
+	// Get home dir for absolute path test cases
+	homeDirpath, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get home dir: %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -16,39 +23,39 @@ func TestNormalizePaths(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "absolute path with trailing slash",
-			input:    `"installPath": "/Users/testuser/.claude/plugins/cache/lua-lsp"`,
-			expected: `"installPath": "${CLAUDE_CONFIG_DIR}/plugins/cache/lua-lsp"`,
-		},
-		{
-			name:     "absolute path without trailing slash",
-			input:    `"location": "/Users/testuser/.claude"`,
-			expected: `"location": "${CLAUDE_CONFIG_DIR}"`,
-		},
-		{
-			name:     "HOME variable with trailing slash",
-			input:    `bash ${HOME}/.claude/hooks/my-hook.sh`,
-			expected: `bash ${CLAUDE_CONFIG_DIR}/hooks/my-hook.sh`,
-		},
-		{
-			name:     "HOME variable without trailing slash",
-			input:    `path: ${HOME}/.claude`,
-			expected: `path: ${CLAUDE_CONFIG_DIR}`,
-		},
-		{
 			name:     "tilde path with trailing slash",
 			input:    `"command": "bash ~/.claude/hooks/set-style.sh"`,
-			expected: `"command": "bash ${CLAUDE_CONFIG_DIR}/hooks/set-style.sh"`,
+			expected: `"command": "bash ` + targetDirpath + `/hooks/set-style.sh"`,
 		},
 		{
 			name:     "tilde path without trailing slash",
 			input:    `Read(~/.claude)`,
-			expected: `Read(${CLAUDE_CONFIG_DIR})`,
+			expected: `Read(` + targetDirpath + `)`,
+		},
+		{
+			name:     "HOME variable with trailing slash",
+			input:    `bash ${HOME}/.claude/hooks/my-hook.sh`,
+			expected: `bash ` + targetDirpath + `/hooks/my-hook.sh`,
+		},
+		{
+			name:     "HOME variable without trailing slash",
+			input:    `path: ${HOME}/.claude`,
+			expected: `path: ` + targetDirpath,
+		},
+		{
+			name:     "absolute path with trailing slash",
+			input:    `"installPath": "` + homeDirpath + `/.claude/plugins/cache/lua-lsp"`,
+			expected: `"installPath": "` + targetDirpath + `/plugins/cache/lua-lsp"`,
+		},
+		{
+			name:     "absolute path without trailing slash",
+			input:    `"location": "` + homeDirpath + `/.claude"`,
+			expected: `"location": "` + targetDirpath + `"`,
 		},
 		{
 			name:     "multiple patterns in one string",
-			input:    `path /Users/testuser/.claude/foo and ~/.claude/bar`,
-			expected: `path ${CLAUDE_CONFIG_DIR}/foo and ${CLAUDE_CONFIG_DIR}/bar`,
+			input:    `path ~/.claude/foo and ${HOME}/.claude/bar`,
+			expected: `path ` + targetDirpath + `/foo and ` + targetDirpath + `/bar`,
 		},
 		{
 			name:     "no matching paths unchanged",
@@ -56,93 +63,20 @@ func TestNormalizePaths(t *testing.T) {
 			expected: `"key": "some normal value"`,
 		},
 		{
-			name:     "partial match not replaced (different user)",
-			input:    `"/Users/otheruser/.claude/stuff"`,
-			expected: `"/Users/otheruser/.claude/stuff"`,
-		},
-		{
 			name:     "does not replace non-claude dot directories",
-			input:    `"/Users/testuser/.config/foo"`,
-			expected: `"/Users/testuser/.config/foo"`,
+			input:    `"` + homeDirpath + `/.config/foo"`,
+			expected: `"` + homeDirpath + `/.config/foo"`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NormalizePaths([]byte(tt.input), homeDirpath)
+			result := RewriteClaudePaths([]byte(tt.input), targetDirpath)
 			if string(result) != tt.expected {
-				t.Errorf("NormalizePaths:\n  input:    %s\n  expected: %s\n  got:      %s",
+				t.Errorf("RewriteClaudePaths:\n  input:    %s\n  expected: %s\n  got:      %s",
 					tt.input, tt.expected, string(result))
 			}
 		})
-	}
-}
-
-func TestExpandPaths(t *testing.T) {
-	configDirpath := "/Users/testuser/.agenc/missions/abc-123/claude-config"
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "placeholder with trailing slash",
-			input:    `"installPath": "${CLAUDE_CONFIG_DIR}/plugins/cache/lua-lsp"`,
-			expected: `"installPath": "/Users/testuser/.agenc/missions/abc-123/claude-config/plugins/cache/lua-lsp"`,
-		},
-		{
-			name:     "placeholder without trailing slash",
-			input:    `"location": "${CLAUDE_CONFIG_DIR}"`,
-			expected: `"location": "/Users/testuser/.agenc/missions/abc-123/claude-config"`,
-		},
-		{
-			name:     "multiple placeholders",
-			input:    `${CLAUDE_CONFIG_DIR}/foo and ${CLAUDE_CONFIG_DIR}/bar`,
-			expected: configDirpath + `/foo and ` + configDirpath + `/bar`,
-		},
-		{
-			name:     "no placeholders unchanged",
-			input:    `"key": "value"`,
-			expected: `"key": "value"`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ExpandPaths([]byte(tt.input), configDirpath)
-			if string(result) != tt.expected {
-				t.Errorf("ExpandPaths:\n  input:    %s\n  expected: %s\n  got:      %s",
-					tt.input, tt.expected, string(result))
-			}
-		})
-	}
-}
-
-func TestNormalizeExpandRoundTrip(t *testing.T) {
-	homeDirpath := "/Users/testuser"
-	configDirpath := "/Users/testuser/.agenc/missions/abc-123/claude-config"
-
-	inputs := []string{
-		`"installPath": "/Users/testuser/.claude/plugins/cache/lua-lsp/1.0.0"`,
-		`"command": "bash ~/.claude/hooks/my-hook.sh"`,
-		`path: ${HOME}/.claude/skills/my-skill`,
-	}
-
-	for _, input := range inputs {
-		normalized := NormalizePaths([]byte(input), homeDirpath)
-		expanded := ExpandPaths(normalized, configDirpath)
-
-		// Expanded should not contain any ~/.claude references
-		if containsClaudePath(string(expanded), homeDirpath) {
-			t.Errorf("round-trip still contains ~/.claude path:\n  input:      %s\n  normalized: %s\n  expanded:   %s",
-				input, string(normalized), string(expanded))
-		}
-
-		// Expanded should contain the config dirpath
-		if !containsSubstring(string(expanded), configDirpath) {
-			t.Errorf("expanded result doesn't contain config dirpath:\n  expanded: %s", string(expanded))
-		}
 	}
 }
 
@@ -195,15 +129,10 @@ func TestInitShadowRepo(t *testing.T) {
 		t.Error(".git directory was not created")
 	}
 
-	// Verify pre-commit hook exists and is executable
+	// No pre-commit hook should be installed (normalization removed)
 	hookFilepath := filepath.Join(gitDirpath, "hooks", "pre-commit")
-	info, err := os.Stat(hookFilepath)
-	if os.IsNotExist(err) {
-		t.Error("pre-commit hook was not created")
-	} else if err != nil {
-		t.Fatalf("failed to stat hook: %v", err)
-	} else if info.Mode()&0111 == 0 {
-		t.Error("pre-commit hook is not executable")
+	if _, err := os.Stat(hookFilepath); err == nil {
+		t.Error("pre-commit hook should not be installed (normalization removed)")
 	}
 
 	// Calling again should be a no-op
@@ -225,7 +154,7 @@ func TestIngestFromClaudeDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create tracked files with paths that need normalization
+	// Create tracked files with ~/.claude paths
 	settingsContent := `{
   "permissions": {
     "allow": ["Read(` + claudeDirpath + `/skills/**)"]
@@ -264,32 +193,34 @@ func TestIngestFromClaudeDir(t *testing.T) {
 		t.Fatalf("IngestFromClaudeDir failed: %v", err)
 	}
 
-	// Verify settings.json was NOT normalized — it contains permission entries
-	// with user-specified paths that must not be rewritten
-	normalizedSettings, err := os.ReadFile(filepath.Join(shadowDirpath, "settings.json"))
+	// Verify settings.json stored verbatim — no normalization
+	ingestedSettings, err := os.ReadFile(filepath.Join(shadowDirpath, "settings.json"))
 	if err != nil {
 		t.Fatalf("failed to read settings: %v", err)
 	}
-	if containsSubstring(string(normalizedSettings), "${CLAUDE_CONFIG_DIR}") {
-		t.Errorf("settings.json should not be normalized (contains permission paths):\n%s", string(normalizedSettings))
+	if string(ingestedSettings) != settingsContent {
+		t.Errorf("settings.json should be stored verbatim:\n  expected: %s\n  got:      %s",
+			settingsContent, string(ingestedSettings))
 	}
 
-	// Verify CLAUDE.md was normalized
-	normalizedClaudeMd, err := os.ReadFile(filepath.Join(shadowDirpath, "CLAUDE.md"))
+	// Verify CLAUDE.md stored verbatim — still contains ~/.claude
+	ingestedClaudeMd, err := os.ReadFile(filepath.Join(shadowDirpath, "CLAUDE.md"))
 	if err != nil {
-		t.Fatalf("failed to read normalized CLAUDE.md: %v", err)
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
 	}
-	if containsSubstring(string(normalizedClaudeMd), "~/.claude") {
-		t.Errorf("CLAUDE.md still contains ~/.claude:\n%s", string(normalizedClaudeMd))
+	if string(ingestedClaudeMd) != claudeMdContent {
+		t.Errorf("CLAUDE.md should be stored verbatim:\n  expected: %s\n  got:      %s",
+			claudeMdContent, string(ingestedClaudeMd))
 	}
 
-	// Verify skill file was normalized
-	normalizedSkill, err := os.ReadFile(filepath.Join(shadowDirpath, "skills", "my-skill", "SKILL.md"))
+	// Verify skill file stored verbatim — still contains ~/.claude
+	ingestedSkill, err := os.ReadFile(filepath.Join(shadowDirpath, "skills", "my-skill", "SKILL.md"))
 	if err != nil {
-		t.Fatalf("failed to read normalized skill: %v", err)
+		t.Fatalf("failed to read skill: %v", err)
 	}
-	if containsSubstring(string(normalizedSkill), "~/.claude") {
-		t.Errorf("SKILL.md still contains ~/.claude:\n%s", string(normalizedSkill))
+	if string(ingestedSkill) != skillContent {
+		t.Errorf("SKILL.md should be stored verbatim:\n  expected: %s\n  got:      %s",
+			skillContent, string(ingestedSkill))
 	}
 
 	// Verify a git commit was created
@@ -428,13 +359,160 @@ func TestGetShadowRepoDirpath(t *testing.T) {
 	}
 }
 
-// --- test helpers ---
+func TestRewriteSettingsPaths(t *testing.T) {
+	targetDirpath := "/tmp/claude/test-mission/claude-config"
 
-func containsClaudePath(s string, homeDirpath string) bool {
-	return containsSubstring(s, homeDirpath+"/.claude") ||
-		containsSubstring(s, "${HOME}/.claude") ||
-		containsSubstring(s, "~/.claude")
+	settingsData := []byte(`{
+  "permissions": {
+    "allow": ["Read(~/.claude/skills/**)"],
+    "deny": ["Write(~/.agenc/repos/**)"]
+  },
+  "hooks": {
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/check.sh"}]}]
+  },
+  "someOtherKey": "path is ~/.claude/foo"
 }
+`)
+
+	result, err := RewriteSettingsPaths(settingsData, targetDirpath)
+	if err != nil {
+		t.Fatalf("RewriteSettingsPaths failed: %v", err)
+	}
+
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("failed to parse result: %v", err)
+	}
+
+	// Permissions block should be preserved exactly (un-rewritten)
+	var perms map[string]json.RawMessage
+	if err := json.Unmarshal(parsed["permissions"], &perms); err != nil {
+		t.Fatalf("failed to parse permissions: %v", err)
+	}
+	var allow []string
+	if err := json.Unmarshal(perms["allow"], &allow); err != nil {
+		t.Fatalf("failed to parse allow: %v", err)
+	}
+	if len(allow) != 1 || allow[0] != "Read(~/.claude/skills/**)" {
+		t.Errorf("permissions.allow should be preserved, got: %v", allow)
+	}
+
+	// Hooks should have paths rewritten
+	hooksStr := string(parsed["hooks"])
+	if containsSubstring(hooksStr, "~/.claude") {
+		t.Errorf("hooks should have paths rewritten, got: %s", hooksStr)
+	}
+	if !containsSubstring(hooksStr, targetDirpath) {
+		t.Errorf("hooks should contain target dirpath, got: %s", hooksStr)
+	}
+
+	// Other keys should have paths rewritten
+	otherStr := string(parsed["someOtherKey"])
+	if containsSubstring(otherStr, "~/.claude") {
+		t.Errorf("someOtherKey should have paths rewritten, got: %s", otherStr)
+	}
+}
+
+func TestCopyAndPatchClaudeJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source .claude.json
+	srcDirpath := filepath.Join(tmpDir, "source", ".claude")
+	if err := os.MkdirAll(srcDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	originalJSON := map[string]interface{}{
+		"oauthAccount": "test@example.com",
+		"projects": map[string]interface{}{
+			"/existing/project": map[string]interface{}{
+				"hasTrustDialogAccepted": true,
+			},
+		},
+	}
+	originalData, err := json.MarshalIndent(originalJSON, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srcFilepath := filepath.Join(srcDirpath, ".claude.json")
+	if err := os.WriteFile(srcFilepath, originalData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create destination config dir
+	destDirpath := filepath.Join(tmpDir, "dest", "claude-config")
+	if err := os.MkdirAll(destDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Temporarily override HOME so copyAndPatchClaudeJSON finds our source
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", filepath.Join(tmpDir, "source"))
+	defer os.Setenv("HOME", origHome)
+
+	missionAgentDirpath := "/tmp/claude/missions/test-123/agent"
+	if err := copyAndPatchClaudeJSON(destDirpath, missionAgentDirpath); err != nil {
+		t.Fatalf("copyAndPatchClaudeJSON failed: %v", err)
+	}
+
+	// Read the result
+	resultData, err := os.ReadFile(filepath.Join(destDirpath, ".claude.json"))
+	if err != nil {
+		t.Fatalf("failed to read result: %v", err)
+	}
+
+	// Verify it's a real file (not a symlink)
+	info, err := os.Lstat(filepath.Join(destDirpath, ".claude.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Error("result should be a real file, not a symlink")
+	}
+
+	// Parse and verify
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(resultData, &result); err != nil {
+		t.Fatalf("failed to parse result: %v", err)
+	}
+
+	// Verify oauthAccount preserved
+	var account string
+	if err := json.Unmarshal(result["oauthAccount"], &account); err != nil {
+		t.Fatalf("failed to parse oauthAccount: %v", err)
+	}
+	if account != "test@example.com" {
+		t.Errorf("expected oauthAccount 'test@example.com', got %q", account)
+	}
+
+	// Verify projects
+	var projects map[string]json.RawMessage
+	if err := json.Unmarshal(result["projects"], &projects); err != nil {
+		t.Fatalf("failed to parse projects: %v", err)
+	}
+
+	// Original project should still be there
+	if _, ok := projects["/existing/project"]; !ok {
+		t.Error("existing project entry should be preserved")
+	}
+
+	// Mission agent dir should have trust entry
+	missionEntry, ok := projects[missionAgentDirpath]
+	if !ok {
+		t.Fatalf("mission agent dir entry not found in projects")
+	}
+
+	var trustData map[string]bool
+	if err := json.Unmarshal(missionEntry, &trustData); err != nil {
+		t.Fatalf("failed to parse mission trust entry: %v", err)
+	}
+	if !trustData["hasTrustDialogAccepted"] {
+		t.Error("hasTrustDialogAccepted should be true")
+	}
+}
+
+// --- test helpers ---
 
 func containsSubstring(s string, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||

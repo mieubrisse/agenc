@@ -224,6 +224,46 @@ func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string) (
 	return result, nil
 }
 
+// RewriteSettingsPaths rewrites ~/.claude paths in settings JSON while
+// preserving the "permissions" block unchanged. This ensures permission
+// entries with user-specified paths are not rewritten, while hook commands
+// and other fields get updated to point to the mission config directory.
+func RewriteSettingsPaths(settingsData []byte, claudeConfigDirpath string) ([]byte, error) {
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(settingsData, &settings); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse settings JSON for path rewriting")
+	}
+
+	// Save the permissions block before rewriting
+	savedPermissions, hasPermissions := settings["permissions"]
+
+	// Re-serialize, rewrite all paths, then parse back
+	intermediate, err := json.Marshal(settings)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal settings for path rewriting")
+	}
+
+	rewritten := RewriteClaudePaths(intermediate, claudeConfigDirpath)
+
+	var rewrittenSettings map[string]json.RawMessage
+	if err := json.Unmarshal(rewritten, &rewrittenSettings); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse rewritten settings JSON")
+	}
+
+	// Restore the original permissions block (un-rewritten)
+	if hasPermissions {
+		rewrittenSettings["permissions"] = savedPermissions
+	}
+
+	result, err := json.MarshalIndent(rewrittenSettings, "", "  ")
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal final rewritten settings")
+	}
+	result = append(result, '\n')
+
+	return result, nil
+}
+
 // WriteIfChanged writes data to filepath only if the contents differ from what's
 // already on disk. Preserves mtime when nothing changed.
 func WriteIfChanged(filepath string, data []byte) error {

@@ -1,6 +1,7 @@
 package claudeconfig
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,19 +30,21 @@ var TrackableItemNames = []string{
 }
 
 // BuildMissionConfigDir creates and populates the per-mission claude config
-// directory from the shadow repo. It copies tracked files with path expansion,
+// directory from the shadow repo. It copies tracked files with path rewriting,
 // applies AgenC modifications (merged CLAUDE.md, merged settings.json with
-// hooks), symlinks auth files, and symlinks plugins to ~/.claude/plugins.
+// hooks), copies and patches .claude.json, dumps credentials, and symlinks
+// plugins to ~/.claude/plugins.
 func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
+	missionAgentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
 	if err := os.MkdirAll(claudeConfigDirpath, 0755); err != nil {
 		return stacktrace.Propagate(err, "failed to create claude-config directory")
 	}
 
-	// Copy tracked directories from shadow repo with path expansion
+	// Copy tracked directories from shadow repo with path rewriting
 	for _, dirName := range TrackedDirNames {
 		srcDirpath := filepath.Join(shadowDirpath, dirName)
 		dstDirpath := filepath.Join(claudeConfigDirpath, dirName)
@@ -52,27 +55,28 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 			continue
 		}
 
-		// Remove existing destination and copy fresh with path expansion
+		// Remove existing destination and copy fresh with path rewriting
 		os.RemoveAll(dstDirpath)
-		if err := copyDirWithExpansion(srcDirpath, dstDirpath, claudeConfigDirpath); err != nil {
+		if err := copyDirWithRewriting(srcDirpath, dstDirpath, claudeConfigDirpath); err != nil {
 			return stacktrace.Propagate(err, "failed to copy '%s' from shadow repo", dirName)
 		}
 	}
 
-	// Merge CLAUDE.md: user's from shadow repo (expanded) + agenc modifications
+	// Merge CLAUDE.md: user's from shadow repo (rewritten) + agenc modifications
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
 	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
 	}
 
-	// Merge settings.json: user's from shadow repo (expanded) + agenc modifications + hooks/deny
+	// Merge settings.json: user's from shadow repo + agenc modifications + hooks/deny,
+	// then selectively rewrite paths (preserving permissions block)
 	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged settings.json")
 	}
 
-	// Symlink .claude.json (account identity)
-	if err := symlinkClaudeJSON(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to symlink .claude.json")
+	// Copy and patch .claude.json with trust entry for mission agent dir
+	if err := copyAndPatchClaudeJSON(claudeConfigDirpath, missionAgentDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to copy and patch .claude.json")
 	}
 
 	// Dump credentials directly into the mission config directory
@@ -152,9 +156,9 @@ func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirp
 		return stacktrace.Propagate(err, "failed to read user CLAUDE.md from shadow repo")
 	}
 
-	// Expand ${CLAUDE_CONFIG_DIR} → actual mission config path
+	// Rewrite ~/.claude paths → actual mission config path
 	if userContent != nil {
-		userContent = ExpandPaths(userContent, destDirpath)
+		userContent = RewriteClaudePaths(userContent, destDirpath)
 	}
 
 	modsContent, err := os.ReadFile(filepath.Join(agencModsDirpath, "CLAUDE.md"))
@@ -173,9 +177,8 @@ func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirp
 }
 
 // buildMergedSettings reads user settings from shadow repo and agenc
-// modifications, deep-merges them, adds agenc hooks/deny, and writes to dest.
-// No path expansion is applied — settings.json contains permission entries
-// with user-specified paths that must not be rewritten.
+// modifications, deep-merges them, adds agenc hooks/deny, then selectively
+// rewrites paths (preserving permission entries). Writes to dest.
 func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
 	destFilepath := filepath.Join(destDirpath, "settings.json")
 
@@ -202,7 +205,13 @@ func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirp
 		return stacktrace.Propagate(err, "failed to merge settings")
 	}
 
-	return WriteIfChanged(destFilepath, mergedData)
+	// Selectively rewrite paths: permissions block preserved, everything else rewritten
+	rewrittenData, err := RewriteSettingsPaths(mergedData, destDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to rewrite settings paths")
+	}
+
+	return WriteIfChanged(destFilepath, rewrittenData)
 }
 
 // symlinkPlugins creates a symlink from the mission config's plugins/
@@ -223,9 +232,9 @@ func symlinkPlugins(claudeConfigDirpath string) error {
 	return os.Symlink(pluginsTargetDirpath, pluginsLinkPath)
 }
 
-// copyDirWithExpansion recursively copies a directory tree from src to dst,
-// applying ${CLAUDE_CONFIG_DIR} path expansion to text files.
-func copyDirWithExpansion(srcDirpath string, dstDirpath string, claudeConfigDirpath string) error {
+// copyDirWithRewriting recursively copies a directory tree from src to dst,
+// applying ~/.claude path rewriting to text files.
+func copyDirWithRewriting(srcDirpath string, dstDirpath string, claudeConfigDirpath string) error {
 	return filepath.Walk(srcDirpath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -251,47 +260,95 @@ func copyDirWithExpansion(srcDirpath string, dstDirpath string, claudeConfigDirp
 			return os.Symlink(linkTarget, dstPath)
 		}
 
-		// Regular file — copy contents with optional path expansion
+		// Regular file — copy contents with optional path rewriting
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to read '%s'", path)
 		}
 
 		if isTextFile(path) {
-			data = ExpandPaths(data, claudeConfigDirpath)
+			data = RewriteClaudePaths(data, claudeConfigDirpath)
 		}
 
 		return os.WriteFile(dstPath, data, info.Mode())
 	})
 }
 
-// symlinkClaudeJSON creates a symlink from the mission config's .claude.json
-// to the user's existing .claude.json file.
+// copyAndPatchClaudeJSON copies the user's .claude.json into the mission
+// config directory and adds a trust entry for the mission's agent directory.
 // Lookup order: ~/.claude/.claude.json (primary), ~/.claude.json (fallback).
-func symlinkClaudeJSON(claudeConfigDirpath string) error {
+func copyAndPatchClaudeJSON(claudeConfigDirpath string, missionAgentDirpath string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to determine home directory")
 	}
 
 	// Try primary location: ~/.claude/.claude.json
-	primaryPath := filepath.Join(homeDir, ".claude", ".claude.json")
-	fallbackPath := filepath.Join(homeDir, ".claude.json")
+	primaryFilepath := filepath.Join(homeDir, ".claude", ".claude.json")
+	fallbackFilepath := filepath.Join(homeDir, ".claude.json")
 
-	var targetPath string
-	if _, err := os.Stat(primaryPath); err == nil {
-		targetPath = primaryPath
-	} else if _, err := os.Stat(fallbackPath); err == nil {
-		targetPath = fallbackPath
+	var srcFilepath string
+	if _, err := os.Stat(primaryFilepath); err == nil {
+		srcFilepath = primaryFilepath
+	} else if _, err := os.Stat(fallbackFilepath); err == nil {
+		srcFilepath = fallbackFilepath
 	} else {
 		return stacktrace.NewError(
 			".claude.json not found at '%s' or '%s'; run 'claude login' first",
-			primaryPath, fallbackPath,
+			primaryFilepath, fallbackFilepath,
 		)
 	}
 
-	linkPath := filepath.Join(claudeConfigDirpath, ".claude.json")
-	return ensureSymlink(linkPath, targetPath)
+	data, err := os.ReadFile(srcFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read '%s'", srcFilepath)
+	}
+
+	// Parse the JSON
+	var claudeJSON map[string]json.RawMessage
+	if err := json.Unmarshal(data, &claudeJSON); err != nil {
+		return stacktrace.Propagate(err, "failed to parse .claude.json")
+	}
+
+	// Get or create the "projects" key
+	var projects map[string]json.RawMessage
+	if existingProjects, ok := claudeJSON["projects"]; ok {
+		if err := json.Unmarshal(existingProjects, &projects); err != nil {
+			return stacktrace.Propagate(err, "failed to parse projects in .claude.json")
+		}
+	} else {
+		projects = make(map[string]json.RawMessage)
+	}
+
+	// Add trust entry for the mission agent directory
+	trustEntry, err := json.Marshal(map[string]bool{
+		"hasTrustDialogAccepted": true,
+	})
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal trust entry")
+	}
+	projects[missionAgentDirpath] = json.RawMessage(trustEntry)
+
+	// Write projects back
+	projectsData, err := json.Marshal(projects)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal projects")
+	}
+	claudeJSON["projects"] = json.RawMessage(projectsData)
+
+	// Serialize with indentation
+	result, err := json.MarshalIndent(claudeJSON, "", "  ")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal .claude.json")
+	}
+	result = append(result, '\n')
+
+	destFilepath := filepath.Join(claudeConfigDirpath, ".claude.json")
+	if err := os.WriteFile(destFilepath, result, 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write '%s'", destFilepath)
+	}
+
+	return nil
 }
 
 // writeCredentialsToDir dumps credentials directly into the given directory
@@ -390,29 +447,4 @@ func findGitRoot(startPath string) string {
 	}
 }
 
-// ensureSymlink ensures that linkPath is a symlink pointing to targetPath.
-// If linkPath already exists and is correct, it does nothing. If it exists
-// but is wrong, it removes and recreates.
-func ensureSymlink(linkPath string, targetPath string) error {
-	info, err := os.Lstat(linkPath)
-	if err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			target, readErr := os.Readlink(linkPath)
-			if readErr == nil && target == targetPath {
-				return nil // Already correct
-			}
-		}
-		// Wrong symlink target, or not a symlink — remove it
-		if err := os.RemoveAll(linkPath); err != nil {
-			return stacktrace.Propagate(err, "failed to remove existing item at '%s'", linkPath)
-		}
-	} else if !os.IsNotExist(err) {
-		return stacktrace.Propagate(err, "failed to stat '%s'", linkPath)
-	}
-
-	if err := os.Symlink(targetPath, linkPath); err != nil {
-		return stacktrace.Propagate(err, "failed to create symlink '%s' -> '%s'", linkPath, targetPath)
-	}
-	return nil
-}
 
