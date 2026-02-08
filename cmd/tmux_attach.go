@@ -72,8 +72,18 @@ func runTmuxAttach(cmd *cobra.Command, args []string) error {
 // createTmuxSession creates the agenc tmux session with 'agenc mission new'
 // as the initial command.
 func createTmuxSession(agencBinaryPath string) error {
-	// Create the session detached, running 'agenc mission new'
-	initialCmd := agencBinaryPath + " " + missionCmdStr + " " + newCmdStr
+	// Build the initial command with inline env vars. tmux runs the command
+	// through a shell, so VAR=val syntax works. We must embed the env vars in
+	// the command string because set-environment only affects windows created
+	// AFTER it's called — the initial window created by new-session wouldn't
+	// inherit them.
+	initialCmd := agencTmuxEnvVar + "=1"
+	dirpathValue := os.Getenv(agencDirpathEnvVar)
+	if dirpathValue != "" {
+		initialCmd += " " + agencDirpathEnvVar + "=" + shellQuote(dirpathValue)
+	}
+	initialCmd += " " + agencBinaryPath + " " + missionCmdStr + " " + newCmdStr
+
 	newSessionCmd := exec.Command("tmux",
 		"new-session",
 		"-d",
@@ -84,13 +94,11 @@ func createTmuxSession(agencBinaryPath string) error {
 		return stacktrace.Propagate(err, "failed to create tmux session")
 	}
 
-	// Set session environment variables
+	// Set session environment variables so that subsequent windows (created via
+	// tmux new-window) also inherit them.
 	if err := setTmuxSessionEnv(agencTmuxEnvVar, "1"); err != nil {
 		return err
 	}
-
-	// Propagate AGENC_DIRPATH from the current environment
-	dirpathValue := os.Getenv(agencDirpathEnvVar)
 	if dirpathValue != "" {
 		if err := setTmuxSessionEnv(agencDirpathEnvVar, dirpathValue); err != nil {
 			return err
@@ -98,6 +106,12 @@ func createTmuxSession(agencBinaryPath string) error {
 	}
 
 	return nil
+}
+
+// shellQuote wraps a string in single quotes for safe use in a shell command,
+// escaping any embedded single quotes.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 // setTmuxSessionEnv sets an environment variable on the agenc tmux session.
