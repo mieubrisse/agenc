@@ -77,7 +77,7 @@ The daemon is a long-running background process that performs periodic maintenan
 - PID file: `$AGENC_DIRPATH/daemon/daemon.pid`
 - Log file: `$AGENC_DIRPATH/daemon/daemon.log`
 
-The daemon runs three concurrent goroutines:
+The daemon runs four concurrent goroutines:
 
 **1. Repo update loop** (`internal/daemon/template_updater.go`)
 - Runs every 60 seconds
@@ -94,6 +94,11 @@ The daemon runs three concurrent goroutines:
 - Spawns headless missions for due crons, respecting max concurrent limit and overlap policies
 - On startup, adopts orphaned headless missions from a previous daemon instance
 - On shutdown, gracefully terminates all running cron missions
+
+**4. Config watcher loop** (`internal/daemon/config_watcher.go`)
+- Initializes the shadow repo on first run, then watches `~/.claude` for changes via fsnotify
+- On change (debounced at 500ms), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
+- Watches both the `~/.claude` directory and all tracked subdirectories, resolving symlinks to watch actual targets
 
 ### Wrapper
 
@@ -179,15 +184,15 @@ $AGENC_DIRPATH/
 │   └── <uuid>/
 │       ├── agent/                         # Git repo working directory
 │       ├── claude-config/                 # Per-mission CLAUDE_CONFIG_DIR
-│       │   ├── CLAUDE.md                  # Merged: config-source + claude-modifications
+│       │   ├── CLAUDE.md                  # Merged: shadow repo + claude-modifications
 │       │   ├── settings.json              # Merged + hooks + deny entries
 │       │   ├── .claude.json               # Symlink to user's account identity
 │       │   ├── .credentials.json          # Dumped from Keychain (macOS) or file (Linux)
-│       │   ├── skills/                    # From config source repo
-│       │   ├── hooks/                     # From config source repo
-│       │   ├── commands/                  # From config source repo
-│       │   ├── agents/                    # From config source repo
-│       │   └── plugins/                   # From config source repo
+│       │   ├── skills/                    # From shadow repo (path-expanded)
+│       │   ├── hooks/                     # From shadow repo (path-expanded)
+│       │   ├── commands/                  # From shadow repo (path-expanded)
+│       │   ├── agents/                    # From shadow repo (path-expanded)
+│       │   └── plugins/                   # Symlink to ~/.claude/plugins/
 │       ├── pid                            # Wrapper process ID
 │       ├── claude-state                   # "idle" or "busy" (written by Claude hooks)
 │       ├── wrapper.log                    # Wrapper lifecycle log
@@ -228,7 +233,7 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 Per-mission Claude configuration building, merging, and shadow repo management.
 
-- `build.go` — `BuildMissionConfigDir` (copies trackable items from config source, merges CLAUDE.md and settings.json, symlinks account identity, dumps credentials), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigSourceDirpath`, `ResolveConfigCommitHash`
+- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path expansion, merges CLAUDE.md and settings.json, symlinks account identity, dumps credentials, symlinks plugins), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides)
 - `overrides.go` — `AgencHookEntries` (Stop and UserPromptSubmit hooks for idle detection), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
@@ -241,13 +246,14 @@ SQLite mission tracking with auto-migration.
 
 ### `internal/daemon/`
 
-Background daemon with three concurrent loops.
+Background daemon with four concurrent loops.
 
 - `daemon.go` — `Daemon` struct, `Run` method that starts and coordinates all goroutines
 - `process.go` — daemon lifecycle: `ForkDaemon` (re-executes binary as detached process via setsid), `ReadPID`, `IsProcessRunning`, `StopDaemon` (SIGTERM then SIGKILL)
 - `template_updater.go` — repo update loop (60-second interval, fetches synced + active-mission repos)
 - `config_auto_commit.go` — config auto-commit loop (10-minute interval, git add/commit/push)
 - `cron_scheduler.go` — cron scheduler loop (60-second interval, spawns headless missions, overlap policies, orphan adoption)
+- `config_watcher.go` — config watcher loop (fsnotify on `~/.claude`, 500ms debounce, ingests into shadow repo)
 
 ### `internal/wrapper/`
 
@@ -271,9 +277,11 @@ Key Architectural Patterns
 
 Each mission gets its own `claude-config/` directory, built at creation time from three sources:
 
-1. **Config source repo** — the user's registered Claude config repo (skills, hooks, commands, agents, plugins, CLAUDE.md, settings.json)
+1. **Shadow repo** — a normalized copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `${CLAUDE_CONFIG_DIR}` placeholders expanded to the mission's concrete config path. See "Shadow repo" below.
 2. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
 3. **AgenC operational overrides** — programmatically injected hooks and deny permissions
+
+Plugins are handled separately: `plugins/` is a symlink to `~/.claude/plugins/` rather than a copy.
 
 Merging logic (`internal/claudeconfig/merge.go`):
 - CLAUDE.md: simple concatenation (user content + modifications content)
@@ -294,7 +302,7 @@ The shadow repo (`internal/claudeconfig/shadow.go`) tracks the user's `~/.claude
 
 **Safety:** A pre-commit hook installed in the shadow repo's `.git/hooks/` rejects any commit that contains un-normalized `~/.claude` paths, catching normalization failures before they are committed.
 
-**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo, applies normalization, and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`.
+**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo, applies normalization, and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The daemon's config watcher loop (`internal/daemon/config_watcher.go`) triggers ingestion automatically whenever `~/.claude` changes are detected via fsnotify.
 
 ### Idle detection via Claude Code hooks
 
