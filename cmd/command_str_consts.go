@@ -28,6 +28,7 @@ const (
 	attachCmdStr = "attach"
 	detachCmdStr = "detach"
 	windowCmdStr = "window"
+	paneCmdStr   = "pane"
 
 	// Mission subcommands
 	newCmdStr     = "new"
