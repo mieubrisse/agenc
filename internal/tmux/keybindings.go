@@ -28,9 +28,9 @@ func GenerateKeybindingsContent() string {
 	fmt.Fprintf(&sb, "bind-key a switch-client -T %s\n", agencKeyTable)
 	sb.WriteString("\n")
 
-	// agenc table: w — new mission in a new window
-	sb.WriteString("# New mission in a new window (prefix + a, w)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s w run-shell 'agenc tmux window new --parent-pane \"#{pane_id}\" -- agenc mission new'\n", agencKeyTable)
+	// agenc table: n — new mission in a new window
+	sb.WriteString("# New mission in a new window (prefix + a, n)\n")
+	fmt.Fprintf(&sb, "bind-key -T %s n run-shell 'agenc tmux window new --parent-pane \"#{pane_id}\" -- agenc mission new'\n", agencKeyTable)
 
 	sb.WriteString("\n")
 
