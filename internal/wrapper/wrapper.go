@@ -127,6 +127,13 @@ func (w *Wrapper) Run(isResume bool) error {
 		w.hasConversation.Store(true)
 	}
 
+	// Change the wrapper's working directory to the agent directory so that
+	// tmux's #{pane_current_path} reflects the mission directory. This makes
+	// built-in tmux splits (prefix + %, prefix + ") open in the agent dir.
+	if err := os.Chdir(w.agentDirpath); err != nil {
+		w.logger.Warn("Failed to chdir to agent directory", "path", w.agentDirpath, "error", err)
+	}
+
 	// Rename the tmux window to "<short_id> <repo-name>" when inside the
 	// AgenC tmux session.
 	w.renameWindowForTmux()
