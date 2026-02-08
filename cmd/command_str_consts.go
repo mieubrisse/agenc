@@ -79,6 +79,9 @@ const (
 	// daemon status flags
 	jsonFlagName = "json"
 
+	// tmux window new flags
+	parentPaneFlagName = "parent-pane"
+
 	// cron flags
 	headlessFlagName = "headless"
 	timeoutFlagName  = "timeout"
