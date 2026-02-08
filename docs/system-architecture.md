@@ -77,7 +77,7 @@ The daemon is a long-running background process that performs periodic maintenan
 - PID file: `$AGENC_DIRPATH/daemon/daemon.pid`
 - Log file: `$AGENC_DIRPATH/daemon/daemon.log`
 
-The daemon runs four concurrent goroutines:
+The daemon runs five concurrent goroutines:
 
 **1. Repo update loop** (`internal/daemon/template_updater.go`)
 - Runs every 60 seconds
@@ -99,6 +99,11 @@ The daemon runs four concurrent goroutines:
 - Initializes the shadow repo on first run, then watches `~/.claude` for changes via fsnotify
 - On change (debounced at 500ms), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
 - Watches both the `~/.claude` directory and all tracked subdirectories, resolving symlinks to watch actual targets
+
+**5. Keybindings writer loop** (`internal/daemon/keybindings_writer.go`)
+- Writes the tmux keybindings file on startup and every 5 minutes
+- Sources the keybindings into any running tmux server after writing
+- Ensures keybindings stay current after binary upgrades (daemon auto-restarts on version bump)
 
 ### Wrapper
 
@@ -145,6 +150,7 @@ Directory Structure
 │   ├── mission/                  # Mission lifecycle, Claude spawning
 │   ├── claudeconfig/             # Per-mission config merging, shadow repo
 │   ├── daemon/                   # Background loops
+│   ├── tmux/                     # Tmux keybindings generation
 │   ├── wrapper/                  # Claude child process management
 │   ├── history/                  # Prompt extraction from history.jsonl
 │   ├── session/                  # Session name resolution
@@ -245,7 +251,7 @@ SQLite mission tracking with auto-migration.
 
 ### `internal/daemon/`
 
-Background daemon with four concurrent loops.
+Background daemon with five concurrent loops.
 
 - `daemon.go` — `Daemon` struct, `Run` method that starts and coordinates all goroutines
 - `process.go` — daemon lifecycle: `ForkDaemon` (re-executes binary as detached process via setsid), `ReadPID`, `IsProcessRunning`, `StopDaemon` (SIGTERM then SIGKILL)
@@ -253,6 +259,13 @@ Background daemon with four concurrent loops.
 - `config_auto_commit.go` — config auto-commit loop (10-minute interval, git add/commit/push)
 - `cron_scheduler.go` — cron scheduler loop (60-second interval, spawns headless missions, overlap policies, orphan adoption)
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude`, 500ms debounce, ingests into shadow repo)
+- `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
+
+### `internal/tmux/`
+
+Tmux keybindings generation, shared by the CLI (`tmux inject`) and daemon.
+
+- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`
 
 ### `internal/wrapper/`
 
