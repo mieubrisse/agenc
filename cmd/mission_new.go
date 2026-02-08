@@ -11,6 +11,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
@@ -89,9 +90,12 @@ func runMissionNewWithClone() error {
 
 		fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
 
+		// Resolve config source for per-mission config dir
+		configSourceDirpath := resolveConfigSourceDirpath()
+
 		// Create mission directory structure with no git copy
 		// (agent directory will be copied separately from the source mission)
-		if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, "", ""); err != nil {
+		if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, "", "", configSourceDirpath); err != nil {
 			return stacktrace.Propagate(err, "failed to create mission directory")
 		}
 
@@ -302,8 +306,11 @@ func createAndLaunchMission(
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
+	// Resolve config source for per-mission config dir
+	configSourceDirpath := resolveConfigSourceDirpath()
+
 	// Create mission directory structure (repo is copied directly as agent/)
-	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath)
+	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath, configSourceDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")
 	}
@@ -333,4 +340,15 @@ func createAndLaunchMission(
 
 	fmt.Println("Launching claude...")
 	return w.Run(false)
+}
+
+// resolveConfigSourceDirpath reads the agenc config and returns the filesystem
+// path to the config source subdirectory. Returns empty string if no config
+// source is registered (legacy behavior — no per-mission config dir will be created).
+func resolveConfigSourceDirpath() string {
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return ""
+	}
+	return claudeconfig.ResolveConfigSourceDirpath(agencDirpath, cfg)
 }

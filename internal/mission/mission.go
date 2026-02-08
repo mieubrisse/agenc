@@ -7,15 +7,20 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 )
 
 // CreateMissionDir sets up the mission directory structure. When gitRepoSource
 // is non-empty, the repository is copied directly as the agent/ directory
 // (agent/ IS the repo). When gitRepoSource is empty, an empty agent/ directory
-// is created. Returns the mission root directory path (not the agent/
-// subdirectory).
-func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string, gitRepoSource string) (string, error) {
+// is created.
+//
+// If configSourceDirpath is non-empty, a per-mission claude config directory is
+// built from that config source. Pass empty string to skip (legacy behavior).
+//
+// Returns the mission root directory path (not the agent/ subdirectory).
+func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string, gitRepoSource string, configSourceDirpath string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
@@ -34,6 +39,13 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 		}
 	}
 
+	// Build per-mission claude config directory if config source is provided
+	if configSourceDirpath != "" {
+		if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, configSourceDirpath); err != nil {
+			return "", stacktrace.Propagate(err, "failed to build per-mission claude config directory")
+		}
+	}
+
 	return missionDirpath, nil
 }
 
@@ -47,7 +59,7 @@ func buildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
 
-	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
 
 	secretsEnvFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, config.SecretsEnvFilename)
 

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/odyssey/agenc/internal/claudeconfig"
 )
 
 const testAgencDirpath = "/tmp/test-agenc"
@@ -86,7 +88,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
 				deny := parseDenyArray(t, settings)
 				// Should contain the 2 original + 5 agenc entries
-				expectedLen := 2 + len(agencDenyPermissionTools)
+				expectedLen := 2 + len(claudeconfig.AgencDenyPermissionTools)
 				if len(deny) != expectedLen {
 					t.Errorf("expected deny array length %d, got %d", expectedLen, len(deny))
 				}
@@ -124,9 +126,9 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := mergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath)
+			result, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath)
 			if err != nil {
-				t.Fatalf("mergeSettingsWithAgencOverrides returned error: %v", err)
+				t.Fatalf("claudeconfig.MergeSettingsWithAgencOverrides returned error: %v", err)
 			}
 
 			var settings map[string]json.RawMessage
@@ -140,7 +142,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 }
 
 func TestMergeSettingsWithAgencOverrides_InvalidJSON(t *testing.T) {
-	_, err := mergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath)
+	_, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath)
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}
@@ -487,9 +489,9 @@ func TestDeepMergeJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			result, err := deepMergeJSON(base, overlay)
+			result, err := claudeconfig.DeepMergeJSON(base, overlay)
 			if err != nil {
-				t.Fatalf("deepMergeJSON returned error: %v", err)
+				t.Fatalf("claudeconfig.DeepMergeJSON returned error: %v", err)
 			}
 
 			tt.checkFn(t, result)
@@ -760,7 +762,7 @@ func assertDenyContains(t *testing.T, deny []string, entry string) {
 func assertDenyContainsAgencEntries(t *testing.T, settings map[string]json.RawMessage) {
 	t.Helper()
 	deny := parseDenyArray(t, settings)
-	for _, expected := range buildRepoLibraryDenyEntries(testAgencDirpath) {
+	for _, expected := range claudeconfig.BuildRepoLibraryDenyEntries(testAgencDirpath) {
 		assertDenyContains(t, deny, expected)
 	}
 }

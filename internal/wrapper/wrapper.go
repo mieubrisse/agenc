@@ -16,6 +16,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/mieubrisse/stacktrace"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
@@ -593,7 +594,7 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
 
-	claudeConfigDirpath := config.GetGlobalClaudeDirpath(w.agencDirpath)
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
 
 	var args []string
 	if isResume {
