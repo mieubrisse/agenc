@@ -2,11 +2,9 @@ package daemon
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
-	"github.com/odyssey/agenc/internal/config"
 )
 
 const credentialSyncInterval = 30 * time.Minute
@@ -24,11 +22,7 @@ func (d *Daemon) runCredentialSyncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			centralCredentialsFilepath := filepath.Join(
-				config.GetGlobalClaudeDirpath(d.agencDirpath),
-				".credentials.json",
-			)
-			if err := claudeconfig.DumpCredentials(centralCredentialsFilepath); err != nil {
+			if err := claudeconfig.RefreshCentralCredentials(d.agencDirpath); err != nil {
 				d.logger.Printf("Credential sync: failed to refresh: %v", err)
 			}
 		}

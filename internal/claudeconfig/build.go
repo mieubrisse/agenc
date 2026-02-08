@@ -15,9 +15,6 @@ import (
 const (
 	// MissionClaudeConfigDirname is the directory name for per-mission config.
 	MissionClaudeConfigDirname = "claude-config"
-
-	// ConfigCommitFilename stores the config source repo's pinned commit hash.
-	ConfigCommitFilename = "config-commit"
 )
 
 // TrackableItemNames lists the files/directories that are copied from the config
@@ -102,11 +99,6 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, configSourceDi
 	// Ensure central credentials and symlink .credentials.json
 	if err := ensureAndSymlinkCredentials(agencDirpath, claudeConfigDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to set up .credentials.json")
-	}
-
-	// Record config source commit hash
-	if err := recordConfigCommit(configSourceDirpath, missionDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to record config commit")
 	}
 
 	return nil
@@ -222,7 +214,7 @@ func ensureAndSymlinkCredentials(agencDirpath string, claudeConfigDirpath string
 
 	// If central copy doesn't exist or is empty, dump from platform source
 	if !fileExistsAndNonEmpty(centralCredentialsFilepath) {
-		if err := DumpCredentials(centralCredentialsFilepath); err != nil {
+		if err := dumpCredentials(centralCredentialsFilepath); err != nil {
 			return stacktrace.Propagate(err, "failed to dump credentials to central location")
 		}
 	}
@@ -231,9 +223,18 @@ func ensureAndSymlinkCredentials(agencDirpath string, claudeConfigDirpath string
 	return ensureSymlink(linkPath, centralCredentialsFilepath)
 }
 
-// DumpCredentials dumps auth credentials to the specified file.
+// RefreshCentralCredentials re-dumps credentials from the platform source
+// (Keychain on macOS, file on Linux) to the central credentials file at
+// ~/.agenc/claude/.credentials.json. Called periodically by the daemon to
+// ensure all per-mission symlinks pick up credential changes.
+func RefreshCentralCredentials(agencDirpath string) error {
+	centralCredentialsFilepath := filepath.Join(config.GetGlobalClaudeDirpath(agencDirpath), ".credentials.json")
+	return dumpCredentials(centralCredentialsFilepath)
+}
+
+// dumpCredentials dumps auth credentials to the specified file.
 // On macOS, reads from Keychain. On Linux, copies from ~/.claude/.credentials.json.
-func DumpCredentials(destFilepath string) error {
+func dumpCredentials(destFilepath string) error {
 	if runtime.GOOS == "darwin" {
 		return dumpCredentialsFromKeychain(destFilepath)
 	}
@@ -287,7 +288,7 @@ func dumpCredentialsFromFile(destFilepath string) error {
 // ResolveConfigCommitHash returns the HEAD commit hash from the git repo
 // containing the config source directory. Returns empty string if not a git repo.
 func ResolveConfigCommitHash(configSourceDirpath string) string {
-	repoRootDirpath := FindGitRoot(configSourceDirpath)
+	repoRootDirpath := findGitRoot(configSourceDirpath)
 	if repoRootDirpath == "" {
 		return ""
 	}
@@ -302,36 +303,9 @@ func ResolveConfigCommitHash(configSourceDirpath string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// recordConfigCommit reads the HEAD commit hash from the config source repo
-// and writes it to the mission's config-commit file.
-func recordConfigCommit(configSourceDirpath string, missionDirpath string) error {
-	// Walk up from configSourceDirpath to find the repo root (.git directory)
-	repoRootDirpath := FindGitRoot(configSourceDirpath)
-	if repoRootDirpath == "" {
-		// Not a git repo — skip commit recording
-		return nil
-	}
-
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = repoRootDirpath
-	output, err := cmd.Output()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get HEAD commit from config source repo")
-	}
-
-	commitHash := strings.TrimSpace(string(output))
-	commitFilepath := filepath.Join(missionDirpath, ConfigCommitFilename)
-
-	if err := os.WriteFile(commitFilepath, []byte(commitHash+"\n"), 0644); err != nil {
-		return stacktrace.Propagate(err, "failed to write config-commit file")
-	}
-
-	return nil
-}
-
-// FindGitRoot walks up from the given path looking for a .git directory.
+// findGitRoot walks up from the given path looking for a .git directory.
 // Returns the repo root path, or empty string if not found.
-func FindGitRoot(startPath string) string {
+func findGitRoot(startPath string) string {
 	path := startPath
 	for {
 		gitDirpath := filepath.Join(path, ".git")

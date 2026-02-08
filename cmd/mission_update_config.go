@@ -173,10 +173,11 @@ func updateMissionConfig(db *database.DB, missionID string, configSourceDirpath 
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
 
-	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
-
-	// Read current pinned commit
-	currentCommitHash := readConfigCommit(missionDirpath)
+	// Read current pinned commit from DB
+	var currentCommitHash string
+	if missionRecord.ConfigCommit != nil {
+		currentCommitHash = *missionRecord.ConfigCommit
+	}
 
 	if currentCommitHash == newCommitHash && newCommitHash != "" {
 		fmt.Printf("Mission %s: config already up to date (commit %s)\n",
@@ -217,23 +218,17 @@ func updateMissionConfig(db *database.DB, missionID string, configSourceDirpath 
 	return nil
 }
 
-// readConfigCommit reads the config-commit file from a mission directory.
-// Returns empty string if the file doesn't exist.
-func readConfigCommit(missionDirpath string) string {
-	data, err := os.ReadFile(filepath.Join(missionDirpath, claudeconfig.ConfigCommitFilename))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
 // showConfigDiff displays a git diff between two commits in the config source
 // repo, filtered to trackable config items.
 func showConfigDiff(configSourceDirpath string, oldCommit string, newCommit string) {
-	repoRootDirpath := claudeconfig.FindGitRoot(configSourceDirpath)
-	if repoRootDirpath == "" {
+	// Find the git repo root containing the config source
+	toplevelCmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	toplevelCmd.Dir = configSourceDirpath
+	toplevelOutput, err := toplevelCmd.Output()
+	if err != nil {
 		return
 	}
+	repoRootDirpath := strings.TrimSpace(string(toplevelOutput))
 
 	// Compute the relative path from repo root to config source subdir
 	relPath, err := filepath.Rel(repoRootDirpath, configSourceDirpath)
