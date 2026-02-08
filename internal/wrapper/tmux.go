@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/odyssey/agenc/internal/database"
+
 )
 
 const (
@@ -13,7 +13,7 @@ const (
 	agencParentPaneEnvVar = "AGENC_PARENT_PANE"
 )
 
-// renameWindowForTmux renames the current tmux window to "<short_id> <repo-name>"
+// renameWindowForTmux renames the current tmux window to the repo name
 // when running inside the AgenC tmux session (AGENC_TMUX == 1). In regular tmux
 // sessions or outside tmux, this is a no-op.
 func (w *Wrapper) renameWindowForTmux() {
@@ -26,12 +26,11 @@ func (w *Wrapper) renameWindowForTmux() {
 		return
 	}
 
-	shortID := database.ShortID(w.missionID)
-	windowTitle := shortID
+	windowTitle := w.missionID
 	if w.gitRepoName != "" {
 		repoName := extractRepoName(w.gitRepoName)
 		if repoName != "" {
-			windowTitle = shortID + " " + repoName
+			windowTitle = repoName
 		}
 	}
 
