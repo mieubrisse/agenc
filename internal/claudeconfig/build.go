@@ -284,6 +284,24 @@ func dumpCredentialsFromFile(destFilepath string) error {
 	return nil
 }
 
+// ResolveConfigCommitHash returns the HEAD commit hash from the git repo
+// containing the config source directory. Returns empty string if not a git repo.
+func ResolveConfigCommitHash(configSourceDirpath string) string {
+	repoRootDirpath := findGitRoot(configSourceDirpath)
+	if repoRootDirpath == "" {
+		return ""
+	}
+
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoRootDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(output))
+}
+
 // recordConfigCommit reads the HEAD commit hash from the config source repo
 // and writes it to the mission's config-commit file.
 func recordConfigCommit(configSourceDirpath string, missionDirpath string) error {

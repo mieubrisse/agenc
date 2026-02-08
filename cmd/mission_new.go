@@ -83,15 +83,22 @@ func runMissionNewWithClone() error {
 			return stacktrace.Propagate(err, "failed to get source mission")
 		}
 
-		missionRecord, err := db.CreateMission(sourceMission.GitRepo, nil)
+		// Resolve config source for per-mission config dir
+		configSourceDirpath := resolveConfigSourceDirpath()
+
+		createParams := &database.CreateMissionParams{}
+		if configSourceDirpath != "" {
+			if commitHash := claudeconfig.ResolveConfigCommitHash(configSourceDirpath); commitHash != "" {
+				createParams.ConfigCommit = &commitHash
+			}
+		}
+
+		missionRecord, err := db.CreateMission(sourceMission.GitRepo, createParams)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to create mission record")
 		}
 
 		fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
-
-		// Resolve config source for per-mission config dir
-		configSourceDirpath := resolveConfigSourceDirpath()
 
 		// Create mission directory structure with no git copy
 		// (agent directory will be copied separately from the source mission)
@@ -287,15 +294,20 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	// Build cron params if provided
-	var createParams *database.CreateMissionParams
-	if cronIDFlag != "" || cronNameFlag != "" {
-		createParams = &database.CreateMissionParams{}
-		if cronIDFlag != "" {
-			createParams.CronID = &cronIDFlag
-		}
-		if cronNameFlag != "" {
-			createParams.CronName = &cronNameFlag
+	// Resolve config source for per-mission config dir
+	configSourceDirpath := resolveConfigSourceDirpath()
+
+	// Build creation params (cron + config commit)
+	createParams := &database.CreateMissionParams{}
+	if cronIDFlag != "" {
+		createParams.CronID = &cronIDFlag
+	}
+	if cronNameFlag != "" {
+		createParams.CronName = &cronNameFlag
+	}
+	if configSourceDirpath != "" {
+		if commitHash := claudeconfig.ResolveConfigCommitHash(configSourceDirpath); commitHash != "" {
+			createParams.ConfigCommit = &commitHash
 		}
 	}
 
@@ -305,9 +317,6 @@ func createAndLaunchMission(
 	}
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
-
-	// Resolve config source for per-mission config dir
-	configSourceDirpath := resolveConfigSourceDirpath()
 
 	// Create mission directory structure (repo is copied directly as agent/)
 	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath, configSourceDirpath)

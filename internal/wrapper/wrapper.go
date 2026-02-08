@@ -23,22 +23,11 @@ import (
 )
 
 const (
-	globalConfigDebouncePeriod = 500 * time.Millisecond
-	repoRefDebouncePeriod      = 5 * time.Second
-	heartbeatInterval          = 30 * time.Second
+	repoRefDebouncePeriod = 5 * time.Second
+	heartbeatInterval     = 30 * time.Second
 )
 
-// WrapperState represents the current state of the mission wrapper.
-type WrapperState int
-
-const (
-	StateRunning        WrapperState = iota // Claude alive, no restart needed
-	StateRestartPending                     // Config changed, waiting for idle
-	StateRestarting                         // Killing Claude, about to relaunch
-)
-
-// Wrapper manages a Claude child process for a single mission, watching for
-// config changes and gracefully restarting Claude when idle.
+// Wrapper manages a Claude child process for a single mission.
 type Wrapper struct {
 	agencDirpath    string
 	missionID       string
@@ -46,9 +35,7 @@ type Wrapper struct {
 	initialPrompt   string
 	missionDirpath  string
 	agentDirpath    string
-	db              *database.DB
-
-	state     WrapperState
+	db        *database.DB
 	claudeCmd *exec.Cmd
 	logger    *slog.Logger
 
@@ -62,9 +49,7 @@ type Wrapper struct {
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
 	// goroutine leaks.
-	globalConfigChanged chan struct{} // notified when settings.json or CLAUDE.md change
-	claudeStateIdle    chan struct{} // notified when claude-state becomes "idle"
-	claudeExited       chan error    // receives the exit error from cmd.Wait()
+	claudeExited chan error // receives the exit error from cmd.Wait()
 }
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
@@ -79,10 +64,7 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
 		db:              db,
-		state:              StateRunning,
-		globalConfigChanged: make(chan struct{}, 1),
-		claudeStateIdle:    make(chan struct{}, 1),
-		claudeExited:       make(chan error, 1),
+		claudeExited: make(chan error, 1),
 	}
 }
 
@@ -132,9 +114,8 @@ func (w *Wrapper) Run(isResume bool) error {
 	}
 	go w.writeHeartbeat(ctx)
 
-	// Start background watchers for config and state changes
+	// Start background watchers for state changes
 	go w.watchClaudeState(ctx)
-	go w.watchGlobalConfig(ctx)
 	if w.gitRepoName != "" {
 		go w.watchWorkspaceRemoteRefs(ctx)
 	}
@@ -180,40 +161,8 @@ func (w *Wrapper) Run(isResume bool) error {
 			return nil
 
 		case <-w.claudeExited:
-			if w.state == StateRestarting {
-				// Expected exit from our SIGINT -- relaunch
-				w.logger.Info("Reloading Claude session after config change", "hasConversation", w.hasConversation.Load())
-				if w.hasConversation.Load() {
-					w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
-				} else {
-					w.claudeCmd, err = mission.SpawnClaude(w.agencDirpath, w.missionID, w.agentDirpath)
-				}
-				if err != nil {
-					return stacktrace.Propagate(err, "failed to respawn claude after restart")
-				}
-				go func() {
-					w.claudeExited <- w.claudeCmd.Wait()
-				}()
-				w.state = StateRunning
-				continue
-			}
 			// Natural exit -- wrapper exits
 			return nil
-
-		case <-w.globalConfigChanged:
-			if w.state != StateRunning {
-				continue // restart already in progress
-			}
-			// Always defer to the next busy→idle transition to avoid
-			// killing Claude while the user is composing a prompt.
-			w.logger.Info("Global Claude config changed, deferring restart until next idle transition")
-			w.state = StateRestartPending
-
-		case <-w.claudeStateIdle:
-			if w.state == StateRestartPending {
-				w.state = StateRestarting
-				_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			}
 		}
 	}
 }
@@ -265,83 +214,12 @@ func (w *Wrapper) watchClaudeState(ctx context.Context) {
 					// User submitted a message, so a conversation now exists
 					w.hasConversation.Store(true)
 				}
-				if state == "idle" {
-					select {
-					case w.claudeStateIdle <- struct{}{}:
-					default:
-					}
-				}
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}
 			w.logger.Warn("fsnotify error", "error", err)
-		}
-	}
-}
-
-// watchGlobalConfig uses fsnotify to watch the global Claude config directory
-// ($AGENC_DIRPATH/claude/) for changes to settings.json or CLAUDE.md. When either
-// file changes, it debounces for 500ms (to coalesce the two writes the daemon
-// makes in a single sync cycle) and then notifies the main loop via the
-// globalConfigChanged channel.
-func (w *Wrapper) watchGlobalConfig(ctx context.Context) {
-	globalClaudeDirpath := config.GetGlobalClaudeDirpath(w.agencDirpath)
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		w.logger.Warn("Failed to create fsnotify watcher for global config", "error", err)
-		return
-	}
-	defer watcher.Close()
-
-	if err := watcher.Add(globalClaudeDirpath); err != nil {
-		w.logger.Warn("Failed to watch global Claude config directory", "dir", globalClaudeDirpath, "error", err)
-		return
-	}
-
-	debounceTimer := time.NewTimer(0)
-	if !debounceTimer.Stop() {
-		<-debounceTimer.C
-	}
-	timerActive := false
-
-	for {
-		select {
-		case <-ctx.Done():
-			if !debounceTimer.Stop() && timerActive {
-				<-debounceTimer.C
-			}
-			return
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			basename := filepath.Base(event.Name)
-			if basename != config.GlobalSettingsFilename && basename != config.GlobalClaudeMdFilename {
-				continue
-			}
-			if !(event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
-				continue
-			}
-			// Reset (or start) the debounce timer
-			if !debounceTimer.Stop() && timerActive {
-				<-debounceTimer.C
-			}
-			debounceTimer.Reset(globalConfigDebouncePeriod)
-			timerActive = true
-		case <-debounceTimer.C:
-			timerActive = false
-			select {
-			case w.globalConfigChanged <- struct{}{}:
-			default:
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			w.logger.Warn("fsnotify error watching global config", "error", err)
 		}
 	}
 }

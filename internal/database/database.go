@@ -33,6 +33,7 @@ const addSessionNameColumnSQL = `ALTER TABLE missions ADD COLUMN session_name TE
 const addSessionNameUpdatedAtColumnSQL = `ALTER TABLE missions ADD COLUMN session_name_updated_at TEXT;`
 const addCronIDColumnSQL = `ALTER TABLE missions ADD COLUMN cron_id TEXT;`
 const addCronNameColumnSQL = `ALTER TABLE missions ADD COLUMN cron_name TEXT;`
+const addConfigCommitColumnSQL = `ALTER TABLE missions ADD COLUMN config_commit TEXT;`
 
 // Mission represents a row in the missions table.
 type Mission struct {
@@ -46,6 +47,7 @@ type Mission struct {
 	SessionNameUpdatedAt *time.Time
 	CronID               *string
 	CronName             *string
+	ConfigCommit         *string
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
@@ -104,6 +106,11 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := migrateDropAgentTemplate(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to drop agent_template column")
+	}
+
+	if err := migrateAddConfigCommit(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add config_commit column")
 	}
 
 	// Drop legacy mission_descriptions table
@@ -249,6 +256,22 @@ func migrateAddCronColumns(conn *sql.DB) error {
 	return nil
 }
 
+// migrateAddConfigCommit idempotently adds the config_commit column
+// for tracking which config source commit was used when the mission was created.
+func migrateAddConfigCommit(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["config_commit"] {
+		return nil
+	}
+
+	_, err = conn.Exec(addConfigCommitColumnSQL)
+	return err
+}
+
 // migrateDropAgentTemplate idempotently drops the agent_template column
 // from the missions table. Agent templates have been removed from AgenC.
 func migrateDropAgentTemplate(conn *sql.DB) error {
@@ -272,8 +295,9 @@ func (db *DB) Close() error {
 
 // CreateMissionParams holds optional parameters for creating a mission.
 type CreateMissionParams struct {
-	CronID   *string
-	CronName *string
+	CronID       *string
+	CronName     *string
+	ConfigCommit *string
 }
 
 // CreateMission inserts a new mission and returns it.
@@ -282,29 +306,31 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	shortID := ShortID(id)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	var cronID, cronName *string
+	var cronID, cronName, configCommit *string
 	if params != nil {
 		cronID = params.CronID
 		cronName = params.CronName
+		configCommit = params.ConfigCommit
 	}
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?)",
-		id, shortID, gitRepo, cronID, cronName, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, cronID, cronName, configCommit, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
 	}
 
 	return &Mission{
-		ID:        id,
-		ShortID:   shortID,
-		GitRepo:   gitRepo,
-		Status:    "active",
-		CronID:    cronID,
-		CronName:  cronName,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		ID:           id,
+		ShortID:      shortID,
+		GitRepo:      gitRepo,
+		Status:       "active",
+		CronID:       cronID,
+		CronName:     cronName,
+		ConfigCommit: configCommit,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	}, nil
 }
 
@@ -320,7 +346,7 @@ type ListMissionsParams struct {
 // If params.IncludeArchived is true, all missions are returned; otherwise archived missions are excluded.
 // If params.CronID is set, only missions with that cron_id are returned.
 func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
-	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, created_at, updated_at FROM missions"
+	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, created_at, updated_at FROM missions"
 
 	var conditions []string
 	var args []interface{}
@@ -350,7 +376,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -368,7 +394,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 // or nil if no mission exists for the cron.
 func (db *DB) GetMostRecentMissionForCron(cronID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, created_at, updated_at FROM missions WHERE cron_id = ? ORDER BY created_at DESC LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, created_at, updated_at FROM missions WHERE cron_id = ? ORDER BY created_at DESC LIMIT 1",
 		cronID,
 	)
 
@@ -487,9 +513,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	var missions []*Mission
 	for rows.Next() {
 		var m Mission
-		var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName sql.NullString
+		var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
@@ -506,6 +532,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 		if cronName.Valid {
 			m.CronName = &cronName.String
 		}
+		if configCommit.Valid {
+			m.ConfigCommit = &configCommit.String
+		}
 		m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 		missions = append(missions, &m)
@@ -518,9 +547,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
-	var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName sql.NullString
+	var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
@@ -536,6 +565,9 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	}
 	if cronName.Valid {
 		m.CronName = &cronName.String
+	}
+	if configCommit.Valid {
+		m.ConfigCommit = &configCommit.String
 	}
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
