@@ -227,7 +227,7 @@ func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.Co
 	answer = strings.TrimSpace(strings.ToLower(answer))
 
 	if answer != "y" && answer != "yes" {
-		return nil
+		return stacktrace.NewError("Claude config repo is required. Run '%s %s %s' when you're ready", agencCmdStr, configCmdStr, initCmdStr)
 	}
 
 	fmt.Print("\nRepo (e.g., owner/repo or github.com/owner/repo): ")
