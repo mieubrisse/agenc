@@ -82,6 +82,15 @@ configDirpath := filepath.Join(os.Getenv("HOME"), ".agenc", "config")
 
 In tests, create a temporary directory and pass it as `agencDirpath` — never reference `~/.agenc` directly.
 
+Git Push Workflow
+-----------------
+
+**Always run `git pull --rebase` before pushing.** Multiple agents and missions may be committing to this repo concurrently, so the remote is frequently ahead of your local branch. A pre-push rebase avoids rejected pushes and unnecessary retry cycles.
+
+The correct sequence is: `git add` → `git commit` → `git pull --rebase` → `git push`
+
+If the rebase surfaces conflicts, resolve them before pushing. Do not skip the pull-rebase step — even if you just pulled recently, another agent may have pushed in the interim.
+
 Database Functions
 ------------------
 
