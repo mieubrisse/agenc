@@ -203,36 +203,7 @@ $AGENC_DIRPATH/
 Configuration Reference
 -----------------------
 
-### `config.yml`
-
-The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file. It is parsed by `internal/config/agenc_config.go`.
-
-```yaml
-# Repos to keep synced in the shared library (daemon fetches every 60s)
-syncedRepos:
-  - github.com/owner/repo
-
-# Claude config source repo — provides CLAUDE.md, settings.json, skills, etc.
-claudeConfig:
-  repo: github.com/owner/config-repo
-  subdirectory: ""              # Optional subdirectory within the repo
-
-# Max concurrent headless cron missions (default: 10)
-cronsMaxConcurrent: 10
-
-# Named cron jobs
-crons:
-  my-cron:
-    schedule: "0 9 * * *"      # Cron expression (5 or 6 fields, evaluated by gronx)
-    prompt: "Do something"     # Initial prompt sent to Claude
-    description: ""            # Human-readable description (optional)
-    git: github.com/owner/repo # Git repo for the mission workspace (optional)
-    timeout: "1h"              # Max runtime as Go duration (default: 1h)
-    overlap: skip              # "skip" (default) or "allow"
-    enabled: true              # Defaults to true if omitted
-```
-
-All repo values must be in canonical format: `github.com/owner/repo`.
+For the full `config.yml` reference (keys, defaults, annotated examples) and environment variables, see the [Configuration section of the README](../README.md#configuration). The config file is parsed by `internal/config/agenc_config.go`.
 
 
 Core Packages

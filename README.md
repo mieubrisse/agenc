@@ -183,44 +183,36 @@ Configuration
 
 ### config.yml
 
-The file `$AGENC_DIRPATH/config/config.yml` holds project-level settings.
-
-#### defaultFor
-
-Each agent template can declare a `defaultFor` field that makes it the auto-selected template when creating a new mission in a specific context. The three recognized contexts are:
-
-| Value | When used |
-|---|---|
-| `emptyMission` | `--git` is **not** specified (blank mission) |
-| `repo` | `--git` repo is **not** an agent template |
-| `agentTemplate` | `--git` repo **is** an agent template |
-
-At most one template may claim each context. Example:
+The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file. All repo values must be in canonical format: `github.com/owner/repo`. The CLI accepts shorthand — `owner/repo`, `github.com/owner/repo`, or a full GitHub URL — and normalizes it automatically.
 
 ```yaml
-agentTemplates:
-  github.com/owner/coding-agent:
-    nickname: coder
-    defaultFor: emptyMission
-  github.com/owner/repo-agent:
-    defaultFor: repo
-  github.com/owner/meta-agent:
-    defaultFor: agentTemplate
+# Repos to keep synced in the shared library (daemon fetches every 60s)
+syncedRepos:
+  - github.com/owner/repo
+
+# Claude config source repo — provides CLAUDE.md, settings.json, skills, etc.
+claudeConfig:
+  repo: github.com/owner/config-repo
+  subdirectory: ""              # Optional subdirectory within the repo
+
+# Max concurrent headless cron missions (default: 10)
+cronsMaxConcurrent: 10
+
+# Named cron jobs
+crons:
+  my-cron:
+    schedule: "0 9 * * *"      # Cron expression (5 or 6 fields, evaluated by gronx)
+    prompt: "Do something"     # Initial prompt sent to Claude
+    description: ""            # Human-readable description (optional)
+    git: github.com/owner/repo # Git repo for the mission workspace (optional)
+    timeout: "1h"              # Max runtime as Go duration (default: 1h)
+    overlap: skip              # "skip" (default) or "allow"
+    enabled: true              # Defaults to true if omitted
 ```
-
-The `defaultFor` field is optional — templates without it are never auto-selected. If the template claiming a context is not installed, a warning is printed and no agent template is used.
-
-The `--agent` flag always overrides `defaultFor`.
 
 #### syncedRepos
 
-A list of repositories the daemon keeps continuously up-to-date (fetched and fast-forwarded every 60 seconds). Agent templates are always synced; use `syncedRepos` for non-template repos you also want kept fresh.
-
-```yaml
-syncedRepos:
-  - github.com/owner/dotfiles
-  - github.com/owner/my-project
-```
+A list of repositories the daemon keeps continuously up-to-date (fetched and fast-forwarded every 60 seconds). Use `syncedRepos` for repos you want kept fresh in the shared library.
 
 Manage the list via the CLI:
 
@@ -229,7 +221,30 @@ agenc repo add owner/repo --sync   # clone and add to syncedRepos
 agenc repo rm owner/repo           # remove from disk and syncedRepos
 ```
 
-Entries in `config.yml` must use canonical format (`github.com/owner/repo`). The CLI accepts shorthand — `owner/repo`, `github.com/owner/repo`, or a full `https://github.com/owner/repo` URL — and normalizes it automatically.
+#### claudeConfig
+
+The Claude config source repo provides the base CLAUDE.md, settings.json, skills, hooks, commands, agents, and plugins for every mission. When you create a mission, AgenC copies these from the config source and merges them with AgenC-specific modifications (from `$AGENC_DIRPATH/config/claude-modifications/`).
+
+The optional `subdirectory` field lets you point to a subdirectory within the repo if your Claude config files are not at the root.
+
+#### crons
+
+Cron jobs spawn headless missions on a schedule. Each cron needs at minimum a `schedule` (cron expression) and a `prompt` (what to tell Claude). The daemon evaluates cron expressions every 60 seconds.
+
+Key behaviors:
+- **Overlap policy:** `skip` (default) prevents a new run if the previous one is still active. `allow` permits concurrent runs.
+- **Timeout:** Defaults to 1 hour. After timeout, the mission receives SIGTERM then SIGKILL after 30 seconds.
+- **Max concurrent:** Controlled by `cronsMaxConcurrent` (default: 10). Crons are skipped when the limit is reached.
+
+Manage crons via the CLI:
+
+```
+agenc cron new           # create a new cron job
+agenc cron ls            # list all cron jobs
+agenc cron enable <name> # enable a disabled cron
+agenc cron run <name>    # trigger a cron immediately
+agenc cron logs <name>   # view output from the latest run
+```
 
 ### Config Auto-Sync
 
