@@ -38,9 +38,9 @@ func init() {
 func runCronRun(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	cronCfg, exists := cfg.Crons[name]

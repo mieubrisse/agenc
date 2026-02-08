@@ -25,9 +25,9 @@ func runCronEnable(cmd *cobra.Command, args []string) error {
 }
 
 func setCronEnabled(name string, enabled bool) error {
-	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	cfg, cm, err := readConfigWithComments()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	cronCfg, exists := cfg.Crons[name]

@@ -38,9 +38,9 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("interactive mode requires a terminal; provide arguments or edit config.yml directly")
 	}
 
-	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	cfg, cm, err := readConfigWithComments()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	reader := bufio.NewReader(os.Stdin)

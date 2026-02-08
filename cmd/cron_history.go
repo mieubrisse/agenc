@@ -7,7 +7,6 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
@@ -38,9 +37,9 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
 	// Verify cron exists
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	if _, exists := cfg.Crons[name]; !exists {

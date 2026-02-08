@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -23,9 +22,9 @@ func init() {
 }
 
 func runCronLs(cmd *cobra.Command, args []string) error {
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, err := readConfig()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	if len(cfg.Crons) == 0 {

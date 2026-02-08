@@ -45,6 +45,9 @@ func init() {
 }
 
 func runRepoAdd(cmd *cobra.Command, args []string) error {
+	if _, err := getAgencContext(); err != nil {
+		return err
+	}
 	// Join args - could be a single repo ref or multiple search terms
 	input := args[0]
 	if len(args) > 1 {
@@ -61,9 +64,9 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if repoAddSyncFlag {
-		cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+		cfg, cm, err := readConfigWithComments()
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to read config")
+			return err
 		}
 
 		if !slices.Contains(cfg.SyncedRepos, result.RepoName) {

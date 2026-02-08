@@ -20,6 +20,9 @@ func init() {
 }
 
 func runDaemonRestart(cmd *cobra.Command, args []string) error {
+	if _, err := getAgencContext(); err != nil {
+		return err
+	}
 	pidFilepath := config.GetDaemonPIDFilepath(agencDirpath)
 	logFilepath := config.GetDaemonLogFilepath(agencDirpath)
 

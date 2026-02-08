@@ -28,6 +28,9 @@ func init() {
 }
 
 func runDaemonStart(cmd *cobra.Command, args []string) error {
+	if _, err := getAgencContext(); err != nil {
+		return err
+	}
 	if daemon.IsDaemonProcess() {
 		return runDaemonLoop()
 	}

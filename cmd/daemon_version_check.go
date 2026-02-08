@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -67,13 +66,3 @@ func restartDaemon(agencDirpath string, oldVersion string, newVersion string) {
 	fmt.Fprintf(os.Stderr, "Daemon restarted: %s → %s\n", oldVersion, newVersion)
 }
 
-// isUnderDaemonCmd returns true if cmd is the daemon command or any of its
-// subcommands.
-func isUnderDaemonCmd(cmd *cobra.Command) bool {
-	for c := cmd; c != nil; c = c.Parent() {
-		if c == daemonCmd {
-			return true
-		}
-	}
-	return false
-}

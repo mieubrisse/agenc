@@ -39,42 +39,66 @@ func init() {
 }
 
 func runConfigInit(cmd *cobra.Command, args []string) error {
-	return runOnboarding(true)
-}
-
-// runOnboarding walks through incomplete configuration steps, prompting the
-// user interactively for each. It is called automatically from PersistentPreRunE
-// (with alwaysPrintSummary=false) and explicitly from 'config init'
-// (with alwaysPrintSummary=true).
-//
-// When alwaysPrintSummary is false the summary is only printed if at least one
-// step was incomplete (i.e. the user was prompted). When true the summary is
-// always printed — even if nothing needed configuring.
-//
-// Returns nil immediately if stdin is not a TTY.
-func runOnboarding(alwaysPrintSummary bool) error {
-	if !isatty.IsTerminal(os.Stdin.Fd()) {
-		return nil
+	dirpath, err := ensureConfigured()
+	if err != nil {
+		return err
 	}
 
-	configDirpath := config.GetConfigDirpath(agencDirpath)
+	// Always print summary (the only difference from auto-onboarding)
+	cfg, _, _ := config.ReadAgencConfig(dirpath)
+	configIsGitRepo := isGitRepo(config.GetConfigDirpath(dirpath))
+	fmt.Println()
+	printConfigSummary(configIsGitRepo, cfg)
+	return nil
+}
+
+// ensureConfigured is the single idempotent function that gets agenc into a
+// working state. It resolves the agenc directory, ensures the directory
+// structure, and verifies all required config is present.
+//
+// If config is incomplete:
+//   - TTY available: runs the interactive setup wizard
+//   - No TTY: returns an error
+//
+// If config is already complete: returns immediately.
+func ensureConfigured() (string, error) {
+	dirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
+	agencDirpath = dirpath
+
+	if err := handleFirstRun(dirpath); err != nil {
+		return "", stacktrace.Propagate(err, "first-run setup failed")
+	}
+
+	if err := config.EnsureDirStructure(dirpath); err != nil {
+		return "", stacktrace.Propagate(err, "failed to ensure directory structure")
+	}
+
+	// Check config completeness
+	configDirpath := config.GetConfigDirpath(dirpath)
 	configIsGitRepo := isGitRepo(configDirpath)
 
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	cfg, _, err := config.ReadAgencConfig(dirpath)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return "", stacktrace.Propagate(err, "failed to read config")
 	}
 
 	needsConfigRepo := !configIsGitRepo
 	needsClaudeConfig := cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == ""
 
-	// Everything already configured
 	if !needsConfigRepo && !needsClaudeConfig {
-		if alwaysPrintSummary {
-			fmt.Println()
-			printConfigSummary(configIsGitRepo, cfg)
-		}
-		return nil
+		return dirpath, nil // Already configured
+	}
+
+	// Config incomplete — need TTY for interactive setup
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return "", stacktrace.NewError(
+			"configuration is incomplete; run '%s %s %s' interactively",
+			agencCmdStr, configCmdStr, initCmdStr,
+		)
 	}
 
 	reader := bufio.NewReader(os.Stdin)
@@ -83,7 +107,7 @@ func runOnboarding(alwaysPrintSummary bool) error {
 	if needsConfigRepo {
 		changed, err := setupConfigRepo(reader, configDirpath)
 		if err != nil {
-			return stacktrace.Propagate(err, "config repo setup failed")
+			return "", stacktrace.Propagate(err, "config repo setup failed")
 		}
 		if changed {
 			configIsGitRepo = true
@@ -92,28 +116,23 @@ func runOnboarding(alwaysPrintSummary bool) error {
 
 	// Re-read config — the cloned repo may have brought in a config.yml with
 	// claudeConfig already set.
-	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	cfg, cm, err := config.ReadAgencConfig(dirpath)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return "", stacktrace.Propagate(err, "failed to read config")
 	}
 
 	// Step 2: Claude config
 	if cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == "" {
 		if err := setupClaudeConfig(reader, cfg, cm); err != nil {
-			return stacktrace.Propagate(err, "Claude config setup failed")
-		}
-
-		// Re-read for accurate summary
-		cfg, _, err = config.ReadAgencConfig(agencDirpath)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read config")
+			return "", stacktrace.Propagate(err, "Claude config setup failed")
 		}
 	}
 
 	fmt.Println()
+	cfg, _, _ = config.ReadAgencConfig(dirpath)
 	printConfigSummary(configIsGitRepo, cfg)
 
-	return nil
+	return dirpath, nil
 }
 
 // isGitRepo returns true if the directory contains a .git directory or file.

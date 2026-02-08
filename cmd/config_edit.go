@@ -23,6 +23,9 @@ func init() {
 }
 
 func runConfigEdit(cmd *cobra.Command, args []string) error {
+	if _, err := getAgencContext(); err != nil {
+		return err
+	}
 	editorEnv := os.Getenv("EDITOR")
 	if editorEnv == "" {
 		return stacktrace.NewError("$EDITOR is not set; set it to your preferred editor (e.g. export EDITOR=vim)")

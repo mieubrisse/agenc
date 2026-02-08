@@ -27,6 +27,9 @@ func init() {
 }
 
 func runRepoEdit(cmd *cobra.Command, args []string) error {
+	if _, err := getAgencContext(); err != nil {
+		return err
+	}
 	ensureDaemonRunning(agencDirpath)
 
 	repos, err := findReposOnDisk(agencDirpath)

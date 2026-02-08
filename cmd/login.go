@@ -15,6 +15,9 @@ var loginCmd = &cobra.Command{
 	Use:   loginCmdStr,
 	Short: "Log in to Claude (credentials stored in $AGENC_DIRPATH/claude/)",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, err := getAgencContext(); err != nil {
+			return err
+		}
 		claudeBinary, err := exec.LookPath("claude")
 		if err != nil {
 			return stacktrace.Propagate(err, "'claude' binary not found in PATH")

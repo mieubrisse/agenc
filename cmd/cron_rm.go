@@ -23,9 +23,9 @@ func init() {
 func runCronRm(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	cfg, cm, err := readConfigWithComments()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read config")
+		return err
 	}
 
 	if _, exists := cfg.Crons[name]; !exists {

@@ -36,6 +36,9 @@ func init() {
 }
 
 func runRepoUpdate(cmd *cobra.Command, args []string) error {
+	if _, err := getAgencContext(); err != nil {
+		return err
+	}
 	allRepos, err := findReposOnDisk(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to scan repos directory")

@@ -60,6 +60,9 @@ type repoLibraryEntry struct {
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
+	if _, err := getAgencContext(); err != nil {
+		return err
+	}
 	ensureDaemonRunning(agencDirpath)
 
 	if cloneFlag != "" {

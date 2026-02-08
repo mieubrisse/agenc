@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"regexp"
+	"sync"
 
+	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -94,12 +97,40 @@ func filterRunningMissions(missions []*database.Mission) []*database.Mission {
 }
 
 // ============================================================================
+// Agenc context — lazy one-shot initialization
+// ============================================================================
+
+var (
+	agencCtxOnce sync.Once
+	agencCtxErr  error
+)
+
+// getAgencContext lazily ensures agenc is fully configured. It runs
+// ensureConfigured() at most once per CLI invocation and, for non-daemon
+// processes, checks whether the daemon needs a version-bump restart.
+func getAgencContext() (string, error) {
+	agencCtxOnce.Do(func() {
+		_, agencCtxErr = ensureConfigured()
+		if agencCtxErr != nil {
+			return
+		}
+		if !daemon.IsDaemonProcess() {
+			checkDaemonVersion(agencDirpath)
+		}
+	})
+	return agencDirpath, agencCtxErr
+}
+
+// ============================================================================
 // Database helpers
 // ============================================================================
 
 // openDB centralizes the database opening boilerplate used by every command
 // that touches the mission database.
 func openDB() (*database.DB, error) {
+	if _, err := getAgencContext(); err != nil {
+		return nil, err
+	}
 	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
 	db, err := database.Open(dbFilepath)
 	if err != nil {
@@ -145,12 +176,27 @@ func prepareMissionForAction(db *database.DB, missionID string) (*database.Missi
 // ============================================================================
 
 // readConfig centralizes the config reading boilerplate. It returns the config
-// only; use config.ReadAgencConfig directly when the config manager is needed
-// for modifications.
+// only; use readConfigWithComments when the comment map is needed for write-back.
 func readConfig() (*config.AgencConfig, error) {
+	if _, err := getAgencContext(); err != nil {
+		return nil, err
+	}
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to read config")
 	}
 	return cfg, nil
+}
+
+// readConfigWithComments reads the config and returns the comment map needed
+// for write-back operations that preserve YAML comments.
+func readConfigWithComments() (*config.AgencConfig, yaml.CommentMap, error) {
+	if _, err := getAgencContext(); err != nil {
+		return nil, nil, err
+	}
+	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return nil, nil, stacktrace.Propagate(err, "failed to read config")
+	}
+	return cfg, cm, nil
 }
