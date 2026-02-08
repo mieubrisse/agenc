@@ -9,8 +9,8 @@ your tmux.conf. If a tmux server is running, the keybindings are sourced
 immediately.
 
 All keybindings live under the "agenc" key table, activated with prefix + a:
-  prefix + a, M  — new mission in a new tmux window
-  prefix + a, P  — new mission in a side-by-side pane
+  prefix + a, w  — new mission in a new tmux window
+  prefix + a, p  — new mission in a side-by-side pane
 
 ```
 agenc tmux inject [flags]

@@ -25,8 +25,8 @@ your tmux.conf. If a tmux server is running, the keybindings are sourced
 immediately.
 
 All keybindings live under the "agenc" key table, activated with prefix + a:
-  prefix + a, M  — new mission in a new tmux window
-  prefix + a, P  — new mission in a side-by-side pane`,
+  prefix + a, w  — new mission in a new tmux window
+  prefix + a, p  — new mission in a side-by-side pane`,
 	Args: cobra.NoArgs,
 	RunE: runTmuxInject,
 }
@@ -92,9 +92,9 @@ func generateKeybindingsContent() string {
 	fmt.Fprintf(&sb, "bind-key a switch-client -T %s\n", agencKeyTable)
 	sb.WriteString("\n")
 
-	// agenc table: M — new mission in a new window
-	sb.WriteString("# New mission in a new window (prefix + a, M)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s M run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
+	// agenc table: w — new mission in a new window
+	sb.WriteString("# New mission in a new window (prefix + a, w)\n")
+	fmt.Fprintf(&sb, "bind-key -T %s w run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
 		agencKeyTable,
 		agencCmdStr, tmuxCmdStr, windowCmdStr, newCmdStr,
 		agencCmdStr, missionCmdStr, newCmdStr,
@@ -102,9 +102,9 @@ func generateKeybindingsContent() string {
 
 	sb.WriteString("\n")
 
-	// agenc table: P — new mission in a side-by-side pane
-	sb.WriteString("# New mission in a side-by-side pane (prefix + a, P)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s P run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
+	// agenc table: p — new mission in a side-by-side pane
+	sb.WriteString("# New mission in a side-by-side pane (prefix + a, p)\n")
+	fmt.Fprintf(&sb, "bind-key -T %s p run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
 		agencKeyTable,
 		agencCmdStr, tmuxCmdStr, paneCmdStr, newCmdStr,
 		agencCmdStr, missionCmdStr, newCmdStr,
