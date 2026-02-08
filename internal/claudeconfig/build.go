@@ -90,6 +90,12 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		return stacktrace.Propagate(err, "failed to symlink plugins")
 	}
 
+	// Symlink projects to ~/.claude/projects so session transcripts persist
+	// beyond the mission lifecycle
+	if err := symlinkProjects(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to symlink projects")
+	}
+
 	return nil
 }
 
@@ -231,6 +237,31 @@ func symlinkPlugins(claudeConfigDirpath string) error {
 	os.RemoveAll(pluginsLinkPath)
 
 	return os.Symlink(pluginsTargetDirpath, pluginsLinkPath)
+}
+
+// symlinkProjects creates a symlink from the mission config's projects/
+// directory to ~/.claude/projects/. This ensures conversation transcripts,
+// subagent logs, and per-project auto-memory persist beyond the mission
+// lifecycle and are visible to Claude across all sessions.
+// The target directory is created if it doesn't already exist.
+func symlinkProjects(claudeConfigDirpath string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine home directory")
+	}
+
+	projectsTargetDirpath := filepath.Join(homeDir, ".claude", "projects")
+	projectsLinkPath := filepath.Join(claudeConfigDirpath, "projects")
+
+	// Ensure the target directory exists so Claude Code can write into it
+	if err := os.MkdirAll(projectsTargetDirpath, 0700); err != nil {
+		return stacktrace.Propagate(err, "failed to create '%s'", projectsTargetDirpath)
+	}
+
+	// Remove existing projects directory/symlink if it exists
+	os.RemoveAll(projectsLinkPath)
+
+	return os.Symlink(projectsTargetDirpath, projectsLinkPath)
 }
 
 // copyDirWithRewriting recursively copies a directory tree from src to dst,

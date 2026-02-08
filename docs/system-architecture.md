@@ -197,7 +197,8 @@ $AGENC_DIRPATH/
 │       │   ├── hooks/                     # From shadow repo (path-rewritten)
 │       │   ├── commands/                  # From shadow repo (path-rewritten)
 │       │   ├── agents/                    # From shadow repo (path-rewritten)
-│       │   └── plugins/                   # Symlink to ~/.claude/plugins/
+│       │   ├── plugins/                   # Symlink to ~/.claude/plugins/
+│       │   └── projects/                  # Symlink to ~/.claude/projects/ (persistent sessions)
 │       ├── pid                            # Wrapper process ID
 │       ├── claude-state                   # "idle" or "busy" (written by Claude hooks)
 │       ├── wrapper.log                    # Wrapper lifecycle log
@@ -238,7 +239,7 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 Per-mission Claude configuration building, merging, and shadow repo management.
 
-- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, clones Keychain credentials, symlinks plugins), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
+- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, clones Keychain credentials, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop and UserPromptSubmit hooks for idle detection), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
@@ -294,7 +295,7 @@ Each mission gets its own `claude-config/` directory, built at creation time fro
 2. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
 3. **AgenC operational overrides** — programmatically injected hooks and deny permissions
 
-Plugins are handled separately: `plugins/` is a symlink to `~/.claude/plugins/` rather than a copy.
+Two directories are symlinked rather than copied: `plugins/` → `~/.claude/plugins/` (so plugin installations are shared), and `projects/` → `~/.claude/projects/` (so conversation transcripts and auto-memory persist beyond the mission lifecycle).
 
 Merging logic (`internal/claudeconfig/merge.go`):
 - CLAUDE.md: simple concatenation (user content + modifications content)
