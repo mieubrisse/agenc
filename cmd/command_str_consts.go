@@ -44,7 +44,8 @@ const (
 	updateConfigCmdStr = "update-config"
 
 	// Config subcommands
-	initCmdStr = "init"
+	initCmdStr          = "init"
+	customCommandCmdStr = "custom-command"
 
 	// Repo subcommands
 	editCmdStr = "edit"
@@ -88,6 +89,10 @@ const (
 
 	// tmux window new flags
 	parentPaneFlagName = "parent-pane"
+
+	// custom-command flags
+	customCommandArgsFlagName        = "args"
+	customCommandPaletteNameFlagName = "palette-name"
 
 	// cron flags
 	headlessFlagName = "headless"

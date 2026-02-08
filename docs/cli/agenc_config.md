@@ -11,6 +11,7 @@ Manage agenc configuration
 ### SEE ALSO
 
 * [agenc](agenc.md)	 - The AgenC — agent mission management CLI
+* [agenc config custom-command](agenc_config_custom-command.md)	 - Manage custom palette commands
 * [agenc config edit](agenc_config_edit.md)	 - Open config.yml in your editor ($EDITOR)
 * [agenc config init](agenc_config_init.md)	 - Initialize agenc configuration (interactive)
 
