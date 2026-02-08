@@ -50,11 +50,9 @@ func stripAnsiCodes(s string) string {
 // buildMissionPickerEntries converts database missions to picker entries using
 // the same formatting infrastructure as mission ls.
 func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
-	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
-
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
-		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
+		sessionName := resolveSessionName(db, m)
 		status := getMissionStatus(m.ID, m.Status)
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,

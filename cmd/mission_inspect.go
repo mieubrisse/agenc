@@ -116,13 +116,12 @@ func inspectMission(db *database.DB, missionID string) error {
 	if mission.GitRepo != "" {
 		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
 	}
-	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
-	sessionName := resolveSessionName(claudeConfigDirpath, db, mission)
+	sessionName := resolveSessionName(db, mission)
 	if sessionName == "" {
 		sessionName = "--"
 	}
 	fmt.Printf("Session:     %s\n", sessionName)
-	prompt := resolveMissionPrompt(db, agencDirpath, mission)
+	prompt := resolveMissionPrompt(db, mission)
 	if prompt == "" {
 		prompt = "--"
 	}

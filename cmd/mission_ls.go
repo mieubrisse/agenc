@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
@@ -64,11 +66,10 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
-	claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
 	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
-		sessionName := resolveSessionName(claudeConfigDirpath, db, m)
+		sessionName := resolveSessionName(db, m)
 		tbl.AddRow(
 			formatLastActive(m.LastHeartbeat),
 			m.ShortID,
@@ -131,17 +132,21 @@ const defaultPromptMaxLen = 53
 // mission's heartbeat has not advanced past the last cache update). Otherwise
 // it performs the expensive file lookup, caches the result, and returns it.
 // Falls back to the mission's first user prompt if no session name is found.
-func resolveSessionName(claudeConfigDirpath string, db *database.DB, m *database.Mission) string {
+//
+// Session data lives in the per-mission claude-config directory (for newer
+// missions) or the global claude directory (for older missions).
+func resolveSessionName(db *database.DB, m *database.Mission) string {
 	if isSessionNameCacheFresh(m) {
 		return m.SessionName
 	}
 
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, m.ID)
 	sessionName := session.FindSessionName(claudeConfigDirpath, m.ID)
 	if sessionName != "" {
 		_ = db.UpdateMissionSessionName(m.ID, sessionName)
 		return sessionName
 	}
-	return resolveMissionPrompt(db, agencDirpath, m)
+	return resolveMissionPrompt(db, m)
 }
 
 // isSessionNameCacheFresh reports whether the cached session name for a
@@ -161,12 +166,16 @@ func isSessionNameCacheFresh(m *database.Mission) bool {
 // resolveMissionPrompt returns the mission's first user prompt, using the DB
 // cache if available, otherwise backfilling from Claude's history.jsonl. The
 // returned string may be empty if no prompt has been recorded yet.
-func resolveMissionPrompt(db *database.DB, agencDirpath string, m *database.Mission) string {
+//
+// History data lives in the per-mission claude-config directory (for newer
+// missions) or the global claude directory (for older missions).
+func resolveMissionPrompt(db *database.DB, m *database.Mission) string {
 	if m.Prompt != "" {
 		return m.Prompt
 	}
 
-	historyFilepath := config.GetHistoryFilepath(agencDirpath)
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, m.ID)
+	historyFilepath := filepath.Join(claudeConfigDirpath, config.HistoryFilename)
 	prompt := history.FindFirstPrompt(historyFilepath, m.ID)
 	if prompt == "" {
 		return ""
