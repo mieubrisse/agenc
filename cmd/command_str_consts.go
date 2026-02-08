@@ -30,6 +30,9 @@ const (
 	windowCmdStr = "window"
 	paneCmdStr   = "pane"
 
+	// Tmux subcommands
+	injectCmdStr = "inject"
+
 	// Mission subcommands
 	newCmdStr          = "new"
 	resumeCmdStr       = "resume"

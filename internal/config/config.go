@@ -33,6 +33,7 @@ const (
 	HistoryFilename         = "history.jsonl"
 	SecretsEnvFilename      = "secrets.env"
 	ClaudeOutputLogFilename = "claude-output.log"
+	TmuxKeybindingsFilename = "tmux-keybindings.conf"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -174,6 +175,12 @@ func GetConfigDirpath(agencDirpath string) string {
 // records every user prompt submission.
 func GetHistoryFilepath(agencDirpath string) string {
 	return filepath.Join(GetGlobalClaudeDirpath(agencDirpath), HistoryFilename)
+}
+
+// GetTmuxKeybindingsFilepath returns the path to the agenc-managed tmux
+// keybindings configuration file.
+func GetTmuxKeybindingsFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, TmuxKeybindingsFilename)
 }
 
 // GetClaudeModificationsDirpath returns the path to the claude-modifications
