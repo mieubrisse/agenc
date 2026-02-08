@@ -8,8 +8,8 @@ Create a new pane in the current tmux window by splitting it, and run a
 command inside the new pane. When the command exits, the pane closes and
 tmux focuses back to the parent pane.
 
-By default the split is vertical (top/bottom). Use --horizontal for a
-side-by-side split.
+By default the split is vertical (side-by-side). Use --vertical for a
+top/bottom split.
 
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
@@ -20,7 +20,7 @@ is needed for tmux keybindings where $TMUX_PANE is not available. Use
 
 Example:
   agenc tmux pane new -- agenc mission new mieubrisse/agenc
-  agenc tmux pane new --horizontal -- agenc mission new
+  agenc tmux pane new --vertical -- agenc mission new
   agenc tmux pane new --parent-pane "#{pane_id}" -- agenc mission new
 
 ```
@@ -31,8 +31,8 @@ agenc tmux pane new -- <command> [args...] [flags]
 
 ```
   -h, --help                 help for new
-  -H, --horizontal           Split horizontally (side-by-side) instead of vertically (top/bottom)
       --parent-pane string   Parent pane ID to return focus to on exit (defaults to $TMUX_PANE)
+  -V, --vertical             Split vertically (top/bottom) instead of the default side-by-side
 ```
 
 ### SEE ALSO

@@ -74,7 +74,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 	defer db.Close()
 
 	if updateConfigAllFlag {
-		return updateConfigForAllMissions(db, configSourceDirpath, newCommitHash)
+		return updateConfigForAllMissions(db, configRepoDirpath, configSourceDirpath, newCommitHash)
 	}
 
 	// Single mission mode
@@ -133,12 +133,12 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Auto-selected: %s\n", selected.ShortID)
 	}
 
-	return updateMissionConfig(db, selected.MissionID, configSourceDirpath, newCommitHash)
+	return updateMissionConfig(db, selected.MissionID, configRepoDirpath, configSourceDirpath, newCommitHash)
 }
 
 // updateConfigForAllMissions updates the Claude config for all non-archived
 // missions that have a per-mission config directory.
-func updateConfigForAllMissions(db *database.DB, configSourceDirpath string, newCommitHash string) error {
+func updateConfigForAllMissions(db *database.DB, configRepoDirpath string, configSourceDirpath string, newCommitHash string) error {
 	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -154,7 +154,7 @@ func updateConfigForAllMissions(db *database.DB, configSourceDirpath string, new
 			continue // Legacy mission without per-mission config
 		}
 
-		if err := updateMissionConfig(db, m.ID, configSourceDirpath, newCommitHash); err != nil {
+		if err := updateMissionConfig(db, m.ID, configRepoDirpath, configSourceDirpath, newCommitHash); err != nil {
 			fmt.Printf("  Failed to update mission %s: %v\n", m.ShortID, err)
 			continue
 		}
@@ -167,7 +167,7 @@ func updateConfigForAllMissions(db *database.DB, configSourceDirpath string, new
 
 // updateMissionConfig rebuilds a single mission's Claude config directory
 // from the config source repo.
-func updateMissionConfig(db *database.DB, missionID string, configSourceDirpath string, newCommitHash string) error {
+func updateMissionConfig(db *database.DB, missionID string, configRepoDirpath string, configSourceDirpath string, newCommitHash string) error {
 	missionRecord, err := db.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
@@ -187,7 +187,7 @@ func updateMissionConfig(db *database.DB, missionID string, configSourceDirpath 
 
 	// Show diff if we have both commits
 	if currentCommitHash != "" && newCommitHash != "" {
-		showConfigDiff(configSourceDirpath, currentCommitHash, newCommitHash)
+		showConfigDiff(configRepoDirpath, configSourceDirpath, currentCommitHash, newCommitHash)
 	}
 
 	fmt.Printf("Updating config for mission %s...\n", missionRecord.ShortID)
@@ -220,18 +220,9 @@ func updateMissionConfig(db *database.DB, missionID string, configSourceDirpath 
 
 // showConfigDiff displays a git diff between two commits in the config source
 // repo, filtered to trackable config items.
-func showConfigDiff(configSourceDirpath string, oldCommit string, newCommit string) {
-	// Find the git repo root containing the config source
-	toplevelCmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	toplevelCmd.Dir = configSourceDirpath
-	toplevelOutput, err := toplevelCmd.Output()
-	if err != nil {
-		return
-	}
-	repoRootDirpath := strings.TrimSpace(string(toplevelOutput))
-
+func showConfigDiff(configRepoDirpath string, configSourceDirpath string, oldCommit string, newCommit string) {
 	// Compute the relative path from repo root to config source subdir
-	relPath, err := filepath.Rel(repoRootDirpath, configSourceDirpath)
+	relPath, err := filepath.Rel(configRepoDirpath, configSourceDirpath)
 	if err != nil || relPath == "." {
 		relPath = ""
 	}
@@ -250,7 +241,7 @@ func showConfigDiff(configSourceDirpath string, oldCommit string, newCommit stri
 	diffArgs = append(diffArgs, pathFilters...)
 
 	diffCmd := exec.Command("git", diffArgs...)
-	diffCmd.Dir = repoRootDirpath
+	diffCmd.Dir = configRepoDirpath
 	diffCmd.Stdout = os.Stdout
 	diffCmd.Stderr = os.Stderr
 
