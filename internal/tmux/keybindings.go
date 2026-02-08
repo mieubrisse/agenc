@@ -14,8 +14,9 @@ import (
 const agencKeyTable = "agenc"
 
 // GenerateKeybindingsContent returns the full content of the agenc-managed
-// tmux keybindings configuration file.
-func GenerateKeybindingsContent() string {
+// tmux keybindings configuration file. The tmuxMajor/tmuxMinor parameters
+// control version-gated features (e.g. display-popup requires tmux >= 3.2).
+func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int) string {
 	var sb strings.Builder
 
 	sb.WriteString("# AgenC tmux keybindings\n")
@@ -38,13 +39,21 @@ func GenerateKeybindingsContent() string {
 	sb.WriteString("# New mission in a side-by-side pane (prefix + a, p)\n")
 	fmt.Fprintf(&sb, "bind-key -T %s p run-shell 'agenc tmux pane new --parent-pane \"#{pane_id}\" -- agenc mission new'\n", agencKeyTable)
 
+	// Command palette (requires tmux >= 3.2 for display-popup)
+	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
+		sb.WriteString("\n")
+		sb.WriteString("# Command palette (prefix + a, Space)\n")
+		fmt.Fprintf(&sb, "bind-key -T %s Space run-shell 'tmux display-popup -E -w 60%% -h 50%% \"agenc tmux palette --parent-pane #{pane_id}\"'\n", agencKeyTable)
+	}
+
 	return sb.String()
 }
 
 // WriteKeybindingsFile writes the agenc-managed keybindings file, overwriting
-// any previous version.
-func WriteKeybindingsFile(keybindingsFilepath string) error {
-	content := GenerateKeybindingsContent()
+// any previous version. The tmuxMajor/tmuxMinor parameters control
+// version-gated keybindings.
+func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int) error {
+	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor)
 	if err := os.WriteFile(keybindingsFilepath, []byte(content), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write keybindings file '%s'", keybindingsFilepath)
 	}

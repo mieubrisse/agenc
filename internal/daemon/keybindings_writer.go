@@ -38,7 +38,12 @@ func (d *Daemon) runKeybindingsWriterLoop(ctx context.Context) {
 func (d *Daemon) writeAndSourceKeybindings() {
 	keybindingsFilepath := config.GetTmuxKeybindingsFilepath(d.agencDirpath)
 
-	if err := tmux.WriteKeybindingsFile(keybindingsFilepath); err != nil {
+	// Detect tmux version for version-gated keybindings (e.g. display-popup).
+	// On error, fall back to (0, 0) — palette keybinding is omitted but all
+	// other keybindings are still emitted.
+	tmuxMajor, tmuxMinor, _ := tmux.DetectVersion()
+
+	if err := tmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor); err != nil {
 		d.logger.Printf("Keybindings writer: failed to write: %v", err)
 		return
 	}

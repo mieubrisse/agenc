@@ -32,7 +32,8 @@ const (
 	paneCmdStr   = "pane"
 
 	// Tmux subcommands
-	injectCmdStr = "inject"
+	injectCmdStr  = "inject"
+	paletteCmdStr = "palette"
 
 	// Mission subcommands
 	newCmdStr          = "new"

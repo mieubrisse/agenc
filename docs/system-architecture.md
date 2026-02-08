@@ -263,9 +263,10 @@ Background daemon with five concurrent loops.
 
 ### `internal/tmux/`
 
-Tmux keybindings generation, shared by the CLI (`tmux inject`) and daemon.
+Tmux keybindings generation and version detection, shared by the CLI (`tmux inject`) and daemon.
 
-- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`
+- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`. Keybinding generation accepts the detected tmux version and version-gates features: the command palette keybinding (`display-popup`) is only emitted on tmux >= 3.2.
+- `version.go` — `ParseVersion` (parses `tmux -V` output), `DetectVersion` (runs `tmux -V` and parses the result). Used by keybindings generation, the daemon, and the CLI to detect the installed tmux version.
 
 ### `internal/wrapper/`
 

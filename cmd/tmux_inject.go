@@ -43,7 +43,12 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 
 	keybindingsFilepath := config.GetTmuxKeybindingsFilepath(agencDirpath)
 
-	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath); err != nil {
+	// Detect tmux version for version-gated keybindings (e.g. display-popup).
+	// On error, fall back to (0, 0) — palette keybinding is omitted but all
+	// other keybindings are still emitted.
+	tmuxMajor, tmuxMinor, _ := agentmux.DetectVersion()
+
+	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor); err != nil {
 		return err
 	}
 	fmt.Printf("Wrote keybindings to %s\n", keybindingsFilepath)
