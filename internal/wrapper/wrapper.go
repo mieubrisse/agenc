@@ -145,6 +145,13 @@ func (w *Wrapper) Run(isResume bool) error {
 		w.hasConversation.Store(true)
 	}
 
+	// Log tmux environment for debugging
+	w.logger.Info("Tmux environment",
+		"AGENC_TMUX", os.Getenv(agencTmuxEnvVar),
+		"AGENC_PARENT_PANE", os.Getenv(agencParentPaneEnvVar),
+		"TMUX_PANE", os.Getenv("TMUX_PANE"),
+	)
+
 	// When the wrapper exits, return focus to the parent pane (if this is a
 	// side mission spawned via 'agenc tmux window new').
 	defer w.returnToParentPane()

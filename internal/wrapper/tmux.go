@@ -45,6 +45,7 @@ func (w *Wrapper) renameWindowForTmux() {
 // pane no longer exists, this is a no-op.
 func (w *Wrapper) returnToParentPane() {
 	parentPane := os.Getenv(agencParentPaneEnvVar)
+	w.logger.Info("returnToParentPane called", "parentPane", parentPane)
 	if parentPane == "" {
 		return
 	}
@@ -53,15 +54,19 @@ func (w *Wrapper) returnToParentPane() {
 	windowIDOutput, err := exec.Command("tmux", "display-message", "-t", parentPane, "-p", "#{window_id}").Output()
 	if err != nil {
 		// Parent pane no longer exists — tmux will select the next window automatically
+		w.logger.Warn("Parent pane no longer exists", "parentPane", parentPane, "error", err)
 		return
 	}
 
 	windowID := strings.TrimSpace(string(windowIDOutput))
+	w.logger.Info("Focusing parent window/pane", "windowID", windowID, "parentPane", parentPane)
 
-	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "select-window", "-t", windowID).Run()
-	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "select-pane", "-t", parentPane).Run()
+	if err := exec.Command("tmux", "select-window", "-t", windowID).Run(); err != nil {
+		w.logger.Warn("Failed to select parent window", "windowID", windowID, "error", err)
+	}
+	if err := exec.Command("tmux", "select-pane", "-t", parentPane).Run(); err != nil {
+		w.logger.Warn("Failed to select parent pane", "parentPane", parentPane, "error", err)
+	}
 }
 
 // extractRepoName extracts just the repository name from a canonical repo
