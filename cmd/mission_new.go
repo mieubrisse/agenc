@@ -66,6 +66,11 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	ensureDaemonRunning(agencDirpath)
 
+	// Verify config source repo is registered
+	if err := requireConfigSourceRepo(); err != nil {
+		return err
+	}
+
 	if cloneFlag != "" {
 		return runMissionNewWithClone()
 	}
@@ -349,6 +354,39 @@ func createAndLaunchMission(
 
 	fmt.Println("Launching claude...")
 	return w.Run(false)
+}
+
+// requireConfigSourceRepo verifies that the user has registered a Claude config
+// source repo. Returns an error with setup instructions if not registered.
+func requireConfigSourceRepo() error {
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read agenc config")
+	}
+
+	if cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == "" {
+		return stacktrace.NewError(
+			"Claude config source repo is not registered.\n\n" +
+				"Each mission needs a per-mission Claude config directory built from your\n" +
+				"config source repo. Run the following to set it up:\n\n" +
+				"  agenc config init\n\n" +
+				"This will guide you through registering your Claude config repo.",
+		)
+	}
+
+	// Verify the config source repo exists on disk
+	configSourceDirpath := claudeconfig.ResolveConfigSourceDirpath(agencDirpath, cfg)
+	if _, err := os.Stat(configSourceDirpath); os.IsNotExist(err) {
+		return stacktrace.NewError(
+			"Claude config source directory '%s' does not exist.\n\n"+
+				"The registered repo may not be cloned yet. Run:\n\n"+
+				"  agenc config init\n\n"+
+				"to verify your config source setup.",
+			configSourceDirpath,
+		)
+	}
+
+	return nil
 }
 
 // resolveConfigSourceDirpath reads the agenc config and returns the filesystem
