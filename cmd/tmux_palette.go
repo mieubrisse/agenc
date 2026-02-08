@@ -30,12 +30,12 @@ var paletteEntries = []paletteEntry{
 		commandArgs: []string{missionCmdStr, newCmdStr},
 	},
 	{
-		label:       "🔄 Resume mission",
+		label:       "▶️ Resume mission",
 		description: "Resume a stopped mission",
 		commandArgs: []string{missionCmdStr, resumeCmdStr},
 	},
 	{
-		label:       "🛑 Stop mission",
+		label:       "⏸️ Stop mission",
 		description: "Stop a running mission",
 		commandArgs: []string{missionCmdStr, stopCmdStr},
 	},
@@ -77,10 +77,12 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 
 	parentPaneID, _ := cmd.Flags().GetString(parentPaneFlagName)
 
-	// Build fzf input: one line per entry, formatted as "Label  —  Description"
+	// Build fzf input: one line per entry, formatted as "Label  —  Description".
+	// Variation selectors (U+FE0F) are stripped so that emoji width is
+	// consistent across tmux, the terminal, and fzf — preventing layout jitter.
 	var fzfInput strings.Builder
 	for _, entry := range paletteEntries {
-		fmt.Fprintf(&fzfInput, "%s  —  %s\n", entry.label, entry.description)
+		fmt.Fprintf(&fzfInput, "%s  —  %s\n", stripVariationSelectors(entry.label), entry.description)
 	}
 
 	// Run fzf for selection
@@ -114,10 +116,11 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		selectedLabel = selectedLine[:idx]
 	}
 
-	// Find the matching palette entry
+	// Find the matching palette entry (compare against stripped labels since
+	// that's what fzf received)
 	var selectedEntry *paletteEntry
 	for i := range paletteEntries {
-		if paletteEntries[i].label == selectedLabel {
+		if stripVariationSelectors(paletteEntries[i].label) == selectedLabel {
 			selectedEntry = &paletteEntries[i]
 			break
 		}
@@ -154,4 +157,17 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// stripVariationSelectors removes Unicode variation selectors (U+FE0E and
+// U+FE0F) from a string. These invisible codepoints switch characters between
+// text and emoji presentation, but terminals and tmux disagree on the resulting
+// width, causing layout jitter in TUI programs like fzf.
+func stripVariationSelectors(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\uFE0E' || r == '\uFE0F' {
+			return -1 // drop
+		}
+		return r
+	}, s)
 }
