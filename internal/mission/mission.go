@@ -16,11 +16,10 @@ import (
 // (agent/ IS the repo). When gitRepoSource is empty, an empty agent/ directory
 // is created.
 //
-// If configSourceDirpath is non-empty, a per-mission claude config directory is
-// built from that config source. Pass empty string to skip (legacy behavior).
+// The per-mission claude config directory is always built from the shadow repo.
 //
 // Returns the mission root directory path (not the agent/ subdirectory).
-func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string, gitRepoSource string, configSourceDirpath string) (string, error) {
+func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string, gitRepoSource string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
@@ -39,11 +38,9 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 		}
 	}
 
-	// Build per-mission claude config directory if config source is provided
-	if configSourceDirpath != "" {
-		if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, configSourceDirpath); err != nil {
-			return "", stacktrace.Propagate(err, "failed to build per-mission claude config directory")
-		}
+	// Build per-mission claude config directory from shadow repo
+	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID); err != nil {
+		return "", stacktrace.Propagate(err, "failed to build per-mission claude config directory")
 	}
 
 	return missionDirpath, nil

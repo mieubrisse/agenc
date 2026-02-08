@@ -13,18 +13,18 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/mission"
 )
 
 var updateConfigAllFlag bool
 
 var missionUpdateConfigCmd = &cobra.Command{
 	Use:   updateConfigCmdStr + " [mission-id|search-terms...]",
-	Short: "Update a mission's Claude config from the config source repo",
-	Long: fmt.Sprintf(`Update a mission's Claude config from the config source repo.
+	Short: "Rebuild a mission's Claude config from the shadow repo",
+	Long: fmt.Sprintf(`Rebuild a mission's Claude config from the shadow repo.
 
-Fetches the latest config source, shows a diff of changes, and rebuilds
-the per-mission Claude config directory.
+The shadow repo tracks your ~/.claude configuration files. This command
+rebuilds the per-mission Claude config directory from the current shadow
+repo state.
 
 Without arguments, opens an interactive fzf picker to select a mission.
 With arguments, accepts a mission ID (short or full UUID) or search terms.
@@ -44,28 +44,12 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve config source
-	configSourceDirpath := resolveConfigSourceDirpath()
-	if configSourceDirpath == "" {
-		return stacktrace.NewError(
-			"no Claude config source repo registered; run '%s %s %s' to set one up",
-			agencCmdStr, configCmdStr, initCmdStr,
-		)
+	// Ensure shadow repo is initialized
+	if err := claudeconfig.EnsureShadowRepo(agencDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to ensure shadow repo")
 	}
 
-	// Fetch latest config source
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read agenc config")
-	}
-
-	configRepoDirpath := config.GetRepoDirpath(agencDirpath, cfg.ClaudeConfig.Repo)
-	fmt.Printf("Updating config source repo '%s'...\n", cfg.ClaudeConfig.Repo)
-	if err := mission.ForceUpdateRepo(configRepoDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to update config source repo")
-	}
-
-	newCommitHash := claudeconfig.ResolveConfigCommitHash(configSourceDirpath)
+	newCommitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath)
 
 	db, err := openDB()
 	if err != nil {
@@ -74,7 +58,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 	defer db.Close()
 
 	if updateConfigAllFlag {
-		return updateConfigForAllMissions(db, configRepoDirpath, configSourceDirpath, newCommitHash)
+		return updateConfigForAllMissions(db, newCommitHash)
 	}
 
 	// Single mission mode
@@ -133,12 +117,12 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Auto-selected: %s\n", selected.ShortID)
 	}
 
-	return updateMissionConfig(db, selected.MissionID, configRepoDirpath, configSourceDirpath, newCommitHash)
+	return updateMissionConfig(db, selected.MissionID, newCommitHash)
 }
 
 // updateConfigForAllMissions updates the Claude config for all non-archived
 // missions that have a per-mission config directory.
-func updateConfigForAllMissions(db *database.DB, configRepoDirpath string, configSourceDirpath string, newCommitHash string) error {
+func updateConfigForAllMissions(db *database.DB, newCommitHash string) error {
 	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -154,7 +138,7 @@ func updateConfigForAllMissions(db *database.DB, configRepoDirpath string, confi
 			continue // Legacy mission without per-mission config
 		}
 
-		if err := updateMissionConfig(db, m.ID, configRepoDirpath, configSourceDirpath, newCommitHash); err != nil {
+		if err := updateMissionConfig(db, m.ID, newCommitHash); err != nil {
 			fmt.Printf("  Failed to update mission %s: %v\n", m.ShortID, err)
 			continue
 		}
@@ -166,8 +150,8 @@ func updateConfigForAllMissions(db *database.DB, configRepoDirpath string, confi
 }
 
 // updateMissionConfig rebuilds a single mission's Claude config directory
-// from the config source repo.
-func updateMissionConfig(db *database.DB, missionID string, configRepoDirpath string, configSourceDirpath string, newCommitHash string) error {
+// from the shadow repo.
+func updateMissionConfig(db *database.DB, missionID string, newCommitHash string) error {
 	missionRecord, err := db.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
@@ -181,19 +165,19 @@ func updateMissionConfig(db *database.DB, missionID string, configRepoDirpath st
 
 	if currentCommitHash == newCommitHash && newCommitHash != "" {
 		fmt.Printf("Mission %s: config already up to date (commit %s)\n",
-			missionRecord.ShortID, newCommitHash[:12])
+			missionRecord.ShortID, shortHash(newCommitHash))
 		return nil
 	}
 
 	// Show diff if we have both commits
 	if currentCommitHash != "" && newCommitHash != "" {
-		showConfigDiff(configRepoDirpath, configSourceDirpath, currentCommitHash, newCommitHash)
+		showShadowRepoDiff(currentCommitHash, newCommitHash)
 	}
 
 	fmt.Printf("Updating config for mission %s...\n", missionRecord.ShortID)
 
-	// Rebuild per-mission config directory
-	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, configSourceDirpath); err != nil {
+	// Rebuild per-mission config directory from shadow repo
+	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to rebuild config for mission '%s'", missionID)
 	}
 
@@ -206,7 +190,7 @@ func updateMissionConfig(db *database.DB, missionID string, configRepoDirpath st
 
 	fmt.Printf("Mission %s: config updated", missionRecord.ShortID)
 	if newCommitHash != "" {
-		fmt.Printf(" (commit %s)", newCommitHash[:12])
+		fmt.Printf(" (commit %s)", shortHash(newCommitHash))
 	}
 	fmt.Println()
 
@@ -218,36 +202,27 @@ func updateMissionConfig(db *database.DB, missionID string, configRepoDirpath st
 	return nil
 }
 
-// showConfigDiff displays a git diff between two commits in the config source
-// repo, filtered to trackable config items.
-func showConfigDiff(configRepoDirpath string, configSourceDirpath string, oldCommit string, newCommit string) {
-	// Compute the relative path from repo root to config source subdir
-	relPath, err := filepath.Rel(configRepoDirpath, configSourceDirpath)
-	if err != nil || relPath == "." {
-		relPath = ""
-	}
+// showShadowRepoDiff displays a git diff between two commits in the shadow repo.
+func showShadowRepoDiff(oldCommit string, newCommit string) {
+	shadowDirpath := claudeconfig.GetShadowRepoDirpath(agencDirpath)
 
-	// Build path filters for trackable items
-	var pathFilters []string
-	for _, itemName := range claudeconfig.TrackableItemNames {
-		if relPath != "" {
-			pathFilters = append(pathFilters, filepath.Join(relPath, itemName))
-		} else {
-			pathFilters = append(pathFilters, itemName)
-		}
-	}
-
-	diffArgs := []string{"diff", "--stat", oldCommit, newCommit, "--"}
-	diffArgs = append(diffArgs, pathFilters...)
-
-	diffCmd := exec.Command("git", diffArgs...)
-	diffCmd.Dir = configRepoDirpath
+	diffCmd := exec.Command("git", "diff", "--stat", oldCommit, newCommit)
+	diffCmd.Dir = shadowDirpath
 	diffCmd.Stdout = os.Stdout
 	diffCmd.Stderr = os.Stderr
 
-	fmt.Printf("\nConfig changes (%s..%s):\n", oldCommit[:12], newCommit[:12])
+	fmt.Printf("\nConfig changes (%s..%s):\n", shortHash(oldCommit), shortHash(newCommit))
 	if err := diffCmd.Run(); err != nil {
 		fmt.Println("  (could not generate diff)")
 	}
 	fmt.Println()
+}
+
+// shortHash returns the first 12 characters of a commit hash, or the full
+// string if shorter.
+func shortHash(hash string) string {
+	if len(hash) > 12 {
+		return hash[:12]
+	}
+	return hash
 }

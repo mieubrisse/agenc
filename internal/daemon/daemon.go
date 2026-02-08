@@ -50,6 +50,12 @@ func (d *Daemon) Run(ctx context.Context) {
 		d.runCronSchedulerLoop(ctx)
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runConfigWatcherLoop(ctx)
+	}()
+
 	wg.Wait()
 	d.logger.Println("Daemon stopping")
 }

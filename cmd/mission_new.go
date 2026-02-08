@@ -66,9 +66,9 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	ensureDaemonRunning(agencDirpath)
 
-	// Verify config source repo is registered
-	if err := requireConfigSourceRepo(); err != nil {
-		return err
+	// Ensure shadow repo is initialized (auto-creates from ~/.claude if needed)
+	if err := claudeconfig.EnsureShadowRepo(agencDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to ensure shadow repo")
 	}
 
 	if cloneFlag != "" {
@@ -88,14 +88,9 @@ func runMissionNewWithClone() error {
 			return stacktrace.Propagate(err, "failed to get source mission")
 		}
 
-		// Resolve config source for per-mission config dir
-		configSourceDirpath := resolveConfigSourceDirpath()
-
 		createParams := &database.CreateMissionParams{}
-		if configSourceDirpath != "" {
-			if commitHash := claudeconfig.ResolveConfigCommitHash(configSourceDirpath); commitHash != "" {
-				createParams.ConfigCommit = &commitHash
-			}
+		if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
+			createParams.ConfigCommit = &commitHash
 		}
 
 		missionRecord, err := db.CreateMission(sourceMission.GitRepo, createParams)
@@ -107,7 +102,7 @@ func runMissionNewWithClone() error {
 
 		// Create mission directory structure with no git copy
 		// (agent directory will be copied separately from the source mission)
-		if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, "", "", configSourceDirpath); err != nil {
+		if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, "", ""); err != nil {
 			return stacktrace.Propagate(err, "failed to create mission directory")
 		}
 
@@ -299,9 +294,6 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	// Resolve config source for per-mission config dir
-	configSourceDirpath := resolveConfigSourceDirpath()
-
 	// Build creation params (cron + config commit)
 	createParams := &database.CreateMissionParams{}
 	if cronIDFlag != "" {
@@ -310,10 +302,8 @@ func createAndLaunchMission(
 	if cronNameFlag != "" {
 		createParams.CronName = &cronNameFlag
 	}
-	if configSourceDirpath != "" {
-		if commitHash := claudeconfig.ResolveConfigCommitHash(configSourceDirpath); commitHash != "" {
-			createParams.ConfigCommit = &commitHash
-		}
+	if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
+		createParams.ConfigCommit = &commitHash
 	}
 
 	missionRecord, err := db.CreateMission(gitRepoName, createParams)
@@ -324,7 +314,7 @@ func createAndLaunchMission(
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
 	// Create mission directory structure (repo is copied directly as agent/)
-	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath, configSourceDirpath)
+	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission directory")
 	}
@@ -356,46 +346,3 @@ func createAndLaunchMission(
 	return w.Run(false)
 }
 
-// requireConfigSourceRepo verifies that the user has registered a Claude config
-// source repo. Returns an error with setup instructions if not registered.
-func requireConfigSourceRepo() error {
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read agenc config")
-	}
-
-	if cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == "" {
-		return stacktrace.NewError(
-			"Claude config source repo is not registered.\n\n" +
-				"Each mission needs a per-mission Claude config directory built from your\n" +
-				"config source repo. Run the following to set it up:\n\n" +
-				"  agenc config init\n\n" +
-				"This will guide you through registering your Claude config repo.",
-		)
-	}
-
-	// Verify the config source repo exists on disk
-	configSourceDirpath := claudeconfig.ResolveConfigSourceDirpath(agencDirpath, cfg)
-	if _, err := os.Stat(configSourceDirpath); os.IsNotExist(err) {
-		return stacktrace.NewError(
-			"Claude config source directory '%s' does not exist.\n\n"+
-				"The registered repo may not be cloned yet. Run:\n\n"+
-				"  agenc config init\n\n"+
-				"to verify your config source setup.",
-			configSourceDirpath,
-		)
-	}
-
-	return nil
-}
-
-// resolveConfigSourceDirpath reads the agenc config and returns the filesystem
-// path to the config source subdirectory. Returns empty string if no config
-// source is registered (legacy behavior — no per-mission config dir will be created).
-func resolveConfigSourceDirpath() string {
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return ""
-	}
-	return claudeconfig.ResolveConfigSourceDirpath(agencDirpath, cfg)
-}

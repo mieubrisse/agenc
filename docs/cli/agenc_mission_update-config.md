@@ -1,13 +1,14 @@
 ## agenc mission update-config
 
-Update a mission's Claude config from the config source repo
+Rebuild a mission's Claude config from the shadow repo
 
 ### Synopsis
 
-Update a mission's Claude config from the config source repo.
+Rebuild a mission's Claude config from the shadow repo.
 
-Fetches the latest config source, shows a diff of changes, and rebuilds
-the per-mission Claude config directory.
+The shadow repo tracks your ~/.claude configuration files. This command
+rebuilds the per-mission Claude config directory from the current shadow
+repo state.
 
 Without arguments, opens an interactive fzf picker to select a mission.
 With arguments, accepts a mission ID (short or full UUID) or search terms.

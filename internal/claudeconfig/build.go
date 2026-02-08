@@ -17,8 +17,8 @@ const (
 	MissionClaudeConfigDirname = "claude-config"
 )
 
-// TrackableItemNames lists the files/directories that are copied from the config
-// source into the per-mission claude config directory.
+// TrackableItemNames lists the files/directories tracked in the shadow repo
+// and copied into per-mission claude config directories.
 var TrackableItemNames = []string{
 	"CLAUDE.md",
 	"settings.json",
@@ -26,34 +26,14 @@ var TrackableItemNames = []string{
 	"hooks",
 	"commands",
 	"agents",
-	"plugins",
-}
-
-// ResolveConfigSourceDirpath returns the filesystem path to the config source
-// subdirectory based on the user's AgencConfig. Returns empty string if no
-// config source is registered.
-func ResolveConfigSourceDirpath(agencDirpath string, cfg *config.AgencConfig) string {
-	if cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == "" {
-		return ""
-	}
-
-	repoDirpath := config.GetRepoDirpath(agencDirpath, cfg.ClaudeConfig.Repo)
-
-	if cfg.ClaudeConfig.Subdirectory != "" {
-		return filepath.Join(repoDirpath, cfg.ClaudeConfig.Subdirectory)
-	}
-
-	return repoDirpath
 }
 
 // BuildMissionConfigDir creates and populates the per-mission claude config
-// directory from the user's registered config source repo. It copies trackable
-// files, applies AgenC modifications (merged CLAUDE.md, merged settings.json
-// with hooks), and symlinks auth files.
-//
-// configSourceDirpath is the path to the config source subdirectory within the
-// cloned repo (e.g., ~/.agenc/repos/github.com/owner/dotfiles/claude/).
-func BuildMissionConfigDir(agencDirpath string, missionID string, configSourceDirpath string) error {
+// directory from the shadow repo. It copies tracked files with path expansion,
+// applies AgenC modifications (merged CLAUDE.md, merged settings.json with
+// hooks), symlinks auth files, and symlinks plugins to ~/.claude/plugins.
+func BuildMissionConfigDir(agencDirpath string, missionID string) error {
+	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
 
@@ -61,10 +41,9 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, configSourceDi
 		return stacktrace.Propagate(err, "failed to create claude-config directory")
 	}
 
-	// Copy trackable directories from config source
-	dirNames := []string{"skills", "hooks", "commands", "agents", "plugins"}
-	for _, dirName := range dirNames {
-		srcDirpath := filepath.Join(configSourceDirpath, dirName)
+	// Copy tracked directories from shadow repo with path expansion
+	for _, dirName := range TrackedDirNames {
+		srcDirpath := filepath.Join(shadowDirpath, dirName)
 		dstDirpath := filepath.Join(claudeConfigDirpath, dirName)
 
 		if _, err := os.Stat(srcDirpath); os.IsNotExist(err) {
@@ -73,21 +52,21 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, configSourceDi
 			continue
 		}
 
-		// Remove existing destination and copy fresh
+		// Remove existing destination and copy fresh with path expansion
 		os.RemoveAll(dstDirpath)
-		if err := copyDir(srcDirpath, dstDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to copy '%s' from config source", dirName)
+		if err := copyDirWithExpansion(srcDirpath, dstDirpath, claudeConfigDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to copy '%s' from shadow repo", dirName)
 		}
 	}
 
-	// Merge CLAUDE.md: user's from config source + agenc modifications
+	// Merge CLAUDE.md: user's from shadow repo (expanded) + agenc modifications
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
-	if err := buildMergedClaudeMd(configSourceDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
+	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
 	}
 
-	// Merge settings.json: user's from config source + agenc modifications + hooks/deny
-	if err := buildMergedSettings(configSourceDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath); err != nil {
+	// Merge settings.json: user's from shadow repo (expanded) + agenc modifications + hooks/deny
+	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged settings.json")
 	}
 
@@ -101,7 +80,48 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, configSourceDi
 		return stacktrace.Propagate(err, "failed to write .credentials.json")
 	}
 
+	// Symlink plugins to ~/.claude/plugins
+	if err := symlinkPlugins(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to symlink plugins")
+	}
+
 	return nil
+}
+
+// EnsureShadowRepo ensures the shadow repo is initialized. If it doesn't
+// exist, creates it and ingests tracked files from ~/.claude.
+func EnsureShadowRepo(agencDirpath string) error {
+	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
+
+	// Check if already initialized
+	gitDirpath := filepath.Join(shadowDirpath, ".git")
+	if _, err := os.Stat(gitDirpath); err == nil {
+		return nil
+	}
+
+	// Initialize shadow repo
+	if _, err := InitShadowRepo(agencDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to initialize shadow repo")
+	}
+
+	// Ingest from ~/.claude
+	userClaudeDirpath, err := config.GetUserClaudeDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine ~/.claude path")
+	}
+
+	if err := IngestFromClaudeDir(userClaudeDirpath, shadowDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to ingest from ~/.claude into shadow repo")
+	}
+
+	return nil
+}
+
+// GetShadowRepoCommitHash returns the HEAD commit hash from the shadow repo.
+// Returns empty string if the shadow repo doesn't exist or has no commits.
+func GetShadowRepoCommitHash(agencDirpath string) string {
+	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
+	return ResolveConfigCommitHash(shadowDirpath)
 }
 
 // GetMissionClaudeConfigDirpath returns the per-mission claude config directory
@@ -121,14 +141,20 @@ func GetMissionClaudeConfigDirpath(agencDirpath string, missionID string) string
 	return config.GetGlobalClaudeDirpath(agencDirpath)
 }
 
-// buildMergedClaudeMd reads user CLAUDE.md from config source and agenc
-// modifications, merges them, and writes to the destination config directory.
-func buildMergedClaudeMd(configSourceDirpath string, agencModsDirpath string, destDirpath string) error {
+// buildMergedClaudeMd reads user CLAUDE.md from shadow repo and agenc
+// modifications, applies path expansion, merges them, and writes to the
+// destination config directory.
+func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string) error {
 	destFilepath := filepath.Join(destDirpath, "CLAUDE.md")
 
-	userContent, err := os.ReadFile(filepath.Join(configSourceDirpath, "CLAUDE.md"))
+	userContent, err := os.ReadFile(filepath.Join(shadowDirpath, "CLAUDE.md"))
 	if err != nil && !os.IsNotExist(err) {
-		return stacktrace.Propagate(err, "failed to read user CLAUDE.md from config source")
+		return stacktrace.Propagate(err, "failed to read user CLAUDE.md from shadow repo")
+	}
+
+	// Expand ${CLAUDE_CONFIG_DIR} → actual mission config path
+	if userContent != nil {
+		userContent = ExpandPaths(userContent, destDirpath)
 	}
 
 	modsContent, err := os.ReadFile(filepath.Join(agencModsDirpath, "CLAUDE.md"))
@@ -146,19 +172,23 @@ func buildMergedClaudeMd(configSourceDirpath string, agencModsDirpath string, de
 	return WriteIfChanged(destFilepath, mergedBytes)
 }
 
-// buildMergedSettings reads user settings from config source and agenc
-// modifications, deep-merges them, adds agenc hooks/deny, and writes to dest.
-func buildMergedSettings(configSourceDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
+// buildMergedSettings reads user settings from shadow repo and agenc
+// modifications, applies path expansion, deep-merges them, adds agenc
+// hooks/deny, and writes to dest.
+func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
 	destFilepath := filepath.Join(destDirpath, "settings.json")
 
-	userSettingsData, err := os.ReadFile(filepath.Join(configSourceDirpath, "settings.json"))
+	userSettingsData, err := os.ReadFile(filepath.Join(shadowDirpath, "settings.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			userSettingsData = []byte("{}")
 		} else {
-			return stacktrace.Propagate(err, "failed to read user settings from config source")
+			return stacktrace.Propagate(err, "failed to read user settings from shadow repo")
 		}
 	}
+
+	// Expand ${CLAUDE_CONFIG_DIR} → actual mission config path
+	userSettingsData = ExpandPaths(userSettingsData, destDirpath)
 
 	modsSettingsData, err := os.ReadFile(filepath.Join(agencModsDirpath, "settings.json"))
 	if err != nil {
@@ -175,6 +205,66 @@ func buildMergedSettings(configSourceDirpath string, agencModsDirpath string, de
 	}
 
 	return WriteIfChanged(destFilepath, mergedData)
+}
+
+// symlinkPlugins creates a symlink from the mission config's plugins/
+// directory to ~/.claude/plugins/. If ~/.claude/plugins/ doesn't exist,
+// the symlink is still created (it will resolve when the user installs a plugin).
+func symlinkPlugins(claudeConfigDirpath string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine home directory")
+	}
+
+	pluginsTargetDirpath := filepath.Join(homeDir, ".claude", "plugins")
+	pluginsLinkPath := filepath.Join(claudeConfigDirpath, "plugins")
+
+	// Remove existing plugins directory/file if it exists
+	os.RemoveAll(pluginsLinkPath)
+
+	return os.Symlink(pluginsTargetDirpath, pluginsLinkPath)
+}
+
+// copyDirWithExpansion recursively copies a directory tree from src to dst,
+// applying ${CLAUDE_CONFIG_DIR} path expansion to text files.
+func copyDirWithExpansion(srcDirpath string, dstDirpath string, claudeConfigDirpath string) error {
+	return filepath.Walk(srcDirpath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(srcDirpath, path)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to compute relative path")
+		}
+
+		dstPath := filepath.Join(dstDirpath, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		// Handle symlinks
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(path)
+			if err != nil {
+				return stacktrace.Propagate(err, "failed to read symlink '%s'", path)
+			}
+			return os.Symlink(linkTarget, dstPath)
+		}
+
+		// Regular file — copy contents with optional path expansion
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read '%s'", path)
+		}
+
+		if isTextFile(path) {
+			data = ExpandPaths(data, claudeConfigDirpath)
+		}
+
+		return os.WriteFile(dstPath, data, info.Mode())
+	})
 }
 
 // symlinkClaudeJSON creates a symlink from the mission config's .claude.json
@@ -328,39 +418,3 @@ func ensureSymlink(linkPath string, targetPath string) error {
 	return nil
 }
 
-// copyDir recursively copies a directory tree from src to dst.
-func copyDir(srcDirpath string, dstDirpath string) error {
-	return filepath.Walk(srcDirpath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(srcDirpath, path)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to compute relative path")
-		}
-
-		dstPath := filepath.Join(dstDirpath, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-
-		// Handle symlinks
-		if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(path)
-			if err != nil {
-				return stacktrace.Propagate(err, "failed to read symlink '%s'", path)
-			}
-			return os.Symlink(linkTarget, dstPath)
-		}
-
-		// Regular file — copy contents
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read '%s'", path)
-		}
-
-		return os.WriteFile(dstPath, data, info.Mode())
-	})
-}
