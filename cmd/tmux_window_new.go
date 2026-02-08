@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -61,7 +60,7 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("could not determine parent pane; pass --parent-pane or ensure $TMUX_PANE is set")
 	}
 
-	// Get the parent's window ID and current working directory via tmux
+	// Get the parent's window ID via tmux
 	windowIDOutput, err := exec.Command("tmux", "display-message", "-t", parentPaneID, "-p", "#{window_id}").Output()
 	if err != nil {
 		tmuxDebugLog("FAIL: display-message for pane %s: %v", parentPaneID, err)
@@ -70,20 +69,18 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 	parentWindowID := strings.TrimSpace(string(windowIDOutput))
 	tmuxDebugLog("parentWindowID=%q", parentWindowID)
 
-	parentDirpath := getParentPaneDirpath(parentPaneID)
-	tmuxDebugLog("parentDirpath=%q", parentDirpath)
-
-	// Build the command string for the new window. We wrap the user's command
-	// in a shell snippet that always returns focus to the parent pane on exit,
-	// regardless of how the command exits (success, failure, cancelled picker,
-	// signal, etc.). The parent pane's window ID is looked up dynamically at
-	// exit time in case it moved.
+	// Build the command string for the new window. We pass the user's command
+	// directly (without shell wrapping) so that tmux's shell can exec into it.
+	// This is critical: if the command is a simple command (no ; or &&), the
+	// shell execs and the target process becomes the process group leader.
+	// tmux reads pane_current_path from the process group leader's CWD, so
+	// os.Chdir() in the wrapper will be visible to tmux.
+	//
+	// Focus-return to the parent pane is handled by the wrapper process itself
+	// (via AGENC_PARENT_PANE env var) rather than shell wrapping, which would
+	// force the shell to stay alive as the process group leader with the wrong CWD.
 	userCommand := buildShellCommand(args)
-	wrappedCommand := fmt.Sprintf(
-		`%s; _pw=$(tmux display-message -t %s -p '#{window_id}' 2>/dev/null) && tmux select-window -t "$_pw" 2>/dev/null; tmux select-pane -t %s 2>/dev/null`,
-		userCommand, parentPaneID, parentPaneID,
-	)
-	tmuxDebugLog("wrappedCommand=%q", wrappedCommand)
+	tmuxDebugLog("userCommand=%q", userCommand)
 
 	// Create a new window adjacent to the parent's window
 	tmuxArgs := []string{
@@ -91,11 +88,8 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 		"-a",
 		"-t", parentWindowID,
 		"-e", agencParentPaneEnvVar + "=" + parentPaneID,
+		userCommand,
 	}
-	if parentDirpath != "" {
-		tmuxArgs = append(tmuxArgs, "-c", parentDirpath)
-	}
-	tmuxArgs = append(tmuxArgs, wrappedCommand)
 	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	newWindowCmd := exec.Command("tmux", tmuxArgs...)

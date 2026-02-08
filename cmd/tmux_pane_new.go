@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 
@@ -70,18 +69,10 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 	vertical, _ := cmd.Flags().GetBool(verticalFlagName)
 	tmuxDebugLog("vertical=%v", vertical)
 
-	parentDirpath := getParentPaneDirpath(parentPaneID)
-	tmuxDebugLog("parentDirpath=%q", parentDirpath)
-
-	// Build the command string for the new pane. We wrap the user's command
-	// in a shell snippet that returns focus to the parent pane on exit,
-	// regardless of how the command exits.
+	// Pass the user's command directly (no shell wrapping) so the shell can
+	// exec into it. See tmux_window_new.go for the rationale.
 	userCommand := buildShellCommand(args)
-	wrappedCommand := fmt.Sprintf(
-		`%s; tmux select-pane -t %s 2>/dev/null`,
-		userCommand, parentPaneID,
-	)
-	tmuxDebugLog("wrappedCommand=%q", wrappedCommand)
+	tmuxDebugLog("userCommand=%q", userCommand)
 
 	// Split the current window to create a new pane.
 	// Default is side-by-side (-h); --vertical omits -h for top/bottom.
@@ -92,11 +83,8 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 	tmuxArgs = append(tmuxArgs,
 		"-t", parentPaneID,
 		"-e", agencParentPaneEnvVar+"="+parentPaneID,
+		userCommand,
 	)
-	if parentDirpath != "" {
-		tmuxArgs = append(tmuxArgs, "-c", parentDirpath)
-	}
-	tmuxArgs = append(tmuxArgs, wrappedCommand)
 	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	splitCmd := exec.Command("tmux", tmuxArgs...)

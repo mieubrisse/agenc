@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
@@ -70,17 +69,6 @@ func resolveAgencBinaryPath() (string, error) {
 		return "", stacktrace.Propagate(err, "failed to resolve agenc binary path")
 	}
 	return binaryPath, nil
-}
-
-// getParentPaneDirpath queries tmux for the parent pane's current working
-// directory via #{pane_current_path}. Returns the path, or empty string if the
-// query fails (best-effort).
-func getParentPaneDirpath(parentPaneID string) string {
-	output, err := exec.Command("tmux", "display-message", "-t", parentPaneID, "-p", "#{pane_current_path}").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
 }
 
 // printInsideSessionError prints a message when the user tries to attach

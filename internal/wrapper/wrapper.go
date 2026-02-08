@@ -130,6 +130,9 @@ func (w *Wrapper) Run(isResume bool) error {
 	// Change the wrapper's working directory to the agent directory so that
 	// tmux's #{pane_current_path} reflects the mission directory. This makes
 	// built-in tmux splits (prefix + %, prefix + ") open in the agent dir.
+	// NOTE: This only works when the wrapper IS the process group leader —
+	// i.e., the shell that tmux spawned has exec'd into us (requires a simple
+	// command, not a compound one with ; or &&).
 	if err := os.Chdir(w.agentDirpath); err != nil {
 		w.logger.Warn("Failed to chdir to agent directory", "path", w.agentDirpath, "error", err)
 	}
@@ -137,6 +140,10 @@ func (w *Wrapper) Run(isResume bool) error {
 	// Rename the tmux window to "<short_id> <repo-name>" when inside the
 	// AgenC tmux session.
 	w.renameWindowForTmux()
+
+	// Return focus to the parent pane when the wrapper exits (e.g., when
+	// Claude exits or the mission is stopped).
+	defer w.returnFocusToParentPane()
 
 	// Spawn initial Claude process
 	if isResume {
