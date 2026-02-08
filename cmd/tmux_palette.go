@@ -30,12 +30,12 @@ var paletteEntries = []paletteEntry{
 		commandArgs: []string{missionCmdStr, newCmdStr},
 	},
 	{
-		label:       "▶️ Resume mission",
+		label:       "🟢 Resume mission",
 		description: "Resume a stopped mission",
 		commandArgs: []string{missionCmdStr, resumeCmdStr},
 	},
 	{
-		label:       "⏸️ Stop mission",
+		label:       "🛑 Stop mission",
 		description: "Stop a running mission",
 		commandArgs: []string{missionCmdStr, stopCmdStr},
 	},
