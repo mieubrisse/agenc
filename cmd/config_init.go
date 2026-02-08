@@ -139,10 +139,8 @@ func setupConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
 		return false, nil
 	}
 
-	fmt.Println("\nEnter the repo reference. Examples:")
-	fmt.Println("  owner/repo                         (uses HTTPS)")
-	fmt.Println("  https://github.com/owner/repo      (HTTPS)")
-	fmt.Println("  git@github.com:owner/repo.git      (SSH)")
+	fmt.Println()
+	printRepoFormatHelp()
 	fmt.Print("\nRepo: ")
 
 	repoRef, err := reader.ReadString('\n')
@@ -230,7 +228,9 @@ func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.Co
 		return stacktrace.NewError("Claude config repo is required. Run '%s %s %s' when you're ready", agencCmdStr, configCmdStr, initCmdStr)
 	}
 
-	fmt.Print("\nRepo (e.g., owner/repo or github.com/owner/repo): ")
+	fmt.Println()
+	printRepoFormatHelp()
+	fmt.Print("\nRepo: ")
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read input")
@@ -287,6 +287,17 @@ func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.Co
 	fmt.Println()
 
 	return nil
+}
+
+// printRepoFormatHelp prints the accepted repo reference formats. Use this
+// anywhere we prompt the user for a repo reference so the guidance is
+// consistent.
+func printRepoFormatHelp() {
+	fmt.Println("Accepted formats:")
+	fmt.Println("  owner/repo                         shorthand (uses HTTPS)")
+	fmt.Println("  github.com/owner/repo              canonical name")
+	fmt.Println("  https://github.com/owner/repo      HTTPS URL")
+	fmt.Println("  git@github.com:owner/repo.git      SSH URL")
 }
 
 // printConfigSummary prints the current configuration state.
