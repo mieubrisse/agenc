@@ -1,11 +1,12 @@
 package claudeconfig
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -79,9 +80,9 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		return stacktrace.Propagate(err, "failed to copy and patch .claude.json")
 	}
 
-	// Dump credentials directly into the mission config directory
-	if err := writeCredentialsToDir(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to write .credentials.json")
+	// Clone Keychain credentials into a per-mission Keychain entry
+	if err := CloneKeychainCredentials(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to clone Keychain credentials")
 	}
 
 	// Symlink plugins to ~/.claude/plugins
@@ -351,62 +352,69 @@ func copyAndPatchClaudeJSON(claudeConfigDirpath string, missionAgentDirpath stri
 	return nil
 }
 
-// writeCredentialsToDir dumps credentials directly into the given directory
-// as a real file (not a symlink). On macOS this reads from Keychain; on Linux
-// it copies from ~/.claude/.credentials.json.
-func writeCredentialsToDir(claudeConfigDirpath string) error {
-	credentialsFilepath := filepath.Join(claudeConfigDirpath, ".credentials.json")
-	return dumpCredentials(credentialsFilepath)
+// ComputeCredentialServiceName returns the macOS Keychain service name for a
+// per-mission credential entry. The name is "Claude Code-credentials-<hash>"
+// where <hash> is the first 8 hex characters of the SHA-256 of the
+// claudeConfigDirpath. Claude Code uses this naming convention when
+// CLAUDE_CONFIG_DIR is set to a non-default path.
+func ComputeCredentialServiceName(claudeConfigDirpath string) string {
+	hash := sha256.Sum256([]byte(claudeConfigDirpath))
+	hashPrefix := hex.EncodeToString(hash[:])[:8]
+	return "Claude Code-credentials-" + hashPrefix
 }
 
-// dumpCredentials dumps auth credentials to the specified file.
-// On macOS, reads from Keychain. On Linux, copies from ~/.claude/.credentials.json.
-func dumpCredentials(destFilepath string) error {
-	if runtime.GOOS == "darwin" {
-		return dumpCredentialsFromKeychain(destFilepath)
-	}
-	return dumpCredentialsFromFile(destFilepath)
-}
-
-// dumpCredentialsFromKeychain reads credentials from macOS Keychain.
-func dumpCredentialsFromKeychain(destFilepath string) error {
+// CloneKeychainCredentials reads the user's credentials from the default macOS
+// Keychain entry ("Claude Code-credentials") and clones them into a per-mission
+// entry keyed by claudeConfigDirpath. This avoids writing credential files to disk.
+func CloneKeychainCredentials(claudeConfigDirpath string) error {
 	user := os.Getenv("USER")
 	if user == "" {
 		return stacktrace.NewError("USER environment variable not set")
 	}
 
-	cmd := exec.Command("security", "find-generic-password", "-a", user, "-w", "-s", "Claude Code-credentials")
-	output, err := cmd.Output()
+	// Read credentials from the default Keychain entry
+	readCmd := exec.Command("security", "find-generic-password", "-a", user, "-w", "-s", "Claude Code-credentials")
+	credentialData, err := readCmd.Output()
 	if err != nil {
 		return stacktrace.NewError(
 			"failed to read credentials from Keychain; run 'claude login' first (error: %v)", err,
 		)
 	}
 
-	if err := os.WriteFile(destFilepath, output, 0600); err != nil {
-		return stacktrace.Propagate(err, "failed to write credentials to '%s'", destFilepath)
+	targetService := ComputeCredentialServiceName(claudeConfigDirpath)
+
+	// Delete any existing entry (ignore errors — may not exist)
+	deleteCmd := exec.Command("security", "delete-generic-password", "-a", user, "-s", targetService)
+	_ = deleteCmd.Run()
+
+	// Write the cloned entry
+	credential := strings.TrimSpace(string(credentialData))
+	addCmd := exec.Command("security", "add-generic-password", "-a", user, "-s", targetService, "-w", credential)
+	if err := addCmd.Run(); err != nil {
+		return stacktrace.Propagate(err, "failed to write credentials to Keychain service '%s'", targetService)
 	}
 
 	return nil
 }
 
-// dumpCredentialsFromFile copies credentials from ~/.claude/.credentials.json (Linux).
-func dumpCredentialsFromFile(destFilepath string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to determine home directory")
+// DeleteKeychainCredentials removes the per-mission Keychain credential entry.
+// Errors are silently ignored if the entry does not exist (idempotent cleanup).
+func DeleteKeychainCredentials(claudeConfigDirpath string) error {
+	user := os.Getenv("USER")
+	if user == "" {
+		return stacktrace.NewError("USER environment variable not set")
 	}
 
-	srcFilepath := filepath.Join(homeDir, ".claude", ".credentials.json")
-	data, err := os.ReadFile(srcFilepath)
-	if err != nil {
-		return stacktrace.NewError(
-			"credentials not found at '%s'; run 'claude login' first", srcFilepath,
-		)
-	}
+	targetService := ComputeCredentialServiceName(claudeConfigDirpath)
 
-	if err := os.WriteFile(destFilepath, data, 0600); err != nil {
-		return stacktrace.Propagate(err, "failed to write credentials to '%s'", destFilepath)
+	deleteCmd := exec.Command("security", "delete-generic-password", "-a", user, "-s", targetService)
+	output, err := deleteCmd.CombinedOutput()
+	if err != nil {
+		// Ignore "item not found" errors — the entry may not exist
+		if strings.Contains(string(output), "SecKeychainSearchCopyNext") {
+			return nil
+		}
+		return stacktrace.Propagate(err, "failed to delete Keychain credentials for service '%s'", targetService)
 	}
 
 	return nil

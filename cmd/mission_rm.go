@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
@@ -103,6 +105,12 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 func removeMission(db *database.DB, missionID string) error {
 	if _, err := prepareMissionForAction(db, missionID); err != nil {
 		return err
+	}
+
+	// Clean up per-mission Keychain credentials (best-effort — don't fail the removal)
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
+	if err := claudeconfig.DeleteKeychainCredentials(claudeConfigDirpath); err != nil {
+		log.Printf("Warning: failed to delete Keychain credentials for mission %s: %v", database.ShortID(missionID), err)
 	}
 
 	// Remove the mission directory (agent/ is just a directory copy, so RemoveAll handles it)

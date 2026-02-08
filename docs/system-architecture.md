@@ -187,7 +187,6 @@ $AGENC_DIRPATH/
 │       │   ├── CLAUDE.md                  # Merged: shadow repo + claude-modifications
 │       │   ├── settings.json              # Merged + hooks + deny entries
 │       │   ├── .claude.json               # Copy of user's account identity + trust entry
-│       │   ├── .credentials.json          # Dumped from Keychain (macOS) or file (Linux)
 │       │   ├── skills/                    # From shadow repo (path-rewritten)
 │       │   ├── hooks/                     # From shadow repo (path-rewritten)
 │       │   ├── commands/                  # From shadow repo (path-rewritten)
@@ -233,7 +232,7 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 Per-mission Claude configuration building, merging, and shadow repo management.
 
-- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, dumps credentials, symlinks plugins), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
+- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, clones Keychain credentials, symlinks plugins), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop and UserPromptSubmit hooks for idle detection), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
@@ -288,7 +287,7 @@ Merging logic (`internal/claudeconfig/merge.go`):
 - settings.json: recursive deep merge (user as base, modifications as overlay), then append operational overrides (hooks and deny entries)
 - Deep merge rules: objects merge recursively, arrays concatenate, scalars from the overlay win
 
-Credentials are handled separately: `.claude.json` is copied from the user's account identity file and patched with a trust entry for the mission's agent directory; `.credentials.json` is dumped as a real file from the macOS Keychain (via `security find-generic-password`) or copied from `~/.claude/.credentials.json` on Linux.
+Credentials are handled separately: `.claude.json` is copied from the user's account identity file and patched with a trust entry for the mission's agent directory. Auth credentials are cloned as a per-mission macOS Keychain entry named `Claude Code-credentials-<hash>` (where `<hash>` is the first 8 hex chars of the SHA-256 of the mission's CLAUDE_CONFIG_DIR path). Claude Code looks up credentials by this naming convention when CLAUDE_CONFIG_DIR is set to a non-default path. On mission deletion, the cloned Keychain entry is cleaned up.
 
 ### Shadow repo
 
