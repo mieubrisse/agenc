@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -51,9 +52,16 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 	}
 	currentWindowID := strings.TrimSpace(string(windowIDOutput))
 
-	// Build the command string for the new window. tmux new-window takes a
-	// shell command string, so we need to join with proper quoting.
-	windowCommand := buildShellCommand(args)
+	// Build the command string for the new window. We wrap the user's command
+	// in a shell snippet that always returns focus to the parent pane on exit,
+	// regardless of how the command exits (success, failure, cancelled picker,
+	// signal, etc.). The parent pane's window ID is looked up dynamically at
+	// exit time in case it moved.
+	userCommand := buildShellCommand(args)
+	wrappedCommand := fmt.Sprintf(
+		`%s; _pw=$(tmux display-message -t %s -p '#{window_id}' 2>/dev/null) && tmux select-window -t "$_pw" 2>/dev/null; tmux select-pane -t %s 2>/dev/null`,
+		userCommand, currentPaneID, currentPaneID,
+	)
 
 	// Create a new window adjacent to the current one
 	tmuxArgs := []string{
@@ -61,7 +69,7 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 		"-a",
 		"-t", currentWindowID,
 		"-e", agencParentPaneEnvVar + "=" + currentPaneID,
-		windowCommand,
+		wrappedCommand,
 	}
 
 	newWindowCmd := exec.Command("tmux", tmuxArgs...)
