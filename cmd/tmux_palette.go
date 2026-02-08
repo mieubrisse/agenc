@@ -25,14 +25,29 @@ type paletteEntry struct {
 
 var paletteEntries = []paletteEntry{
 	{
-		label:       "New mission",
+		label:       "🚀 Start mission",
 		description: "Create a new mission and launch Claude",
 		commandArgs: []string{missionCmdStr, newCmdStr},
 	},
 	{
-		label:       "Resume mission",
+		label:       "▶️ Resume mission",
 		description: "Resume a stopped mission",
 		commandArgs: []string{missionCmdStr, resumeCmdStr},
+	},
+	{
+		label:       "⏸️ Stop mission",
+		description: "Stop a running mission",
+		commandArgs: []string{missionCmdStr, stopCmdStr},
+	},
+	{
+		label:       "❌ Remove mission",
+		description: "Remove a mission and its directory",
+		commandArgs: []string{missionCmdStr, rmCmdStr},
+	},
+	{
+		label:       "💥 Nuke missions",
+		description: "Remove all archived missions",
+		commandArgs: []string{missionCmdStr, nukeCmdStr},
 	},
 }
 
@@ -72,7 +87,6 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	fzfCmd := exec.Command("fzf",
 		"--ansi",
 		"--no-multi",
-		"--header=AgenC Command Palette",
 		"--prompt=  ",
 		"--layout=reverse",
 		"--no-info",
