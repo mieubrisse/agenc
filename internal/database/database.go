@@ -509,6 +509,19 @@ func (db *DB) UpdateMissionSessionName(id string, sessionName string) error {
 	return nil
 }
 
+// UpdateMissionConfigCommit updates the config_commit column for a mission.
+func (db *DB) UpdateMissionConfigCommit(id string, configCommit string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.conn.Exec(
+		"UPDATE missions SET config_commit = ?, updated_at = ? WHERE id = ?",
+		configCommit, now, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update config_commit for mission '%s'", id)
+	}
+	return nil
+}
+
 func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	var missions []*Mission
 	for rows.Next() {

@@ -31,11 +31,12 @@ const (
 	paneCmdStr   = "pane"
 
 	// Mission subcommands
-	newCmdStr     = "new"
-	resumeCmdStr  = "resume"
-	archiveCmdStr = "archive"
-	inspectCmdStr = "inspect"
-	nukeCmdStr    = "nuke"
+	newCmdStr          = "new"
+	resumeCmdStr       = "resume"
+	archiveCmdStr      = "archive"
+	inspectCmdStr      = "inspect"
+	nukeCmdStr         = "nuke"
+	updateConfigCmdStr = "update-config"
 
 	// Config subcommands
 	initCmdStr = "init"

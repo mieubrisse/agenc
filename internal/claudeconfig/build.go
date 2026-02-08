@@ -287,7 +287,7 @@ func dumpCredentialsFromFile(destFilepath string) error {
 // ResolveConfigCommitHash returns the HEAD commit hash from the git repo
 // containing the config source directory. Returns empty string if not a git repo.
 func ResolveConfigCommitHash(configSourceDirpath string) string {
-	repoRootDirpath := findGitRoot(configSourceDirpath)
+	repoRootDirpath := FindGitRoot(configSourceDirpath)
 	if repoRootDirpath == "" {
 		return ""
 	}
@@ -306,7 +306,7 @@ func ResolveConfigCommitHash(configSourceDirpath string) string {
 // and writes it to the mission's config-commit file.
 func recordConfigCommit(configSourceDirpath string, missionDirpath string) error {
 	// Walk up from configSourceDirpath to find the repo root (.git directory)
-	repoRootDirpath := findGitRoot(configSourceDirpath)
+	repoRootDirpath := FindGitRoot(configSourceDirpath)
 	if repoRootDirpath == "" {
 		// Not a git repo — skip commit recording
 		return nil
@@ -329,9 +329,9 @@ func recordConfigCommit(configSourceDirpath string, missionDirpath string) error
 	return nil
 }
 
-// findGitRoot walks up from the given path looking for a .git directory.
+// FindGitRoot walks up from the given path looking for a .git directory.
 // Returns the repo root path, or empty string if not found.
-func findGitRoot(startPath string) string {
+func FindGitRoot(startPath string) string {
 	path := startPath
 	for {
 		gitDirpath := filepath.Join(path, ".git")
