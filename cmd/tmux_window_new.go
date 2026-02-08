@@ -16,14 +16,14 @@ var tmuxWindowNewCmd = &cobra.Command{
 The new window is inserted adjacent to the current window. When the command
 exits, the pane closes and tmux focuses back to the pane that spawned it.
 
-Must be run from inside the AgenC tmux session.
+Must be run from inside the AgenC tmux session. Use -- to separate the
+command from agenc flags.
 
 Example:
   agenc tmux window new -- agenc mission new mieubrisse/agenc
   agenc tmux window new -- agenc mission new --prompt "Fix the auth bug" mieubrisse/agenc`,
-	Args:               cobra.MinimumNArgs(1),
-	DisableFlagParsing: true,
-	RunE:               runTmuxWindowNew,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runTmuxWindowNew,
 }
 
 func init() {
@@ -31,13 +31,8 @@ func init() {
 }
 
 func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
-	// With DisableFlagParsing, Cobra passes "--" through in args. Strip it.
-	if len(args) > 0 && args[0] == "--" {
-		args = args[1:]
-	}
-	if len(args) == 0 {
-		return stacktrace.NewError("no command specified; usage: agenc tmux window new -- <command> [args...]")
-	}
+	// Cobra strips "--" and puts everything after it into args. The
+	// MinimumNArgs(1) validator already ensures we have a command.
 
 	if !isInsideAgencTmux() {
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
