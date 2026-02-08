@@ -6,14 +6,9 @@ Initialize agenc configuration (interactive)
 
 Initialize agenc configuration through an interactive wizard.
 
-This command walks through all configuration steps that haven't been completed yet:
-
-1. Config repo — if your config directory isn't backed by a git repo, prompts
-   you to clone an existing agenc-config repo.
-2. Claude config — if no Claude config source is registered, prompts you to
-   register a repo containing your Claude configuration files.
-
-The command is idempotent: steps that are already configured are skipped.
+If your config directory isn't backed by a git repo, prompts you to clone an
+existing agenc-config repo. The command is idempotent: if already configured,
+it simply prints the current state.
 
 
 ```

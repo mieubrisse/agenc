@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/goccy/go-yaml"
 	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -22,14 +21,9 @@ var configInitCmd = &cobra.Command{
 	Short: "Initialize agenc configuration (interactive)",
 	Long: `Initialize agenc configuration through an interactive wizard.
 
-This command walks through all configuration steps that haven't been completed yet:
-
-1. Config repo — if your config directory isn't backed by a git repo, prompts
-   you to clone an existing agenc-config repo.
-2. Claude config — if no Claude config source is registered, prompts you to
-   register a repo containing your Claude configuration files.
-
-The command is idempotent: steps that are already configured are skipped.
+If your config directory isn't backed by a git repo, prompts you to clone an
+existing agenc-config repo. The command is idempotent: if already configured,
+it simply prints the current state.
 `,
 	RunE: runConfigInit,
 }
@@ -45,10 +39,9 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Always print summary (the only difference from auto-onboarding)
-	cfg, _, _ := config.ReadAgencConfig(dirpath)
 	configIsGitRepo := isGitRepo(config.GetConfigDirpath(dirpath))
 	fmt.Println()
-	printConfigSummary(configIsGitRepo, cfg)
+	printConfigSummary(configIsGitRepo)
 	return nil
 }
 
@@ -81,15 +74,7 @@ func ensureConfigured() (string, error) {
 	configDirpath := config.GetConfigDirpath(dirpath)
 	configIsGitRepo := isGitRepo(configDirpath)
 
-	cfg, _, err := config.ReadAgencConfig(dirpath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to read config")
-	}
-
-	needsConfigRepo := !configIsGitRepo
-	needsClaudeConfig := cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == ""
-
-	if !needsConfigRepo && !needsClaudeConfig {
+	if configIsGitRepo {
 		return dirpath, nil // Already configured
 	}
 
@@ -103,34 +88,16 @@ func ensureConfigured() (string, error) {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	// Step 1: Config repo
-	if needsConfigRepo {
-		changed, err := setupConfigRepo(reader, configDirpath)
-		if err != nil {
-			return "", stacktrace.Propagate(err, "config repo setup failed")
-		}
-		if changed {
-			configIsGitRepo = true
-		}
-	}
-
-	// Re-read config — the cloned repo may have brought in a config.yml with
-	// claudeConfig already set.
-	cfg, cm, err := config.ReadAgencConfig(dirpath)
+	changed, err := setupConfigRepo(reader, configDirpath)
 	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to read config")
+		return "", stacktrace.Propagate(err, "config repo setup failed")
 	}
-
-	// Step 2: Claude config
-	if cfg.ClaudeConfig == nil || cfg.ClaudeConfig.Repo == "" {
-		if err := setupClaudeConfig(reader, cfg, cm); err != nil {
-			return "", stacktrace.Propagate(err, "Claude config setup failed")
-		}
+	if changed {
+		configIsGitRepo = true
 	}
 
 	fmt.Println()
-	cfg, _, _ = config.ReadAgencConfig(dirpath)
-	printConfigSummary(configIsGitRepo, cfg)
+	printConfigSummary(configIsGitRepo)
 
 	return dirpath, nil
 }
@@ -225,89 +192,6 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 	return nil
 }
 
-// setupClaudeConfig prompts the user to register a Claude config source repo.
-func setupClaudeConfig(reader *bufio.Reader, cfg *config.AgencConfig, cm yaml.CommentMap) error {
-	fmt.Println()
-	fmt.Println("AgenC needs your Claude Code configuration (CLAUDE.md, settings.json) to be")
-	fmt.Println("version-controlled in a git repo. This is required for conversation rollback,")
-	fmt.Println("forking, and reproducing agent state across sessions.")
-	fmt.Println()
-	fmt.Println("Point AgenC at the repo containing your Claude config. If the config lives in")
-	fmt.Println("a subdirectory (e.g., a dotfiles repo), you'll specify that next.")
-	fmt.Println()
-	fmt.Print("Do you have a repo with your Claude configuration? [y/N] ")
-
-	answer, err := reader.ReadString('\n')
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
-	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
-
-	if answer != "y" && answer != "yes" {
-		return stacktrace.NewError("Claude config repo is required. Run '%s %s %s' when you're ready", agencCmdStr, configCmdStr, initCmdStr)
-	}
-
-	fmt.Println()
-	printRepoFormatHelp()
-	fmt.Print("\nRepo: ")
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
-	}
-	repoInput := strings.TrimSpace(input)
-
-	if repoInput == "" {
-		return stacktrace.NewError("repo cannot be empty")
-	}
-
-	// Resolve the repo input (handles cloning, fzf selection, all formats)
-	result, err := ResolveRepoInput(agencDirpath, repoInput, "Select Claude config repo: ")
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to resolve repo")
-	}
-
-	fmt.Print("Subdirectory within repo (press Enter for repo root): ")
-	subdirInput, err := reader.ReadString('\n')
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
-	}
-	subdirectory := strings.TrimSpace(subdirInput)
-
-	// Validate subdirectory exists in the cloned repo
-	if subdirectory != "" {
-		subdirFullpath := filepath.Join(result.CloneDirpath, subdirectory)
-		info, statErr := os.Stat(subdirFullpath)
-		if statErr != nil {
-			if os.IsNotExist(statErr) {
-				return stacktrace.NewError("subdirectory '%s' does not exist in repo '%s'", subdirectory, result.RepoName)
-			}
-			return stacktrace.Propagate(statErr, "failed to check subdirectory '%s'", subdirectory)
-		}
-		if !info.IsDir() {
-			return stacktrace.NewError("'%s' in repo '%s' is not a directory", subdirectory, result.RepoName)
-		}
-	}
-
-	// Update config
-	if cfg.ClaudeConfig == nil {
-		cfg.ClaudeConfig = &config.ClaudeConfig{}
-	}
-	cfg.ClaudeConfig.Repo = result.RepoName
-	cfg.ClaudeConfig.Subdirectory = subdirectory
-
-	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-		return stacktrace.Propagate(err, "failed to write config")
-	}
-
-	fmt.Printf("Registered Claude config: %s", result.RepoName)
-	if subdirectory != "" {
-		fmt.Printf(" (subdirectory: %s)", subdirectory)
-	}
-	fmt.Println()
-
-	return nil
-}
-
 // printRepoFormatHelp prints the accepted repo reference formats. Use this
 // anywhere we prompt the user for a repo reference so the guidance is
 // consistent.
@@ -320,22 +204,12 @@ func printRepoFormatHelp() {
 }
 
 // printConfigSummary prints the current configuration state.
-func printConfigSummary(configIsGitRepo bool, cfg *config.AgencConfig) {
+func printConfigSummary(configIsGitRepo bool) {
 	fmt.Println("Configuration summary:")
 
 	if configIsGitRepo {
-		fmt.Println("  Config repo:   set up")
+		fmt.Println("  Config repo: set up")
 	} else {
-		fmt.Println("  Config repo:   not configured")
-	}
-
-	if cfg.ClaudeConfig != nil && cfg.ClaudeConfig.Repo != "" {
-		detail := cfg.ClaudeConfig.Repo
-		if cfg.ClaudeConfig.Subdirectory != "" {
-			detail += " @ " + cfg.ClaudeConfig.Subdirectory
-		}
-		fmt.Printf("  Claude config: %s\n", detail)
-	} else {
-		fmt.Println("  Claude config: not configured")
+		fmt.Println("  Config repo: not configured")
 	}
 }
