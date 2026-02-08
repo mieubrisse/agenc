@@ -89,7 +89,7 @@ func buildPaletteEntries() ([]paletteEntry, error) {
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		tmuxDebugLog("palette: failed to read config: %v", err)
-		return entries, nil
+		return nil, stacktrace.Propagate(err, "failed to read config for palette custom commands")
 	}
 
 	if len(cfg.CustomCommands) == 0 {
