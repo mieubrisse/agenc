@@ -222,7 +222,7 @@ func ensureAndSymlinkCredentials(agencDirpath string, claudeConfigDirpath string
 
 	// If central copy doesn't exist or is empty, dump from platform source
 	if !fileExistsAndNonEmpty(centralCredentialsFilepath) {
-		if err := dumpCredentials(centralCredentialsFilepath); err != nil {
+		if err := DumpCredentials(centralCredentialsFilepath); err != nil {
 			return stacktrace.Propagate(err, "failed to dump credentials to central location")
 		}
 	}
@@ -231,9 +231,9 @@ func ensureAndSymlinkCredentials(agencDirpath string, claudeConfigDirpath string
 	return ensureSymlink(linkPath, centralCredentialsFilepath)
 }
 
-// dumpCredentials dumps auth credentials to the central location.
+// DumpCredentials dumps auth credentials to the specified file.
 // On macOS, reads from Keychain. On Linux, copies from ~/.claude/.credentials.json.
-func dumpCredentials(destFilepath string) error {
+func DumpCredentials(destFilepath string) error {
 	if runtime.GOOS == "darwin" {
 		return dumpCredentialsFromKeychain(destFilepath)
 	}
