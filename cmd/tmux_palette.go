@@ -18,20 +18,21 @@ type paletteEntry struct {
 	// description is shown alongside the label for context.
 	description string
 
-	// command is the argument list to pass to `agenc tmux window new -- ...`.
-	command []string
+	// commandArgs is the argument list appended after the resolved agenc binary
+	// path when dispatching via `agenc tmux window new -- <binary> <args...>`.
+	commandArgs []string
 }
 
 var paletteEntries = []paletteEntry{
 	{
 		label:       "New mission",
 		description: "Create a new mission and launch Claude",
-		command:     []string{agencCmdStr, missionCmdStr, newCmdStr},
+		commandArgs: []string{missionCmdStr, newCmdStr},
 	},
 	{
 		label:       "Resume mission",
 		description: "Resume a stopped mission",
-		command:     []string{agencCmdStr, missionCmdStr, resumeCmdStr},
+		commandArgs: []string{missionCmdStr, resumeCmdStr},
 	},
 }
 
@@ -117,14 +118,15 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Dispatch: exec `<binary> tmux window new --parent-pane <pane> -- <command>`
+	// Dispatch: exec `<binary> tmux window new --parent-pane <pane> -- <binary> <args...>`
 	windowNewArgs := []string{
 		binaryFilepath,
 		tmuxCmdStr, windowCmdStr, newCmdStr,
 		"--" + parentPaneFlagName, parentPaneID,
 		"--",
+		binaryFilepath,
 	}
-	windowNewArgs = append(windowNewArgs, selectedEntry.command...)
+	windowNewArgs = append(windowNewArgs, selectedEntry.commandArgs...)
 
 	tmuxDebugLog("palette: execing %v", windowNewArgs)
 

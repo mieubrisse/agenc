@@ -16,7 +16,9 @@ const agencKeyTable = "agenc"
 // GenerateKeybindingsContent returns the full content of the agenc-managed
 // tmux keybindings configuration file. The tmuxMajor/tmuxMinor parameters
 // control version-gated features (e.g. display-popup requires tmux >= 3.2).
-func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int) string {
+// The agencBinary parameter is the binary name or path used in run-shell
+// commands (e.g. "agenc" or "/usr/local/bin/agenc-dev").
+func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string) string {
 	var sb strings.Builder
 
 	sb.WriteString("# AgenC tmux keybindings\n")
@@ -31,19 +33,19 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int) string {
 
 	// agenc table: n — new mission in a new window
 	sb.WriteString("# New mission in a new window (prefix + a, n)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s n run-shell 'agenc tmux window new --parent-pane \"#{pane_id}\" -- agenc mission new'\n", agencKeyTable)
+	fmt.Fprintf(&sb, "bind-key -T %s n run-shell '%s tmux window new --parent-pane \"#{pane_id}\" -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
 
 	sb.WriteString("\n")
 
 	// agenc table: p — new mission in a side-by-side pane
 	sb.WriteString("# New mission in a side-by-side pane (prefix + a, p)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s p run-shell 'agenc tmux pane new --parent-pane \"#{pane_id}\" -- agenc mission new'\n", agencKeyTable)
+	fmt.Fprintf(&sb, "bind-key -T %s p run-shell '%s tmux pane new --parent-pane \"#{pane_id}\" -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
 
 	// Command palette (requires tmux >= 3.2 for display-popup)
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
 		sb.WriteString("# Command palette (prefix + a, k)\n")
-		fmt.Fprintf(&sb, "bind-key -T %s k run-shell 'tmux display-popup -E -w 60%% -h 50%% \"agenc tmux palette --parent-pane #{pane_id}\"'\n", agencKeyTable)
+		fmt.Fprintf(&sb, "bind-key -T %s k run-shell 'tmux display-popup -E -w 60%% -h 50%% \"%s tmux palette --parent-pane #{pane_id}\"'\n", agencKeyTable, agencBinary)
 	}
 
 	return sb.String()
@@ -51,9 +53,10 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int) string {
 
 // WriteKeybindingsFile writes the agenc-managed keybindings file, overwriting
 // any previous version. The tmuxMajor/tmuxMinor parameters control
-// version-gated keybindings.
-func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int) error {
-	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor)
+// version-gated keybindings. The agencBinary parameter is the binary name or
+// path used in run-shell commands.
+func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, agencBinary string) error {
+	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor, agencBinary)
 	if err := os.WriteFile(keybindingsFilepath, []byte(content), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write keybindings file '%s'", keybindingsFilepath)
 	}

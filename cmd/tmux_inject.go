@@ -48,7 +48,13 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 	// other keybindings are still emitted.
 	tmuxMajor, tmuxMinor, _ := agentmux.DetectVersion()
 
-	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor); err != nil {
+	// Read config for the tmuxAgencFilepath override.
+	agencBinary := "agenc"
+	if cfg, _, err := config.ReadAgencConfig(agencDirpath); err == nil {
+		agencBinary = cfg.GetTmuxAgencBinary()
+	}
+
+	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary); err != nil {
 		return err
 	}
 	fmt.Printf("Wrote keybindings to %s\n", keybindingsFilepath)

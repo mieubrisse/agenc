@@ -71,9 +71,19 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	SyncedRepos        []string                           `yaml:"syncedRepos,omitempty"`
-	Crons              map[string]CronConfig              `yaml:"crons,omitempty"`
-	CronsMaxConcurrent int                                `yaml:"cronsMaxConcurrent,omitempty"`
+	SyncedRepos        []string              `yaml:"syncedRepos,omitempty"`
+	TmuxAgencFilepath  string                `yaml:"tmuxAgencFilepath,omitempty"`
+	Crons              map[string]CronConfig `yaml:"crons,omitempty"`
+	CronsMaxConcurrent int                   `yaml:"cronsMaxConcurrent,omitempty"`
+}
+
+// GetTmuxAgencBinary returns the agenc binary name/path used in tmux
+// keybindings. Defaults to "agenc" when not configured.
+func (c *AgencConfig) GetTmuxAgencBinary() string {
+	if c.TmuxAgencFilepath == "" {
+		return "agenc"
+	}
+	return c.TmuxAgencFilepath
 }
 
 // GetCronsMaxConcurrent returns the max concurrent cron missions, using the default if not set.
