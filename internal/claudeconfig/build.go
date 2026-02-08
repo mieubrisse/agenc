@@ -173,8 +173,9 @@ func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirp
 }
 
 // buildMergedSettings reads user settings from shadow repo and agenc
-// modifications, applies path expansion, deep-merges them, adds agenc
-// hooks/deny, and writes to dest.
+// modifications, deep-merges them, adds agenc hooks/deny, and writes to dest.
+// No path expansion is applied — settings.json contains permission entries
+// with user-specified paths that must not be rewritten.
 func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
 	destFilepath := filepath.Join(destDirpath, "settings.json")
 
@@ -186,9 +187,6 @@ func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirp
 			return stacktrace.Propagate(err, "failed to read user settings from shadow repo")
 		}
 	}
-
-	// Expand ${CLAUDE_CONFIG_DIR} → actual mission config path
-	userSettingsData = ExpandPaths(userSettingsData, destDirpath)
 
 	modsSettingsData, err := os.ReadFile(filepath.Join(agencModsDirpath, "settings.json"))
 	if err != nil {

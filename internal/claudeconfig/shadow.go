@@ -221,8 +221,10 @@ func ingestFile(srcFilepath string, dstFilepath string, homeDirpath string) (boo
 		return false, stacktrace.Propagate(err, "failed to read '%s'", resolvedSrc)
 	}
 
-	// Apply path normalization for text files
-	if isTextFile(srcFilepath) {
+	// Apply path normalization for text files, but skip settings.json —
+	// it contains permission entries with user-specified paths that must
+	// not be rewritten.
+	if isTextFile(srcFilepath) && filepath.Base(srcFilepath) != "settings.json" {
 		data = NormalizePaths(data, homeDirpath)
 	}
 
@@ -361,12 +363,14 @@ set -euo pipefail
 
 # Reject commits that contain un-normalized ~/.claude paths.
 # All paths in the shadow repo must use ${CLAUDE_CONFIG_DIR} instead.
+# Exception: settings.json is excluded because it contains permission entries
+# with user-specified paths that must not be rewritten.
 
 # Get the home directory to check for absolute paths
 home_dirpath="${HOME}"
 
-# Check staged file contents for un-normalized paths
-if git diff --cached -U0 --diff-filter=ACM | \
+# Check staged file contents for un-normalized paths (excluding settings.json)
+if git diff --cached -U0 --diff-filter=ACM -- ':!settings.json' | \
    grep -qE "(${home_dirpath}/\.claude[/\"]|\\$\{HOME\}/\.claude[/\"]|~/\.claude[/\"])"; then
     echo "ERROR: Staged changes contain un-normalized ~/.claude paths." >&2
     echo "All paths must use \${CLAUDE_CONFIG_DIR} instead of:" >&2

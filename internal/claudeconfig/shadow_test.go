@@ -264,16 +264,14 @@ func TestIngestFromClaudeDir(t *testing.T) {
 		t.Fatalf("IngestFromClaudeDir failed: %v", err)
 	}
 
-	// Verify settings.json was normalized
+	// Verify settings.json was NOT normalized — it contains permission entries
+	// with user-specified paths that must not be rewritten
 	normalizedSettings, err := os.ReadFile(filepath.Join(shadowDirpath, "settings.json"))
 	if err != nil {
-		t.Fatalf("failed to read normalized settings: %v", err)
+		t.Fatalf("failed to read settings: %v", err)
 	}
-	if containsSubstring(string(normalizedSettings), claudeDirpath) {
-		t.Errorf("settings.json still contains absolute path %q:\n%s", claudeDirpath, string(normalizedSettings))
-	}
-	if !containsSubstring(string(normalizedSettings), "${CLAUDE_CONFIG_DIR}") {
-		t.Errorf("settings.json missing ${CLAUDE_CONFIG_DIR} placeholder:\n%s", string(normalizedSettings))
+	if containsSubstring(string(normalizedSettings), "${CLAUDE_CONFIG_DIR}") {
+		t.Errorf("settings.json should not be normalized (contains permission paths):\n%s", string(normalizedSettings))
 	}
 
 	// Verify CLAUDE.md was normalized
