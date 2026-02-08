@@ -48,13 +48,29 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Wrote keybindings to %s\n", keybindingsFilepath)
 
-	if err := injectTmuxConfSourceLine(keybindingsFilepath); err != nil {
+	// Use ~ in the source-file directive so tmux.conf is portable across machines
+	displayFilepath := contractHomePath(keybindingsFilepath)
+
+	if err := injectTmuxConfSourceLine(keybindingsFilepath, displayFilepath); err != nil {
 		return err
 	}
 
 	sourceTmuxKeybindings(keybindingsFilepath)
 
 	return nil
+}
+
+// contractHomePath replaces a leading $HOME prefix with ~ for use in
+// config files that should be portable across machines.
+func contractHomePath(path string) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, homeDir) {
+		return "~" + path[len(homeDir):]
+	}
+	return path
 }
 
 // agencKeyTable is the tmux key table name used to namespace all AgenC
@@ -132,19 +148,23 @@ func findTmuxConfFilepath() (string, bool, error) {
 }
 
 // buildSentinelBlock returns the sentinel-wrapped source-file directive.
-func buildSentinelBlock(keybindingsFilepath string) string {
-	return fmt.Sprintf("%s\nsource-file %s\n%s", sentinelBegin, keybindingsFilepath, sentinelEnd)
+// The path written into the directive uses displayFilepath (which may contain ~)
+// so the resulting tmux.conf is portable across machines.
+func buildSentinelBlock(displayFilepath string) string {
+	return fmt.Sprintf("%s\nsource-file %s\n%s", sentinelBegin, displayFilepath, sentinelEnd)
 }
 
 // injectTmuxConfSourceLine idempotently adds or updates a sentinel-wrapped
-// source-file directive in the user's tmux.conf.
-func injectTmuxConfSourceLine(keybindingsFilepath string) error {
+// source-file directive in the user's tmux.conf. The keybindingsFilepath is
+// the absolute path used for file I/O; displayFilepath is the portable form
+// (with ~ instead of $HOME) written into the directive.
+func injectTmuxConfSourceLine(keybindingsFilepath string, displayFilepath string) error {
 	tmuxConfFilepath, exists, err := findTmuxConfFilepath()
 	if err != nil {
 		return err
 	}
 
-	sentinelBlock := buildSentinelBlock(keybindingsFilepath)
+	sentinelBlock := buildSentinelBlock(displayFilepath)
 
 	if !exists {
 		// Create the file with just the sentinel block
