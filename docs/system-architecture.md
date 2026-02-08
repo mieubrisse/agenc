@@ -1,12 +1,64 @@
 System Architecture
 ===================
 
-AgenC is a CLI tool that runs AI agents (Claude Code instances) in isolated sandboxes, tracks all conversations in a central database, and makes it easy to roll configuration improvements back into agent templates. When an agent template is updated, the daemon syncs the changes so new missions pick them up automatically.
+AgenC is a CLI tool that runs AI agents (Claude Code instances) in isolated, per-mission sandboxes. It tracks all missions in a central database, manages a shared repository library, and keeps configuration version-controlled via a background daemon.
+
+Read this document before making non-trivial changes to the codebase. It is the canonical map of how the system fits together — runtime processes, directory layout, package responsibilities, and cross-cutting patterns.
+
+
+Process Overview
+----------------
+
+Three cooperating processes form the runtime. They share state exclusively through the filesystem and a SQLite database — there is no IPC, no sockets, and no message queue.
+
+```mermaid
+graph TB
+    subgraph Processes
+        CLI["CLI — agenc commands"]
+        Daemon["Daemon — background loops"]
+        Wrapper["Wrapper — per-mission supervisor"]
+        Claude["Claude Code — AI agent"]
+    end
+
+    subgraph "Shared State"
+        DB[("database.sqlite")]
+        Repos["repos/ (shared library)"]
+        Missions["missions/&lt;uuid&gt;/"]
+        Config["config/"]
+    end
+
+    CLI -->|forks| Daemon
+    CLI -->|spawns| Wrapper
+    Daemon -->|spawns headless| Wrapper
+    Wrapper -->|supervises| Claude
+
+    CLI -->|creates records| DB
+    Wrapper -->|writes heartbeats| DB
+    Daemon -->|reads heartbeats| DB
+
+    Daemon -->|fetches & fast-forwards| Repos
+    Wrapper -->|force-updates on push| Repos
+    CLI -->|copies repo into mission| Repos
+
+    Claude -->|works in| Missions
+    Wrapper -->|watches claude-state| Missions
+
+    Daemon -->|auto-commits| Config
+```
+
+**Inter-process communication** relies entirely on filesystem artifacts and SQLite:
+
+| Mechanism | Writer | Reader | Purpose |
+|-----------|--------|--------|---------|
+| `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats |
+| `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
+| `missions/<uuid>/claude-state` | Claude (via hooks) | Wrapper (via fsnotify) | Idle detection, resume tracking |
+| `daemon/daemon.pid` | Daemon | CLI (`daemon stop/status`) | Process coordination |
+| `.git/refs/remotes/origin/<branch>` | Git (after push) | Wrapper (via fsnotify) | Trigger repo library update |
+
 
 Runtime Processes
 -----------------
-
-Three cooperating processes form the runtime:
 
 ### CLI
 
@@ -14,20 +66,7 @@ The CLI is the user-facing entry point. It parses commands, manages the database
 
 - Entry point: `main.go`
 - Commands: `cmd/` (Cobra-based; one file per command or command group)
-- Key command files:
-  - `cmd/root.go` — root command, global flags, database/config initialization
-  - `cmd/mission_new.go` — creates missions: DB record, directory structure, config build, wrapper launch
-  - `cmd/mission_ls.go` — lists missions with status, heartbeat, session names
-  - `cmd/mission_resume.go` — resumes a stopped mission with `claude -c`
-  - `cmd/mission_stop.go` — sends SIGINT to wrapper PID
-  - `cmd/daemon_start.go` — forks the daemon as a detached background process
-  - `cmd/cron_*.go` — cron CRUD commands
-  - `cmd/repo_*.go` — repo library management
-  - `cmd/tmux_*.go` — tmux window/pane management
-  - `cmd/login.go` — Claude authentication (delegates to `claude login`)
-  - `cmd/first_run.go` — first-time setup flow (optional config repo clone)
-  - `cmd/resolver.go` — generic fuzzy-match resolver (wraps fzf)
-  - `cmd/repo_resolution.go` — repo reference parsing and resolution
+- Full command reference: `docs/cli/`
 
 ### Daemon
 
@@ -93,24 +132,13 @@ Directory Structure
 ├── go.mod / go.sum
 ├── README.md
 ├── CLAUDE.md                     # Agent instructions for working on this codebase
-├── cmd/                          # CLI commands (Cobra)
-│   ├── root.go                   # Root command, global flags
-│   ├── mission_*.go              # mission new/ls/resume/stop/archive/rm/nuke/inspect
-│   ├── config_*.go               # config init/edit
-│   ├── cron_*.go                 # cron new/ls/rm/enable/disable/run/history/logs
-│   ├── daemon_*.go               # daemon start/stop/restart/status/version-check
-│   ├── repo_*.go                 # repo add/edit/rm/ls/update
-│   ├── tmux_*.go                 # tmux attach/detach/window/pane/rm
-│   ├── login.go                  # Claude login flow
-│   ├── first_run.go              # First-time setup
-│   ├── resolver.go               # Generic fuzzy-match resolver (fzf)
-│   ├── repo_resolution.go        # Repo reference parsing
-│   └── gendocs/                  # CLI doc generation
+├── AGENTS.md                     # Agent definitions
+├── cmd/                          # CLI commands (Cobra); see docs/cli/ for full reference
 ├── internal/
 │   ├── config/                   # Path management, YAML config
 │   ├── database/                 # SQLite CRUD
 │   ├── mission/                  # Mission lifecycle, Claude spawning
-│   ├── claudeconfig/             # Per-mission config merging
+│   ├── claudeconfig/             # Per-mission config merging, shadow repo
 │   ├── daemon/                   # Background loops
 │   ├── wrapper/                  # Claude child process management
 │   ├── history/                  # Prompt extraction from history.jsonl
@@ -130,10 +158,19 @@ $AGENC_DIRPATH/
 ├── database.sqlite                        # SQLite: missions table
 │
 ├── config/                                # User configuration (optionally a git repo)
-│   ├── config.yml                         # Cron jobs, synced repos, Claude config source
+│   ├── config.yml                         # Synced repos, Claude config source, cron jobs
 │   └── claude-modifications/              # AgenC-specific Claude config overrides
 │       ├── CLAUDE.md                      # Appended to user's CLAUDE.md during merge
 │       └── settings.json                  # Deep-merged with user's settings.json
+│
+├── claude-config-shadow/                  # Shadow repo tracking ~/.claude config
+│   ├── .git/                              # Local-only Git repo (auto-committed)
+│   ├── CLAUDE.md                          # Normalized copy of ~/.claude/CLAUDE.md
+│   ├── settings.json                      # Normalized copy of ~/.claude/settings.json
+│   ├── skills/                            # Normalized copy of ~/.claude/skills/
+│   ├── hooks/                             # Normalized copy of ~/.claude/hooks/
+│   ├── commands/                          # Normalized copy of ~/.claude/commands/
+│   └── agents/                            # Normalized copy of ~/.claude/agents/
 │
 ├── repos/                                 # Shared repo library (daemon syncs these)
 │   └── github.com/owner/repo/            # One clone per repo
@@ -163,6 +200,41 @@ $AGENC_DIRPATH/
 ```
 
 
+Configuration Reference
+-----------------------
+
+### `config.yml`
+
+The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file. It is parsed by `internal/config/agenc_config.go`.
+
+```yaml
+# Repos to keep synced in the shared library (daemon fetches every 60s)
+syncedRepos:
+  - github.com/owner/repo
+
+# Claude config source repo — provides CLAUDE.md, settings.json, skills, etc.
+claudeConfig:
+  repo: github.com/owner/config-repo
+  subdirectory: ""              # Optional subdirectory within the repo
+
+# Max concurrent headless cron missions (default: 10)
+cronsMaxConcurrent: 10
+
+# Named cron jobs
+crons:
+  my-cron:
+    schedule: "0 9 * * *"      # Cron expression (5 or 6 fields, evaluated by gronx)
+    prompt: "Do something"     # Initial prompt sent to Claude
+    description: ""            # Human-readable description (optional)
+    git: github.com/owner/repo # Git repo for the mission workspace (optional)
+    timeout: "1h"              # Max runtime as Go duration (default: 1h)
+    overlap: skip              # "skip" (default) or "allow"
+    enabled: true              # Defaults to true if omitted
+```
+
+All repo values must be in canonical format: `github.com/owner/repo`.
+
+
 Core Packages
 -------------
 
@@ -183,11 +255,12 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 ### `internal/claudeconfig/`
 
-Per-mission Claude configuration building and merging.
+Per-mission Claude configuration building, merging, and shadow repo management.
 
 - `build.go` — `BuildMissionConfigDir` (copies trackable items from config source, merges CLAUDE.md and settings.json, symlinks account identity, dumps credentials), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigSourceDirpath`, `ResolveConfigCommitHash`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides)
 - `overrides.go` — `AgencHookEntries` (Stop and UserPromptSubmit hooks for idle detection), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
+- `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
 
 ### `internal/database/`
 
@@ -237,6 +310,20 @@ Merging logic (`internal/claudeconfig/merge.go`):
 - Deep merge rules: objects merge recursively, arrays concatenate, scalars from the overlay win
 
 Credentials are handled separately: `.claude.json` is symlinked to the user's account identity file; `.credentials.json` is dumped as a real file from the macOS Keychain (via `security find-generic-password`) or copied from `~/.claude/.credentials.json` on Linux.
+
+### Shadow repo
+
+The shadow repo (`internal/claudeconfig/shadow.go`) tracks the user's `~/.claude` configuration in a local Git repository at `$AGENC_DIRPATH/claude-config-shadow/`. This provides version history for Claude config changes without modifying the user's `~/.claude` directory.
+
+**Tracked items:**
+- Files: `CLAUDE.md`, `settings.json`
+- Directories: `skills/`, `hooks/`, `commands/`, `agents/`
+
+**Path normalization:** When ingesting files, absolute paths referencing `~/.claude` are replaced with the `${CLAUDE_CONFIG_DIR}` placeholder. This covers three path forms: absolute (`/Users/name/.claude/`), `${HOME}/.claude/`, and `~/.claude/`. The normalization applies only to text files (detected by extension: `.json`, `.md`, `.sh`, `.bash`, `.py`, `.yml`, `.yaml`, `.toml`, `.txt`). The inverse operation (`ExpandPaths`) restores concrete paths when needed.
+
+**Safety:** A pre-commit hook installed in the shadow repo's `.git/hooks/` rejects any commit that contains un-normalized `~/.claude` paths, catching normalization failures before they are committed.
+
+**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo, applies normalization, and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`.
 
 ### Idle detection via Claude Code hooks
 
@@ -294,19 +381,17 @@ Data Flow: Mission Lifecycle
 
 1. CLI ensures the daemon is running and a config source repo is registered
 2. Resolves the git repo reference (URL, shorthand, or fzf picker) and ensures it is cloned into the repo library
-3. Creates a database record (`database.CreateMission`) — generates UUID + 8-char short ID, records the git repo name, config source commit hash, and optional cron association
-4. Creates the mission directory structure (`mission.CreateMissionDir`):
-   - Copies the repo from the library into `missions/<uuid>/agent/` via rsync
-   - Builds the per-mission Claude config directory (`claudeconfig.BuildMissionConfigDir`)
-5. Creates a `Wrapper` and calls `Run(isResume=false)` or `RunHeadless` depending on flags
+3. Creates a database record — generates UUID + 8-char short ID, records the git repo name, config source commit hash, and optional cron association
+4. Creates the mission directory structure: copies the repo from the library via rsync, then builds the per-mission Claude config directory (see "Per-mission config merging")
+5. Creates a `Wrapper` and calls `Run` or `RunHeadless` depending on flags
 
 ### Running
 
-1. Wrapper writes PID file and initial `claude-state`
-2. Wrapper spawns Claude as a child process (with 1Password wrapping if needed)
-3. Background goroutines start: heartbeat, claude-state watcher, remote refs watcher
+1. Wrapper writes PID file and initial `claude-state` as `idle`
+2. Wrapper spawns Claude (with 1Password wrapping if `secrets.env` exists), setting `CLAUDE_CONFIG_DIR` and `AGENC_MISSION_UUID`
+3. Background goroutines start: heartbeat writer, claude-state watcher, remote refs watcher
 4. Main event loop blocks until Claude exits or a signal arrives
-5. Daemon concurrently syncs the mission's repo if it has a recent heartbeat
+5. Daemon concurrently syncs the mission's repo while the heartbeat is fresh
 
 ### Stopping
 
@@ -317,8 +402,22 @@ Data Flow: Mission Lifecycle
 ### Resuming (`agenc mission resume`)
 
 1. Creates a new `Wrapper` and calls `Run(isResume=true)`
-2. Wrapper spawns `claude -c` (resume last conversation)
-3. `hasConversation` flag is pre-set to `true`
+2. If the previous wrapper recorded a conversation (via the `hasConversation` flag from idle detection), spawns `claude -c` to resume the last conversation; otherwise spawns a fresh Claude session
+3. The wrapper re-enters the same running lifecycle: PID file, background goroutines, event loop
+
+
+Failure Modes
+-------------
+
+**Daemon dies while missions are running.** Missions are unaffected — each wrapper is an independent process. The repo library stops syncing and cron jobs stop scheduling. Restarting the daemon (`agenc daemon restart`) restores both. The cron scheduler adopts orphaned headless missions on startup.
+
+**Wrapper crashes or is killed.** Claude continues running as an orphaned process (it is a child process, but not monitored). The PID file becomes stale. The heartbeat stops updating, so the daemon drops the mission from its repo sync set after 5 minutes. A subsequent `agenc mission stop` will detect the stale PID.
+
+**Repo fetch fails.** The daemon logs the error and moves on to the next repo. The failed repo retries on the next 60-second cycle. Missions already running are unaffected since they have their own copy.
+
+**Database is locked.** SQLite is configured with max connections = 1. Concurrent access from the CLI, daemon, and wrapper is serialized. If a long-running transaction blocks others, they wait (SQLite's default busy timeout applies).
+
+**Claude crashes mid-mission.** The wrapper detects the exit via `cmd.Wait()`, cleans up the PID file, and exits. The mission can be resumed with `agenc mission resume` if a conversation was recorded.
 
 
 Database Schema
