@@ -7,28 +7,21 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/config"
 )
 
 var loginCmd = &cobra.Command{
 	Use:   loginCmdStr,
-	Short: "Log in to Claude (credentials stored in $AGENC_DIRPATH/claude/)",
+	Short: "Log in to Claude (credentials stored in macOS Keychain)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := getAgencContext(); err != nil {
-			return err
-		}
 		claudeBinary, err := exec.LookPath("claude")
 		if err != nil {
 			return stacktrace.Propagate(err, "'claude' binary not found in PATH")
 		}
 
-		claudeConfigDirpath := config.GetGlobalClaudeDirpath(agencDirpath)
-
-		env := os.Environ()
-		env = append(env, "CLAUDE_CONFIG_DIR="+claudeConfigDirpath)
-
-		return syscall.Exec(claudeBinary, []string{"claude", "login"}, env)
+		// Run without CLAUDE_CONFIG_DIR so credentials are written to the
+		// default Keychain entry ("Claude Code-credentials"), which per-mission
+		// Keychain cloning reads from.
+		return syscall.Exec(claudeBinary, []string{"claude", "login"}, os.Environ())
 	},
 }
 

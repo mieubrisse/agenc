@@ -1,6 +1,6 @@
 ## agenc login
 
-Log in to Claude (credentials stored in $AGENC_DIRPATH/claude/)
+Log in to Claude (credentials stored in macOS Keychain)
 
 ```
 agenc login [flags]
