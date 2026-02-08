@@ -115,12 +115,14 @@ func (w *Wrapper) Run(isResume bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Catch SIGINT and SIGTERM to prevent Go's default termination.
+	// Catch SIGINT, SIGTERM, and SIGHUP to prevent Go's default termination.
 	// Claude is in the same process group, so terminal Ctrl-C reaches it
 	// directly. We catch the signal here just to keep the wrapper alive
-	// until Claude exits.
+	// until Claude exits. SIGHUP is sent by tmux when a window or session
+	// is destroyed — without handling it, deferred cleanup (PID file removal)
+	// would not run.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
 	// Write initial heartbeat and start periodic heartbeat loop
@@ -142,6 +144,14 @@ func (w *Wrapper) Run(isResume bool) error {
 	if isResume {
 		w.hasConversation.Store(true)
 	}
+
+	// When the wrapper exits, return focus to the parent pane (if this is a
+	// side mission spawned via 'agenc tmux window new').
+	defer w.returnToParentPane()
+
+	// Rename the tmux window to "<short_id> <repo-name>" when inside the
+	// AgenC tmux session.
+	w.renameWindowForTmux()
 
 	// Spawn initial Claude process
 	if isResume {
@@ -507,9 +517,9 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		defer timeoutTimer.Stop()
 	}
 
-	// Catch SIGINT and SIGTERM
+	// Catch SIGINT, SIGTERM, and SIGHUP
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
 	// Write initial heartbeat and start periodic heartbeat loop

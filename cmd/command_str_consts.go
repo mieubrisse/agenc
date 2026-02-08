@@ -14,6 +14,7 @@ const (
 	missionCmdStr = "mission"
 	repoCmdStr    = "repo"
 	daemonCmdStr  = "daemon"
+	tmuxCmdStr    = "tmux"
 	versionCmdStr = "version"
 	loginCmdStr   = "login"
 	cronCmdStr    = "cron"
@@ -24,6 +25,9 @@ const (
 	addCmdStr    = "add"
 	updateCmdStr = "update"
 	stopCmdStr   = "stop"
+	attachCmdStr = "attach"
+	detachCmdStr = "detach"
+	windowCmdStr = "window"
 
 	// Mission subcommands
 	newCmdStr     = "new"
