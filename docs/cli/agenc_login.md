@@ -1,6 +1,6 @@
 ## agenc login
 
-Log in to Claude (credentials stored in macOS Keychain)
+Log in to Claude and update credentials for all missions
 
 ```
 agenc login [flags]
