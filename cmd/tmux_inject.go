@@ -24,9 +24,9 @@ var tmuxInjectCmd = &cobra.Command{
 your tmux.conf. If a tmux server is running, the keybindings are sourced
 immediately.
 
-Installed keybindings:
-  prefix + M  — new mission in a new tmux window
-  prefix + P  — new mission in a side-by-side pane`,
+All keybindings live under the "agenc" key table, activated with prefix + a:
+  prefix + a, M  — new mission in a new tmux window
+  prefix + a, P  — new mission in a side-by-side pane`,
 	Args: cobra.NoArgs,
 	RunE: runTmuxInject,
 }
@@ -57,6 +57,10 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// agencKeyTable is the tmux key table name used to namespace all AgenC
+// keybindings behind a prefix (prefix + a → agenc table).
+const agencKeyTable = "agenc"
+
 // generateKeybindingsContent returns the full content of the agenc-managed
 // tmux keybindings configuration file.
 func generateKeybindingsContent() string {
@@ -67,18 +71,25 @@ func generateKeybindingsContent() string {
 	sb.WriteString("# Do not edit — this file is overwritten on each run.\n")
 	sb.WriteString("\n")
 
-	// prefix + M — new mission in a new window
-	sb.WriteString("# New mission in a new window (prefix + M)\n")
-	fmt.Fprintf(&sb, "bind-key M run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
+	// prefix + a enters the agenc key table
+	sb.WriteString("# Enter the AgenC key table (prefix + a)\n")
+	fmt.Fprintf(&sb, "bind-key a switch-client -T %s\n", agencKeyTable)
+	sb.WriteString("\n")
+
+	// agenc table: M — new mission in a new window
+	sb.WriteString("# New mission in a new window (prefix + a, M)\n")
+	fmt.Fprintf(&sb, "bind-key -T %s M run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
+		agencKeyTable,
 		agencCmdStr, tmuxCmdStr, windowCmdStr, newCmdStr,
 		agencCmdStr, missionCmdStr, newCmdStr,
 	)
 
 	sb.WriteString("\n")
 
-	// prefix + P — new mission in a side-by-side pane
-	sb.WriteString("# New mission in a side-by-side pane (prefix + P)\n")
-	fmt.Fprintf(&sb, "bind-key P run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
+	// agenc table: P — new mission in a side-by-side pane
+	sb.WriteString("# New mission in a side-by-side pane (prefix + a, P)\n")
+	fmt.Fprintf(&sb, "bind-key -T %s P run-shell '%s %s %s %s --parent-pane \"#{pane_id}\" -- %s %s %s'\n",
+		agencKeyTable,
 		agencCmdStr, tmuxCmdStr, paneCmdStr, newCmdStr,
 		agencCmdStr, missionCmdStr, newCmdStr,
 	)

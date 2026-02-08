@@ -8,9 +8,9 @@ Write an AgenC-managed keybindings file and add a source-file directive to
 your tmux.conf. If a tmux server is running, the keybindings are sourced
 immediately.
 
-Installed keybindings:
-  prefix + M  — new mission in a new tmux window
-  prefix + P  — new mission in a side-by-side pane
+All keybindings live under the "agenc" key table, activated with prefix + a:
+  prefix + a, M  — new mission in a new tmux window
+  prefix + a, P  — new mission in a side-by-side pane
 
 ```
 agenc tmux inject [flags]
