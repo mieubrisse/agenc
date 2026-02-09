@@ -22,19 +22,9 @@ brew tap mieubrisse/agenc
 brew install agenc
 ```
 
-### Create your first agent template
-
-Agent templates define how your agents behave — their instructions, permissions, MCP servers, and skills. Create one:
-
-```
-agenc template new --nickname "Software Engineer" --default repo
-```
-
-You'll be prompted for a repo name (e.g., `your-username/software-engineer`). AgenC creates a private GitHub repo, initializes it with template files, and launches a mission to help you configure it. The `--default repo` flag makes this template auto-selected when you open repositories.
-
 ### Open a repo
 
-Now put your agent to work. Open any GitHub repo:
+Put your agent to work on any GitHub repo:
 
 ```
 agenc mission new owner/repo
@@ -122,9 +112,9 @@ Basically, [painting with your mind](https://mieubrisse.substack.com/p/be-rembra
 
 It works like this:
 
-1. You create or install **agent template** repos ([example](https://github.com/mieubrisse/agenc-agent-template_agenc-engineer)) containing the agent config you want (CLAUDE.md, skills, MCP, and even 1Password secrets to inject)
-1. Agent templates get instantiated into an **agent** on a **mission**, with its own sandbox and repo copies where the agent can write files, commit, etc. without interfering with other missions
-1. When an agent doesn't do the right thing, you fire off a new mission to refine the agent's prompt 
+1. You open a **repo** containing your agent config (CLAUDE.md, skills, MCP, and even 1Password secrets to inject)
+1. AgenC launches a **mission** with its own sandbox and repo copy where the agent can write files, commit, etc. without interfering with other missions
+1. When an agent doesn't do the right thing, you fire off a new mission to refine the agent's prompt
 1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
 
 ### AgenC doesn't currently handle these workflows, but will soon
@@ -264,11 +254,11 @@ Answering **yes** lets you provide a repo reference (`owner/repo`, `github.com/o
 1Password Secret Injection
 --------------------------
 
-Agent templates often need secrets — API tokens, database credentials, etc. AgenC integrates with [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) to inject secrets at runtime without storing them on disk.
+Repos often need secrets — API tokens, database credentials, etc. AgenC integrates with [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) to inject secrets at runtime without storing them on disk.
 
 ### Setup
 
-Create a `.claude/secrets.env` file in your agent template repo. Each line maps an environment variable to a [1Password secret reference](https://developer.1password.com/docs/cli/secret-references/):
+Create a `.claude/secrets.env` file in your repo. Each line maps an environment variable to a [1Password secret reference](https://developer.1password.com/docs/cli/secret-references/):
 
 ```
 NOTION_TOKEN=op://Personal/Notion API Token/credential
@@ -308,7 +298,7 @@ The `${NOTION_TOKEN}` reference is resolved from the environment, which `op run`
 
 - [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) must be installed and in your PATH
 - You must be signed in to 1Password (`op signin`)
-- The `.claude/secrets.env` file is only needed in the agent template repo; AgenC handles the rest
+- The `.claude/secrets.env` file is only needed in the repo; AgenC handles the rest
 
 If `.claude/secrets.env` does not exist, AgenC launches Claude directly with no `op` dependency.
 

@@ -15,6 +15,11 @@ func main() {
 		outputDirpath = os.Args[1]
 	}
 
+	// Remove and recreate the output directory so stale docs from deleted
+	// commands don't linger.
+	if err := os.RemoveAll(outputDirpath); err != nil {
+		log.Fatalf("failed to clean output directory: %v", err)
+	}
 	if err := os.MkdirAll(outputDirpath, 0755); err != nil {
 		log.Fatalf("failed to create output directory: %v", err)
 	}
