@@ -3,9 +3,9 @@
 AgenC
 =====
 
-Running one Claude session is easy. Running five in parallel - each on a different repo, none of them stepping on each other - that's where things get annoying fast. You're juggling terminals, copying config, making sure agent A doesn't clobber what agent B is doing.
+Multi-agent development is plate-spinning. You're building a feature in one Claude session, spot a prompt that needs tweaking, pop open another session to fix it, switch back to approve a permissions dialog, realize your other session just pushed to the same branch - and suddenly you're not coding anymore, you're just managing Claude sessions.
 
-AgenC (pronounced "agency") is a CLI that makes all of that instant. You fire up isolated Claude Code sessions called **missions**, each with its own sandbox and repo copy. You're mid-task and spot a prompt tweak you want to make? Pop open a side mission, fix it, close it, never lose your place. The whole point is speed: the time between "I want to do this thing" and "I'm doing this thing" is basically zero.
+AgenC (pronounced "agency") is a CLI built for that chaos. Every Claude Code session runs in an isolated sandbox called a **mission** - its own repo copy, its own config, no collision risk. Need to fork off and fix something? Open a side mission from the command palette, handle it, close it, pick up where you left off. The gap between "I need to do this thing" and "I'm doing this thing" stays near zero, no matter how many plates you're spinning.
 
 Quick Start
 -----------
