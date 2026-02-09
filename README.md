@@ -5,7 +5,7 @@ AgenC
 
 Managing AI agents is tedious. Every time an agent misbehaves, you have to find the right config file, update it, restart the agent, and hope you remember the fix next time. Multiply that across multiple agents and the overhead becomes significant.
 
-AgenC (pronounced "agency") solves this. It's a CLI tool that runs agents in isolated sandboxes, tracks all conversations, and makes it trivial to roll lessons back into agent config.
+AgenC (pronounced "agency") solves this. It's a CLI tool that launches Claude Code sessions in isolated sandboxes called **missions**, tracks all conversations, and makes it trivial to roll lessons back into your configuration. Every time an agent gets something wrong, you capture that lesson in its config — and it never makes that mistake again.
 
 Quick Start
 -----------
@@ -22,15 +22,17 @@ brew tap mieubrisse/agenc
 brew install agenc
 ```
 
-### Open a repo
+This automatically installs required dependencies (`gh`, `fzf`).
 
-Put your agent to work on any GitHub repo:
+### Launch a mission
+
+Start a mission on any GitHub repo:
 
 ```
 agenc mission new owner/repo
 ```
 
-AgenC accepts multiple formats — use whichever is convenient:
+AgenC accepts multiple formats:
 
 ```
 agenc mission new owner/repo                          # shorthand
@@ -39,7 +41,15 @@ agenc mission new https://github.com/owner/repo       # HTTPS URL
 agenc mission new git@github.com:owner/repo.git       # SSH URL
 ```
 
-The repo is cloned into an isolated sandbox, your Software Engineer template is applied, and Claude launches ready to work.
+The repo is cloned into an isolated sandbox and Claude launches ready to work. Each mission gets its own copy of the repo, so multiple missions can run against the same repo without interfering with each other.
+
+To launch a mission without a repo (e.g., for general-purpose tasks):
+
+```
+agenc mission new --blank
+```
+
+Or run `agenc mission new` with no arguments to get an interactive picker.
 
 CLI Reference
 -------------
@@ -48,13 +58,16 @@ Run `agenc --help` for available commands, or see [docs/cli/](docs/cli/) for com
 
 <!--- TODO Debora feedback - why use AgenC? There are a million AIs out there; why do we need this one? -->
 
-How it works
+How It Works
 ------------
 
-1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)).
-2. Sandboxing and session management let you run dozens of agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a super team who understand your every whim.
+AgenC is built on one principle: **[Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs)**. Instead of correcting an agent's output after the fact, you fix the input (its configuration) so the problem never recurs.
 
-For a detailed technical overview of the system's components and how they interact, see [System Architecture](docs/system-architecture.md).
+1. You launch a **mission** from a repo. AgenC clones the repo into an isolated sandbox and starts a Claude session.
+2. When something goes wrong — bad output, missing permissions, wrong approach — you roll that lesson back into your Claude configuration (CLAUDE.md, settings.json, skills, etc.).
+3. Every future mission benefits from the fix. Over time, your agents compound in capability.
+
+Sandboxing and session management let you run dozens of missions simultaneously, each isolated from the others. For a detailed technical overview, see [System Architecture](docs/system-architecture.md).
 
 <!--
 > ⚠️ Addiction Warning
@@ -70,60 +83,20 @@ For a detailed technical overview of the system's components and how they intera
 > This leaves you really activated, always wanting to implement one more thing. And it's really bad for sleep.
 >
 > This isn't just AgenC. [Across the board, agentic work factories seem to have this effect](https://steve-yegge.medium.com/steveys-birthday-blog-34f437139cb5#:~:text=This%20week%20the,Even%20for%20him.).
-> 
+>
 > So please stop for breaks, and remember to make some wind-down time for sleep!
 -->
 
-<!--
-Why AgenC?
-----------
-You want a swarm of infinite obedient robots, making your every whim a reality.
-
-This requires a LOT of alignment work.
-
-Every time the agents don't get it right, you need to capture the lesson back into your agent config: the [Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs) doctrine.
-
-But vanilla Claude is really bad at this.
-
-Every time an agent gets it wrong, it's on you to find the config file that contributed to the problem.
-
-Then you have to update it (usually requiring another Claude window).
-
-Then, you have to find all your prompts using that config and restart them.
-
-And if you want to do any sort of longitudinal retrospective on how well your prompts are performing overall... good luck.
-
-AgenC solves this:
-
-- All agent conversations are collected & navigable
-- All agent config is version-controlled & deployed
-- At any point when using an agent, you can fork a new Claude code window editing the agent itself
-- When an agent's config is updated, all agents using that config restart with the config the next time they're idle
--->
-
 Workflows
--------------
-### AgenC is currently really good at these workflows
+---------
 
-- **Human-in-the-loop assistant work with MCP:** Examples: email/Todoist inbox processing, calendar management.
-- **Human-in-the-loop editing a repo:** Examples: coding, editing AgenC agents, writing
+AgenC currently supports:
 
-Basically, [painting with your mind](https://mieubrisse.substack.com/p/be-rembrandt).
+- **Human-in-the-loop coding:** Launch a mission on a repo, work with Claude interactively, commit and push from within the sandbox.
+- **Human-in-the-loop assistant work with MCP:** Connect Claude to external services (Todoist, Notion, email) via MCP servers for inbox processing, calendar management, and similar tasks.
+- **Scheduled autonomous work:** Define cron jobs that spawn headless missions on a schedule — daily reports, weekly cleanups, recurring maintenance.
 
-It works like this:
-
-1. You open a **repo** containing your agent config (CLAUDE.md, skills, MCP, and even 1Password secrets to inject)
-1. AgenC launches a **mission** with its own sandbox and repo copy where the agent can write files, commit, etc. without interfering with other missions
-1. When an agent doesn't do the right thing, you fire off a new mission to refine the agent's prompt
-1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
-
-### AgenC doesn't currently handle these workflows, but will soon
-
-- **Completely autonomous work:** Example: instruct the agent to do a thing without you being connected to the Claude TUI.
-- **Dockerized:** Running agents in Docker so they can do `--dangerously-skip-permissions`
-- **Cron:** Example: every Wednesday, summarize HackerNews and let me know what you found.
-- **Automated lesson capture:** Identifying lessons that need to be rolled back into config proactively, rather than waiting for you.
-- **Inter-agent communication:** Exmaple: the Code Writer agent hands off its work to the Code Reviewer agent who hands off to the PR Coordinator agent.
+The core loop is: launch missions, observe what works and what doesn't, refine your Claude config, and repeat. Basically, [painting with your mind](https://mieubrisse.substack.com/p/be-rembrandt).
 
 Troubleshooting
 ---------------
@@ -171,11 +144,6 @@ The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file
 syncedRepos:
   - github.com/owner/repo
 
-# Claude config source repo — provides CLAUDE.md, settings.json, skills, etc.
-claudeConfig:
-  repo: github.com/owner/config-repo
-  subdirectory: ""              # Optional subdirectory within the repo
-
 # Max concurrent headless cron missions (default: 10)
 cronsMaxConcurrent: 10
 
@@ -189,6 +157,12 @@ crons:
     timeout: "1h"              # Max runtime as Go duration (default: 1h)
     overlap: skip              # "skip" (default) or "allow"
     enabled: true              # Defaults to true if omitted
+
+# Custom entries for the tmux command palette
+customCommands:
+  my-shortcut:
+    paletteName: "📝 Open my project"   # Label shown in the palette picker
+    args: "mission new owner/repo"      # Arguments passed to agenc
 ```
 
 #### syncedRepos
@@ -201,12 +175,6 @@ Manage the list via the CLI:
 agenc repo add owner/repo --sync   # clone and add to syncedRepos
 agenc repo rm owner/repo           # remove from disk and syncedRepos
 ```
-
-#### claudeConfig
-
-The Claude config source repo provides the base CLAUDE.md, settings.json, skills, hooks, commands, agents, and plugins for every mission. When you create a mission, AgenC copies these from the config source and merges them with AgenC-specific modifications (from `$AGENC_DIRPATH/config/claude-modifications/`).
-
-The optional `subdirectory` field lets you point to a subdirectory within the repo if your Claude config files are not at the root.
 
 #### crons
 
@@ -225,6 +193,18 @@ agenc cron ls            # list all cron jobs
 agenc cron enable <name> # enable a disabled cron
 agenc cron run <name>    # trigger a cron immediately
 agenc cron logs <name>   # view output from the latest run
+```
+
+#### customCommands
+
+Custom commands add entries to the tmux command palette (opened with the palette keybinding). Each entry needs a `paletteName` (what you see in the picker) and `args` (the agenc subcommand to run).
+
+Manage custom commands via the CLI:
+
+```
+agenc config custom-command add my-shortcut --palette-name "📝 Open my project" --args "mission new owner/repo"
+agenc config custom-command ls
+agenc config custom-command rm my-shortcut
 ```
 
 ### Config Auto-Sync
