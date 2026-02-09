@@ -7,6 +7,8 @@
             "Glob(./**)",
             "Grep(./**)",
             "Read(~/.gitconfig)",
+            "Read(~/.claude.json)",
+            "Read(~/.claude/.claude.json)",
             "Read(~/.agenc/**)",
             "Glob(~/.agenc/**)",
             "Grep(~/.agenc/**)",
