@@ -139,7 +139,7 @@ func formatPaletteEntryLine(entry paletteEntry) string {
 	if entry.description == "" {
 		return stripped
 	}
-	return fmt.Sprintf("%s  —  %s", stripped, entry.description)
+	return fmt.Sprintf("%s  %s—  %s%s", stripped, ansiDarkGray, entry.description, ansiReset)
 }
 
 func runTmuxPalette(cmd *cobra.Command, args []string) error {
