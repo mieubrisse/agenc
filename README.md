@@ -61,6 +61,8 @@ Run `agenc --help` for available commands, or see [docs/cli/](docs/cli/) for com
 How It Works
 ------------
 
+Most people treat their Claude sessions like pets - nursing context, afraid to close the window. AgenC makes them cheap. Stop a mission, fork off to handle something else, come back to the original later. The durable context lives in your Claude config, not in any single session.
+
 AgenC is built on one principle: **[Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs)**. Instead of correcting an agent's output after the fact, you fix the input (its configuration) so the problem never recurs.
 
 1. You launch a **mission** from a repo. AgenC clones the repo into an isolated sandbox and starts a Claude session.
