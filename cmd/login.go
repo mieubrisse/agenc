@@ -16,10 +16,19 @@ var loginCmd = &cobra.Command{
 	Use:   loginCmdStr,
 	Short: "Log in to Claude and update credentials for all missions",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Run claude login without CLAUDE_CONFIG_DIR so credentials are
-		// written to the default Keychain entry ("Claude Code-credentials"),
-		// which per-mission Keychain cloning reads from.
+		// Run claude login in a disposable temp directory so that no
+		// project-level .claude/ config interferes. CLAUDE_CONFIG_DIR is
+		// intentionally unset so credentials are written to the default
+		// Keychain entry ("Claude Code-credentials"), which per-mission
+		// Keychain cloning reads from.
+		tmpDirpath, err := os.MkdirTemp("", "agenc-login-*")
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to create temp directory for login")
+		}
+		defer os.RemoveAll(tmpDirpath)
+
 		claudeCmd := exec.Command("claude", "login")
+		claudeCmd.Dir = tmpDirpath
 		claudeCmd.Stdin = os.Stdin
 		claudeCmd.Stdout = os.Stdout
 		claudeCmd.Stderr = os.Stderr
