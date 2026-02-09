@@ -5,7 +5,7 @@ AgenC
 
 Managing AI agents is tedious. Every time an agent misbehaves, you have to find the right config file, update it, restart the agent, and hope you remember the fix next time. Multiply that across multiple agents and the overhead becomes significant.
 
-AgenC (pronounced "agency") solves this. It's a CLI tool that runs agents in isolated sandboxes, tracks all conversations, and makes it trivial to roll lessons back into agent config. When you update an agent's config, all running instances hot-reload automatically.
+AgenC (pronounced "agency") solves this. It's a CLI tool that runs agents in isolated sandboxes, tracks all conversations, and makes it trivial to roll lessons back into agent config.
 
 Quick Start
 -----------
@@ -61,7 +61,7 @@ Run `agenc --help` for available commands, or see [docs/cli/](docs/cli/) for com
 How it works
 ------------
 
-1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)). The agent then hot-reloads to pick up the new config.
+1. Any time you have a negative interaction with an agent (bad output, missing permissions), it's trivial to roll the lesson back into the agent's config so you never hit it again ([Inputs, Not Outputs principle](https://mieubrisse.substack.com/p/inputs-not-outputs)).
 2. Sandboxing and session management let you run dozens of agents simultaneously, constantly rolling lesson "exhaust" back into your agents' configs. They become a super team who understand your every whim.
 
 For a detailed technical overview of the system's components and how they interact, see [System Architecture](docs/system-architecture.md).
@@ -125,7 +125,6 @@ It works like this:
 1. You create or install **agent template** repos ([example](https://github.com/mieubrisse/agenc-agent-template_agenc-engineer)) containing the agent config you want (CLAUDE.md, skills, MCP, and even 1Password secrets to inject)
 1. Agent templates get instantiated into an **agent** on a **mission**, with its own sandbox and repo copies where the agent can write files, commit, etc. without interfering with other missions
 1. When an agent doesn't do the right thing, you fire off a new mission to refine the agent's prompt 
-1. When an agent's config gets updated, all agents using that config live-reload the next time they're idle so fixes are constantly incorporated
 1. All work is tracked and accessible, so you can run agents to analyze inefficiencies and roll improvements back into your AgenC
 
 ### AgenC doesn't currently handle these workflows, but will soon
