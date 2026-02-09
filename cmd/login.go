@@ -27,7 +27,12 @@ var loginCmd = &cobra.Command{
 		}
 		defer os.RemoveAll(tmpDirpath)
 
-		claudeCmd := exec.Command("claude", "login")
+		loginPrompt := `I MUST DO THIS NOW:
+1. /login
+2. Click "Authorize" on the browser
+3. Exit Claude, and agenc will automatically propagate the auth to all my agenc sessions`
+
+		claudeCmd := exec.Command("claude", loginPrompt)
 		claudeCmd.Dir = tmpDirpath
 		claudeCmd.Stdin = os.Stdin
 		claudeCmd.Stdout = os.Stdout
