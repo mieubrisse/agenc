@@ -22,14 +22,6 @@ brew tap mieubrisse/agenc
 brew install agenc
 ```
 
-### Authenticate
-
-AgenC uses its own Claude config directory. Log in once:
-
-```
-agenc login
-```
-
 ### Create your first agent template
 
 Agent templates define how your agents behave — their instructions, permissions, MCP servers, and skills. Create one:
