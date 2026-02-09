@@ -27,6 +27,11 @@ type paletteEntry struct {
 
 var paletteEntries = []paletteEntry{
 	{
+		label:       "🦀 Quick Claude",
+		description: "Launch a blank mission instantly",
+		commandArgs: []string{missionCmdStr, newCmdStr, "--" + blankFlagName},
+	},
+	{
 		label:       "🚀 Start mission",
 		description: "Create a new mission and launch Claude",
 		commandArgs: []string{missionCmdStr, newCmdStr},

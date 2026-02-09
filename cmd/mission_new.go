@@ -20,6 +20,7 @@ import (
 
 var cloneFlag string
 var promptFlag string
+var blankFlag bool
 var headlessFlag bool
 var timeoutFlag string
 var cronIDFlag string
@@ -44,6 +45,7 @@ existing mission's agent directory.`,
 func init() {
 	missionNewCmd.Flags().StringVar(&cloneFlag, cloneFlagName, "", "mission UUID to clone agent directory from")
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
+	missionNewCmd.Flags().BoolVar(&blankFlag, blankFlagName, false, "create a blank mission with no repo (skip picker)")
 	missionNewCmd.Flags().BoolVar(&headlessFlag, headlessFlagName, false, "run in headless mode (no terminal, outputs to log)")
 	missionNewCmd.Flags().StringVar(&timeoutFlag, timeoutFlagName, "1h", "max runtime for headless missions (e.g., '1h', '30m')")
 	missionNewCmd.Flags().StringVar(&cronIDFlag, cronIDFlagName, "", "cron job ID (internal use)")
@@ -73,6 +75,10 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 
 	if cloneFlag != "" {
 		return runMissionNewWithClone()
+	}
+
+	if blankFlag {
+		return createAndLaunchMission(agencDirpath, "", "", promptFlag)
 	}
 
 	return runMissionNewWithPicker(args)
