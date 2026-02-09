@@ -13,7 +13,7 @@ Quick Start
 ### Prerequisites
 
 - **macOS** (Linux support planned)
-- **Claude CLI** installed and in your PATH ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
+- **Claude Code** installed and in your PATH ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
 
 ### Install
 
