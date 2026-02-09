@@ -3,9 +3,9 @@
 AgenC
 =====
 
-The bottleneck of multi-agent work isn't the AI — it's the overhead of managing it. Spinning up a new Claude session, giving it the right context, making sure it doesn't collide with what's already running. That friction adds up, and it slows you down right when you want to move fast.
+Running one Claude session is easy. Running five in parallel - each on a different repo, none of them stepping on each other - that's where things get annoying fast. You're juggling terminals, copying config, making sure agent A doesn't clobber what agent B is doing.
 
-AgenC (pronounced "agency") eliminates that friction. It's a CLI tool that lets you instantly fire up isolated Claude Code sessions called **missions** — each with its own sandbox, repo copy, and configuration. Spot a config tweak mid-task? Launch a side mission without breaking your flow. Need three agents working in parallel? They each get their own workspace and never step on each other. The gap between "I want to do this thing" and "I'm doing this thing" is nearly zero.
+AgenC (pronounced "agency") is a CLI that makes all of that instant. You fire up isolated Claude Code sessions called **missions**, each with its own sandbox and repo copy. You're mid-task and spot a prompt tweak you want to make? Pop open a side mission, fix it, close it, never lose your place. The whole point is speed: the time between "I want to do this thing" and "I'm doing this thing" is basically zero.
 
 Quick Start
 -----------
