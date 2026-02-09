@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,12 +28,16 @@ var loginCmd = &cobra.Command{
 		}
 		defer os.RemoveAll(tmpDirpath)
 
-		loginPrompt := `I MUST DO THIS NOW:
-1. /login
-2. Click "Authorize" on the browser
-3. Exit Claude, and agenc will automatically propagate the auth to all my agenc sessions`
+		fmt.Println("A Claude shell will open. Once inside:")
+		fmt.Println("  1. Type /login")
+		fmt.Println("  2. Click \"Authorize\" in the browser")
+		fmt.Println("  3. Exit Claude (Ctrl-C or /exit)")
+		fmt.Println()
+		fmt.Println("agenc will then propagate the credentials to all your missions.")
+		fmt.Print("\nPress ENTER to continue...")
+		bufio.NewReader(os.Stdin).ReadBytes('\n')
 
-		claudeCmd := exec.Command("claude", loginPrompt)
+		claudeCmd := exec.Command("claude")
 		claudeCmd.Dir = tmpDirpath
 		claudeCmd.Stdin = os.Stdin
 		claudeCmd.Stdout = os.Stdout
