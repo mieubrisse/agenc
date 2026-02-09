@@ -136,10 +136,11 @@ func buildPaletteEntries() ([]paletteEntry, error) {
 // a description get "Label  —  Description"; entries without get "Label" only.
 func formatPaletteEntryLine(entry paletteEntry) string {
 	stripped := stripVariationSelectors(entry.label)
+	boldLabel := fmt.Sprintf("%s%s%s", ansiBold, stripped, ansiReset)
 	if entry.description == "" {
-		return stripped
+		return boldLabel
 	}
-	return fmt.Sprintf("%s  %s—  %s%s", stripped, ansiDarkGray, entry.description, ansiReset)
+	return fmt.Sprintf("%s  %s—  %s%s", boldLabel, ansiDarkGray, entry.description, ansiReset)
 }
 
 func runTmuxPalette(cmd *cobra.Command, args []string) error {
