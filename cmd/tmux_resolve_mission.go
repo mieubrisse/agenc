@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
@@ -27,7 +28,10 @@ func init() {
 }
 
 func runTmuxResolveMission(cmd *cobra.Command, args []string) error {
-	paneID := args[0]
+	// Normalize: strip leading "%" if present. $TMUX_PANE includes it (%42),
+	// but tmux format variables like #{pane_id} omit it (42). The database
+	// stores just the number.
+	paneID := strings.TrimPrefix(args[0], "%")
 
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {

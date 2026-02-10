@@ -36,6 +36,12 @@ const addCronNameColumnSQL = `ALTER TABLE missions ADD COLUMN cron_name TEXT;`
 const addConfigCommitColumnSQL = `ALTER TABLE missions ADD COLUMN config_commit TEXT;`
 const addTmuxPaneColumnSQL = `ALTER TABLE missions ADD COLUMN tmux_pane TEXT;`
 
+// stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
+// were stored with the $TMUX_PANE format (%42) rather than the canonical
+// number-only format (42) used by tmux's #{pane_id} format variable.
+// REPLACE is idempotent — values already without "%" are unaffected.
+const stripTmuxPanePercentSQL = `UPDATE missions SET tmux_pane = REPLACE(tmux_pane, '%', '') WHERE tmux_pane IS NOT NULL;`
+
 // Mission represents a row in the missions table.
 type Mission struct {
 	ID      string
@@ -118,6 +124,12 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := migrateAddTmuxPane(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to add tmux_pane column")
+	}
+
+	// Backfill: strip "%" prefix from tmux_pane values stored by older builds
+	if _, err := conn.Exec(stripTmuxPanePercentSQL); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to strip percent prefix from tmux_pane values")
 	}
 
 	// Drop legacy mission_descriptions table

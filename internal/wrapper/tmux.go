@@ -38,12 +38,17 @@ func (w *Wrapper) renameWindowForTmux() {
 // registerTmuxPane records the current tmux pane ID in the database so that
 // keybindings can resolve which mission is focused. No-ops when not inside tmux
 // (e.g. headless mode).
+//
+// The pane number is stored WITHOUT the "%" prefix that $TMUX_PANE includes,
+// since tmux format variables like #{pane_id} omit it. Stripping the prefix
+// here keeps the database representation canonical; callers that need the
+// tmux-native form (e.g. tmux rename-window -t) should prepend "%" themselves.
 func (w *Wrapper) registerTmuxPane() {
 	paneID := os.Getenv("TMUX_PANE")
 	if paneID == "" {
 		return
 	}
-	_ = w.db.SetTmuxPane(w.missionID, paneID)
+	_ = w.db.SetTmuxPane(w.missionID, strings.TrimPrefix(paneID, "%"))
 }
 
 // clearTmuxPane removes the tmux pane association for this mission.

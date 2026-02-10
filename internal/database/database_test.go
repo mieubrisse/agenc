@@ -24,13 +24,13 @@ func TestSetAndGetMissionByTmuxPane(t *testing.T) {
 		t.Fatalf("failed to create mission: %v", err)
 	}
 
-	// Set pane
-	if err := db.SetTmuxPane(mission.ID, "%42"); err != nil {
+	// Set pane (stored without % prefix)
+	if err := db.SetTmuxPane(mission.ID, "42"); err != nil {
 		t.Fatalf("SetTmuxPane failed: %v", err)
 	}
 
 	// Retrieve by pane
-	got, err := db.GetMissionByTmuxPane("%42")
+	got, err := db.GetMissionByTmuxPane("42")
 	if err != nil {
 		t.Fatalf("GetMissionByTmuxPane failed: %v", err)
 	}
@@ -40,8 +40,8 @@ func TestSetAndGetMissionByTmuxPane(t *testing.T) {
 	if got.ID != mission.ID {
 		t.Errorf("expected mission ID '%s', got '%s'", mission.ID, got.ID)
 	}
-	if got.TmuxPane == nil || *got.TmuxPane != "%42" {
-		t.Errorf("expected TmuxPane '%%42', got %v", got.TmuxPane)
+	if got.TmuxPane == nil || *got.TmuxPane != "42" {
+		t.Errorf("expected TmuxPane '42', got %v", got.TmuxPane)
 	}
 }
 
@@ -53,7 +53,7 @@ func TestClearTmuxPane(t *testing.T) {
 		t.Fatalf("failed to create mission: %v", err)
 	}
 
-	if err := db.SetTmuxPane(mission.ID, "%42"); err != nil {
+	if err := db.SetTmuxPane(mission.ID, "42"); err != nil {
 		t.Fatalf("SetTmuxPane failed: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestClearTmuxPane(t *testing.T) {
 	}
 
 	// Should no longer be found
-	got, err := db.GetMissionByTmuxPane("%42")
+	got, err := db.GetMissionByTmuxPane("42")
 	if err != nil {
 		t.Fatalf("GetMissionByTmuxPane failed: %v", err)
 	}
@@ -84,12 +84,43 @@ func TestClearTmuxPane(t *testing.T) {
 func TestGetMissionByTmuxPane_UnknownPane(t *testing.T) {
 	db := openTestDB(t)
 
-	got, err := db.GetMissionByTmuxPane("%999")
+	got, err := db.GetMissionByTmuxPane("999")
 	if err != nil {
 		t.Fatalf("GetMissionByTmuxPane failed: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil for unknown pane, got mission '%s'", got.ID)
+	}
+}
+
+func TestBackfillStripsTmuxPanePercent(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	// Simulate old behavior: store with % prefix directly via SQL
+	if _, err := db.conn.Exec("UPDATE missions SET tmux_pane = ? WHERE id = ?", "%42", mission.ID); err != nil {
+		t.Fatalf("failed to set old-style pane: %v", err)
+	}
+
+	// Run the backfill (same SQL as the migration)
+	if _, err := db.conn.Exec(stripTmuxPanePercentSQL); err != nil {
+		t.Fatalf("backfill failed: %v", err)
+	}
+
+	// Should now be findable without % prefix
+	got, err := db.GetMissionByTmuxPane("42")
+	if err != nil {
+		t.Fatalf("GetMissionByTmuxPane failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected mission after backfill, got nil")
+	}
+	if got.TmuxPane == nil || *got.TmuxPane != "42" {
+		t.Errorf("expected TmuxPane '42' after backfill, got %v", got.TmuxPane)
 	}
 }
 
@@ -101,7 +132,7 @@ func TestGetMissionByTmuxPane_OnlyActiveReturned(t *testing.T) {
 		t.Fatalf("failed to create mission: %v", err)
 	}
 
-	if err := db.SetTmuxPane(mission.ID, "%42"); err != nil {
+	if err := db.SetTmuxPane(mission.ID, "42"); err != nil {
 		t.Fatalf("SetTmuxPane failed: %v", err)
 	}
 
@@ -111,7 +142,7 @@ func TestGetMissionByTmuxPane_OnlyActiveReturned(t *testing.T) {
 	}
 
 	// Should not be found (archived missions are excluded)
-	got, err := db.GetMissionByTmuxPane("%42")
+	got, err := db.GetMissionByTmuxPane("42")
 	if err != nil {
 		t.Fatalf("GetMissionByTmuxPane failed: %v", err)
 	}
