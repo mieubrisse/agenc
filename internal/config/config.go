@@ -34,6 +34,7 @@ const (
 	SecretsEnvFilename      = "secrets.env"
 	ClaudeOutputLogFilename = "claude-output.log"
 	TmuxKeybindingsFilename = "tmux-keybindings.conf"
+	WrapperSocketFilename   = "wrapper.sock"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -175,6 +176,11 @@ func GetConfigDirpath(agencDirpath string) string {
 // records every user prompt submission.
 func GetHistoryFilepath(agencDirpath string) string {
 	return filepath.Join(GetGlobalClaudeDirpath(agencDirpath), HistoryFilename)
+}
+
+// GetMissionSocketFilepath returns the path to the wrapper unix socket for a mission.
+func GetMissionSocketFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), WrapperSocketFilename)
 }
 
 // GetTmuxKeybindingsFilepath returns the path to the agenc-managed tmux

@@ -80,11 +80,6 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		return stacktrace.Propagate(err, "failed to copy and patch .claude.json")
 	}
 
-	// Clone Keychain credentials into a per-mission Keychain entry
-	if err := CloneKeychainCredentials(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to clone Keychain credentials")
-	}
-
 	// Symlink plugins to ~/.claude/plugins
 	if err := symlinkPlugins(claudeConfigDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to symlink plugins")

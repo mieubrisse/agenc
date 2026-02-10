@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,7 +11,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/wrapper"
 )
 
 var loginCmd = &cobra.Command{
@@ -69,7 +72,9 @@ var loginCmd = &cobra.Command{
 			}
 		}
 
-		// Update Keychain entries for all tracked missions
+		// Signal running missions to restart with fresh credentials.
+		// Stopped missions will pick up new credentials automatically
+		// when they are next resumed (the wrapper clones at spawn time).
 		db, err := openDB()
 		if err != nil {
 			return err
@@ -81,27 +86,33 @@ var loginCmd = &cobra.Command{
 			return stacktrace.Propagate(err, "failed to list missions")
 		}
 
-		if len(missions) == 0 {
+		runningMissions := filterRunningMissions(missions)
+		if len(runningMissions) == 0 {
+			fmt.Println("No running missions. Stopped missions will pick up new credentials on next resume.")
 			return nil
 		}
 
-		fmt.Printf("Updating credentials for %d mission(s)...\n", len(missions))
-		var failCount int
-		for _, mission := range missions {
-			configDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, mission.ID)
-			if err := claudeconfig.CloneKeychainCredentials(configDirpath); err != nil {
-				fmt.Printf("  Warning: failed to update mission %s: %v\n", database.ShortID(mission.ID), err)
-				failCount++
+		fmt.Printf("Signaling %d running mission(s) to reload credentials...\n", len(runningMissions))
+		var signalCount int
+		for _, m := range runningMissions {
+			socketFilepath := config.GetMissionSocketFilepath(agencDirpath, m.ID)
+			_, err := wrapper.SendCommand(socketFilepath, wrapper.Command{
+				Command: "restart",
+				Mode:    "graceful",
+				Reason:  "credentials_changed",
+			})
+			if err != nil {
+				if errors.Is(err, wrapper.ErrWrapperNotRunning) {
+					// Race condition: wrapper exited between status check and socket send
+					continue
+				}
+				fmt.Printf("  Warning: failed to signal mission %s: %v\n", database.ShortID(m.ID), err)
 				continue
 			}
+			signalCount++
 		}
 
-		if failCount > 0 {
-			fmt.Printf("Updated %d/%d mission(s) (%d failed)\n", len(missions)-failCount, len(missions), failCount)
-		} else {
-			fmt.Printf("Updated %d mission(s)\n", len(missions))
-		}
-
+		fmt.Printf("Signaled %d running mission(s) to reload credentials. Stopped missions will pick up new credentials on next resume.\n", signalCount)
 		return nil
 	},
 }

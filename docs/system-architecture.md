@@ -9,7 +9,7 @@ Read this document before making non-trivial changes to the codebase. It is the 
 Process Overview
 ----------------
 
-Three cooperating processes form the runtime. They share state exclusively through the filesystem and a SQLite database — there is no IPC, no sockets, and no message queue.
+Three cooperating processes form the runtime. They share state through the filesystem, a SQLite database, and per-mission unix sockets (for wrapper commands).
 
 ```mermaid
 graph TB
@@ -46,13 +46,14 @@ graph TB
     Daemon -->|auto-commits| Config
 ```
 
-**Inter-process communication** relies entirely on filesystem artifacts and SQLite:
+**Inter-process communication** relies on filesystem artifacts, SQLite, and per-mission unix sockets:
 
 | Mechanism | Writer | Reader | Purpose |
 |-----------|--------|--------|---------|
 | `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats |
 | `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
 | `missions/<uuid>/claude-state` | Claude (via hooks) | Wrapper (via fsnotify) | Idle detection, resume tracking |
+| `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI (`login`, `update-config`) | Restart commands |
 | `daemon/daemon.pid` | Daemon | CLI (`daemon stop/status`) | Process coordination |
 | `.git/refs/remotes/origin/<branch>` | Git (after push) | Wrapper (via fsnotify) | Trigger repo library update |
 
@@ -116,18 +117,42 @@ The wrapper:
 
 1. Writes the wrapper PID to `$AGENC_DIRPATH/missions/<uuid>/pid`
 2. Writes initial claude-state as `idle`
-3. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
-4. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
-5. Sets `AGENC_MISSION_UUID` for the child process
-6. Starts three background goroutines:
+3. Clones fresh credentials from the global Keychain into the per-mission entry
+4. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
+5. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
+6. Sets `AGENC_MISSION_UUID` for the child process
+7. Starts four background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` in the database every 30 seconds
-   - **Claude-state watcher** — watches `claude-state` file via fsnotify; tracks whether a resumable conversation exists
+   - **Claude-state watcher** — watches `claude-state` file via fsnotify; tracks whether a resumable conversation exists; notifies main loop when Claude becomes idle
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
-7. Main event loop waits for either Claude to exit or a signal (SIGINT/SIGTERM/SIGHUP)
+   - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (e.g., restart)
+8. Main event loop implements a three-state machine (see below)
 
-**Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit.
+**Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Supports restart commands via unix socket.
 
-**Headless mode** (`RunHeadless`): runs `claude --print -p <prompt>`, captures output to `claude-output.log` with log rotation (10MB max, 3 backups). Supports timeout and graceful shutdown (SIGTERM then SIGKILL after 30 seconds).
+**Headless mode** (`RunHeadless`): runs `claude --print -p <prompt>`, captures output to `claude-output.log` with log rotation (10MB max, 3 backups). Supports timeout and graceful shutdown (SIGTERM then SIGKILL after 30 seconds). No socket listener — headless missions are one-shot and don't need restart support.
+
+**Three-state restart machine** (interactive mode only):
+
+```
+  ┌─────────┐  restart cmd   ┌────────────────┐  claude idle   ┌────────────┐
+  │ Running │ ─────────────→ │ RestartPending  │ ────────────→ │ Restarting │
+  └─────────┘                └────────────────┘               └────────────┘
+       ↑                                                            │
+       └────────────────────────────────────────────────────────────┘
+                              claude respawned
+
+  Hard restart skips RestartPending — goes directly Running → Restarting.
+```
+
+- **Running** + Claude exits → natural exit, wrapper exits
+- **Restarting** + Claude exits → wrapper-initiated restart, write back creds, clone fresh creds, respawn Claude
+- **RestartPending** + Claude becomes idle → transition to Restarting, SIGINT Claude
+- Restarts are idempotent: duplicate requests return ok. A hard restart overrides a pending graceful.
+
+**Socket protocol**: one JSON request per connection (connect → send → receive → close). Socket path: `missions/<uuid>/wrapper.sock`. Commands: `restart` with mode `graceful` (wait for idle, SIGINT, resume with `claude -c`) or `hard` (SIGKILL immediately, fresh session).
+
+**Credential cloning at spawn time**: credentials are cloned from the global Keychain into the per-mission entry immediately before each Claude spawn (both initial and restart). This ensures credentials are always fresh and stopped missions don't accumulate stale Keychain entries.
 
 
 Directory Structure
@@ -201,6 +226,7 @@ $AGENC_DIRPATH/
 │       │   └── projects/                  # Symlink to ~/.claude/projects/ (persistent sessions)
 │       ├── pid                            # Wrapper process ID
 │       ├── claude-state                   # "idle" or "busy" (written by Claude hooks)
+│       ├── wrapper.sock                   # Unix socket for restart commands (interactive mode only)
 │       ├── wrapper.log                    # Wrapper lifecycle log
 │       └── claude-output.log              # Headless mode output (with rotation)
 │
@@ -239,7 +265,7 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 Per-mission Claude configuration building, merging, and shadow repo management.
 
-- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, clones Keychain credentials, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
+- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management, called by wrapper at spawn time), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop and UserPromptSubmit hooks for idle detection), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
@@ -273,7 +299,9 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 
 Per-mission Claude child process management.
 
-- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, claude-state watcher, remote refs watcher), signal handling
+- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, claude-state watcher, remote refs watcher, socket listener), signal handling, credential cloning at spawn time
+- `socket.go` — unix socket listener, `Command`/`Response` protocol types, `commandWithResponse` internal type for synchronous request/response
+- `client.go` — `SendCommand` helper for CLI/daemon use, `ErrWrapperNotRunning` sentinel error
 - `tmux.go` — tmux window renaming when `AGENC_TMUX=1`
 
 ### Utility packages
@@ -302,7 +330,7 @@ Merging logic (`internal/claudeconfig/merge.go`):
 - settings.json: recursive deep merge (user as base, modifications as overlay), then append operational overrides (hooks and deny entries)
 - Deep merge rules: objects merge recursively, arrays concatenate, scalars from the overlay win
 
-Credentials are handled separately: `.claude.json` is copied from the user's account identity file and patched with a trust entry for the mission's agent directory. Auth credentials are cloned as a per-mission macOS Keychain entry named `Claude Code-credentials-<hash>` (where `<hash>` is the first 8 hex chars of the SHA-256 of the mission's CLAUDE_CONFIG_DIR path). Claude Code looks up credentials by this naming convention when CLAUDE_CONFIG_DIR is set to a non-default path. On mission deletion, the cloned Keychain entry is cleaned up.
+Credentials are handled separately: `.claude.json` is copied from the user's account identity file and patched with a trust entry for the mission's agent directory. Auth credentials are cloned as a per-mission macOS Keychain entry named `Claude Code-credentials-<hash>` (where `<hash>` is the first 8 hex chars of the SHA-256 of the mission's CLAUDE_CONFIG_DIR path). Claude Code looks up credentials by this naming convention when CLAUDE_CONFIG_DIR is set to a non-default path. Credential cloning happens at Claude spawn time (in the wrapper, not during config building), ensuring credentials are always fresh. On mission deletion, the cloned Keychain entry is cleaned up.
 
 ### Shadow repo
 

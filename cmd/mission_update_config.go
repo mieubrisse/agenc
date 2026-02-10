@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/wrapper"
 )
 
 var updateConfigAllFlag bool
@@ -194,9 +196,24 @@ func updateMissionConfig(db *database.DB, missionID string, newCommitHash string
 	}
 	fmt.Println()
 
-	// Warn if the mission is currently running
+	// If the mission is running, signal it to restart with the updated config
 	if getMissionStatus(missionID, missionRecord.Status) == "RUNNING" {
-		fmt.Printf("  Note: mission is running — restart it for changes to take effect\n")
+		socketFilepath := config.GetMissionSocketFilepath(agencDirpath, missionID)
+		_, err := wrapper.SendCommand(socketFilepath, wrapper.Command{
+			Command: "restart",
+			Mode:    "graceful",
+			Reason:  "config_updated",
+		})
+		if err != nil {
+			if errors.Is(err, wrapper.ErrWrapperNotRunning) {
+				// Race condition: wrapper exited between status check and socket send
+				fmt.Printf("  Note: mission stopped before restart signal could be sent\n")
+			} else {
+				fmt.Printf("  Warning: failed to signal restart: %v\n", err)
+			}
+		} else {
+			fmt.Printf("  Signaled running mission to restart with updated config\n")
+		}
 	}
 
 	return nil

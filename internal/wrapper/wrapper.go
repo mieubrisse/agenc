@@ -27,17 +27,26 @@ const (
 	heartbeatInterval     = 30 * time.Second
 )
 
+// wrapperState tracks the wrapper's position in the restart state machine.
+type wrapperState int
+
+const (
+	stateRunning        wrapperState = iota // Claude is running normally
+	stateRestartPending                     // A graceful restart was requested; waiting for Claude to become idle
+	stateRestarting                         // Claude is being killed and will be respawned
+)
+
 // Wrapper manages a Claude child process for a single mission.
 type Wrapper struct {
-	agencDirpath    string
-	missionID       string
-	gitRepoName     string
-	initialPrompt   string
-	missionDirpath  string
-	agentDirpath    string
-	db        *database.DB
-	claudeCmd *exec.Cmd
-	logger    *slog.Logger
+	agencDirpath   string
+	missionID      string
+	gitRepoName    string
+	initialPrompt  string
+	missionDirpath string
+	agentDirpath   string
+	db             *database.DB
+	claudeCmd      *exec.Cmd
+	logger         *slog.Logger
 
 	// hasConversation tracks whether a Claude conversation exists that can be
 	// resumed with `claude -c`. Set to true at startup for resumes, and flipped
@@ -50,6 +59,19 @@ type Wrapper struct {
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
 	// goroutine leaks.
 	claudeExited chan error // receives the exit error from cmd.Wait()
+
+	// commandCh receives commands from the socket listener goroutine.
+	commandCh chan commandWithResponse
+
+	// claudeIdleCh fires when claude-state transitions to "idle". Used by the
+	// main event loop to trigger deferred graceful restarts.
+	claudeIdleCh chan struct{}
+
+	// state tracks the wrapper's position in the restart state machine.
+	state wrapperState
+
+	// pendingRestart stores the deferred restart command when in stateRestartPending.
+	pendingRestart *Command
 }
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
@@ -57,14 +79,17 @@ type Wrapper struct {
 // starting a new conversation (not used for resumes).
 func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initialPrompt string, db *database.DB) *Wrapper {
 	return &Wrapper{
-		agencDirpath:    agencDirpath,
-		missionID:       missionID,
-		gitRepoName:     gitRepoName,
-		initialPrompt:   initialPrompt,
-		missionDirpath:  config.GetMissionDirpath(agencDirpath, missionID),
-		agentDirpath:    config.GetMissionAgentDirpath(agencDirpath, missionID),
-		db:              db,
-		claudeExited: make(chan error, 1),
+		agencDirpath:   agencDirpath,
+		missionID:      missionID,
+		gitRepoName:    gitRepoName,
+		initialPrompt:  initialPrompt,
+		missionDirpath: config.GetMissionDirpath(agencDirpath, missionID),
+		agentDirpath:   config.GetMissionAgentDirpath(agencDirpath, missionID),
+		db:             db,
+		claudeExited:   make(chan error, 1),
+		commandCh:      make(chan commandWithResponse, 1),
+		claudeIdleCh:   make(chan struct{}, 1),
+		state:          stateRunning,
 	}
 }
 
@@ -120,6 +145,10 @@ func (w *Wrapper) Run(isResume bool) error {
 		go w.watchWorkspaceRemoteRefs(ctx)
 	}
 
+	// Start socket listener for receiving commands (restart, etc.)
+	socketFilepath := config.GetMissionSocketFilepath(w.agencDirpath, w.missionID)
+	go listenSocket(ctx, socketFilepath, w.commandCh, w.logger)
+
 	// Track whether a resumable conversation exists. For resumes, one already
 	// exists. For new missions, we start with false and flip to true when the
 	// user submits their first message (claude-state becomes "busy").
@@ -141,6 +170,9 @@ func (w *Wrapper) Run(isResume bool) error {
 	// AgenC tmux session.
 	w.renameWindowForTmux()
 
+	// Clone fresh credentials from global Keychain before initial spawn
+	w.cloneCredentials()
+
 	// Spawn initial Claude process
 	if isResume {
 		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
@@ -156,7 +188,8 @@ func (w *Wrapper) Run(isResume bool) error {
 		w.claudeExited <- w.claudeCmd.Wait()
 	}()
 
-	// Main event loop
+	// Main event loop with three-state machine:
+	//   Running → RestartPending → Restarting → Running
 	for {
 		select {
 		case sig := <-sigCh:
@@ -171,11 +204,130 @@ func (w *Wrapper) Run(isResume bool) error {
 			w.writeBackCredentials()
 			return nil
 
+		case cmdResp := <-w.commandCh:
+			resp := w.handleCommand(cmdResp.cmd)
+			cmdResp.responseCh <- resp
+
+		case <-w.claudeIdleCh:
+			// Claude became idle while a restart is pending — initiate the restart
+			if w.state == stateRestartPending {
+				w.logger.Info("Claude is idle, initiating deferred graceful restart",
+					"reason", w.pendingRestart.Reason)
+				w.state = stateRestarting
+				_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
+			}
+
 		case <-w.claudeExited:
-			// Natural exit -- wrapper exits
-			w.writeBackCredentials()
-			return nil
+			if w.state == stateRestarting {
+				// Wrapper-initiated restart: write back creds, clone fresh, respawn
+				w.logger.Info("Claude exited for restart, respawning")
+				w.writeBackCredentials()
+				w.cloneCredentials()
+
+				// Respawn Claude: use -c if we have a conversation (graceful),
+				// fresh session otherwise (hard)
+				if w.hasConversation.Load() {
+					w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
+				} else {
+					w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, "")
+				}
+				if err != nil {
+					w.logger.Error("Failed to respawn Claude after restart", "error", err)
+					return stacktrace.Propagate(err, "failed to respawn claude after restart")
+				}
+
+				// Wait on the new Claude process
+				go func() {
+					w.claudeExited <- w.claudeCmd.Wait()
+				}()
+
+				w.state = stateRunning
+				w.pendingRestart = nil
+				w.logger.Info("Claude respawned successfully", "pid", w.claudeCmd.Process.Pid)
+			} else {
+				// Natural exit — wrapper exits
+				w.writeBackCredentials()
+				return nil
+			}
 		}
+	}
+}
+
+// handleCommand processes a socket command and returns a Response.
+func (w *Wrapper) handleCommand(cmd Command) Response {
+	switch cmd.Command {
+	case "restart":
+		return w.handleRestartCommand(cmd)
+	default:
+		return Response{Status: "error", Error: "unknown command: " + cmd.Command}
+	}
+}
+
+// handleRestartCommand processes a restart command. Idempotent: if a restart is
+// already pending or in progress, returns ok. A hard restart overrides a pending
+// graceful restart.
+func (w *Wrapper) handleRestartCommand(cmd Command) Response {
+	mode := cmd.Mode
+	if mode == "" {
+		mode = "graceful"
+	}
+
+	switch w.state {
+	case stateRestarting:
+		// Already restarting — caller's intent is being fulfilled
+		w.logger.Info("Restart already in progress, returning ok", "requestedMode", mode)
+		return Response{Status: "ok"}
+
+	case stateRestartPending:
+		if mode == "hard" {
+			// Hard overrides a pending graceful: kill immediately
+			w.logger.Info("Hard restart overrides pending graceful restart", "reason", cmd.Reason)
+			w.state = stateRestarting
+			w.pendingRestart = &cmd
+			// For hard restart, don't preserve conversation
+			w.hasConversation.Store(false)
+			_ = w.claudeCmd.Process.Kill()
+			return Response{Status: "ok"}
+		}
+		// Already pending graceful — idempotent
+		w.logger.Info("Graceful restart already pending, returning ok")
+		return Response{Status: "ok"}
+
+	case stateRunning:
+		if mode == "hard" {
+			w.logger.Info("Hard restart requested, killing Claude immediately", "reason", cmd.Reason)
+			w.state = stateRestarting
+			w.pendingRestart = &cmd
+			// For hard restart, don't preserve conversation
+			w.hasConversation.Store(false)
+			_ = w.claudeCmd.Process.Kill()
+			return Response{Status: "ok"}
+		}
+
+		// Graceful restart: check if Claude is currently idle
+		if w.readClaudeState() == "idle" {
+			w.logger.Info("Claude is idle, initiating immediate graceful restart", "reason", cmd.Reason)
+			w.state = stateRestarting
+			w.pendingRestart = &cmd
+			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
+		} else {
+			w.logger.Info("Claude is busy, deferring graceful restart until idle", "reason", cmd.Reason)
+			w.state = stateRestartPending
+			w.pendingRestart = &cmd
+		}
+		return Response{Status: "ok"}
+
+	default:
+		return Response{Status: "error", Error: "unexpected wrapper state"}
+	}
+}
+
+// cloneCredentials clones fresh credentials from the global Keychain into
+// the per-mission entry. Errors are logged as warnings but never fatal.
+func (w *Wrapper) cloneCredentials() {
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
+	if err := claudeconfig.CloneKeychainCredentials(claudeConfigDirpath); err != nil {
+		w.logger.Warn("Failed to clone Keychain credentials", "error", err)
 	}
 }
 
@@ -237,6 +389,14 @@ func (w *Wrapper) watchClaudeState(ctx context.Context) {
 				if state == "busy" {
 					// User submitted a message, so a conversation now exists
 					w.hasConversation.Store(true)
+				} else if state == "idle" {
+					// Notify the main event loop that Claude is idle.
+					// Non-blocking send: if the channel is already full, the
+					// main loop will pick it up on the next iteration.
+					select {
+					case w.claudeIdleCh <- struct{}{}:
+					default:
+					}
 				}
 			}
 		case err, ok := <-watcher.Errors:
@@ -426,6 +586,9 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)
+
+	// Clone fresh credentials from global Keychain before spawning Claude
+	w.cloneCredentials()
 
 	// Rotate log file if needed
 	claudeOutputLogFilepath := config.GetMissionClaudeOutputLogFilepath(w.agencDirpath, w.missionID)
