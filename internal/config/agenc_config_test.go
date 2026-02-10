@@ -360,7 +360,7 @@ tmuxAgencFilepath: /tmp/claude/test-agenc
 paletteCommands:
   dotfiles:
     title: "📁 Dotfiles"
-    command: "agenc tmux window new -- agenc mission new dotfiles"
+    command: "agenc tmux window new -- agenc mission new github.com/owner/agenc"
 `)
 
 	cfg, _, err := ReadAgencConfig(tmpDir)
@@ -371,9 +371,10 @@ paletteCommands:
 	resolved := cfg.GetResolvedPaletteCommands()
 	for _, cmd := range resolved {
 		if cmd.Name == "dotfiles" {
-			expected := "/tmp/claude/test-agenc tmux window new -- /tmp/claude/test-agenc mission new dotfiles"
+			// Only standalone "agenc" tokens should be replaced, not substrings like "owner/agenc"
+			expected := "/tmp/claude/test-agenc tmux window new -- /tmp/claude/test-agenc mission new github.com/owner/agenc"
 			if cmd.Command != expected {
-				t.Errorf("expected command '%s', got '%s'", expected, cmd.Command)
+				t.Errorf("expected command\n  '%s'\ngot\n  '%s'", expected, cmd.Command)
 			}
 			return
 		}

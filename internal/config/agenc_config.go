@@ -436,21 +436,20 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 	return result
 }
 
-// substituteAgencBinary replaces "agenc" words in a command string with the
-// configured binary path. Only standalone "agenc" words are replaced (word
-// boundaries), not substrings like "agencDirpath".
+// substituteAgencBinary replaces standalone "agenc" tokens in a command string
+// with the configured binary path. Only space-delimited tokens that are exactly
+// "agenc" are replaced — substrings like "mieubrisse/agenc" are left alone.
 func substituteAgencBinary(command, agencBinary string) string {
 	if agencBinary == "agenc" {
 		return command
 	}
-	// Replace standalone "agenc" — at start of string or after space, followed by space or end
-	result := command
-	result = strings.ReplaceAll(result, "agenc ", agencBinary+" ")
-	// Handle trailing "agenc" at end of string
-	if strings.HasSuffix(result, "agenc") {
-		result = result[:len(result)-5] + agencBinary
+	parts := strings.Split(command, " ")
+	for i, part := range parts {
+		if part == "agenc" {
+			parts[i] = agencBinary
+		}
 	}
-	return result
+	return strings.Join(parts, " ")
 }
 
 // validatePaletteUniqueness checks that titles and keybindings are unique across
