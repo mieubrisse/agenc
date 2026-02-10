@@ -134,23 +134,15 @@ AgenC is built on one principle: **[Inputs, Not Outputs](https://mieubrisse.subs
 
 Sandboxing and session management let you run dozens of missions simultaneously, each isolated from the others. For a detailed technical overview, see [System Architecture](docs/system-architecture.md).
 
-<!--
-> ⚠️ Addiction Warning
+> **⚠️ Addiction Warning**
 >
-> Like other agentic work factories, AgenC makes thought -> implemented reality nearly instantaneous.
+> Using AgenC feels like playing the best game of Starcraft of your life. It's engrossing, fulfilling, pleasurable — and also restless and ADD. The system goes as fast as you can tell it what to do, so suddenly the limiting factor is your ability to make decisions. Your head buzzes with a dozen threads at once, constantly deciding, constantly building with no downtime.
 >
-> This is breathtaking, like going from Minecraft Survival -> Creative Mode. But there's a real danger to watch out for.
->
-> The system goes as fast as you can tell it what to do, so suddenly the limiting factor is your ability to make decisions.
->
-> Meaning, your head is going to be buzzing with a dozen threads at once, constantly deciding, constantly building with no downtime. It's like the deepest flow state you've ever had.
->
-> This leaves you really activated, always wanting to implement one more thing. And it's really bad for sleep.
+> Fair warning: I have trouble sleeping because my head is always buzzing with mission ideas to send AgenC on. One more feature, one more fix, one more agent to tune. It doesn't stop.
 >
 > This isn't just AgenC. [Across the board, agentic work factories seem to have this effect](https://steve-yegge.medium.com/steveys-birthday-blog-34f437139cb5#:~:text=This%20week%20the,Even%20for%20him.).
 >
 > So please stop for breaks, and remember to make some wind-down time for sleep!
--->
 
 Workflows
 ---------
