@@ -11,7 +11,10 @@
 # Use no-db mode: load from JSONL, no SQLite, write back after each command
 # When true, bd will use .beads/issues.jsonl as the source of truth
 # instead of SQLite database
-# no-db: false
+# NOTE: no-db is required because AgenC clones repos (not worktrees), so each
+# mission gets its own copy. SQLite DB state would diverge across clones.
+# Revisit this if we switch to git worktrees.
+no-db: true
 
 # Disable daemon for RPC communication (forces direct database access)
 no-daemon: true
