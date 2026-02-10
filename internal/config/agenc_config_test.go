@@ -519,6 +519,26 @@ paletteCommands:
 	}
 }
 
+func TestIsMissionScoped_True(t *testing.T) {
+	cmd := ResolvedPaletteCommand{
+		Name:    "stopThisMission",
+		Command: "agenc mission stop $AGENC_CALLING_MISSION_UUID",
+	}
+	if !cmd.IsMissionScoped() {
+		t.Error("expected command referencing AGENC_CALLING_MISSION_UUID to be mission-scoped")
+	}
+}
+
+func TestIsMissionScoped_False(t *testing.T) {
+	cmd := ResolvedPaletteCommand{
+		Name:    "do",
+		Command: "agenc tmux window new -- agenc do",
+	}
+	if cmd.IsMissionScoped() {
+		t.Error("expected command without AGENC_CALLING_MISSION_UUID to not be mission-scoped")
+	}
+}
+
 func TestPaletteCommandConfig_IsEmpty(t *testing.T) {
 	empty := PaletteCommandConfig{}
 	if !empty.IsEmpty() {

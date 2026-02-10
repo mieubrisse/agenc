@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+
 const (
 	sentinelBegin = "# >>> AgenC keybindings >>>"
 	sentinelEnd   = "# <<< AgenC keybindings <<<"
@@ -54,21 +55,7 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 	var keybindings []agentmux.CustomKeybinding
 	if cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath); cfgErr == nil {
 		agencBinary = cfg.GetTmuxAgencBinary()
-		resolved := cfg.GetResolvedPaletteCommands()
-		for _, entry := range resolved {
-			if entry.TmuxKeybinding == "" {
-				continue
-			}
-			comment := fmt.Sprintf("%s (prefix + a, %s)", entry.Name, entry.TmuxKeybinding)
-			if entry.Title != "" {
-				comment = fmt.Sprintf("%s — %s (prefix + a, %s)", entry.Name, entry.Title, entry.TmuxKeybinding)
-			}
-			keybindings = append(keybindings, agentmux.CustomKeybinding{
-				Key:     entry.TmuxKeybinding,
-				Command: entry.Command,
-				Comment: comment,
-			})
-		}
+		keybindings = agentmux.BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
 	}
 
 	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, keybindings); err != nil {

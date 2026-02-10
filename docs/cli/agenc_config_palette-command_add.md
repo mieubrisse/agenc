@@ -10,11 +10,18 @@ The name is used as the config key and must start with a letter, containing
 only letters, numbers, hyphens, and underscores (max 64 characters).
 Built-in names cannot be used — use 'update' to override builtins.
 
-Example:
+Commands that reference $AGENC_CALLING_MISSION_UUID are "mission-scoped" —
+they only appear in the palette when the focused pane is running a mission.
+
+Examples:
   agenc config palette-command add dotfiles \
     --title="📁 Open dotfiles" \
     --command="agenc tmux window new -- agenc mission new mieubrisse/dotfiles" \
     --keybinding="f"
+
+  agenc config palette-command add stopThisMission \
+    --title="🛑 Stop this mission" \
+    --command="agenc mission stop \$AGENC_CALLING_MISSION_UUID"
 
 
 ```

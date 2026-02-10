@@ -149,6 +149,10 @@ func BuiltinPaletteCommandOrder() []string {
 	return result
 }
 
+// CallingMissionUUIDEnvVar is the environment variable name that carries the
+// focused mission's UUID into palette and keybinding commands.
+const CallingMissionUUIDEnvVar = "AGENC_CALLING_MISSION_UUID"
+
 // ResolvedPaletteCommand is a palette command with all defaults applied and
 // the agenc binary substituted in the command string.
 type ResolvedPaletteCommand struct {
@@ -158,6 +162,13 @@ type ResolvedPaletteCommand struct {
 	Command        string
 	TmuxKeybinding string
 	IsBuiltin      bool
+}
+
+// IsMissionScoped returns true if the command references the calling mission
+// UUID environment variable, meaning it should only be available when a
+// mission pane is focused.
+func (c ResolvedPaletteCommand) IsMissionScoped() bool {
+	return strings.Contains(c.Command, CallingMissionUUIDEnvVar)
 }
 
 // FormatKeybinding returns the human-readable keybinding string for this

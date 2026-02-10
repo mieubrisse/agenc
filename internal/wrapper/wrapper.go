@@ -156,6 +156,11 @@ func (w *Wrapper) Run(isResume bool) error {
 		w.hasConversation.Store(true)
 	}
 
+	// Record which tmux pane this mission's wrapper is running in, and clear
+	// it on exit so the pane→mission mapping stays accurate.
+	w.registerTmuxPane()
+	defer w.clearTmuxPane()
+
 	// Change the wrapper's working directory to the agent directory so that
 	// tmux's #{pane_current_path} reflects the mission directory. This makes
 	// built-in tmux splits (prefix + %, prefix + ") open in the agent dir.
@@ -562,6 +567,11 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		return stacktrace.Propagate(err, "failed to write wrapper PID file")
 	}
 	defer os.Remove(pidFilepath)
+
+	// Record which tmux pane this mission's wrapper is running in, and clear
+	// it on exit so the pane→mission mapping stays accurate.
+	w.registerTmuxPane()
+	defer w.clearTmuxPane()
 
 	// Set up context with timeout if specified
 	ctx, cancel := context.WithCancel(context.Background())

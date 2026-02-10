@@ -50,7 +50,7 @@ graph TB
 
 | Mechanism | Writer | Reader | Purpose |
 |-----------|--------|--------|---------|
-| `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats |
+| `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats, pane tracking |
 | `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
 | `missions/<uuid>/claude-state` | Claude (via hooks) | Wrapper (via fsnotify) | Idle detection, resume tracking |
 | `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI (`login`, `update-config`) | Restart commands |
@@ -116,17 +116,18 @@ The wrapper is a per-mission foreground process that supervises a Claude child p
 The wrapper:
 
 1. Writes the wrapper PID to `$AGENC_DIRPATH/missions/<uuid>/pid`
-2. Writes initial claude-state as `idle`
-3. Clones fresh credentials from the global Keychain into the per-mission entry
-4. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
-5. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
-6. Sets `AGENC_MISSION_UUID` for the child process
-7. Starts four background goroutines:
+2. Records the tmux pane ID in the database (cleared on exit) for pane→mission resolution
+3. Writes initial claude-state as `idle`
+4. Clones fresh credentials from the global Keychain into the per-mission entry
+5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
+6. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
+7. Sets `AGENC_MISSION_UUID` for the child process
+8. Starts four background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` in the database every 30 seconds
    - **Claude-state watcher** — watches `claude-state` file via fsnotify; tracks whether a resumable conversation exists; notifies main loop when Claude becomes idle
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (e.g., restart)
-8. Main event loop implements a three-state machine (see below)
+9. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Supports restart commands via unix socket.
 
@@ -359,6 +360,19 @@ The `claude-state` file lives at `$AGENC_DIRPATH/missions/<uuid>/claude-state`. 
 
 The wrapper watches this file using fsnotify on the parent directory (not the file itself, because shell redirects like `echo idle > file` may atomically replace the file, which would break a direct file watch). When the state becomes `busy`, the wrapper records that a resumable conversation exists (`hasConversation` flag), enabling `claude -c` on resume.
 
+### Mission pane tracking
+
+Each wrapper records its tmux pane ID (`TMUX_PANE`) in the database's `tmux_pane` column on startup and clears it on exit (`internal/wrapper/tmux.go`). This enables tmux keybindings and the command palette to resolve which mission is focused in the current pane.
+
+The resolution flow:
+
+1. A tmux keybinding calls `agenc tmux resolve-mission "$(tmux display-message -p "#{pane_id}")"` to look up the focused pane's mission UUID
+2. The UUID is exported as `AGENC_CALLING_MISSION_UUID`
+3. For the palette: the env var is passed into the popup so `buildPaletteEntries` can filter out mission-scoped commands when no mission is focused, and the var is available to executed commands via `sh -c`
+4. For direct keybindings: mission-scoped keybindings (those whose command contains `AGENC_CALLING_MISSION_UUID`) include a guard that skips execution when the UUID is empty
+
+Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — no special placeholder syntax. The palette detects mission-scoped commands by checking whether the command string contains the env var name (`ResolvedPaletteCommand.IsMissionScoped()`).
+
 ### Heartbeat system
 
 Each wrapper writes a heartbeat to the database every 30 seconds (`internal/wrapper/wrapper.go:writeHeartbeat`). The daemon uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/daemon/template_updater.go`).
@@ -459,6 +473,7 @@ Database Schema
 | `session_name_updated_at` | TEXT | When `session_name` was last updated (nullable) |
 | `cron_id` | TEXT | UUID of the cron that spawned this mission (nullable) |
 | `cron_name` | TEXT | Name of the cron job (nullable, used for orphan tracking) |
+| `tmux_pane` | TEXT | Tmux pane ID where the mission wrapper is running (nullable, cleared on exit) |
 | `created_at` | TEXT | Mission creation timestamp (RFC3339) |
 | `updated_at` | TEXT | Last update timestamp (RFC3339) |
 

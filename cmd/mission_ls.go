@@ -66,14 +66,19 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
-	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
+	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "SESSION", "REPO")
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
 		sessionName := resolveSessionName(db, m)
+		pane := "--"
+		if m.TmuxPane != nil {
+			pane = *m.TmuxPane
+		}
 		tbl.AddRow(
 			formatLastActive(m.LastHeartbeat),
 			m.ShortID,
 			colorizeStatus(status),
+			pane,
 			truncatePrompt(sessionName, defaultPromptMaxLen),
 			displayGitRepo(m.GitRepo),
 		)

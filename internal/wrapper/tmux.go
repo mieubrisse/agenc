@@ -35,6 +35,22 @@ func (w *Wrapper) renameWindowForTmux() {
 	exec.Command("tmux", "rename-window", "-t", paneID, windowTitle).Run()
 }
 
+// registerTmuxPane records the current tmux pane ID in the database so that
+// keybindings can resolve which mission is focused. No-ops when not inside tmux
+// (e.g. headless mode).
+func (w *Wrapper) registerTmuxPane() {
+	paneID := os.Getenv("TMUX_PANE")
+	if paneID == "" {
+		return
+	}
+	_ = w.db.SetTmuxPane(w.missionID, paneID)
+}
+
+// clearTmuxPane removes the tmux pane association for this mission.
+func (w *Wrapper) clearTmuxPane() {
+	_ = w.db.ClearTmuxPane(w.missionID)
+}
+
 // extractRepoName extracts just the repository name from a canonical repo
 // reference like "owner/repo" or "host/owner/repo". Returns just "repo".
 func extractRepoName(gitRepoName string) string {

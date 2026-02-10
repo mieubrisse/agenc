@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
+
+	"github.com/odyssey/agenc/internal/config"
 )
 
 // agencKeyTable is the tmux key table name used to namespace all AgenC
@@ -16,9 +18,10 @@ const agencKeyTable = "agenc"
 // CustomKeybinding represents a user/builtin keybinding to emit in the
 // generated tmux keybindings file.
 type CustomKeybinding struct {
-	Key     string // tmux key (e.g. "f", "C-y")
-	Command string // full command string (already substituted with agenc binary)
-	Comment string // human-readable comment for the generated file
+	Key             string // tmux key (e.g. "f", "C-y")
+	Command         string // full command string (already substituted with agenc binary)
+	Comment         string // human-readable comment for the generated file
+	IsMissionScoped bool   // true if the command requires a focused mission pane
 }
 
 // GenerateKeybindingsContent returns the full content of the agenc-managed
@@ -39,11 +42,17 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, cu
 	sb.WriteString("# Enter the AgenC key table (prefix + a)\n")
 	fmt.Fprintf(&sb, "bind-key a switch-client -T %s\n", agencKeyTable)
 
-	// Command palette (requires tmux >= 3.2 for display-popup)
+	// Command palette (requires tmux >= 3.2 for display-popup).
+	// Always resolves the focused mission UUID so the palette can filter
+	// mission-scoped commands and pass the UUID into executed commands.
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
 		sb.WriteString("# Command palette (prefix + a, k)\n")
-		fmt.Fprintf(&sb, "bind-key -T %s k run-shell 'tmux display-popup -E -w 60%% -h 50%% \"%s tmux palette\"'\n", agencKeyTable, agencBinary)
+		fmt.Fprintf(&sb, "bind-key -T %s k run-shell '"+
+			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"$(tmux display-message -p \"#{pane_id}\")\"); "+
+			"tmux display-popup -E -w 60%% -h 50%% "+
+			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
+			"'\n", agencKeyTable, agencBinary, agencBinary)
 	}
 
 	// Emit all keybindings from resolved palette commands
@@ -52,7 +61,15 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, cu
 		if kb.Comment != "" {
 			fmt.Fprintf(&sb, "# %s\n", kb.Comment)
 		}
-		fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '%s'\n", agencKeyTable, kb.Key, kb.Command)
+		if kb.IsMissionScoped {
+			// Mission-scoped: resolve the pane's mission UUID first, skip if empty
+			fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '"+
+				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"$(tmux display-message -p \"#{pane_id}\")\"); "+
+				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
+				"'\n", agencKeyTable, kb.Key, agencBinary, kb.Command)
+		} else {
+			fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '%s'\n", agencKeyTable, kb.Key, kb.Command)
+		}
 	}
 
 	return sb.String()
@@ -68,6 +85,30 @@ func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, 
 		return stacktrace.Propagate(err, "failed to write keybindings file '%s'", keybindingsFilepath)
 	}
 	return nil
+}
+
+// BuildKeybindingsFromCommands converts resolved palette commands into
+// CustomKeybinding entries for keybinding generation. This is the single
+// source of truth used by both `agenc tmux inject` and the daemon's
+// keybindings writer loop.
+func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []CustomKeybinding {
+	var keybindings []CustomKeybinding
+	for _, cmd := range resolved {
+		if cmd.TmuxKeybinding == "" {
+			continue
+		}
+		comment := fmt.Sprintf("%s (prefix + a, %s)", cmd.Name, cmd.TmuxKeybinding)
+		if cmd.Title != "" {
+			comment = fmt.Sprintf("%s — %s (prefix + a, %s)", cmd.Name, cmd.Title, cmd.TmuxKeybinding)
+		}
+		keybindings = append(keybindings, CustomKeybinding{
+			Key:             cmd.TmuxKeybinding,
+			Command:         cmd.Command,
+			Comment:         comment,
+			IsMissionScoped: cmd.IsMissionScoped(),
+		})
+	}
+	return keybindings
 }
 
 // SourceKeybindings sources the keybindings file into a running tmux server.

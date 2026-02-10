@@ -30,8 +30,10 @@ func init() {
 
 // buildPaletteEntries returns the resolved palette entries from config.
 // Only entries with a non-empty Title are included in the palette.
+// Mission-scoped entries are excluded when callingMissionUUID is empty (i.e.
+// the palette was opened from a pane that is not running a mission).
 // On config read failure, returns an error.
-func buildPaletteEntries() ([]config.ResolvedPaletteCommand, error) {
+func buildPaletteEntries(callingMissionUUID string) ([]config.ResolvedPaletteCommand, error) {
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to get agenc dirpath")
@@ -44,12 +46,16 @@ func buildPaletteEntries() ([]config.ResolvedPaletteCommand, error) {
 
 	resolved := cfg.GetResolvedPaletteCommands()
 
-	// Filter: only entries with a title appear in the palette
 	var entries []config.ResolvedPaletteCommand
 	for _, cmd := range resolved {
-		if cmd.Title != "" {
-			entries = append(entries, cmd)
+		if cmd.Title == "" {
+			continue
 		}
+		// Hide mission-scoped commands when not in a mission pane
+		if cmd.IsMissionScoped() && callingMissionUUID == "" {
+			continue
+		}
+		entries = append(entries, cmd)
 	}
 
 	return entries, nil
@@ -89,7 +95,8 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
-	entries, err := buildPaletteEntries()
+	callingMissionUUID := os.Getenv(config.CallingMissionUUIDEnvVar)
+	entries, err := buildPaletteEntries(callingMissionUUID)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -49,7 +48,7 @@ func (d *Daemon) writeAndSourceKeybindings() {
 	var keybindings []tmux.CustomKeybinding
 	if cfg, _, err := config.ReadAgencConfig(d.agencDirpath); err == nil {
 		agencBinary = cfg.GetTmuxAgencBinary()
-		keybindings = buildKeybindingsFromConfig(cfg)
+		keybindings = tmux.BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
 	}
 
 	if err := tmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, keybindings); err != nil {
@@ -62,23 +61,3 @@ func (d *Daemon) writeAndSourceKeybindings() {
 	}
 }
 
-// buildKeybindingsFromConfig extracts custom keybindings from resolved palette commands.
-func buildKeybindingsFromConfig(cfg *config.AgencConfig) []tmux.CustomKeybinding {
-	resolved := cfg.GetResolvedPaletteCommands()
-	var keybindings []tmux.CustomKeybinding
-	for _, cmd := range resolved {
-		if cmd.TmuxKeybinding == "" {
-			continue
-		}
-		comment := fmt.Sprintf("%s (prefix + a, %s)", cmd.Name, cmd.TmuxKeybinding)
-		if cmd.Title != "" {
-			comment = fmt.Sprintf("%s — %s (prefix + a, %s)", cmd.Name, cmd.Title, cmd.TmuxKeybinding)
-		}
-		keybindings = append(keybindings, tmux.CustomKeybinding{
-			Key:     cmd.TmuxKeybinding,
-			Command: cmd.Command,
-			Comment: comment,
-		})
-	}
-	return keybindings
-}

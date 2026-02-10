@@ -26,6 +26,11 @@ Example config.yml:
       command: "agenc tmux window new -- agenc mission new mieubrisse/dotfiles"
       tmuxKeybinding: "f"
 
+    # Mission-scoped command (only visible when a mission pane is focused)
+    stopThisMission:
+      title: "🛑 Stop this mission"
+      command: "agenc mission stop $AGENC_CALLING_MISSION_UUID"
+
 
 ### Options
 
