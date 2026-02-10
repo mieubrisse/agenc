@@ -114,9 +114,9 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     "agenc tmux window new -- agenc mission resume",
 	},
 	"stopMission": {
-		Title:       "🛑 Stop mission",
-		Description: "Stop a running mission",
-		Command:     "agenc tmux window new -- agenc mission stop",
+		Title:       "🛑 Stop this mission",
+		Description: "Stop the mission in the focused pane",
+		Command:     "agenc mission stop $AGENC_CALLING_MISSION_UUID",
 	},
 	"removeMission": {
 		Title:       "❌ Remove mission",
