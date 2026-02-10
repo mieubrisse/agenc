@@ -41,6 +41,12 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string) st
 	sb.WriteString("# New mission in a side-by-side pane (prefix + a, p)\n")
 	fmt.Fprintf(&sb, "bind-key -T %s p run-shell '%s tmux pane new -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
 
+	sb.WriteString("\n")
+
+	// Natural language 'do' command (prefix + a, d)
+	sb.WriteString("# Natural language do command (prefix + a, d)\n")
+	fmt.Fprintf(&sb, "bind-key -T %s d run-shell '%s tmux window new -- %s do'\n", agencKeyTable, agencBinary, agencBinary)
+
 	// Command palette (requires tmux >= 3.2 for display-popup)
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")

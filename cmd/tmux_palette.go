@@ -27,6 +27,11 @@ type paletteEntry struct {
 
 var paletteEntries = []paletteEntry{
 	{
+		label:       "✅ Do",
+		description: "tell AgenC what it should do",
+		commandArgs: []string{doCmdStr},
+	},
+	{
 		label:       "🦀 Quick Claude",
 		description: "Launch a blank mission instantly",
 		commandArgs: []string{missionCmdStr, newCmdStr, "--" + blankFlagName},

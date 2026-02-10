@@ -11,6 +11,7 @@ const (
 
 	// Top-level commands
 	configCmdStr  = "config"
+	doCmdStr      = "do"
 	missionCmdStr = "mission"
 	repoCmdStr    = "repo"
 	daemonCmdStr  = "daemon"
