@@ -47,10 +47,14 @@ func runConfigPaletteCommandLs(cmd *cobra.Command, args []string) error {
 		if cmd.IsBuiltin {
 			source = "builtin"
 		}
+		keybinding := ""
+		if cmd.TmuxKeybinding != "" {
+			keybinding = fmt.Sprintf("prefix+a, %s", cmd.TmuxKeybinding)
+		}
 		entries = append(entries, displayEntry{
 			Name:       cmd.Name,
 			Title:      cmd.Title,
-			Keybinding: cmd.TmuxKeybinding,
+			Keybinding: keybinding,
 			Command:    cmd.Command,
 			Source:     source,
 		})
