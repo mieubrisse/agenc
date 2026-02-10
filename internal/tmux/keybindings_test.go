@@ -69,6 +69,11 @@ func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) 
 	if !strings.Contains(content, "AGENC_CALLING_MISSION_UUID") {
 		t.Error("expected palette keybinding to pass AGENC_CALLING_MISSION_UUID")
 	}
+
+	// Should use #{pane_id} directly, not via display-message
+	if strings.Contains(content, "display-message") {
+		t.Error("expected keybindings to use #{pane_id} directly, not via display-message")
+	}
 }
 
 func TestGenerateKeybindingsContent_PaletteOmittedOnOldTmux(t *testing.T) {

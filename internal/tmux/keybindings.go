@@ -45,11 +45,12 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, cu
 	// Command palette (requires tmux >= 3.2 for display-popup).
 	// Always resolves the focused mission UUID so the palette can filter
 	// mission-scoped commands and pass the UUID into executed commands.
+	// #{pane_id} is expanded by tmux at key-press time to the active pane.
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
 		sb.WriteString("# Command palette (prefix + a, k)\n")
 		fmt.Fprintf(&sb, "bind-key -T %s k run-shell '"+
-			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"$(tmux display-message -p \"#{pane_id}\")\"); "+
+			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 			"tmux display-popup -E -w 60%% -h 50%% "+
 			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
 			"'\n", agencKeyTable, agencBinary, agencBinary)
@@ -62,9 +63,10 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, cu
 			fmt.Fprintf(&sb, "# %s\n", kb.Comment)
 		}
 		if kb.IsMissionScoped {
-			// Mission-scoped: resolve the pane's mission UUID first, skip if empty
+			// Mission-scoped: resolve the pane's mission UUID first, skip if empty.
+			// #{pane_id} is expanded by tmux at key-press time.
 			fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '"+
-				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"$(tmux display-message -p \"#{pane_id}\")\"); "+
+				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
 				"'\n", agencKeyTable, kb.Key, agencBinary, kb.Command)
 		} else {
