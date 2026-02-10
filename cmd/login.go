@@ -37,6 +37,12 @@ var loginCmd = &cobra.Command{
 		fmt.Print("\nPress ENTER to continue...")
 		bufio.NewReader(os.Stdin).ReadBytes('\n')
 
+		// Snapshot existing global credentials before login so we can
+		// preserve MCP OAuth tokens. claude login overwrites the global
+		// Keychain entry with a fresh blob that only contains claudeAiOauth,
+		// destroying any mcpOAuth tokens that were merged back from missions.
+		preLoginCreds, _ := claudeconfig.ReadKeychainCredentials(claudeconfig.GlobalCredentialServiceName)
+
 		claudeCmd := exec.Command("claude")
 		claudeCmd.Dir = tmpDirpath
 		claudeCmd.Stdin = os.Stdin
@@ -44,6 +50,23 @@ var loginCmd = &cobra.Command{
 		claudeCmd.Stderr = os.Stderr
 		if err := claudeCmd.Run(); err != nil {
 			return stacktrace.Propagate(err, "claude login failed")
+		}
+
+		// Restore MCP OAuth tokens that were wiped by claude login.
+		// MergeCredentialJSON(base=old, overlay=new): overlay wins for
+		// non-mcpOAuth keys (so fresh claudeAiOauth is kept), while
+		// mcpOAuth entries from the old snapshot are preserved since they
+		// only exist on the base side.
+		if preLoginCreds != "" {
+			postLoginCreds, readErr := claudeconfig.ReadKeychainCredentials(claudeconfig.GlobalCredentialServiceName)
+			if readErr == nil {
+				merged, changed, mergeErr := claudeconfig.MergeCredentialJSON([]byte(preLoginCreds), []byte(postLoginCreds))
+				if mergeErr == nil && changed {
+					if writeErr := claudeconfig.WriteKeychainCredentials(claudeconfig.GlobalCredentialServiceName, string(merged)); writeErr != nil {
+						fmt.Printf("Warning: failed to restore MCP OAuth tokens: %v\n", writeErr)
+					}
+				}
+			}
 		}
 
 		// Update Keychain entries for all tracked missions
