@@ -541,8 +541,8 @@ func TestIsMissionScoped_False(t *testing.T) {
 
 func TestGetPaletteTmuxKeybinding_Default(t *testing.T) {
 	cfg := &AgencConfig{}
-	if got := cfg.GetPaletteTmuxKeybinding(); got != "k" {
-		t.Errorf("expected default palette keybinding 'k', got '%s'", got)
+	if got := cfg.GetPaletteTmuxKeybinding(); got != "-T agenc k" {
+		t.Errorf("expected default palette keybinding '-T agenc k', got '%s'", got)
 	}
 }
 
@@ -578,7 +578,7 @@ func TestPaletteTmuxKeybinding_RoundTrip(t *testing.T) {
 func TestPaletteTmuxKeybinding_ConflictsWithCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
-paletteTmuxKeybinding: "d"
+paletteTmuxKeybinding: "-T agenc d"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)

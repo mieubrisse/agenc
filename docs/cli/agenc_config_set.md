@@ -8,7 +8,7 @@ Set a configuration key in config.yml.
 
 Supported keys:
   doAutoConfirm          Skip confirmation in 'agenc do' (bool: true/false)
-  paletteTmuxKeybinding  Tmux key for the command palette (string, default: k)
+  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxAgencFilepath      Path to agenc binary used in tmux keybindings (string)
 
 ```

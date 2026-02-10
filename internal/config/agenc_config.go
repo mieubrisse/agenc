@@ -180,8 +180,11 @@ func (c ResolvedPaletteCommand) FormatKeybinding() string {
 	return fmt.Sprintf("prefix → a → %s", c.TmuxKeybinding)
 }
 
-// DefaultPaletteTmuxKeybinding is the default tmux key for the command palette.
-const DefaultPaletteTmuxKeybinding = "k"
+// DefaultPaletteTmuxKeybinding is the default bind-key arguments for the
+// command palette keybinding. The value is inserted verbatim after "bind-key"
+// in the generated tmux keybindings file, so it can include table specifiers
+// (e.g. "-T agenc k") or bind directly on the prefix table (e.g. "C-k").
+const DefaultPaletteTmuxKeybinding = "-T agenc k"
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
@@ -519,15 +522,30 @@ func validatePaletteUniqueness(cfg *AgencConfig, configFilepath string) error {
 		}
 	}
 
-	// Check that the palette keybinding doesn't conflict with any command keybinding
-	if conflictName, ok := seenKeybindings[paletteKey]; ok {
-		return stacktrace.NewError(
-			"palette keybinding '%s' conflicts with command '%s' in %s; set paletteTmuxKeybinding to a different key",
-			paletteKey, conflictName, configFilepath,
-		)
+	// Check that the palette keybinding doesn't conflict with any command keybinding.
+	// Command keybindings are bare keys within the agenc table, so a conflict is
+	// only possible when the palette is also bound in the agenc table.
+	if paletteAgencKey := extractAgencTableKey(paletteKey); paletteAgencKey != "" {
+		if conflictName, ok := seenKeybindings[paletteAgencKey]; ok {
+			return stacktrace.NewError(
+				"palette keybinding '%s' conflicts with command '%s' in %s; set paletteTmuxKeybinding to a different key",
+				paletteKey, conflictName, configFilepath,
+			)
+		}
 	}
 
 	return nil
+}
+
+// extractAgencTableKey returns the bare key from a palette keybinding string
+// if it targets the agenc key table (e.g. "-T agenc k" → "k"). Returns ""
+// if the keybinding is not in the agenc table.
+func extractAgencTableKey(paletteKeybinding string) string {
+	const prefix = "-T agenc "
+	if strings.HasPrefix(paletteKeybinding, prefix) {
+		return strings.TrimPrefix(paletteKeybinding, prefix)
+	}
+	return ""
 }
 
 // ValidateCronName checks whether a cron name is valid.

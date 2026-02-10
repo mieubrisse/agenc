@@ -10,7 +10,7 @@ Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
   doAutoConfirm          Skip confirmation in 'agenc do' (bool)
-  paletteTmuxKeybinding  Tmux key for the command palette (string, default: k)
+  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxAgencFilepath      Path to agenc binary used in tmux keybindings (string)
 
 ```

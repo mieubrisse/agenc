@@ -47,14 +47,16 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, pa
 	// Always resolves the focused mission UUID so the palette can filter
 	// mission-scoped commands and pass the UUID into executed commands.
 	// #{pane_id} is expanded by tmux at key-press time to the active pane.
+	// The paletteKey is inserted verbatim after "bind-key" so users can
+	// control the key table (e.g. "-T agenc k") or bind directly on prefix.
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
-		fmt.Fprintf(&sb, "# Command palette (prefix + a, %s)\n", paletteKey)
-		fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '"+
+		fmt.Fprintf(&sb, "# Command palette (bind-key %s)\n", paletteKey)
+		fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 			"tmux display-popup -E -w 60%% -h 50%% "+
 			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
-			"'\n", agencKeyTable, paletteKey, agencBinary, agencBinary)
+			"'\n", paletteKey, agencBinary, agencBinary)
 	}
 
 	// Emit all keybindings from resolved palette commands

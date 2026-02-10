@@ -8,10 +8,13 @@ Write an AgenC-managed keybindings file and add a source-file directive to
 your tmux.conf. If a tmux server is running, the keybindings are sourced
 immediately.
 
-All keybindings live under the "agenc" key table, activated with prefix + a:
+Default keybindings (all under the "agenc" key table, prefix + a):
   prefix + a, k  — open command palette
   prefix + a, n  — new mission in a new tmux window
-  prefix + a, p  — new mission in a side-by-side pane
+  prefix + a, d  — run 'agenc do'
+
+The command palette keybinding (paletteTmuxKeybinding) is fully configurable
+and can be bound outside the agenc key table if desired.
 
 ```
 agenc tmux inject [flags]
