@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -98,6 +99,12 @@ func runDo(cmd *cobra.Command, args []string) error {
 		action, err := interpretWithLLM(userPrompt, repoNames, missionsSummary)
 		if err != nil {
 			return err
+		}
+
+		// Validate the LLM's repo output against available repos.
+		// LLMs can hallucinate repo names that don't exist — fall back to blank.
+		if action.Repo != "" && !isKnownRepo(action.Repo, repoNames) {
+			action.Repo = ""
 		}
 
 		missionNewArgs := buildMissionNewArgs(action)
@@ -313,6 +320,11 @@ func parseLLMResponse(raw string) (*doAction, error) {
 	}
 
 	return &action, nil
+}
+
+// isKnownRepo checks whether repoName matches any of the available repos on disk.
+func isKnownRepo(repoName string, availableRepos []string) bool {
+	return slices.Contains(availableRepos, repoName)
 }
 
 // buildMissionNewArgs constructs the argument list for `agenc mission new`.
