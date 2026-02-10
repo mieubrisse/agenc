@@ -2,21 +2,23 @@
 
 AgenC
 =====
-AgenC is an agentic work factory oriented around driving teams of Claudes. Here's why I built it:
+AgenC is a tmux-based control plane for teams of Claudes doing your bidding. I call it an "AI work factory".
 
+### The Problem
 Agentic work looks like this:
 
 ![](readme-images/work.png)
 
-You drive a Claude, produce output, and generate more ideas + learnings on how to refine your config and prompts.
+You drive a Claude or two, produce output, and generate more ideas + learnings on how to refine your config and prompts.
 
 But you can't implement them all because Claude is the bottleneck:
 
 ![](readme-images/bottlenecked.png)
 
-Launching new Claudes is effortful, you have to take care they don't step on each other, managing the various terminal windows is a circus, and if you upgrade your prompts or configs you have to find all the windows using it and reload.
+Launching new Claudes is effortful, you have to ensure they don't step on each other, managing the various terminal windows is a circus, and if you upgrade your prompts or configs you have to hunt down the sessions and reload them manually.
 
-AgenC makes this easy by isolating Claudes in sandboxes, making it trivial to spawn new missions, and providing the tools to herd them all:
+### AgenC
+AgenC isolates Claudes in sandboxes, makes it trivial to spawn side missions, and provides a command palette with the tools you need to herd everything:
 
 ![](readme-images/big-threadpool.png)
 
