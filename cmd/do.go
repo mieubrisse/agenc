@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -12,8 +11,17 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/odyssey/agenc/internal/database"
+)
+
+// confirmResult represents the user's response at the confirmation prompt.
+type confirmResult int
+
+const (
+	confirmAccepted confirmResult = iota
+	confirmEdit
 )
 
 var doCmd = &cobra.Command{
@@ -48,12 +56,12 @@ func runDo(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get user prompt: inline args or editor
+	// Get initial user prompt: inline args or editor
 	var userPrompt string
 	if len(args) > 0 {
 		userPrompt = strings.Join(args, " ")
 	} else {
-		userPrompt, err = openEditorForPrompt()
+		userPrompt, err = openEditorForPrompt("")
 		if err != nil {
 			return err
 		}
@@ -63,7 +71,7 @@ func runDo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Gather state for the LLM
+	// Gather state for the LLM (once — repos and missions don't change mid-loop)
 	repoNames, err := findReposOnDisk(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to scan repos directory")
@@ -74,28 +82,36 @@ func runDo(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to build missions summary")
 	}
 
-	// Build LLM prompt and call claude
-	action, err := interpretWithLLM(userPrompt, repoNames, missionsSummary)
-	if err != nil {
-		return err
+	// Interpret → confirm loop. ESC/Ctrl-C at confirmation re-opens the editor.
+	for {
+		action, err := interpretWithLLM(userPrompt, repoNames, missionsSummary)
+		if err != nil {
+			return err
+		}
+
+		missionNewArgs := buildMissionNewArgs(action)
+
+		result := confirmExecution(missionNewArgs)
+		if result == confirmAccepted {
+			return executeMissionNew(missionNewArgs)
+		}
+
+		// User wants to edit — re-open editor with previous prompt
+		userPrompt, err = openEditorForPrompt(userPrompt)
+		if err != nil {
+			return err
+		}
+		if userPrompt == "" {
+			fmt.Println("Empty prompt, aborting.")
+			return nil
+		}
 	}
-
-	// Build the mission new args
-	missionNewArgs := buildMissionNewArgs(action)
-
-	// Show confirmation
-	if !confirmExecution(missionNewArgs) {
-		fmt.Println("Aborted.")
-		return nil
-	}
-
-	// Execute
-	return executeMissionNew(missionNewArgs)
 }
 
 // openEditorForPrompt opens $EDITOR with a template and returns the user's
-// input with comment lines and surrounding whitespace stripped.
-func openEditorForPrompt() (string, error) {
+// input with comment lines and surrounding whitespace stripped. If
+// previousPrompt is non-empty, it is pre-filled below the comment header.
+func openEditorForPrompt(previousPrompt string) (string, error) {
 	editorEnv := os.Getenv("EDITOR")
 	if editorEnv == "" {
 		return "", stacktrace.NewError(
@@ -112,8 +128,9 @@ func openEditorForPrompt() (string, error) {
 	tmpFilepath := tmpFile.Name()
 	defer os.Remove(tmpFilepath)
 
-	template := "# Tell AgenC what to do.\n# Lines starting with # are ignored.\n# Save and exit when done. Leave empty to abort.\n\n"
-	if _, err := tmpFile.WriteString(template); err != nil {
+	header := "# Tell AgenC what to do.\n# Lines starting with # are ignored.\n# Save and exit when done. Leave empty to abort.\n\n"
+	content := header + previousPrompt + "\n"
+	if _, err := tmpFile.WriteString(content); err != nil {
 		tmpFile.Close()
 		return "", stacktrace.Propagate(err, "failed to write editor template")
 	}
@@ -147,13 +164,13 @@ func openEditorForPrompt() (string, error) {
 	}
 
 	// Read back and strip comments
-	content, err := os.ReadFile(tmpFilepath)
+	edited, err := os.ReadFile(tmpFilepath)
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to read editor output")
 	}
 
 	var lines []string
-	for line := range strings.SplitSeq(string(content), "\n") {
+	for line := range strings.SplitSeq(string(edited), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
@@ -296,8 +313,9 @@ func buildMissionNewArgs(action *doAction) []string {
 	return args
 }
 
-// confirmExecution shows the user what will be executed and asks for y/n.
-func confirmExecution(missionNewArgs []string) bool {
+// confirmExecution shows the user what will be executed and waits for a
+// single keypress. ENTER confirms; ESC or Ctrl-C returns to the editor.
+func confirmExecution(missionNewArgs []string) confirmResult {
 	binaryStr := agencCmdStr
 
 	var cmdDisplay string
@@ -317,16 +335,43 @@ func confirmExecution(missionNewArgs []string) bool {
 	}
 
 	fmt.Printf("\n%s\n\n", cmdDisplay)
-	fmt.Print("Run this? [Y/n] ")
+	fmt.Printf("Press %sENTER%s to run, %sESC%s to edit\n", ansiBold, ansiReset, ansiBold, ansiReset)
 
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
+	result := readConfirmKey()
+	// Print a newline after the keypress so subsequent output starts clean
+	fmt.Println()
+	return result
+}
+
+// readConfirmKey reads a single keypress in raw terminal mode.
+// Returns confirmAccepted for ENTER, confirmEdit for ESC or Ctrl-C.
+func readConfirmKey() confirmResult {
+	fd := int(os.Stdin.Fd())
+
+	oldState, err := term.MakeRaw(fd)
 	if err != nil {
-		return false
+		// If we can't enter raw mode (e.g. piped stdin), fall back to accepting
+		return confirmAccepted
 	}
+	defer term.Restore(fd, oldState)
 
-	input = strings.TrimSpace(strings.ToLower(input))
-	return input == "" || input == "y" || input == "yes"
+	buf := make([]byte, 1)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil || n == 0 {
+			return confirmEdit
+		}
+
+		switch buf[0] {
+		case '\r', '\n': // ENTER
+			return confirmAccepted
+		case 0x1b: // ESC
+			return confirmEdit
+		case 0x03: // Ctrl-C
+			return confirmEdit
+		}
+		// Ignore other keys — wait for a recognized one
+	}
 }
 
 // shellQuoteArgs quotes arguments that contain special shell characters.
