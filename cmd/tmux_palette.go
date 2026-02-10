@@ -55,15 +55,33 @@ func buildPaletteEntries() ([]config.ResolvedPaletteCommand, error) {
 	return entries, nil
 }
 
+// plainDisplayTitle returns the plain-text (no ANSI) title as it appears in
+// the palette, including the keybinding suffix when present. This is used to
+// match against fzf output, which strips ANSI codes.
+func plainDisplayTitle(entry config.ResolvedPaletteCommand) string {
+	title := stripVariationSelectors(entry.Title)
+	if entry.TmuxKeybinding != "" {
+		title += fmt.Sprintf(" (a → %s)", entry.TmuxKeybinding)
+	}
+	return title
+}
+
 // formatPaletteEntryLine formats a palette entry for fzf display. Entries with
-// a description get "Label  —  Description"; entries without get "Label" only.
+// a description get "Label (a → key)  —  Description"; entries without get
+// "Label (a → key)" only. The keybinding is shown in blue.
 func formatPaletteEntryLine(entry config.ResolvedPaletteCommand) string {
 	stripped := stripVariationSelectors(entry.Title)
 	boldLabel := fmt.Sprintf("%s%s%s", ansiBold, stripped, ansiReset)
-	if entry.Description == "" {
-		return boldLabel
+
+	keybindingSuffix := ""
+	if entry.TmuxKeybinding != "" {
+		keybindingSuffix = fmt.Sprintf(" %s(a → %s)%s", ansiLightBlue, entry.TmuxKeybinding, ansiReset)
 	}
-	return fmt.Sprintf("%s  %s—  %s%s", boldLabel, ansiDarkGray, entry.Description, ansiReset)
+
+	if entry.Description == "" {
+		return boldLabel + keybindingSuffix
+	}
+	return fmt.Sprintf("%s%s  %s—  %s%s", boldLabel, keybindingSuffix, ansiDarkGray, entry.Description, ansiReset)
 }
 
 func runTmuxPalette(cmd *cobra.Command, args []string) error {
@@ -115,11 +133,11 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		selectedTitle = selectedLine[:idx]
 	}
 
-	// Find the matching palette entry (compare against stripped titles since
-	// that's what fzf received)
+	// Find the matching palette entry (compare against the plain display title
+	// since fzf strips ANSI codes from its output)
 	var selectedEntry *config.ResolvedPaletteCommand
 	for i := range entries {
-		if stripVariationSelectors(entries[i].Title) == selectedTitle {
+		if plainDisplayTitle(entries[i]) == selectedTitle {
 			selectedEntry = &entries[i]
 			break
 		}
