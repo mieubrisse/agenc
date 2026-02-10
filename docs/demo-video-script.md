@@ -1,5 +1,20 @@
 Demo Video Script
 =================
+### MY IDEA
+Maybe, going from Minecraft -> Starcraft development?
+- Start: open a single Claude code window, trust prompt, type out what you want to say
+- Workflows to demo:
+    - showing mission ls, and mission resume to pop in
+    - quickly popping open a shell in the mission directory
+    - command palette
+    - 'agenc do'
+    - colored tabs to show what needs attention
+    - custom commands like "open agenc"
+- Start with the Minecraft music, then get to some banging Starcraft music
+
+
+
+
 
 **Target runtime:** 3–5 minutes
 **Format:** Loom screen recording with voiceover
