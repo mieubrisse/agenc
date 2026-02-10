@@ -180,14 +180,27 @@ func (c ResolvedPaletteCommand) FormatKeybinding() string {
 	return fmt.Sprintf("prefix → a → %s", c.TmuxKeybinding)
 }
 
+// DefaultPaletteTmuxKeybinding is the default tmux key for the command palette.
+const DefaultPaletteTmuxKeybinding = "k"
+
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	SyncedRepos        []string                         `yaml:"syncedRepos,omitempty"`
-	TmuxAgencFilepath  string                           `yaml:"tmuxAgencFilepath,omitempty"`
-	Crons              map[string]CronConfig            `yaml:"crons,omitempty"`
-	CronsMaxConcurrent int                              `yaml:"cronsMaxConcurrent,omitempty"`
-	PaletteCommands    map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
-	DoAutoConfirm      bool                             `yaml:"doAutoConfirm,omitempty"`
+	SyncedRepos            []string                         `yaml:"syncedRepos,omitempty"`
+	TmuxAgencFilepath      string                           `yaml:"tmuxAgencFilepath,omitempty"`
+	Crons                  map[string]CronConfig            `yaml:"crons,omitempty"`
+	CronsMaxConcurrent     int                              `yaml:"cronsMaxConcurrent,omitempty"`
+	PaletteCommands        map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
+	PaletteTmuxKeybinding  string                           `yaml:"paletteTmuxKeybinding,omitempty"`
+	DoAutoConfirm          bool                             `yaml:"doAutoConfirm,omitempty"`
+}
+
+// GetPaletteTmuxKeybinding returns the tmux key for the command palette,
+// defaulting to "k" when not configured.
+func (c *AgencConfig) GetPaletteTmuxKeybinding() string {
+	if c.PaletteTmuxKeybinding == "" {
+		return DefaultPaletteTmuxKeybinding
+	}
+	return c.PaletteTmuxKeybinding
 }
 
 // GetTmuxAgencBinary returns the agenc binary name/path used in tmux
@@ -475,9 +488,11 @@ func substituteAgencBinary(command, agencBinary string) string {
 }
 
 // validatePaletteUniqueness checks that titles and keybindings are unique across
-// the resolved palette command set.
+// the resolved palette command set, and that the palette keybinding doesn't
+// conflict with any command keybinding.
 func validatePaletteUniqueness(cfg *AgencConfig, configFilepath string) error {
 	resolved := cfg.GetResolvedPaletteCommands()
+	paletteKey := cfg.GetPaletteTmuxKeybinding()
 
 	seenTitles := make(map[string]string)    // title → command name
 	seenKeybindings := make(map[string]string) // keybinding → command name
@@ -502,6 +517,14 @@ func validatePaletteUniqueness(cfg *AgencConfig, configFilepath string) error {
 			}
 			seenKeybindings[cmd.TmuxKeybinding] = cmd.Name
 		}
+	}
+
+	// Check that the palette keybinding doesn't conflict with any command keybinding
+	if conflictName, ok := seenKeybindings[paletteKey]; ok {
+		return stacktrace.NewError(
+			"palette keybinding '%s' conflicts with command '%s' in %s; set paletteTmuxKeybinding to a different key",
+			paletteKey, conflictName, configFilepath,
+		)
 	}
 
 	return nil

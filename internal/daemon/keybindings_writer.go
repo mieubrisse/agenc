@@ -43,15 +43,17 @@ func (d *Daemon) writeAndSourceKeybindings() {
 	// other keybindings are still emitted.
 	tmuxMajor, tmuxMinor, _ := tmux.DetectVersion()
 
-	// Read config for the tmuxAgencFilepath override and palette commands.
+	// Read config for the tmuxAgencFilepath override, palette key, and palette commands.
 	agencBinary := "agenc"
+	paletteKey := config.DefaultPaletteTmuxKeybinding
 	var keybindings []tmux.CustomKeybinding
 	if cfg, _, err := config.ReadAgencConfig(d.agencDirpath); err == nil {
 		agencBinary = cfg.GetTmuxAgencBinary()
+		paletteKey = cfg.GetPaletteTmuxKeybinding()
 		keybindings = tmux.BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
 	}
 
-	if err := tmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, keybindings); err != nil {
+	if err := tmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, paletteKey, keybindings); err != nil {
 		d.logger.Printf("Keybindings writer: failed to write: %v", err)
 		return
 	}

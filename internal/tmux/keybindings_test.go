@@ -15,7 +15,7 @@ func TestGenerateKeybindingsContent_MissionScopedKeybinding(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "agenc", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "agenc", "k", keybindings)
 
 	// Should contain resolve-mission preamble for mission-scoped keybinding
 	if !strings.Contains(content, "resolve-mission") {
@@ -37,7 +37,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "agenc", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "agenc", "k", keybindings)
 
 	// Should contain the simple run-shell form
 	if !strings.Contains(content, "run-shell 'agenc tmux window new -- agenc do'") {
@@ -58,7 +58,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 }
 
 func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 4, "agenc", nil)
+	content := GenerateKeybindingsContent(3, 4, "agenc", "k", nil)
 
 	// Palette keybinding (k) should always include resolve-mission
 	if !strings.Contains(content, "resolve-mission") {
@@ -77,10 +77,29 @@ func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) 
 }
 
 func TestGenerateKeybindingsContent_PaletteOmittedOnOldTmux(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 1, "agenc", nil)
+	content := GenerateKeybindingsContent(3, 1, "agenc", "k", nil)
 
 	// tmux < 3.2 should not have the palette keybinding
 	if strings.Contains(content, "display-popup") {
 		t.Error("expected palette keybinding to be omitted on tmux < 3.2")
+	}
+}
+
+func TestGenerateKeybindingsContent_CustomPaletteKey(t *testing.T) {
+	content := GenerateKeybindingsContent(3, 4, "agenc", "p", nil)
+
+	// Should bind the palette to the custom key
+	if !strings.Contains(content, "bind-key -T agenc p run-shell") {
+		t.Error("expected palette to be bound to custom key 'p'")
+	}
+
+	// Should NOT bind to the default key 'k'
+	if strings.Contains(content, "bind-key -T agenc k") {
+		t.Error("expected palette NOT to be bound to default key 'k' when overridden")
+	}
+
+	// Comment should reflect the custom key
+	if !strings.Contains(content, "prefix + a, p") {
+		t.Error("expected palette comment to show custom key")
 	}
 }

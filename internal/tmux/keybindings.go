@@ -28,9 +28,10 @@ type CustomKeybinding struct {
 // tmux keybindings configuration file. The tmuxMajor/tmuxMinor parameters
 // control version-gated features (e.g. display-popup requires tmux >= 3.2).
 // The agencBinary parameter is the binary name or path used in the palette
-// keybinding. The customKeybindings slice contains all keybindings from
+// keybinding. The paletteKey parameter is the tmux key for the command palette
+// (e.g. "k"). The customKeybindings slice contains all keybindings from
 // resolved palette commands (both builtin and user-defined).
-func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, customKeybindings []CustomKeybinding) string {
+func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, paletteKey string, customKeybindings []CustomKeybinding) string {
 	var sb strings.Builder
 
 	sb.WriteString("# AgenC tmux keybindings\n")
@@ -48,12 +49,12 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, cu
 	// #{pane_id} is expanded by tmux at key-press time to the active pane.
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
-		sb.WriteString("# Command palette (prefix + a, k)\n")
-		fmt.Fprintf(&sb, "bind-key -T %s k run-shell '"+
+		fmt.Fprintf(&sb, "# Command palette (prefix + a, %s)\n", paletteKey)
+		fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '"+
 			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 			"tmux display-popup -E -w 60%% -h 50%% "+
 			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
-			"'\n", agencKeyTable, agencBinary, agencBinary)
+			"'\n", agencKeyTable, paletteKey, agencBinary, agencBinary)
 	}
 
 	// Emit all keybindings from resolved palette commands
@@ -80,9 +81,10 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, cu
 // WriteKeybindingsFile writes the agenc-managed keybindings file, overwriting
 // any previous version. The tmuxMajor/tmuxMinor parameters control
 // version-gated keybindings. The agencBinary parameter is the binary name or
-// path used in run-shell commands.
-func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, agencBinary string, customKeybindings []CustomKeybinding) error {
-	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor, agencBinary, customKeybindings)
+// path used in run-shell commands. The paletteKey parameter is the tmux key
+// for the command palette.
+func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, agencBinary string, paletteKey string, customKeybindings []CustomKeybinding) error {
+	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor, agencBinary, paletteKey, customKeybindings)
 	if err := os.WriteFile(keybindingsFilepath, []byte(content), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write keybindings file '%s'", keybindingsFilepath)
 	}

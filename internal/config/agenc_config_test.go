@@ -539,6 +539,57 @@ func TestIsMissionScoped_False(t *testing.T) {
 	}
 }
 
+func TestGetPaletteTmuxKeybinding_Default(t *testing.T) {
+	cfg := &AgencConfig{}
+	if got := cfg.GetPaletteTmuxKeybinding(); got != "k" {
+		t.Errorf("expected default palette keybinding 'k', got '%s'", got)
+	}
+}
+
+func TestGetPaletteTmuxKeybinding_Custom(t *testing.T) {
+	cfg := &AgencConfig{PaletteTmuxKeybinding: "p"}
+	if got := cfg.GetPaletteTmuxKeybinding(); got != "p" {
+		t.Errorf("expected custom palette keybinding 'p', got '%s'", got)
+	}
+}
+
+func TestPaletteTmuxKeybinding_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{PaletteTmuxKeybinding: "p"}
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if got.PaletteTmuxKeybinding != "p" {
+		t.Errorf("expected 'p', got '%s'", got.PaletteTmuxKeybinding)
+	}
+}
+
+func TestPaletteTmuxKeybinding_ConflictsWithCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteTmuxKeybinding: "d"
+`)
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for palette keybinding conflicting with command keybinding, got nil")
+	}
+	if !strings.Contains(err.Error(), "palette keybinding") || !strings.Contains(err.Error(), "conflicts") {
+		t.Errorf("expected error mentioning palette keybinding conflict, got: %v", err)
+	}
+}
+
 func TestPaletteCommandConfig_IsEmpty(t *testing.T) {
 	empty := PaletteCommandConfig{}
 	if !empty.IsEmpty() {
