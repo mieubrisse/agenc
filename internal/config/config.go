@@ -25,8 +25,7 @@ const (
 
 	AgentDirname            = "agent"
 	PIDFilename             = "pid"
-	ClaudeStateFilename     = "claude-state"
-	GlobalSettingsFilename  = "settings.json"
+	GlobalSettingsFilename = "settings.json"
 	GlobalClaudeMdFilename  = "CLAUDE.md"
 	WrapperLogFilename      = "wrapper.log"
 	SettingsLocalFilename   = "settings.local.json"
@@ -141,12 +140,6 @@ func GetMissionAgentDirpath(agencDirpath string, missionID string) string {
 // GetMissionPIDFilepath returns the path to the wrapper PID file for a mission.
 func GetMissionPIDFilepath(agencDirpath string, missionID string) string {
 	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), PIDFilename)
-}
-
-// GetMissionClaudeStateFilepath returns the path to the claude-state file for
-// a mission.
-func GetMissionClaudeStateFilepath(agencDirpath string, missionID string) string {
-	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), ClaudeStateFilename)
 }
 
 // GetMissionWrapperLogFilepath returns the path to the wrapper log file for

@@ -44,6 +44,8 @@ const (
 	inspectCmdStr      = "inspect"
 	nukeCmdStr         = "nuke"
 	updateConfigCmdStr = "update-config"
+	sendCmdStr         = "send"
+	claudeUpdateCmdStr = "claude-update"
 
 	// Config subcommands
 	initCmdStr             = "init"

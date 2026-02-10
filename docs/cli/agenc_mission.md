@@ -18,6 +18,7 @@ Manage agent missions
 * [agenc mission nuke](agenc_mission_nuke.md)	 - Stop and permanently remove ALL missions
 * [agenc mission resume](agenc_mission_resume.md)	 - Unarchive (if needed) and resume a mission with claude --continue
 * [agenc mission rm](agenc_mission_rm.md)	 - Stop and permanently remove one or more missions
+* [agenc mission send](agenc_mission_send.md)	 - Send messages to a running mission wrapper
 * [agenc mission stop](agenc_mission_stop.md)	 - Stop one or more mission wrapper processes
 * [agenc mission update-config](agenc_mission_update-config.md)	 - Rebuild a mission's Claude config from the shadow repo
 

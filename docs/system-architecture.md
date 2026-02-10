@@ -41,7 +41,7 @@ graph TB
     CLI -->|copies repo into mission| Repos
 
     Claude -->|works in| Missions
-    Wrapper -->|watches claude-state| Missions
+    Claude -->|hooks report state via| Wrapper
 
     Daemon -->|auto-commits| Config
 ```
@@ -52,8 +52,7 @@ graph TB
 |-----------|--------|--------|---------|
 | `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats, pane tracking |
 | `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
-| `missions/<uuid>/claude-state` | Claude (via hooks) | Wrapper (via fsnotify) | Idle detection, resume tracking |
-| `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI (`login`, `update-config`) | Restart commands |
+| `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI (`login`, `update-config`), hooks (`mission send claude-update`) | Restart commands, Claude state updates |
 | `daemon/daemon.pid` | Daemon | CLI (`daemon stop/status`) | Process coordination |
 | `.git/refs/remotes/origin/<branch>` | Git (after push) | Wrapper (via fsnotify) | Trigger repo library update |
 
@@ -117,17 +116,15 @@ The wrapper:
 
 1. Writes the wrapper PID to `$AGENC_DIRPATH/missions/<uuid>/pid`
 2. Records the tmux pane ID in the database (cleared on exit) for pane→mission resolution
-3. Writes initial claude-state as `idle`
-4. Clones fresh credentials from the global Keychain into the per-mission entry
-5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
-6. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
-7. Sets `AGENC_MISSION_UUID` for the child process
-8. Starts four background goroutines:
+3. Clones fresh credentials from the global Keychain into the per-mission entry
+4. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
+5. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
+6. Sets `AGENC_MISSION_UUID` for the child process
+7. Starts three background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` in the database every 30 seconds
-   - **Claude-state watcher** — watches `claude-state` file via fsnotify; tracks whether a resumable conversation exists; notifies main loop when Claude becomes idle
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
-   - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (e.g., restart)
-9. Main event loop implements a three-state machine (see below)
+   - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (restart, claude_update)
+8. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Supports restart commands via unix socket.
 
@@ -151,7 +148,9 @@ The wrapper:
 - **RestartPending** + Claude becomes idle → transition to Restarting, SIGINT Claude
 - Restarts are idempotent: duplicate requests return ok. A hard restart overrides a pending graceful.
 
-**Socket protocol**: one JSON request per connection (connect → send → receive → close). Socket path: `missions/<uuid>/wrapper.sock`. Commands: `restart` with mode `graceful` (wait for idle, SIGINT, resume with `claude -c`) or `hard` (SIGKILL immediately, fresh session).
+**Socket protocol**: one JSON request per connection (connect → send → receive → close). Socket path: `missions/<uuid>/wrapper.sock`. Commands:
+- `restart` — mode `graceful` (wait for idle, SIGINT, resume with `claude -c`) or `hard` (SIGKILL immediately, fresh session)
+- `claude_update` — sent by Claude hooks to report state changes (event types: `Stop`, `UserPromptSubmit`, `Notification`). The wrapper uses these to track idle state, conversation existence, trigger deferred restarts, and set tmux pane colors for visual feedback.
 
 **Credential cloning at spawn time**: credentials are cloned from the global Keychain into the per-mission entry immediately before each Claude spawn (both initial and restart). This ensures credentials are always fresh and stopped missions don't accumulate stale Keychain entries.
 
@@ -226,8 +225,7 @@ $AGENC_DIRPATH/
 │       │   ├── plugins/                   # Symlink to ~/.claude/plugins/
 │       │   └── projects/                  # Symlink to ~/.claude/projects/ (persistent sessions)
 │       ├── pid                            # Wrapper process ID
-│       ├── claude-state                   # "idle" or "busy" (written by Claude hooks)
-│       ├── wrapper.sock                   # Unix socket for restart commands (interactive mode only)
+│       ├── wrapper.sock                   # Unix socket for wrapper commands (restart, claude_update)
 │       ├── wrapper.log                    # Wrapper lifecycle log
 │       └── claude-output.log              # Headless mode output (with rotation)
 │
@@ -268,7 +266,7 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 
 - `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management, called by wrapper at spawn time), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
-- `overrides.go` — `AgencHookEntries` (Stop and UserPromptSubmit hooks for idle detection), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
+- `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
 
 ### `internal/database/`
@@ -300,10 +298,10 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 
 Per-mission Claude child process management.
 
-- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, claude-state watcher, remote refs watcher, socket listener), signal handling, credential cloning at spawn time
-- `socket.go` — unix socket listener, `Command`/`Response` protocol types, `commandWithResponse` internal type for synchronous request/response
-- `client.go` — `SendCommand` helper for CLI/daemon use, `ErrWrapperNotRunning` sentinel error
-- `tmux.go` — tmux window renaming when `AGENC_TMUX=1`
+- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, credential cloning at spawn time
+- `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
+- `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
+- `tmux.go` — tmux window renaming when `AGENC_TMUX=1`, pane color management (`setPaneNeedsAttention`, `resetPaneStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
 
 ### Utility packages
 
@@ -347,18 +345,26 @@ The shadow repo (`internal/claudeconfig/shadow.go`) tracks the user's `~/.claude
 
 **Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo as-is and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The daemon's config watcher loop (`internal/daemon/config_watcher.go`) triggers ingestion automatically whenever `~/.claude` changes are detected via fsnotify.
 
-### Idle detection via Claude Code hooks
+### Idle detection via socket
 
-The wrapper needs to know whether a resumable conversation exists. This is accomplished via Claude Code's hook system.
+The wrapper needs to know whether Claude is idle and whether a resumable conversation exists. This is accomplished via Claude Code hooks that send state updates directly to the wrapper's unix socket.
 
-The config merge injects two hooks into each mission's `settings.json` (`internal/claudeconfig/overrides.go`):
+The config merge injects three hooks into each mission's `settings.json` (`internal/claudeconfig/overrides.go`):
 
-- **Stop hook** — writes `idle` to the `claude-state` file when Claude finishes responding
-- **UserPromptSubmit hook** — writes `busy` to `claude-state` when the user submits a prompt
+- **Stop hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Stop` when Claude finishes responding
+- **UserPromptSubmit hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID UserPromptSubmit` when the user submits a prompt
+- **Notification hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Notification` when Claude needs user attention (permission prompts, idle prompts, elicitation dialogs)
 
-The `claude-state` file lives at `$AGENC_DIRPATH/missions/<uuid>/claude-state`. The hooks reference it via `$CLAUDE_PROJECT_DIR/../claude-state`.
+The `agenc mission send claude-update` command reads hook JSON from stdin (to extract `notification_type` for Notification events), then sends a `claude_update` command to the wrapper's unix socket with a 1-second timeout. It always exits 0 to avoid blocking Claude.
 
-The wrapper watches this file using fsnotify on the parent directory (not the file itself, because shell redirects like `echo idle > file` may atomically replace the file, which would break a direct file watch). When the state becomes `busy`, the wrapper records that a resumable conversation exists (`hasConversation` flag), enabling `claude -c` on resume.
+The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
+- **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending
+- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color
+- **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
+
+### Tmux pane coloring
+
+The wrapper provides visual feedback by setting the tmux pane background color when Claude needs user attention (`internal/wrapper/tmux.go`). When Claude stops responding, encounters a permission prompt, or shows an elicitation dialog, the pane background turns dark teal (`colour022`). When the user submits a new prompt, the pane resets to the default background. The pane style is also reset on wrapper exit. All pane color operations are no-ops outside tmux (`TMUX_PANE` empty).
 
 ### Mission pane tracking
 
@@ -422,11 +428,12 @@ Data Flow: Mission Lifecycle
 
 ### Running
 
-1. Wrapper writes PID file and initial `claude-state` as `idle`
+1. Wrapper writes PID file, starts socket listener
 2. Wrapper spawns Claude (with 1Password wrapping if `secrets.env` exists), setting `CLAUDE_CONFIG_DIR` and `AGENC_MISSION_UUID`
-3. Background goroutines start: heartbeat writer, claude-state watcher, remote refs watcher
-4. Main event loop blocks until Claude exits or a signal arrives
-5. Daemon concurrently syncs the mission's repo while the heartbeat is fresh
+3. Background goroutines start: heartbeat writer, remote refs watcher
+4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, and tmux pane coloring
+5. Main event loop blocks until Claude exits or a signal arrives
+6. Daemon concurrently syncs the mission's repo while the heartbeat is fresh
 
 ### Stopping
 

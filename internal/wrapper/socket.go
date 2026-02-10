@@ -11,9 +11,11 @@ import (
 
 // Command represents a request sent to the wrapper over the unix socket.
 type Command struct {
-	Command string `json:"command"`
-	Mode    string `json:"mode,omitempty"`   // "graceful" or "hard"
-	Reason  string `json:"reason,omitempty"` // e.g. "credentials_changed"
+	Command          string `json:"command"`
+	Mode             string `json:"mode,omitempty"`              // "graceful" or "hard" (restart)
+	Reason           string `json:"reason,omitempty"`            // e.g. "credentials_changed"
+	Event            string `json:"event,omitempty"`             // hook event name (claude_update)
+	NotificationType string `json:"notification_type,omitempty"` // for Notification events
 }
 
 // Response represents the wrapper's reply to a socket command.

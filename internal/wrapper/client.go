@@ -51,6 +51,40 @@ func SendCommand(socketFilepath string, cmd Command) (*Response, error) {
 	return &resp, nil
 }
 
+// SendCommandWithTimeout is like SendCommand but uses a custom dial timeout.
+// Useful for hook commands that need a shorter timeout to avoid blocking Claude.
+func SendCommandWithTimeout(socketFilepath string, cmd Command, timeout time.Duration) (*Response, error) {
+	if _, err := os.Stat(socketFilepath); os.IsNotExist(err) {
+		return nil, ErrWrapperNotRunning
+	}
+
+	conn, err := net.DialTimeout("unix", socketFilepath, timeout)
+	if err != nil {
+		if isConnectionRefused(err) {
+			return nil, ErrWrapperNotRunning
+		}
+		return nil, stacktrace.Propagate(err, "failed to connect to wrapper socket")
+	}
+	defer conn.Close()
+
+	// Set read/write deadlines based on the timeout
+	deadline := time.Now().Add(timeout)
+	if err := conn.SetDeadline(deadline); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to set socket deadline")
+	}
+
+	if err := json.NewEncoder(conn).Encode(cmd); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to send command to wrapper")
+	}
+
+	var resp Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read response from wrapper")
+	}
+
+	return &resp, nil
+}
+
 // isConnectionRefused checks if an error is a "connection refused" error,
 // which indicates a stale socket file.
 func isConnectionRefused(err error) bool {

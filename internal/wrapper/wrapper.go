@@ -8,8 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -50,10 +48,14 @@ type Wrapper struct {
 
 	// hasConversation tracks whether a Claude conversation exists that can be
 	// resumed with `claude -c`. Set to true at startup for resumes, and flipped
-	// to true when the user submits their first message (claude-state becomes
-	// "busy"). Written from watchClaudeState goroutine, read from the main
-	// event loop, so we use atomic.Bool.
-	hasConversation atomic.Bool
+	// to true when the user submits their first message (via UserPromptSubmit
+	// hook). Both reads and writes happen in the main event loop.
+	hasConversation bool
+
+	// claudeIdle tracks whether Claude is currently idle (waiting for user
+	// input). Initialized true (Claude hasn't started processing yet). Updated
+	// by handleClaudeUpdate from the main event loop.
+	claudeIdle bool
 
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
@@ -62,10 +64,6 @@ type Wrapper struct {
 
 	// commandCh receives commands from the socket listener goroutine.
 	commandCh chan commandWithResponse
-
-	// claudeIdleCh fires when claude-state transitions to "idle". Used by the
-	// main event loop to trigger deferred graceful restarts.
-	claudeIdleCh chan struct{}
 
 	// state tracks the wrapper's position in the restart state machine.
 	state wrapperState
@@ -88,7 +86,7 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 		db:             db,
 		claudeExited:   make(chan error, 1),
 		commandCh:      make(chan commandWithResponse, 1),
-		claudeIdleCh:   make(chan struct{}, 1),
+		claudeIdle:     true,
 		state:          stateRunning,
 	}
 }
@@ -113,12 +111,6 @@ func (w *Wrapper) Run(isResume bool) error {
 	}
 	defer os.Remove(pidFilepath)
 
-	// Write initial claude-state as "idle" (Claude hasn't started processing yet)
-	claudeStateFilepath := config.GetMissionClaudeStateFilepath(w.agencDirpath, w.missionID)
-	if err := os.WriteFile(claudeStateFilepath, []byte("idle"), 0644); err != nil {
-		return stacktrace.Propagate(err, "failed to write initial claude-state")
-	}
-
 	// Set up context for background goroutines
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,8 +131,7 @@ func (w *Wrapper) Run(isResume bool) error {
 	}
 	go w.writeHeartbeat(ctx)
 
-	// Start background watchers for state changes
-	go w.watchClaudeState(ctx)
+	// Start background watcher for git remote ref changes
 	if w.gitRepoName != "" {
 		go w.watchWorkspaceRemoteRefs(ctx)
 	}
@@ -151,15 +142,17 @@ func (w *Wrapper) Run(isResume bool) error {
 
 	// Track whether a resumable conversation exists. For resumes, one already
 	// exists. For new missions, we start with false and flip to true when the
-	// user submits their first message (claude-state becomes "busy").
+	// first UserPromptSubmit hook fires.
 	if isResume {
-		w.hasConversation.Store(true)
+		w.hasConversation = true
 	}
 
 	// Record which tmux pane this mission's wrapper is running in, and clear
-	// it on exit so the pane→mission mapping stays accurate.
+	// it on exit so the pane→mission mapping stays accurate. Reset the pane
+	// style to default on exit so it doesn't stay colored after the mission ends.
 	w.registerTmuxPane()
 	defer w.clearTmuxPane()
+	defer w.resetPaneStyle()
 
 	// Change the wrapper's working directory to the agent directory so that
 	// tmux's #{pane_current_path} reflects the mission directory. This makes
@@ -213,15 +206,6 @@ func (w *Wrapper) Run(isResume bool) error {
 			resp := w.handleCommand(cmdResp.cmd)
 			cmdResp.responseCh <- resp
 
-		case <-w.claudeIdleCh:
-			// Claude became idle while a restart is pending — initiate the restart
-			if w.state == stateRestartPending {
-				w.logger.Info("Claude is idle, initiating deferred graceful restart",
-					"reason", w.pendingRestart.Reason)
-				w.state = stateRestarting
-				_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			}
-
 		case <-w.claudeExited:
 			if w.state == stateRestarting {
 				// Wrapper-initiated restart: write back creds, clone fresh, respawn
@@ -231,7 +215,7 @@ func (w *Wrapper) Run(isResume bool) error {
 
 				// Respawn Claude: use -c if we have a conversation (graceful),
 				// fresh session otherwise (hard)
-				if w.hasConversation.Load() {
+				if w.hasConversation {
 					w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
 				} else {
 					w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, "")
@@ -263,6 +247,8 @@ func (w *Wrapper) handleCommand(cmd Command) Response {
 	switch cmd.Command {
 	case "restart":
 		return w.handleRestartCommand(cmd)
+	case "claude_update":
+		return w.handleClaudeUpdate(cmd)
 	default:
 		return Response{Status: "error", Error: "unknown command: " + cmd.Command}
 	}
@@ -290,7 +276,7 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 			w.state = stateRestarting
 			w.pendingRestart = &cmd
 			// For hard restart, don't preserve conversation
-			w.hasConversation.Store(false)
+			w.hasConversation = false
 			_ = w.claudeCmd.Process.Kill()
 			return Response{Status: "ok"}
 		}
@@ -304,13 +290,13 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 			w.state = stateRestarting
 			w.pendingRestart = &cmd
 			// For hard restart, don't preserve conversation
-			w.hasConversation.Store(false)
+			w.hasConversation = false
 			_ = w.claudeCmd.Process.Kill()
 			return Response{Status: "ok"}
 		}
 
 		// Graceful restart: check if Claude is currently idle
-		if w.readClaudeState() == "idle" {
+		if w.claudeIdle {
 			w.logger.Info("Claude is idle, initiating immediate graceful restart", "reason", cmd.Reason)
 			w.state = stateRestarting
 			w.pendingRestart = &cmd
@@ -348,69 +334,40 @@ func (w *Wrapper) writeBackCredentials() {
 	}
 }
 
-// readClaudeState reads the current value of the claude-state file.
-func (w *Wrapper) readClaudeState() string {
-	claudeStateFilepath := config.GetMissionClaudeStateFilepath(w.agencDirpath, w.missionID)
-	data, err := os.ReadFile(claudeStateFilepath)
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(data))
-}
+// handleClaudeUpdate processes a claude_update command sent by hooks. It
+// updates the wrapper's idle state, hasConversation flag, triggers deferred
+// restarts, and sets tmux pane colors for visual feedback.
+func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
+	w.logger.Info("Received claude_update", "event", cmd.Event, "notification_type", cmd.NotificationType)
 
-// watchClaudeState uses fsnotify to watch the mission root directory for
-// changes to the claude-state file. When the file content becomes "idle",
-// it sends on the claudeStateIdle channel.
-//
-// We watch the directory rather than the file directly because shell redirects
-// (echo idle > file) may create a new file rather than writing in place,
-// which would break a direct file watch.
-func (w *Wrapper) watchClaudeState(ctx context.Context) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		w.logger.Warn("Failed to create fsnotify watcher", "error", err)
-		return
-	}
-	defer watcher.Close()
+	switch cmd.Event {
+	case "Stop":
+		w.claudeIdle = true
+		w.hasConversation = true
+		w.setPaneNeedsAttention()
 
-	if err := watcher.Add(w.missionDirpath); err != nil {
-		w.logger.Warn("Failed to watch mission directory", "error", err)
-		return
-	}
+		// If a graceful restart is pending, now is the time to initiate it
+		if w.state == stateRestartPending {
+			w.logger.Info("Claude is idle, initiating deferred graceful restart",
+				"reason", w.pendingRestart.Reason)
+			w.state = stateRestarting
+			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
+		}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			if filepath.Base(event.Name) != config.ClaudeStateFilename {
-				continue
-			}
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-				state := w.readClaudeState()
-				if state == "busy" {
-					// User submitted a message, so a conversation now exists
-					w.hasConversation.Store(true)
-				} else if state == "idle" {
-					// Notify the main event loop that Claude is idle.
-					// Non-blocking send: if the channel is already full, the
-					// main loop will pick it up on the next iteration.
-					select {
-					case w.claudeIdleCh <- struct{}{}:
-					default:
-					}
-				}
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			w.logger.Warn("fsnotify error", "error", err)
+	case "UserPromptSubmit":
+		w.claudeIdle = false
+		w.hasConversation = true
+		w.resetPaneStyle()
+
+	case "Notification":
+		// Color the pane for notification types that need user attention
+		switch cmd.NotificationType {
+		case "permission_prompt", "idle_prompt", "elicitation_dialog":
+			w.setPaneNeedsAttention()
 		}
 	}
+
+	return Response{Status: "ok"}
 }
 
 // resolveRepoDirpath returns the path to the git repository within the
