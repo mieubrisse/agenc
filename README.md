@@ -256,6 +256,9 @@ paletteCommands:
     title: "📋 Daemon logs"
     command: "agenc tmux window new -- agenc daemon logs"
 
+# Override the command palette hotkey (default: k)
+# paletteTmuxKeybinding: "p"
+
 # Override the agenc binary path used in tmux keybindings and palette commands
 # tmuxAgencFilepath: /usr/local/bin/agenc-dev
 ```
@@ -304,6 +307,13 @@ Each entry supports four fields:
 - Key absent from config → full defaults
 - Key present with `{}` (all fields empty) → disabled entirely
 - Key present with some fields set → non-empty fields override defaults, empty fields keep defaults
+
+The palette hotkey defaults to `k` (prefix + a, k). Override it with the top-level `paletteTmuxKeybinding` key:
+
+```
+agenc config set paletteTmuxKeybinding p   # palette moves to prefix + a, p
+agenc config get paletteTmuxKeybinding     # check current value
+```
 
 Manage palette commands via the CLI:
 

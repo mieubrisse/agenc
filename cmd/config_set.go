@@ -16,8 +16,9 @@ var configSetCmd = &cobra.Command{
 	Long: `Set a configuration key in config.yml.
 
 Supported keys:
-  doAutoConfirm       Skip confirmation in 'agenc do' (bool: true/false)
-  tmuxAgencFilepath   Path to agenc binary used in tmux keybindings (string)`,
+  doAutoConfirm          Skip confirmation in 'agenc do' (bool: true/false)
+  paletteTmuxKeybinding  Tmux key for the command palette (string, default: k)
+  tmuxAgencFilepath      Path to agenc binary used in tmux keybindings (string)`,
 	Args: cobra.ExactArgs(2),
 	RunE: runConfigSet,
 }
@@ -62,6 +63,9 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 			return stacktrace.NewError("invalid value '%s' for %s; must be true or false", value, key)
 		}
 		cfg.DoAutoConfirm = b
+		return nil
+	case "paletteTmuxKeybinding":
+		cfg.PaletteTmuxKeybinding = value
 		return nil
 	case "tmuxAgencFilepath":
 		cfg.TmuxAgencFilepath = value

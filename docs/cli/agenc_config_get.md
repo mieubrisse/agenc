@@ -9,8 +9,9 @@ Get the current value of a configuration key.
 Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
-  doAutoConfirm       Skip confirmation in 'agenc do' (bool)
-  tmuxAgencFilepath   Path to agenc binary used in tmux keybindings (string)
+  doAutoConfirm          Skip confirmation in 'agenc do' (bool)
+  paletteTmuxKeybinding  Tmux key for the command palette (string, default: k)
+  tmuxAgencFilepath      Path to agenc binary used in tmux keybindings (string)
 
 ```
 agenc config get <key> [flags]

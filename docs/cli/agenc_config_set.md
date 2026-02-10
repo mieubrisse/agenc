@@ -7,8 +7,9 @@ Set a config value
 Set a configuration key in config.yml.
 
 Supported keys:
-  doAutoConfirm       Skip confirmation in 'agenc do' (bool: true/false)
-  tmuxAgencFilepath   Path to agenc binary used in tmux keybindings (string)
+  doAutoConfirm          Skip confirmation in 'agenc do' (bool: true/false)
+  paletteTmuxKeybinding  Tmux key for the command palette (string, default: k)
+  tmuxAgencFilepath      Path to agenc binary used in tmux keybindings (string)
 
 ```
 agenc config set <key> <value> [flags]
