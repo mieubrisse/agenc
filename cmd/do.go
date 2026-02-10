@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -23,6 +24,8 @@ const (
 	confirmAccepted confirmResult = iota
 	confirmEdit
 )
+
+var doYesFlag bool
 
 var doCmd = &cobra.Command{
 	Use:   doCmdStr + " [prompt]",
@@ -41,6 +44,7 @@ Examples:
 }
 
 func init() {
+	doCmd.Flags().BoolVarP(&doYesFlag, yesFlagName, "y", false, "Skip confirmation and execute immediately")
 	rootCmd.AddCommand(doCmd)
 }
 
@@ -55,6 +59,13 @@ func runDo(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read agenc config")
+	}
+
+	autoConfirm := doYesFlag || cfg.DoAutoConfirm
 
 	// Get initial user prompt: inline args or editor
 	var userPrompt string
@@ -90,6 +101,11 @@ func runDo(cmd *cobra.Command, args []string) error {
 		}
 
 		missionNewArgs := buildMissionNewArgs(action)
+
+		if autoConfirm {
+			printCommand(missionNewArgs)
+			return executeMissionNew(missionNewArgs)
+		}
 
 		result := confirmExecution(missionNewArgs)
 		if result == confirmAccepted {
@@ -313,28 +329,34 @@ func buildMissionNewArgs(action *doAction) []string {
 	return args
 }
 
-// confirmExecution shows the user what will be executed and waits for a
-// single keypress. ENTER confirms; ESC or Ctrl-C returns to the editor.
-func confirmExecution(missionNewArgs []string) confirmResult {
+// formatCommandDisplay returns a formatted string showing the command that will be executed.
+func formatCommandDisplay(missionNewArgs []string) string {
 	binaryStr := agencCmdStr
+	quotedArgs := shellQuoteArgs(missionNewArgs)
 
-	var cmdDisplay string
 	if isInsideAgencTmux() {
-		quotedArgs := shellQuoteArgs(missionNewArgs)
-		cmdDisplay = fmt.Sprintf(
+		return fmt.Sprintf(
 			"%s%s tmux window new -- %s %s%s %s %s",
 			ansiDarkGray, binaryStr, binaryStr, ansiReset,
 			ansiBold, missionCmdStr+" "+newCmdStr+" "+strings.Join(quotedArgs, " "), ansiReset,
 		)
-	} else {
-		quotedArgs := shellQuoteArgs(missionNewArgs)
-		cmdDisplay = fmt.Sprintf(
-			"%s%s %s %s%s",
-			ansiBold, binaryStr, missionCmdStr+" "+newCmdStr, strings.Join(quotedArgs, " "), ansiReset,
-		)
 	}
 
-	fmt.Printf("\n%s\n\n", cmdDisplay)
+	return fmt.Sprintf(
+		"%s%s %s %s%s",
+		ansiBold, binaryStr, missionCmdStr+" "+newCmdStr, strings.Join(quotedArgs, " "), ansiReset,
+	)
+}
+
+// printCommand shows the user what will be executed, without waiting for confirmation.
+func printCommand(missionNewArgs []string) {
+	fmt.Printf("\n%s\n\n", formatCommandDisplay(missionNewArgs))
+}
+
+// confirmExecution shows the user what will be executed and waits for a
+// single keypress. ENTER confirms; ESC or Ctrl-C returns to the editor.
+func confirmExecution(missionNewArgs []string) confirmResult {
+	fmt.Printf("\n%s\n\n", formatCommandDisplay(missionNewArgs))
 	fmt.Printf("Press %sENTER%s to run, %sESC%s to edit\n", ansiBold, ansiReset, ansiBold, ansiReset)
 
 	result := readConfirmKey()

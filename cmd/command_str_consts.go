@@ -95,6 +95,9 @@ const (
 	paletteCommandDescriptionFlagName = "description"
 	paletteCommandKeybindingFlagName  = "keybinding"
 
+	// do flags
+	yesFlagName = "yes"
+
 	// cron flags
 	headlessFlagName = "headless"
 	timeoutFlagName  = "timeout"

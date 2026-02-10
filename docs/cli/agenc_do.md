@@ -22,6 +22,7 @@ agenc do [prompt] [flags]
 
 ```
   -h, --help   help for do
+  -y, --yes    Skip confirmation and execute immediately
 ```
 
 ### SEE ALSO

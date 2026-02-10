@@ -166,6 +166,7 @@ type AgencConfig struct {
 	Crons              map[string]CronConfig            `yaml:"crons,omitempty"`
 	CronsMaxConcurrent int                              `yaml:"cronsMaxConcurrent,omitempty"`
 	PaletteCommands    map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
+	DoAutoConfirm      bool                             `yaml:"doAutoConfirm,omitempty"`
 }
 
 // GetTmuxAgencBinary returns the agenc binary name/path used in tmux
