@@ -49,7 +49,7 @@ func runConfigPaletteCommandLs(cmd *cobra.Command, args []string) error {
 		}
 		keybinding := ""
 		if cmd.TmuxKeybinding != "" {
-			keybinding = fmt.Sprintf("prefix+a, %s", cmd.TmuxKeybinding)
+			keybinding = fmt.Sprintf("prefix → a → %s", cmd.TmuxKeybinding)
 		}
 		entries = append(entries, displayEntry{
 			Name:       cmd.Name,
