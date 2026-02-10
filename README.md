@@ -2,10 +2,31 @@
 
 AgenC
 =====
+AgenC is an agentic work factory focused on learning loops. Here's why I built it:
 
-Multi-agent development is plate-spinning. You're building a feature in one Claude session, spot a prompt that needs tweaking, pop open another session to fix it, switch back to approve a permissions dialog, realize your other session just pushed to the same branch - and suddenly you're not coding anymore, you're just managing Claude sessions.
+Agentic work looks like this:
 
-AgenC (pronounced "agency") is a CLI built for that chaos. Every Claude Code session runs in an isolated sandbox called a **mission** - its own repo copy, its own config, no collision risk. Need to fork off and fix something? Open a side mission from the command palette, handle it, close it, pick up where you left off. The gap between "I need to do this thing" and "I'm doing this thing" stays near zero, no matter how many plates you're spinning.
+![](readme-images/work.png)
+
+You do some, produce output, and produce more ideas + learnings on how to refine your config and prompts.
+
+But you can't implement them all because Claude is the bottleneck:
+
+![](readme-images/bottlenecked.png)
+
+Launching new Claudes is effortful, you have to take care they don't step on each other, managing the various terminal windows is circus, and if you upgrade your prompts or configs you have to find all the windows using it and reload.
+
+AgenC allows you to go as fast as you can decide what you want:
+
+![](readme-images/big-threadpool.png)
+
+Every Claude Code session runs in an isolated sandbox with its own repo copy, its own config, no collision risk.
+
+Need to fork off and fix something? Open a side mission from the command palette, handle it, close it, pick up where you left off.
+
+The gap between "I need to do this thing" and "I'm doing this thing" stays near zero, no matter how many plates you're spinning.
+
+It's like going from playing Minecraft to Starcraft.
 
 Quick Start
 -----------
