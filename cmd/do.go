@@ -268,12 +268,14 @@ CURRENT MISSIONS:
 RULES:
 - The only action is creating a new mission (starting a Claude agent in a repo).
 - Match the user's repo reference generously: "dotfiles" → "github.com/mieubrisse/dotfiles".
-- If no repo matches, set repo to "" for a blank mission.
+- IMPORTANT: You may ONLY use repo values from the AVAILABLE REPOS list above, or "" for a blank mission. Never invent or guess a repo name.
+- If the user's request does not clearly match one of the available repos, set repo to "" for a blank mission. Blank missions are a normal, expected outcome — they launch a general-purpose agent without any repo context.
 - Distinguish between requests that contain a TASK for the agent vs requests that just want to OPEN a repo.
   - "In dotfiles, add a test agent" → has a task → prompt = "add a test agent"
   - "open my todoist project" → just opening → prompt = ""
   - "fix the auth bug in web app" → has a task → prompt = "fix the auth bug"
   - "launch dotfiles" → just opening → prompt = ""
+  - "file a bug with the foobar project" (not in available repos) → blank mission → {"repo": "", "prompt": "file a bug with the foobar project"}
 - When there IS a task, extract just the agent instruction (strip the repo reference). Do not embellish.
 - When the request is purely about opening/launching/starting a repo with no task, set prompt to "".
 
