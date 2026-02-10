@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
+	"github.com/rodaine/table"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
@@ -66,22 +67,37 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
-	tbl := tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "SESSION", "REPO")
+	var tbl table.Table
+	if lsAllFlag {
+		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "SESSION", "REPO")
+	} else {
+		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
+	}
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
 		sessionName := resolveSessionName(db, m)
-		pane := "--"
-		if m.TmuxPane != nil {
-			pane = *m.TmuxPane
+		if lsAllFlag {
+			pane := "--"
+			if m.TmuxPane != nil {
+				pane = *m.TmuxPane
+			}
+			tbl.AddRow(
+				formatLastActive(m.LastHeartbeat),
+				m.ShortID,
+				colorizeStatus(status),
+				pane,
+				truncatePrompt(sessionName, defaultPromptMaxLen),
+				displayGitRepo(m.GitRepo),
+			)
+		} else {
+			tbl.AddRow(
+				formatLastActive(m.LastHeartbeat),
+				m.ShortID,
+				colorizeStatus(status),
+				truncatePrompt(sessionName, defaultPromptMaxLen),
+				displayGitRepo(m.GitRepo),
+			)
 		}
-		tbl.AddRow(
-			formatLastActive(m.LastHeartbeat),
-			m.ShortID,
-			colorizeStatus(status),
-			pane,
-			truncatePrompt(sessionName, defaultPromptMaxLen),
-			displayGitRepo(m.GitRepo),
-		)
 	}
 	tbl.Print()
 
