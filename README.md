@@ -119,6 +119,7 @@ Tips
 - **Use tmux.** Run `agenc tmux attach` to enter the AgenC tmux session. The command palette, window management, and keybindings all live here - it's the intended way to use AgenC.
 - **Rename missions when you stop them.** When you run `agenc mission stop`, give the mission a descriptive name so you can find it later with `agenc mission resume`. A wall of unnamed missions is hard to navigate.
 - **Open a shell pane with prefix + %.** Inside the AgenC tmux session, the standard tmux split (`prefix + %`) opens a shell in the mission's workspace directory. Handy for running tests, checking git status, or poking around while Claude works.
+- **Always commit and push.** Missions are ephemeral — their local filesystems don't persist. If your agent makes changes but doesn't push them, the work vanishes when the mission ends. Teach your agents (via CLAUDE.md) to commit and push after every meaningful change so that each mission's output is durable and independent.
 
 How It Works
 ------------
