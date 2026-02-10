@@ -229,7 +229,13 @@ RULES:
 - The only action is creating a new mission (starting a Claude agent in a repo).
 - Match the user's repo reference generously: "dotfiles" → "github.com/mieubrisse/dotfiles".
 - If no repo matches, set repo to "" for a blank mission.
-- Pass through the user's intent faithfully as the prompt. Do not embellish.
+- Distinguish between requests that contain a TASK for the agent vs requests that just want to OPEN a repo.
+  - "In dotfiles, add a test agent" → has a task → prompt = "add a test agent"
+  - "open my todoist project" → just opening → prompt = ""
+  - "fix the auth bug in web app" → has a task → prompt = "fix the auth bug"
+  - "launch dotfiles" → just opening → prompt = ""
+- When there IS a task, extract just the agent instruction (strip the repo reference). Do not embellish.
+- When the request is purely about opening/launching/starting a repo with no task, set prompt to "".
 
 Respond with ONLY a JSON object (no markdown fences, no explanation):
 {"repo": "github.com/owner/repo", "prompt": "the instruction for the agent"}`, reposSection, missionsSummary)
@@ -273,10 +279,6 @@ func parseLLMResponse(raw string) (*doAction, error) {
 		return nil, stacktrace.NewError("failed to parse LLM response as JSON:\n%s", cleaned)
 	}
 
-	if action.Prompt == "" {
-		return nil, stacktrace.NewError("LLM returned empty prompt:\n%s", cleaned)
-	}
-
 	return &action, nil
 }
 
@@ -288,7 +290,9 @@ func buildMissionNewArgs(action *doAction) []string {
 	} else {
 		args = append(args, "--"+blankFlagName)
 	}
-	args = append(args, "--"+promptFlagName, action.Prompt)
+	if action.Prompt != "" {
+		args = append(args, "--"+promptFlagName, action.Prompt)
+	}
 	return args
 }
 
