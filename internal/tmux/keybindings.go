@@ -115,6 +115,35 @@ func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []Cu
 	return keybindings
 }
 
+// RefreshKeybindings regenerates the tmux keybindings file from the current
+// config and sources it into any running tmux server. This is called by CLI
+// commands that modify keybinding-related config (config set, palette-command
+// add/update/rm) so changes take effect immediately.
+func RefreshKeybindings(agencDirpath string) error {
+	keybindingsFilepath := config.GetTmuxKeybindingsFilepath(agencDirpath)
+
+	tmuxMajor, tmuxMinor, _ := DetectVersion()
+
+	agencBinary := "agenc"
+	paletteKey := config.DefaultPaletteTmuxKeybinding
+	var keybindings []CustomKeybinding
+	if cfg, _, err := config.ReadAgencConfig(agencDirpath); err == nil {
+		agencBinary = cfg.GetTmuxAgencBinary()
+		paletteKey = cfg.GetPaletteTmuxKeybinding()
+		keybindings = BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
+	}
+
+	if err := WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, paletteKey, keybindings); err != nil {
+		return stacktrace.Propagate(err, "failed to write keybindings file")
+	}
+
+	if err := SourceKeybindings(keybindingsFilepath); err != nil {
+		return stacktrace.Propagate(err, "failed to source keybindings into tmux")
+	}
+
+	return nil
+}
+
 // SourceKeybindings sources the keybindings file into a running tmux server.
 // Returns silently if no tmux server is running.
 func SourceKeybindings(keybindingsFilepath string) error {

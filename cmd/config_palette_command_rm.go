@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/tmux"
 )
 
 var configPaletteCommandRmCmd = &cobra.Command{
@@ -48,5 +49,10 @@ func runConfigPaletteCommandRm(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Printf("Removed palette command '%s'\n", name)
 	}
+
+	if err := tmux.RefreshKeybindings(agencDirpath); err != nil {
+		fmt.Printf("Warning: failed to reload tmux keybindings: %v\n", err)
+	}
+
 	return nil
 }

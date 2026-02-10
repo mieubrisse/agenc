@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/tmux"
 )
 
@@ -36,30 +35,8 @@ func (d *Daemon) runKeybindingsWriterLoop(ctx context.Context) {
 // writeAndSourceKeybindings regenerates the keybindings file and sources it
 // into any running tmux server.
 func (d *Daemon) writeAndSourceKeybindings() {
-	keybindingsFilepath := config.GetTmuxKeybindingsFilepath(d.agencDirpath)
-
-	// Detect tmux version for version-gated keybindings (e.g. display-popup).
-	// On error, fall back to (0, 0) — palette keybinding is omitted but all
-	// other keybindings are still emitted.
-	tmuxMajor, tmuxMinor, _ := tmux.DetectVersion()
-
-	// Read config for the tmuxAgencFilepath override, palette key, and palette commands.
-	agencBinary := "agenc"
-	paletteKey := config.DefaultPaletteTmuxKeybinding
-	var keybindings []tmux.CustomKeybinding
-	if cfg, _, err := config.ReadAgencConfig(d.agencDirpath); err == nil {
-		agencBinary = cfg.GetTmuxAgencBinary()
-		paletteKey = cfg.GetPaletteTmuxKeybinding()
-		keybindings = tmux.BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
-	}
-
-	if err := tmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, paletteKey, keybindings); err != nil {
-		d.logger.Printf("Keybindings writer: failed to write: %v", err)
-		return
-	}
-
-	if err := tmux.SourceKeybindings(keybindingsFilepath); err != nil {
-		d.logger.Printf("Keybindings writer: failed to source: %v", err)
+	if err := tmux.RefreshKeybindings(d.agencDirpath); err != nil {
+		d.logger.Printf("Keybindings writer: %v", err)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/tmux"
 )
 
 var configSetCmd = &cobra.Command{
@@ -50,7 +51,20 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("%s = %s\n", key, value)
+
+	if isTmuxKeybindingKey(key) {
+		if err := tmux.RefreshKeybindings(agencDirpath); err != nil {
+			fmt.Printf("Warning: failed to reload tmux keybindings: %v\n", err)
+		}
+	}
+
 	return nil
+}
+
+// isTmuxKeybindingKey returns true if the config key affects tmux keybindings
+// and should trigger a keybindings refresh.
+func isTmuxKeybindingKey(key string) bool {
+	return key == "paletteTmuxKeybinding" || key == "tmuxAgencFilepath"
 }
 
 // setConfigValue applies a string value to the named config key, performing
