@@ -92,13 +92,16 @@ Run `agenc login` when:
 - **Credentials expired** — Claude sessions fail to authenticate
 - **After re-authenticating with Claude** — so existing missions pick up the new credentials
 
-The command opens an interactive Claude shell where you run `/login`, authorize in the browser, and exit. AgenC then propagates the updated credentials to all existing missions.
+The command opens an interactive Claude shell where you run `/login`, authorize in the browser, and exit. AgenC then:
+
+1. Preserves any MCP OAuth tokens from the previous credentials (since `claude login` overwrites the global Keychain entry with a fresh blob that only contains the Claude auth token)
+2. Propagates the updated credentials — with MCP tokens intact — to all existing missions
 
 ```
 agenc login
 ```
 
-You do **not** need to run `agenc login` for MCP OAuth tokens — those propagate automatically when you authenticate inside any mission.
+You do **not** need to run `agenc login` for MCP OAuth tokens — those propagate automatically when you authenticate inside any mission. And if you do run `agenc login`, your existing MCP tokens are preserved.
 
 ### MCP OAuth tokens
 
