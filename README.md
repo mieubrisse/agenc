@@ -58,6 +58,13 @@ Run `agenc --help` for available commands, or see [docs/cli/](docs/cli/) for com
 
 <!--- TODO Debora feedback - why use AgenC? There are a million AIs out there; why do we need this one? -->
 
+Tips
+----
+
+- **Use tmux.** Run `agenc tmux attach` to enter the AgenC tmux session. The command palette, window management, and keybindings all live here - it's the intended way to use AgenC.
+- **Rename missions when you stop them.** When you run `agenc mission stop`, give the mission a descriptive name so you can find it later with `agenc mission resume`. A wall of unnamed missions is hard to navigate.
+- **Open a shell pane with prefix + %.** Inside the AgenC tmux session, the standard tmux split (`prefix + %`) opens a shell in the mission's workspace directory. Handy for running tests, checking git status, or poking around while Claude works.
+
 How It Works
 ------------
 
