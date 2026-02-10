@@ -357,7 +357,7 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 	case "UserPromptSubmit":
 		w.claudeIdle = false
 		w.hasConversation = true
-		w.resetPaneStyle()
+		w.setPaneBusy()
 
 	case "Notification":
 		// Color the pane for notification types that need user attention

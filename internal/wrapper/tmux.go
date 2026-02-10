@@ -51,27 +51,34 @@ func (w *Wrapper) clearTmuxPane() {
 	_ = w.db.ClearTmuxPane(w.missionID)
 }
 
+// setPaneBusy sets the tmux pane background to the busy color, indicating
+// Claude is actively working. No-op when TMUX_PANE is empty.
+func (w *Wrapper) setPaneBusy() {
+	w.setPaneColor(paneBusyColor)
+}
+
 // setPaneNeedsAttention sets the tmux pane background to the attention color,
 // signaling that the mission needs user interaction (e.g., Claude is idle or
 // waiting for permission). No-op when TMUX_PANE is empty.
 func (w *Wrapper) setPaneNeedsAttention() {
-	paneID := os.Getenv("TMUX_PANE")
-	if paneID == "" {
-		return
-	}
-	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "select-pane", "-t", paneID, "-P", "bg="+paneAttentionColor).Run()
+	w.setPaneColor(paneAttentionColor)
 }
 
 // resetPaneStyle resets the tmux pane background to the terminal default.
 // No-op when TMUX_PANE is empty.
 func (w *Wrapper) resetPaneStyle() {
+	w.setPaneColor(paneDefaultColor)
+}
+
+// setPaneColor sets the tmux pane background to the given color.
+// No-op when TMUX_PANE is empty.
+func (w *Wrapper) setPaneColor(color string) {
 	paneID := os.Getenv("TMUX_PANE")
 	if paneID == "" {
 		return
 	}
 	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "select-pane", "-t", paneID, "-P", "bg="+paneDefaultColor).Run()
+	exec.Command("tmux", "select-pane", "-t", paneID, "-P", "bg="+color).Run()
 }
 
 // extractRepoName extracts just the repository name from a canonical repo
@@ -86,10 +93,12 @@ func extractRepoName(gitRepoName string) string {
 
 // Pane color constants for tmux visual feedback.
 const (
+	// paneBusyColor is displayed when Claude is actively working.
+	paneBusyColor = "colour018"
+
 	// paneAttentionColor is displayed when the mission needs user attention
-	// (Claude is idle, waiting for permission, etc.). Dark teal — visible on
-	// dark terminals without being garish.
-	paneAttentionColor = "colour022"
+	// (Claude is idle, waiting for permission, etc.).
+	paneAttentionColor = "colour136"
 
 	// paneDefaultColor resets the pane to the terminal's normal background.
 	paneDefaultColor = "default"
