@@ -2,31 +2,27 @@
 
 AgenC
 =====
-AgenC is an agentic work factory focused on learning loops. Here's why I built it:
+AgenC is an agentic work factory oriented around driving teams of Claudes. Here's why I built it:
 
 Agentic work looks like this:
 
 ![](readme-images/work.png)
 
-You do some, produce output, and produce more ideas + learnings on how to refine your config and prompts.
+You drive a Claude, produce output, and generate more ideas + learnings on how to refine your config and prompts.
 
 But you can't implement them all because Claude is the bottleneck:
 
 ![](readme-images/bottlenecked.png)
 
-Launching new Claudes is effortful, you have to take care they don't step on each other, managing the various terminal windows is circus, and if you upgrade your prompts or configs you have to find all the windows using it and reload.
+Launching new Claudes is effortful, you have to take care they don't step on each other, managing the various terminal windows is a circus, and if you upgrade your prompts or configs you have to find all the windows using it and reload.
 
-AgenC allows you to go as fast as you can decide what you want:
+AgenC makes this easy by isolating Claudes in sandboxes, making it trivial to spawn new missions, and providing the tools to herd them all:
 
 ![](readme-images/big-threadpool.png)
 
-Every Claude Code session runs in an isolated sandbox with its own repo copy, its own config, no collision risk.
-
-Need to fork off and fix something? Open a side mission from the command palette, handle it, close it, pick up where you left off.
-
 The gap between "I need to do this thing" and "I'm doing this thing" stays near zero, no matter how many plates you're spinning.
 
-It's like going from playing Minecraft to Starcraft.
+It's like going from Minecraft to Starcraft.
 
 Quick Start
 -----------
