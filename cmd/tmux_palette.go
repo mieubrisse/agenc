@@ -60,22 +60,22 @@ func buildPaletteEntries() ([]config.ResolvedPaletteCommand, error) {
 // match against fzf output, which strips ANSI codes.
 func plainDisplayTitle(entry config.ResolvedPaletteCommand) string {
 	title := stripVariationSelectors(entry.Title)
-	if entry.TmuxKeybinding != "" {
-		title += fmt.Sprintf(" (a → %s)", entry.TmuxKeybinding)
+	if kb := entry.FormatKeybinding(); kb != "" {
+		title += fmt.Sprintf(" (%s)", kb)
 	}
 	return title
 }
 
 // formatPaletteEntryLine formats a palette entry for fzf display. Entries with
-// a description get "Label (a → key)  —  Description"; entries without get
-// "Label (a → key)" only. The keybinding is shown in blue.
+// a description get "Label (prefix → a → key)  —  Description"; entries
+// without get "Label (prefix → a → key)" only. The keybinding is shown in blue.
 func formatPaletteEntryLine(entry config.ResolvedPaletteCommand) string {
 	stripped := stripVariationSelectors(entry.Title)
 	boldLabel := fmt.Sprintf("%s%s%s", ansiBold, stripped, ansiReset)
 
 	keybindingSuffix := ""
-	if entry.TmuxKeybinding != "" {
-		keybindingSuffix = fmt.Sprintf(" %s(a → %s)%s", ansiLightBlue, entry.TmuxKeybinding, ansiReset)
+	if kb := entry.FormatKeybinding(); kb != "" {
+		keybindingSuffix = fmt.Sprintf(" %s(%s)%s", ansiLightBlue, kb, ansiReset)
 	}
 
 	if entry.Description == "" {

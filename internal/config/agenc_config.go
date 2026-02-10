@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -157,6 +158,15 @@ type ResolvedPaletteCommand struct {
 	Command        string
 	TmuxKeybinding string
 	IsBuiltin      bool
+}
+
+// FormatKeybinding returns the human-readable keybinding string for this
+// command (e.g. "prefix → a → d"), or an empty string if no keybinding is set.
+func (c ResolvedPaletteCommand) FormatKeybinding() string {
+	if c.TmuxKeybinding == "" {
+		return ""
+	}
+	return fmt.Sprintf("prefix → a → %s", c.TmuxKeybinding)
 }
 
 // AgencConfig represents the contents of config.yml.
