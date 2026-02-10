@@ -72,7 +72,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		sessionName := resolveSessionName(db, m)
 		pane := "--"
 		if m.TmuxPane != nil {
-			pane = "%" + *m.TmuxPane
+			pane = *m.TmuxPane
 		}
 		tbl.AddRow(
 			formatLastActive(m.LastHeartbeat),
