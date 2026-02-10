@@ -13,12 +13,21 @@ import (
 // keybindings behind a prefix (prefix + a → agenc table).
 const agencKeyTable = "agenc"
 
+// CustomKeybinding represents a user/builtin keybinding to emit in the
+// generated tmux keybindings file.
+type CustomKeybinding struct {
+	Key     string // tmux key (e.g. "f", "C-y")
+	Command string // full command string (already substituted with agenc binary)
+	Comment string // human-readable comment for the generated file
+}
+
 // GenerateKeybindingsContent returns the full content of the agenc-managed
 // tmux keybindings configuration file. The tmuxMajor/tmuxMinor parameters
 // control version-gated features (e.g. display-popup requires tmux >= 3.2).
-// The agencBinary parameter is the binary name or path used in run-shell
-// commands (e.g. "agenc" or "/usr/local/bin/agenc-dev").
-func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string) string {
+// The agencBinary parameter is the binary name or path used in the palette
+// keybinding. The customKeybindings slice contains all keybindings from
+// resolved palette commands (both builtin and user-defined).
+func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string, customKeybindings []CustomKeybinding) string {
 	var sb strings.Builder
 
 	sb.WriteString("# AgenC tmux keybindings\n")
@@ -29,29 +38,21 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string) st
 	// prefix + a enters the agenc key table
 	sb.WriteString("# Enter the AgenC key table (prefix + a)\n")
 	fmt.Fprintf(&sb, "bind-key a switch-client -T %s\n", agencKeyTable)
-	sb.WriteString("\n")
-
-	// agenc table: n — new mission in a new window
-	sb.WriteString("# New mission in a new window (prefix + a, n)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s n run-shell '%s tmux window new -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
-
-	sb.WriteString("\n")
-
-	// agenc table: p — new mission in a side-by-side pane
-	sb.WriteString("# New mission in a side-by-side pane (prefix + a, p)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s p run-shell '%s tmux pane new -- %s mission new'\n", agencKeyTable, agencBinary, agencBinary)
-
-	sb.WriteString("\n")
-
-	// Natural language 'do' command (prefix + a, d)
-	sb.WriteString("# Natural language do command (prefix + a, d)\n")
-	fmt.Fprintf(&sb, "bind-key -T %s d run-shell '%s tmux window new -- %s do'\n", agencKeyTable, agencBinary, agencBinary)
 
 	// Command palette (requires tmux >= 3.2 for display-popup)
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
 		sb.WriteString("\n")
 		sb.WriteString("# Command palette (prefix + a, k)\n")
 		fmt.Fprintf(&sb, "bind-key -T %s k run-shell 'tmux display-popup -E -w 60%% -h 50%% \"%s tmux palette\"'\n", agencKeyTable, agencBinary)
+	}
+
+	// Emit all keybindings from resolved palette commands
+	for _, kb := range customKeybindings {
+		sb.WriteString("\n")
+		if kb.Comment != "" {
+			fmt.Fprintf(&sb, "# %s\n", kb.Comment)
+		}
+		fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '%s'\n", agencKeyTable, kb.Key, kb.Command)
 	}
 
 	return sb.String()
@@ -61,8 +62,8 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, agencBinary string) st
 // any previous version. The tmuxMajor/tmuxMinor parameters control
 // version-gated keybindings. The agencBinary parameter is the binary name or
 // path used in run-shell commands.
-func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, agencBinary string) error {
-	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor, agencBinary)
+func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, agencBinary string, customKeybindings []CustomKeybinding) error {
+	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor, agencBinary, customKeybindings)
 	if err := os.WriteFile(keybindingsFilepath, []byte(content), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write keybindings file '%s'", keybindingsFilepath)
 	}

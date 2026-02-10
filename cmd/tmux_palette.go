@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sort"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -12,62 +11,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// paletteEntry defines a single entry in the command palette.
-type paletteEntry struct {
-	// label is the user-visible name shown in the fzf picker.
-	label string
-
-	// description is shown alongside the label for context.
-	description string
-
-	// commandArgs is the argument list appended after the resolved agenc binary
-	// path when dispatching via `agenc tmux window new -- <binary> <args...>`.
-	commandArgs []string
-}
-
-var paletteEntries = []paletteEntry{
-	{
-		label:       "✅ Do",
-		description: "tell AgenC what it should do",
-		commandArgs: []string{doCmdStr},
-	},
-	{
-		label:       "🦀 Quick Claude",
-		description: "Launch a blank mission instantly",
-		commandArgs: []string{missionCmdStr, newCmdStr, "--" + blankFlagName},
-	},
-	{
-		label:       "🚀 Start mission",
-		description: "Create a new mission and launch Claude",
-		commandArgs: []string{missionCmdStr, newCmdStr},
-	},
-	{
-		label:       "🟢 Resume mission",
-		description: "Resume a stopped mission",
-		commandArgs: []string{missionCmdStr, resumeCmdStr},
-	},
-	{
-		label:       "🛑 Stop mission",
-		description: "Stop a running mission",
-		commandArgs: []string{missionCmdStr, stopCmdStr},
-	},
-	{
-		label:       "❌ Remove mission",
-		description: "Remove a mission and its directory",
-		commandArgs: []string{missionCmdStr, rmCmdStr},
-	},
-	{
-		label:       "💥 Nuke missions",
-		description: "Remove all archived missions",
-		commandArgs: []string{missionCmdStr, nukeCmdStr},
-	},
-}
-
 var tmuxPaletteCmd = &cobra.Command{
 	Use:   paletteCmdStr,
 	Short: "Open the AgenC command palette (runs inside a tmux display-popup)",
 	Long: `Presents an fzf-based command picker inside a tmux display-popup.
-On selection, the chosen command runs in a new tmux window. On cancel
+On selection, the chosen command runs via sh -c. On cancel
 (Ctrl-C or Esc), the popup closes with no action.
 
 This command is designed to be invoked by the palette keybinding
@@ -80,58 +28,28 @@ func init() {
 	tmuxCmd.AddCommand(tmuxPaletteCmd)
 }
 
-// buildPaletteEntries returns the built-in palette entries plus any user-defined
-// custom commands from config.yml. On config read failure, logs the error and
-// returns built-in entries only (graceful degradation).
-func buildPaletteEntries() ([]paletteEntry, error) {
-	// Start with a copy of the built-in entries
-	entries := make([]paletteEntry, len(paletteEntries))
-	copy(entries, paletteEntries)
-
+// buildPaletteEntries returns the resolved palette entries from config.
+// Only entries with a non-empty Title are included in the palette.
+// On config read failure, returns an error.
+func buildPaletteEntries() ([]config.ResolvedPaletteCommand, error) {
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
-		tmuxDebugLog("palette: failed to get agenc dirpath: %v", err)
-		return entries, nil
+		return nil, stacktrace.Propagate(err, "failed to get agenc dirpath")
 	}
 
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
-		tmuxDebugLog("palette: failed to read config: %v", err)
-		return nil, stacktrace.Propagate(err, "failed to read config for palette custom commands")
+		return nil, stacktrace.Propagate(err, "failed to read config for palette commands")
 	}
 
-	if len(cfg.CustomCommands) == 0 {
-		return entries, nil
-	}
+	resolved := cfg.GetResolvedPaletteCommands()
 
-	// Build a set of existing labels (stripped) for collision detection
-	existingLabels := make(map[string]bool, len(entries))
-	for _, entry := range entries {
-		existingLabels[stripVariationSelectors(entry.label)] = true
-	}
-
-	// Sort custom command keys for deterministic ordering
-	names := make([]string, 0, len(cfg.CustomCommands))
-	for name := range cfg.CustomCommands {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		cmdCfg := cfg.CustomCommands[name]
-		strippedLabel := stripVariationSelectors(cmdCfg.PaletteName)
-		if existingLabels[strippedLabel] {
-			return nil, stacktrace.NewError(
-				"custom command '%s' paletteName '%s' collides with a built-in palette entry",
-				name, cmdCfg.PaletteName,
-			)
+	// Filter: only entries with a title appear in the palette
+	var entries []config.ResolvedPaletteCommand
+	for _, cmd := range resolved {
+		if cmd.Title != "" {
+			entries = append(entries, cmd)
 		}
-		existingLabels[strippedLabel] = true
-
-		entries = append(entries, paletteEntry{
-			label:       cmdCfg.PaletteName,
-			commandArgs: cmdCfg.GetArgs(),
-		})
 	}
 
 	return entries, nil
@@ -139,13 +57,13 @@ func buildPaletteEntries() ([]paletteEntry, error) {
 
 // formatPaletteEntryLine formats a palette entry for fzf display. Entries with
 // a description get "Label  —  Description"; entries without get "Label" only.
-func formatPaletteEntryLine(entry paletteEntry) string {
-	stripped := stripVariationSelectors(entry.label)
+func formatPaletteEntryLine(entry config.ResolvedPaletteCommand) string {
+	stripped := stripVariationSelectors(entry.Title)
 	boldLabel := fmt.Sprintf("%s%s%s", ansiBold, stripped, ansiReset)
-	if entry.description == "" {
+	if entry.Description == "" {
 		return boldLabel
 	}
-	return fmt.Sprintf("%s  %s—  %s%s", boldLabel, ansiDarkGray, entry.description, ansiReset)
+	return fmt.Sprintf("%s  %s—  %s%s", boldLabel, ansiDarkGray, entry.Description, ansiReset)
 }
 
 func runTmuxPalette(cmd *cobra.Command, args []string) error {
@@ -190,44 +108,30 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "fzf selection failed")
 	}
 
-	// Parse selection: extract the label (everything before "  —  ")
+	// Parse selection: extract the title (everything before "  —  ")
 	selectedLine := strings.TrimSpace(string(output))
-	selectedLabel := selectedLine
+	selectedTitle := selectedLine
 	if idx := strings.Index(selectedLine, "  —  "); idx >= 0 {
-		selectedLabel = selectedLine[:idx]
+		selectedTitle = selectedLine[:idx]
 	}
 
-	// Find the matching palette entry (compare against stripped labels since
+	// Find the matching palette entry (compare against stripped titles since
 	// that's what fzf received)
-	var selectedEntry *paletteEntry
+	var selectedEntry *config.ResolvedPaletteCommand
 	for i := range entries {
-		if stripVariationSelectors(entries[i].label) == selectedLabel {
+		if stripVariationSelectors(entries[i].Title) == selectedTitle {
 			selectedEntry = &entries[i]
 			break
 		}
 	}
 	if selectedEntry == nil {
-		return stacktrace.NewError("unknown palette selection: %q", selectedLabel)
+		return stacktrace.NewError("unknown palette selection: %q", selectedTitle)
 	}
 
-	// Resolve the agenc binary path for reliable invocation
-	binaryFilepath, err := resolveAgencBinaryPath()
-	if err != nil {
-		return err
-	}
+	// Dispatch: execute the command string via sh -c
+	tmuxDebugLog("palette: executing %q", selectedEntry.Command)
 
-	// Dispatch: exec `<binary> tmux window new -- <binary> <args...>`
-	windowNewArgs := []string{
-		binaryFilepath,
-		tmuxCmdStr, windowCmdStr, newCmdStr,
-		"--",
-		binaryFilepath,
-	}
-	windowNewArgs = append(windowNewArgs, selectedEntry.commandArgs...)
-
-	tmuxDebugLog("palette: execing %v", windowNewArgs)
-
-	execCmd := exec.Command(windowNewArgs[0], windowNewArgs[1:]...)
+	execCmd := exec.Command("sh", "-c", selectedEntry.Command)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr

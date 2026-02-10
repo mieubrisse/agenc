@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -176,7 +175,7 @@ func TestEnsureConfigFile(t *testing.T) {
 	}
 }
 
-// --- Custom commands tests ---
+// --- Palette commands tests ---
 
 func writeConfigYAML(t *testing.T, tmpDir string, content string) {
 	t.Helper()
@@ -190,25 +189,218 @@ func writeConfigYAML(t *testing.T, tmpDir string, content string) {
 	}
 }
 
-func TestCustomCommands_RoundTrip(t *testing.T) {
+func TestPaletteCommands_BuiltinDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, "{}")
 
-	cfg := &AgencConfig{
-		CustomCommands: map[string]CustomCommandConfig{
-			"dotfiles": {
-				Args:        "mission new github.com/mieubrisse/dotfiles",
-				PaletteName: "Open dotfiles",
-			},
-			"logs": {
-				Args:        "daemon logs",
-				PaletteName: "View daemon logs",
-			},
-		},
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
+	resolved := cfg.GetResolvedPaletteCommands()
+
+	// All builtins should be present
+	builtinNames := make(map[string]bool)
+	for _, cmd := range resolved {
+		builtinNames[cmd.Name] = true
+	}
+	for _, name := range builtinPaletteCommandOrder {
+		if !builtinNames[name] {
+			t.Errorf("expected builtin '%s' to be present in resolved commands", name)
+		}
+	}
+
+	// Check specific defaults
+	for _, cmd := range resolved {
+		if cmd.Name == "do" {
+			if cmd.Title != "✅ Do" {
+				t.Errorf("expected do title '✅ Do', got '%s'", cmd.Title)
+			}
+			if cmd.TmuxKeybinding != "d" {
+				t.Errorf("expected do keybinding 'd', got '%s'", cmd.TmuxKeybinding)
+			}
+			if !cmd.IsBuiltin {
+				t.Error("expected do to be marked as builtin")
+			}
+		}
+	}
+}
+
+func TestPaletteCommands_BuiltinOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  startMission:
+    tmuxKeybinding: "C-n"
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	resolved := cfg.GetResolvedPaletteCommands()
+	for _, cmd := range resolved {
+		if cmd.Name == "startMission" {
+			if cmd.TmuxKeybinding != "C-n" {
+				t.Errorf("expected overridden keybinding 'C-n', got '%s'", cmd.TmuxKeybinding)
+			}
+			// Title should keep the default
+			if cmd.Title != "🚀 Start mission" {
+				t.Errorf("expected default title '🚀 Start mission', got '%s'", cmd.Title)
+			}
+			if !cmd.IsBuiltin {
+				t.Error("expected startMission to be marked as builtin")
+			}
+			return
+		}
+	}
+	t.Error("startMission not found in resolved commands")
+}
+
+func TestPaletteCommands_BuiltinDisable(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  nukeMissions: {}
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	resolved := cfg.GetResolvedPaletteCommands()
+	for _, cmd := range resolved {
+		if cmd.Name == "nukeMissions" {
+			t.Error("expected nukeMissions to be disabled (not in resolved list)")
+		}
+	}
+}
+
+func TestPaletteCommands_CustomWithKeybinding(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  dotfiles:
+    title: "📁 Open dotfiles"
+    description: "Start a dotfiles mission"
+    command: "agenc tmux window new -- agenc mission new mieubrisse/dotfiles"
+    tmuxKeybinding: "f"
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	resolved := cfg.GetResolvedPaletteCommands()
+	var found bool
+	for _, cmd := range resolved {
+		if cmd.Name == "dotfiles" {
+			found = true
+			if cmd.Title != "📁 Open dotfiles" {
+				t.Errorf("expected title '📁 Open dotfiles', got '%s'", cmd.Title)
+			}
+			if cmd.TmuxKeybinding != "f" {
+				t.Errorf("expected keybinding 'f', got '%s'", cmd.TmuxKeybinding)
+			}
+			if cmd.IsBuiltin {
+				t.Error("expected dotfiles to not be builtin")
+			}
+		}
+	}
+	if !found {
+		t.Error("custom command 'dotfiles' not found in resolved list")
+	}
+}
+
+func TestPaletteCommands_KeybindingUniqueness(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  custom1:
+    title: "Custom 1"
+    command: "agenc do"
+    tmuxKeybinding: "d"
+`)
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for duplicate keybinding, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate palette keybinding") {
+		t.Errorf("expected error mentioning duplicate keybinding, got: %v", err)
+	}
+}
+
+func TestPaletteCommands_TitleUniqueness(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  custom1:
+    title: "✅ Do"
+    command: "agenc do"
+`)
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for duplicate title, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate palette title") {
+		t.Errorf("expected error mentioning duplicate title, got: %v", err)
+	}
+}
+
+func TestPaletteCommands_AgencBinarySubstitution(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+tmuxAgencFilepath: /tmp/claude/test-agenc
+paletteCommands:
+  dotfiles:
+    title: "📁 Dotfiles"
+    command: "agenc tmux window new -- agenc mission new dotfiles"
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	resolved := cfg.GetResolvedPaletteCommands()
+	for _, cmd := range resolved {
+		if cmd.Name == "dotfiles" {
+			expected := "/tmp/claude/test-agenc tmux window new -- /tmp/claude/test-agenc mission new dotfiles"
+			if cmd.Command != expected {
+				t.Errorf("expected command '%s', got '%s'", expected, cmd.Command)
+			}
+			return
+		}
+	}
+	t.Error("dotfiles not found in resolved commands")
+}
+
+func TestPaletteCommands_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)
 	if err := os.MkdirAll(configDirpath, 0755); err != nil {
 		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{
+		PaletteCommands: map[string]PaletteCommandConfig{
+			"dotfiles": {
+				Title:          "📁 Open dotfiles",
+				Description:    "Start a dotfiles mission",
+				Command:        "agenc tmux window new -- agenc mission new mieubrisse/dotfiles",
+				TmuxKeybinding: "f",
+			},
+			"logs": {
+				Title:   "📋 Daemon logs",
+				Command: "agenc tmux window new -- agenc daemon logs",
+			},
+		},
 	}
 
 	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
@@ -220,84 +412,66 @@ func TestCustomCommands_RoundTrip(t *testing.T) {
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
-	if len(got.CustomCommands) != 2 {
-		t.Fatalf("expected 2 custom commands, got %d", len(got.CustomCommands))
+	if len(got.PaletteCommands) != 2 {
+		t.Fatalf("expected 2 palette commands, got %d", len(got.PaletteCommands))
 	}
 
-	dotfiles, ok := got.CustomCommands["dotfiles"]
+	dotfiles, ok := got.PaletteCommands["dotfiles"]
 	if !ok {
-		t.Fatal("expected 'dotfiles' custom command to exist")
+		t.Fatal("expected 'dotfiles' palette command to exist")
 	}
-	if dotfiles.PaletteName != "Open dotfiles" {
-		t.Errorf("expected paletteName 'Open dotfiles', got '%s'", dotfiles.PaletteName)
+	if dotfiles.Title != "📁 Open dotfiles" {
+		t.Errorf("expected title '📁 Open dotfiles', got '%s'", dotfiles.Title)
 	}
-	if dotfiles.Args != "mission new github.com/mieubrisse/dotfiles" {
-		t.Errorf("expected args 'mission new github.com/mieubrisse/dotfiles', got '%s'", dotfiles.Args)
+	if dotfiles.Command != "agenc tmux window new -- agenc mission new mieubrisse/dotfiles" {
+		t.Errorf("expected command 'agenc tmux window new -- agenc mission new mieubrisse/dotfiles', got '%s'", dotfiles.Command)
+	}
+	if dotfiles.TmuxKeybinding != "f" {
+		t.Errorf("expected keybinding 'f', got '%s'", dotfiles.TmuxKeybinding)
 	}
 }
 
-func TestCustomCommands_MissingPaletteName(t *testing.T) {
+func TestPaletteCommands_CustomMissingTitle(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
-customCommands:
-  dotfiles:
-    args: mission new github.com/mieubrisse/dotfiles
+paletteCommands:
+  custom1:
+    command: "agenc do"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
 	if err == nil {
-		t.Fatal("expected error for missing paletteName, got nil")
+		t.Fatal("expected error for missing title, got nil")
 	}
-	if !strings.Contains(err.Error(), "paletteName") {
-		t.Errorf("expected error mentioning paletteName, got: %v", err)
+	if !strings.Contains(err.Error(), "title") {
+		t.Errorf("expected error mentioning title, got: %v", err)
 	}
 }
 
-func TestCustomCommands_MissingArgs(t *testing.T) {
+func TestPaletteCommands_CustomMissingCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
-customCommands:
-  dotfiles:
-    paletteName: "Open dotfiles"
+paletteCommands:
+  custom1:
+    title: "My Command"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
 	if err == nil {
-		t.Fatal("expected error for missing args, got nil")
+		t.Fatal("expected error for missing command, got nil")
 	}
-	if !strings.Contains(err.Error(), "args") {
-		t.Errorf("expected error mentioning args, got: %v", err)
-	}
-}
-
-func TestCustomCommands_DuplicatePaletteName(t *testing.T) {
-	tmpDir := t.TempDir()
-	writeConfigYAML(t, tmpDir, `
-customCommands:
-  dotfiles:
-    args: mission new github.com/mieubrisse/dotfiles
-    paletteName: "Same Name"
-  other:
-    args: daemon logs
-    paletteName: "Same Name"
-`)
-
-	_, _, err := ReadAgencConfig(tmpDir)
-	if err == nil {
-		t.Fatal("expected error for duplicate paletteName, got nil")
-	}
-	if !strings.Contains(err.Error(), "duplicate paletteName") {
-		t.Errorf("expected error mentioning duplicate paletteName, got: %v", err)
+	if !strings.Contains(err.Error(), "command") {
+		t.Errorf("expected error mentioning command, got: %v", err)
 	}
 }
 
-func TestCustomCommands_InvalidName(t *testing.T) {
+func TestPaletteCommands_InvalidName(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
-customCommands:
+paletteCommands:
   123bad:
-    args: mission new foo
-    paletteName: "Bad Name"
+    title: "Bad Name"
+    command: "agenc do"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
@@ -309,36 +483,49 @@ customCommands:
 	}
 }
 
-func TestCustomCommandConfig_GetArgs(t *testing.T) {
-	tests := []struct {
-		name     string
-		args     string
-		expected []string
-	}{
-		{
-			name:     "simple args",
-			args:     "mission new",
-			expected: []string{"mission", "new"},
-		},
-		{
-			name:     "args with extra whitespace",
-			args:     "  mission   new   github.com/owner/repo  ",
-			expected: []string{"mission", "new", "github.com/owner/repo"},
-		},
-		{
-			name:     "single arg",
-			args:     "status",
-			expected: []string{"status"},
-		},
+func TestPaletteCommands_OrderPreserved(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  zzz:
+    title: "ZZZ"
+    command: "agenc do"
+  aaa:
+    title: "AAA"
+    command: "agenc do"
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &CustomCommandConfig{Args: tt.args}
-			got := cfg.GetArgs()
-			if !reflect.DeepEqual(got, tt.expected) {
-				t.Errorf("GetArgs() = %v, want %v", got, tt.expected)
-			}
-		})
+	resolved := cfg.GetResolvedPaletteCommands()
+
+	// Custom entries should come after all builtins, in alphabetical order
+	var customEntries []string
+	for _, cmd := range resolved {
+		if !cmd.IsBuiltin {
+			customEntries = append(customEntries, cmd.Name)
+		}
+	}
+
+	if len(customEntries) != 2 {
+		t.Fatalf("expected 2 custom entries, got %d", len(customEntries))
+	}
+	if customEntries[0] != "aaa" || customEntries[1] != "zzz" {
+		t.Errorf("expected custom entries in alphabetical order [aaa, zzz], got %v", customEntries)
+	}
+}
+
+func TestPaletteCommandConfig_IsEmpty(t *testing.T) {
+	empty := PaletteCommandConfig{}
+	if !empty.IsEmpty() {
+		t.Error("expected empty config to be empty")
+	}
+
+	notEmpty := PaletteCommandConfig{Title: "test"}
+	if notEmpty.IsEmpty() {
+		t.Error("expected config with title to not be empty")
 	}
 }

@@ -9,7 +9,8 @@ your tmux.conf. If a tmux server is running, the keybindings are sourced
 immediately.
 
 All keybindings live under the "agenc" key table, activated with prefix + a:
-  prefix + a, w  — new mission in a new tmux window
+  prefix + a, k  — open command palette
+  prefix + a, n  — new mission in a new tmux window
   prefix + a, p  — new mission in a side-by-side pane
 
 ```

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -70,24 +71,106 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 	return c.Overlap
 }
 
-// CustomCommandConfig represents a user-defined command palette entry.
-type CustomCommandConfig struct {
-	Args        string `yaml:"args"`        // Whitespace-separated agenc subcommand arguments
-	PaletteName string `yaml:"paletteName"` // User-visible label in the palette picker
+// PaletteCommandConfig represents a palette command entry in config.yml.
+// For custom commands, all fields are user-provided.
+// For builtin overrides, non-empty fields override the builtin defaults.
+// An entry with all fields empty (IsEmpty() == true) disables the builtin.
+type PaletteCommandConfig struct {
+	Title          string `yaml:"title,omitempty"`
+	Description    string `yaml:"description,omitempty"`
+	Command        string `yaml:"command,omitempty"`
+	TmuxKeybinding string `yaml:"tmuxKeybinding,omitempty"`
 }
 
-// GetArgs returns the command arguments split on whitespace.
-func (c *CustomCommandConfig) GetArgs() []string {
-	return strings.Fields(c.Args)
+// IsEmpty returns true if all fields are empty (used to detect disable entries).
+func (c *PaletteCommandConfig) IsEmpty() bool {
+	return c.Title == "" && c.Description == "" && c.Command == "" && c.TmuxKeybinding == ""
+}
+
+// BuiltinPaletteCommands defines the default palette commands shipped with agenc.
+// Keys match the config.yml paletteCommands keys for override/disable purposes.
+var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
+	"do": {
+		Title:          "✅ Do",
+		Description:    "tell AgenC what it should do",
+		Command:        "agenc tmux window new -- agenc do",
+		TmuxKeybinding: "d",
+	},
+	"quickClaude": {
+		Title:       "🦀 Quick Claude",
+		Description: "Launch a blank mission instantly",
+		Command:     "agenc tmux window new -- agenc mission new --blank",
+	},
+	"startMission": {
+		Title:          "🚀 Start mission",
+		Description:    "Create a new mission and launch Claude",
+		Command:        "agenc tmux window new -- agenc mission new",
+		TmuxKeybinding: "n",
+	},
+	"resumeMission": {
+		Title:       "🟢 Resume mission",
+		Description: "Resume a stopped mission",
+		Command:     "agenc tmux window new -- agenc mission resume",
+	},
+	"stopMission": {
+		Title:       "🛑 Stop mission",
+		Description: "Stop a running mission",
+		Command:     "agenc tmux window new -- agenc mission stop",
+	},
+	"removeMission": {
+		Title:       "❌ Remove mission",
+		Description: "Remove a mission and its directory",
+		Command:     "agenc tmux window new -- agenc mission rm",
+	},
+	"nukeMissions": {
+		Title:       "💥 Nuke missions",
+		Description: "Remove all archived missions",
+		Command:     "agenc tmux window new -- agenc mission nuke",
+	},
+	"newMissionPane": {
+		Command:        "agenc tmux pane new -- agenc mission new",
+		TmuxKeybinding: "p",
+	},
+}
+
+// builtinPaletteCommandOrder controls the display order of builtin commands
+// in the palette and ls output.
+var builtinPaletteCommandOrder = []string{
+	"do",
+	"quickClaude",
+	"startMission",
+	"resumeMission",
+	"stopMission",
+	"removeMission",
+	"nukeMissions",
+	"newMissionPane",
+}
+
+// BuiltinPaletteCommandOrder returns the display order of builtin commands.
+func BuiltinPaletteCommandOrder() []string {
+	result := make([]string, len(builtinPaletteCommandOrder))
+	copy(result, builtinPaletteCommandOrder)
+	return result
+}
+
+// ResolvedPaletteCommand is a palette command with all defaults applied and
+// the agenc binary substituted in the command string.
+type ResolvedPaletteCommand struct {
+	Name           string
+	Title          string
+	Description    string
+	Command        string
+	TmuxKeybinding string
+	IsBuiltin      bool
 }
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	SyncedRepos        []string                       `yaml:"syncedRepos,omitempty"`
-	TmuxAgencFilepath  string                         `yaml:"tmuxAgencFilepath,omitempty"`
-	Crons              map[string]CronConfig          `yaml:"crons,omitempty"`
-	CronsMaxConcurrent int                            `yaml:"cronsMaxConcurrent,omitempty"`
-	CustomCommands     map[string]CustomCommandConfig `yaml:"customCommands,omitempty"`
+	SyncedRepos        []string                         `yaml:"syncedRepos,omitempty"`
+	TmuxAgencFilepath  string                           `yaml:"tmuxAgencFilepath,omitempty"`
+	Crons              map[string]CronConfig            `yaml:"crons,omitempty"`
+	CronsMaxConcurrent int                              `yaml:"cronsMaxConcurrent,omitempty"`
+	PaletteCommands    map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
 }
 
 // GetTmuxAgencBinary returns the agenc binary name/path used in tmux
@@ -186,28 +269,29 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		}
 	}
 
-	// Validate custom commands
-	if cfg.CustomCommands == nil {
-		cfg.CustomCommands = make(map[string]CustomCommandConfig)
+	// Validate palette commands
+	if cfg.PaletteCommands == nil {
+		cfg.PaletteCommands = make(map[string]PaletteCommandConfig)
 	}
-	seenPaletteNames := make(map[string]string) // paletteName → command name
-	for name, cmdCfg := range cfg.CustomCommands {
-		if err := ValidateCustomCommandName(name); err != nil {
-			return nil, nil, stacktrace.Propagate(err, "invalid custom command name in %s", configFilepath)
+	for name, cmdCfg := range cfg.PaletteCommands {
+		if err := ValidatePaletteCommandName(name); err != nil {
+			return nil, nil, stacktrace.Propagate(err, "invalid palette command name in %s", configFilepath)
 		}
-		if cmdCfg.PaletteName == "" {
-			return nil, nil, stacktrace.NewError("custom command '%s' in %s must have a paletteName", name, configFilepath)
+		// Custom (non-builtin) entries with content must have title and command
+		_, isBuiltin := BuiltinPaletteCommands[name]
+		if !isBuiltin && !cmdCfg.IsEmpty() {
+			if cmdCfg.Title == "" {
+				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a title", name, configFilepath)
+			}
+			if cmdCfg.Command == "" {
+				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a command", name, configFilepath)
+			}
 		}
-		if cmdCfg.Args == "" {
-			return nil, nil, stacktrace.NewError("custom command '%s' in %s must have args", name, configFilepath)
-		}
-		if existingName, ok := seenPaletteNames[cmdCfg.PaletteName]; ok {
-			return nil, nil, stacktrace.NewError(
-				"duplicate paletteName '%s' in %s: used by both '%s' and '%s'",
-				cmdCfg.PaletteName, configFilepath, existingName, name,
-			)
-		}
-		seenPaletteNames[cmdCfg.PaletteName] = name
+	}
+
+	// Validate uniqueness of titles and keybindings across the resolved set
+	if err := validatePaletteUniqueness(&cfg, configFilepath); err != nil {
+		return nil, nil, err
 	}
 
 	return &cfg, cm, nil
@@ -258,19 +342,152 @@ func EnsureConfigFile(agencDirpath string) error {
 // cronNameRegex matches valid cron names: alphanumeric, hyphens, underscores.
 var cronNameRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
 
-// ValidateCustomCommandName checks whether a custom command name is valid.
-// Custom command names follow the same rules as cron names: start with a letter,
+// ValidatePaletteCommandName checks whether a palette command name is valid.
+// Names follow the same rules as cron names: start with a letter,
 // contain only letters, numbers, hyphens, and underscores, max 64 characters.
-func ValidateCustomCommandName(name string) error {
+func ValidatePaletteCommandName(name string) error {
 	if name == "" {
-		return stacktrace.NewError("custom command name cannot be empty")
+		return stacktrace.NewError("palette command name cannot be empty")
 	}
 	if len(name) > 64 {
-		return stacktrace.NewError("custom command name too long (max 64 characters)")
+		return stacktrace.NewError("palette command name too long (max 64 characters)")
 	}
 	if !cronNameRegex.MatchString(name) {
-		return stacktrace.NewError("custom command name '%s' is invalid; must start with a letter and contain only letters, numbers, hyphens, and underscores", name)
+		return stacktrace.NewError("palette command name '%s' is invalid; must start with a letter and contain only letters, numbers, hyphens, and underscores", name)
 	}
+	return nil
+}
+
+// IsBuiltinPaletteCommand returns true if the name is a builtin palette command.
+func IsBuiltinPaletteCommand(name string) bool {
+	_, ok := BuiltinPaletteCommands[name]
+	return ok
+}
+
+// GetResolvedPaletteCommands returns the fully merged list of palette commands:
+// builtins (with user overrides applied) followed by custom entries (alphabetical).
+// Commands with "agenc" in their command string have it replaced with the
+// configured tmux agenc binary. Disabled builtins (empty override) are excluded.
+func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
+	agencBinary := c.GetTmuxAgencBinary()
+	var result []ResolvedPaletteCommand
+
+	// Process builtins in defined order
+	for _, name := range builtinPaletteCommandOrder {
+		builtin := BuiltinPaletteCommands[name]
+		override, hasOverride := c.PaletteCommands[name]
+
+		if hasOverride && override.IsEmpty() {
+			// Disabled — skip entirely
+			continue
+		}
+
+		resolved := ResolvedPaletteCommand{
+			Name:           name,
+			Title:          builtin.Title,
+			Description:    builtin.Description,
+			Command:        builtin.Command,
+			TmuxKeybinding: builtin.TmuxKeybinding,
+			IsBuiltin:      true,
+		}
+
+		// Apply overrides — non-empty fields replace defaults
+		if hasOverride {
+			if override.Title != "" {
+				resolved.Title = override.Title
+			}
+			if override.Description != "" {
+				resolved.Description = override.Description
+			}
+			if override.Command != "" {
+				resolved.Command = override.Command
+			}
+			if override.TmuxKeybinding != "" {
+				resolved.TmuxKeybinding = override.TmuxKeybinding
+			}
+		}
+
+		// Substitute agenc binary in command
+		resolved.Command = substituteAgencBinary(resolved.Command, agencBinary)
+
+		result = append(result, resolved)
+	}
+
+	// Process custom entries (non-builtin keys) in alphabetical order
+	customNames := make([]string, 0)
+	for name := range c.PaletteCommands {
+		if _, isBuiltin := BuiltinPaletteCommands[name]; !isBuiltin {
+			customNames = append(customNames, name)
+		}
+	}
+	sort.Strings(customNames)
+
+	for _, name := range customNames {
+		cmdCfg := c.PaletteCommands[name]
+		if cmdCfg.IsEmpty() {
+			continue
+		}
+		resolved := ResolvedPaletteCommand{
+			Name:           name,
+			Title:          cmdCfg.Title,
+			Description:    cmdCfg.Description,
+			Command:        substituteAgencBinary(cmdCfg.Command, agencBinary),
+			TmuxKeybinding: cmdCfg.TmuxKeybinding,
+			IsBuiltin:      false,
+		}
+		result = append(result, resolved)
+	}
+
+	return result
+}
+
+// substituteAgencBinary replaces "agenc" words in a command string with the
+// configured binary path. Only standalone "agenc" words are replaced (word
+// boundaries), not substrings like "agencDirpath".
+func substituteAgencBinary(command, agencBinary string) string {
+	if agencBinary == "agenc" {
+		return command
+	}
+	// Replace standalone "agenc" — at start of string or after space, followed by space or end
+	result := command
+	result = strings.ReplaceAll(result, "agenc ", agencBinary+" ")
+	// Handle trailing "agenc" at end of string
+	if strings.HasSuffix(result, "agenc") {
+		result = result[:len(result)-5] + agencBinary
+	}
+	return result
+}
+
+// validatePaletteUniqueness checks that titles and keybindings are unique across
+// the resolved palette command set.
+func validatePaletteUniqueness(cfg *AgencConfig, configFilepath string) error {
+	resolved := cfg.GetResolvedPaletteCommands()
+
+	seenTitles := make(map[string]string)    // title → command name
+	seenKeybindings := make(map[string]string) // keybinding → command name
+
+	for _, cmd := range resolved {
+		if cmd.Title != "" {
+			if existingName, ok := seenTitles[cmd.Title]; ok {
+				return stacktrace.NewError(
+					"duplicate palette title '%s' in %s: used by both '%s' and '%s'",
+					cmd.Title, configFilepath, existingName, cmd.Name,
+				)
+			}
+			seenTitles[cmd.Title] = cmd.Name
+		}
+
+		if cmd.TmuxKeybinding != "" {
+			if existingName, ok := seenKeybindings[cmd.TmuxKeybinding]; ok {
+				return stacktrace.NewError(
+					"duplicate palette keybinding '%s' in %s: used by both '%s' and '%s'",
+					cmd.TmuxKeybinding, configFilepath, existingName, cmd.Name,
+				)
+			}
+			seenKeybindings[cmd.TmuxKeybinding] = cmd.Name
+		}
+	}
+
 	return nil
 }
 

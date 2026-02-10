@@ -219,11 +219,29 @@ crons:
     overlap: skip              # "skip" (default) or "allow"
     enabled: true              # Defaults to true if omitted
 
-# Custom entries for the tmux command palette
-customCommands:
-  my-shortcut:
-    paletteName: "📝 Open my project"   # Label shown in the palette picker
-    args: "mission new owner/repo"      # Arguments passed to agenc
+# Palette commands — customize the tmux command palette and keybindings
+paletteCommands:
+  # Override a builtin's keybinding
+  startMission:
+    tmuxKeybinding: "C-n"
+
+  # Disable a builtin entirely (no palette entry, no keybinding)
+  nukeMissions: {}
+
+  # Custom command with palette entry + tmux keybinding
+  dotfiles:
+    title: "📁 Open dotfiles"
+    description: "Start a dotfiles mission"
+    command: "agenc tmux window new -- agenc mission new mieubrisse/dotfiles"
+    tmuxKeybinding: "f"
+
+  # Custom command, palette only (no keybinding)
+  logs:
+    title: "📋 Daemon logs"
+    command: "agenc tmux window new -- agenc daemon logs"
+
+# Override the agenc binary path used in tmux keybindings and palette commands
+# tmuxAgencFilepath: /usr/local/bin/agenc-dev
 ```
 
 #### syncedRepos
@@ -256,16 +274,29 @@ agenc cron run <name>    # trigger a cron immediately
 agenc cron logs <name>   # view output from the latest run
 ```
 
-#### customCommands
+#### paletteCommands
 
-Custom commands add entries to the tmux command palette (opened with the palette keybinding). Each entry needs a `paletteName` (what you see in the picker) and `args` (the agenc subcommand to run).
+Palette commands control what appears in the tmux command palette (prefix + a, k) and which tmux keybindings are generated. AgenC ships with built-in palette commands for common operations.
 
-Manage custom commands via the CLI:
+Each entry supports four fields:
+- **title** — label shown in the palette picker (entries without a title are keybinding-only)
+- **description** — context shown alongside the title
+- **command** — full shell command to execute (e.g. `agenc tmux window new -- agenc mission new`)
+- **tmuxKeybinding** — tmux key bound in the agenc key table (e.g. `"f"`, `"C-n"`)
+
+**Merge rules for builtins:**
+- Key absent from config → full defaults
+- Key present with `{}` (all fields empty) → disabled entirely
+- Key present with some fields set → non-empty fields override defaults, empty fields keep defaults
+
+Manage palette commands via the CLI:
 
 ```
-agenc config custom-command add my-shortcut --palette-name "📝 Open my project" --args "mission new owner/repo"
-agenc config custom-command ls
-agenc config custom-command rm my-shortcut
+agenc config palette-command ls                                    # list all (builtin + custom)
+agenc config palette-command add myCmd --title="Test" --command="agenc do" --keybinding="t"
+agenc config palette-command update startMission --keybinding="C-n"  # override builtin
+agenc config palette-command rm myCmd                              # remove custom
+agenc config palette-command rm startMission                       # restore builtin defaults
 ```
 
 ### Config Auto-Sync

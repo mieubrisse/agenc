@@ -45,8 +45,8 @@ const (
 	updateConfigCmdStr = "update-config"
 
 	// Config subcommands
-	initCmdStr          = "init"
-	customCommandCmdStr = "custom-command"
+	initCmdStr             = "init"
+	paletteCommandCmdStr   = "palette-command"
 
 	// Repo subcommands
 	editCmdStr = "edit"
@@ -89,9 +89,11 @@ const (
 	// daemon status flags
 	jsonFlagName = "json"
 
-	// custom-command flags
-	customCommandArgsFlagName        = "args"
-	customCommandPaletteNameFlagName = "palette-name"
+	// palette-command flags
+	paletteCommandCommandFlagName     = "command"
+	paletteCommandTitleFlagName       = "title"
+	paletteCommandDescriptionFlagName = "description"
+	paletteCommandKeybindingFlagName  = "keybinding"
 
 	// cron flags
 	headlessFlagName = "headless"

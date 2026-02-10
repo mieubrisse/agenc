@@ -225,7 +225,7 @@ Core Packages
 Path management and YAML configuration. All path construction flows from `GetAgencDirpath()`, which reads `$AGENC_DIRPATH` and falls back to `~/.agenc`.
 
 - `config.go` — path helper functions (`GetMissionDirpath`, `GetRepoDirpath`, `GetDatabaseFilepath`, etc.), directory structure initialization (`EnsureDirStructure`), constant definitions for filenames and directory names
-- `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation), `CronConfig` struct, `CustomCommandConfig` struct (user-defined palette entries), validation functions for repo format, cron names, custom command names, schedules, timeouts, and overlap policies. Cron expression evaluation via the `gronx` library.
+- `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation), `CronConfig` struct, `PaletteCommandConfig` struct (user-defined and builtin palette entries with optional tmux keybindings), `BuiltinPaletteCommands` defaults map, `GetResolvedPaletteCommands` merge logic, validation functions for repo format, cron names, palette command names, schedules, timeouts, and overlap policies. Cron expression evaluation via the `gronx` library.
 - `first_run.go` — `IsFirstRun()` detection
 
 ### `internal/mission/`
@@ -266,7 +266,7 @@ Background daemon with five concurrent loops.
 
 Tmux keybindings generation and version detection, shared by the CLI (`tmux inject`) and daemon.
 
-- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`. Keybinding generation accepts the detected tmux version and version-gates features: the command palette keybinding (`display-popup`) is only emitted on tmux >= 3.2.
+- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`. Keybinding generation accepts the detected tmux version, the agenc binary path, and a slice of `CustomKeybinding` entries (built from resolved palette commands). Version-gates features: the command palette keybinding (`display-popup`) is only emitted on tmux >= 3.2. The hardcoded key table entry (`prefix + a`) and palette popup (`k`) remain fixed; all other keybindings (including built-in defaults like `n`, `p`, `d`) are driven by the resolved palette commands.
 - `version.go` — `ParseVersion` (parses `tmux -V` output), `DetectVersion` (runs `tmux -V` and parses the result). Used by keybindings generation, the daemon, and the CLI to detect the installed tmux version.
 
 ### `internal/wrapper/`

@@ -25,7 +25,8 @@ your tmux.conf. If a tmux server is running, the keybindings are sourced
 immediately.
 
 All keybindings live under the "agenc" key table, activated with prefix + a:
-  prefix + a, w  — new mission in a new tmux window
+  prefix + a, k  — open command palette
+  prefix + a, n  — new mission in a new tmux window
   prefix + a, p  — new mission in a side-by-side pane`,
 	Args: cobra.NoArgs,
 	RunE: runTmuxInject,
@@ -48,13 +49,29 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 	// other keybindings are still emitted.
 	tmuxMajor, tmuxMinor, _ := agentmux.DetectVersion()
 
-	// Read config for the tmuxAgencFilepath override.
+	// Read config for the tmuxAgencFilepath override and palette commands.
 	agencBinary := "agenc"
-	if cfg, _, err := config.ReadAgencConfig(agencDirpath); err == nil {
+	var keybindings []agentmux.CustomKeybinding
+	if cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath); cfgErr == nil {
 		agencBinary = cfg.GetTmuxAgencBinary()
+		resolved := cfg.GetResolvedPaletteCommands()
+		for _, entry := range resolved {
+			if entry.TmuxKeybinding == "" {
+				continue
+			}
+			comment := fmt.Sprintf("%s (prefix + a, %s)", entry.Name, entry.TmuxKeybinding)
+			if entry.Title != "" {
+				comment = fmt.Sprintf("%s — %s (prefix + a, %s)", entry.Name, entry.Title, entry.TmuxKeybinding)
+			}
+			keybindings = append(keybindings, agentmux.CustomKeybinding{
+				Key:     entry.TmuxKeybinding,
+				Command: entry.Command,
+				Comment: comment,
+			})
+		}
 	}
 
-	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary); err != nil {
+	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, keybindings); err != nil {
 		return err
 	}
 	fmt.Printf("Wrote keybindings to %s\n", keybindingsFilepath)
@@ -179,4 +196,3 @@ func injectTmuxConfSourceLine(displayFilepath string) error {
 	fmt.Printf("Added source-file directive to %s\n", tmuxConfFilepath)
 	return nil
 }
-

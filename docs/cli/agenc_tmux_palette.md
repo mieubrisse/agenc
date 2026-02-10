@@ -5,7 +5,7 @@ Open the AgenC command palette (runs inside a tmux display-popup)
 ### Synopsis
 
 Presents an fzf-based command picker inside a tmux display-popup.
-On selection, the chosen command runs in a new tmux window. On cancel
+On selection, the chosen command runs via sh -c. On cancel
 (Ctrl-C or Esc), the popup closes with no action.
 
 This command is designed to be invoked by the palette keybinding
