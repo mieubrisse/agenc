@@ -127,10 +127,6 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Remove all archived missions",
 		Command:     "agenc tmux window new -- agenc mission nuke",
 	},
-	"newMissionPane": {
-		Command:        "agenc tmux pane new -- agenc mission new",
-		TmuxKeybinding: "p",
-	},
 }
 
 // builtinPaletteCommandOrder controls the display order of builtin commands
@@ -143,7 +139,6 @@ var builtinPaletteCommandOrder = []string{
 	"stopMission",
 	"removeMission",
 	"nukeMissions",
-	"newMissionPane",
 }
 
 // BuiltinPaletteCommandOrder returns the display order of builtin commands.
