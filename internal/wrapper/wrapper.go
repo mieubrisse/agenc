@@ -168,11 +168,25 @@ func (w *Wrapper) Run(isResume bool) error {
 				_ = w.claudeCmd.Process.Signal(sig)
 			}
 			<-w.claudeExited
+			w.writeBackCredentials()
 			return nil
 
 		case <-w.claudeExited:
 			// Natural exit -- wrapper exits
+			w.writeBackCredentials()
 			return nil
+		}
+	}
+}
+
+// writeBackCredentials merges per-mission Keychain credentials back into the
+// global entry so MCP OAuth tokens propagate to future missions. Errors are
+// logged as warnings but never fail the wrapper exit.
+func (w *Wrapper) writeBackCredentials() {
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
+	if err := claudeconfig.WriteBackKeychainCredentials(claudeConfigDirpath); err != nil {
+		if w.logger != nil {
+			w.logger.Warn("Failed to write back Keychain credentials", "error", err)
 		}
 	}
 }
@@ -453,6 +467,7 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		if err := w.gracefulShutdownClaude(cmd); err != nil {
 			w.logger.Warn("Graceful shutdown failed", "error", err)
 		}
+		w.writeBackCredentials()
 		return nil
 
 	case <-ctx.Done():
@@ -461,14 +476,17 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		if err := w.gracefulShutdownClaude(cmd); err != nil {
 			w.logger.Warn("Graceful shutdown failed", "error", err)
 		}
+		w.writeBackCredentials()
 		return stacktrace.NewError("headless mission timed out after %v", cfg.Timeout)
 
 	case err := <-claudeExited:
 		if err != nil {
 			w.logger.Info("Claude process exited with error", "error", err)
+			w.writeBackCredentials()
 			return stacktrace.Propagate(err, "claude exited with error")
 		}
 		w.logger.Info("Claude process completed successfully")
+		w.writeBackCredentials()
 		return nil
 	}
 }

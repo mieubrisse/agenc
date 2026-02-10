@@ -9,6 +9,132 @@ import (
 	"github.com/mieubrisse/stacktrace"
 )
 
+// MergeCredentialJSON merges two Claude Code credential JSON blobs. The base
+// is typically the global Keychain entry and overlay is the per-mission entry.
+//
+// Merge rules:
+//   - Top-level keys other than "mcpOAuth": overlay wins (simple replacement)
+//   - "mcpOAuth" map: per-server merge — if a server key exists in both sides,
+//     the entry with the larger "expiresAt" wins; keys in only one side are
+//     included unconditionally
+//
+// Returns the merged JSON bytes, a boolean indicating whether the result
+// differs from base, and an error if JSON parsing fails.
+func MergeCredentialJSON(base []byte, overlay []byte) ([]byte, bool, error) {
+	var baseMap map[string]json.RawMessage
+	if err := json.Unmarshal(base, &baseMap); err != nil {
+		return nil, false, stacktrace.Propagate(err, "failed to parse base credential JSON")
+	}
+
+	var overlayMap map[string]json.RawMessage
+	if err := json.Unmarshal(overlay, &overlayMap); err != nil {
+		return nil, false, stacktrace.Propagate(err, "failed to parse overlay credential JSON")
+	}
+
+	result := make(map[string]json.RawMessage, len(baseMap))
+	for k, v := range baseMap {
+		result[k] = v
+	}
+
+	for k, overlayVal := range overlayMap {
+		if k == "mcpOAuth" {
+			// Special handling: merge per-server using expiresAt
+			merged, err := mergeMcpOAuth(result[k], overlayVal)
+			if err != nil {
+				return nil, false, stacktrace.Propagate(err, "failed to merge mcpOAuth")
+			}
+			result[k] = merged
+		} else {
+			// Overlay wins for all other top-level keys
+			result[k] = overlayVal
+		}
+	}
+
+	merged, err := json.Marshal(result)
+	if err != nil {
+		return nil, false, stacktrace.Propagate(err, "failed to marshal merged credential JSON")
+	}
+
+	// Normalize base for comparison (re-marshal to get consistent formatting)
+	normalizedBase, err := json.Marshal(baseMap)
+	if err != nil {
+		return nil, false, stacktrace.Propagate(err, "failed to normalize base credential JSON")
+	}
+
+	changed := !bytes.Equal(normalizedBase, merged)
+	return merged, changed, nil
+}
+
+// mergeMcpOAuth merges two mcpOAuth JSON maps. For each server key, if present
+// in both sides, the entry with the larger "expiresAt" value wins. Keys present
+// in only one side are included unconditionally.
+func mergeMcpOAuth(baseRaw json.RawMessage, overlayRaw json.RawMessage) (json.RawMessage, error) {
+	var baseMap map[string]json.RawMessage
+	if baseRaw != nil {
+		if err := json.Unmarshal(baseRaw, &baseMap); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse base mcpOAuth")
+		}
+	}
+	if baseMap == nil {
+		baseMap = make(map[string]json.RawMessage)
+	}
+
+	var overlayMap map[string]json.RawMessage
+	if err := json.Unmarshal(overlayRaw, &overlayMap); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse overlay mcpOAuth")
+	}
+
+	result := make(map[string]json.RawMessage, len(baseMap))
+	for k, v := range baseMap {
+		result[k] = v
+	}
+
+	for serverKey, overlayEntry := range overlayMap {
+		baseEntry, exists := result[serverKey]
+		if !exists {
+			result[serverKey] = overlayEntry
+			continue
+		}
+
+		// Both sides have this server — compare expiresAt
+		baseExpiry := extractExpiresAt(baseEntry)
+		overlayExpiry := extractExpiresAt(overlayEntry)
+
+		if overlayExpiry >= baseExpiry {
+			result[serverKey] = overlayEntry
+		}
+		// else: base has newer token, keep it
+	}
+
+	merged, err := json.Marshal(result)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal merged mcpOAuth")
+	}
+
+	return json.RawMessage(merged), nil
+}
+
+// extractExpiresAt reads the "expiresAt" field from a JSON object as a float64.
+// Returns 0 if the field is missing, not a number, or unparseable.
+func extractExpiresAt(raw json.RawMessage) float64 {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return 0
+	}
+
+	expiresAtRaw, ok := obj["expiresAt"]
+	if !ok {
+		return 0
+	}
+
+	var expiresAt float64
+	if err := json.Unmarshal(expiresAtRaw, &expiresAt); err != nil {
+		return 0
+	}
+
+	return expiresAt
+}
+
 // DeepMergeJSON recursively merges overlay into base. Objects are merged
 // recursively, arrays are concatenated (base first), and scalars from
 // overlay win over base.
