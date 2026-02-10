@@ -8,11 +8,15 @@ Create a new window in the AgenC tmux session and run a command inside it.
 The new window is inserted adjacent to the current window. When the command
 exits, the pane closes and tmux auto-selects an adjacent window.
 
+Use --detach (-d) to create the window in the background without switching
+focus to it.
+
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
 
 Example:
   agenc tmux window new -- agenc mission new mieubrisse/agenc
+  agenc tmux window new -d -- agenc mission new mieubrisse/agenc
 
 ```
 agenc tmux window new -- <command> [args...] [flags]
@@ -21,7 +25,8 @@ agenc tmux window new -- <command> [args...] [flags]
 ### Options
 
 ```
-  -h, --help   help for new
+  -d, --detach   Create the window without switching focus to it
+  -h, --help     help for new
 ```
 
 ### SEE ALSO

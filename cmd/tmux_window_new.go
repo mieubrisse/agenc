@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	tmuxWindowNewDetachFlagStr = "detach"
+)
+
 var tmuxWindowNewCmd = &cobra.Command{
 	Use:   newCmdStr + " -- <command> [args...]",
 	Short: "Create a new window in the AgenC tmux session and run a command",
@@ -16,16 +20,21 @@ var tmuxWindowNewCmd = &cobra.Command{
 The new window is inserted adjacent to the current window. When the command
 exits, the pane closes and tmux auto-selects an adjacent window.
 
+Use --detach (-d) to create the window in the background without switching
+focus to it.
+
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
 
 Example:
-  agenc tmux window new -- agenc mission new mieubrisse/agenc`,
+  agenc tmux window new -- agenc mission new mieubrisse/agenc
+  agenc tmux window new -d -- agenc mission new mieubrisse/agenc`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTmuxWindowNew,
 }
 
 func init() {
+	tmuxWindowNewCmd.Flags().BoolP(tmuxWindowNewDetachFlagStr, "d", false, "Create the window without switching focus to it")
 	tmuxWindowCmd.AddCommand(tmuxWindowNewCmd)
 }
 
@@ -39,6 +48,11 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 	if !isInsideAgencTmux() {
 		tmuxDebugLog("FAIL: isInsideAgencTmux() returned false")
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
+	}
+
+	detach, err := cmd.Flags().GetBool(tmuxWindowNewDetachFlagStr)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get --%s flag", tmuxWindowNewDetachFlagStr)
 	}
 
 	// Build the command string for the new window. We pass the user's command
@@ -56,8 +70,11 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 	tmuxArgs := []string{
 		"new-window",
 		"-a",
-		userCommand,
 	}
+	if detach {
+		tmuxArgs = append(tmuxArgs, "-d")
+	}
+	tmuxArgs = append(tmuxArgs, userCommand)
 	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	newWindowCmd := exec.Command("tmux", tmuxArgs...)
