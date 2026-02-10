@@ -48,18 +48,10 @@ func init() {
 	rootCmd.AddCommand(doCmd)
 }
 
-// llmInterpretation is the structured response from the LLM interpreter.
-// It determines only which repo to use and whether the user has a task.
-// The original user prompt is passed through verbatim — the LLM never rewrites it.
-type llmInterpretation struct {
-	Repo    string `json:"repo"`
-	HasTask bool   `json:"has_task"`
-}
-
-// doAction is the resolved action to execute.
+// doAction is the structured response from the LLM interpreter.
 type doAction struct {
-	Repo   string
-	Prompt string
+	Repo   string `json:"repo"`
+	Prompt string `json:"prompt"`
 }
 
 func runDo(cmd *cobra.Command, args []string) error {
@@ -103,15 +95,9 @@ func runDo(cmd *cobra.Command, args []string) error {
 
 	// Interpret → confirm loop. ESC/Ctrl-C at confirmation re-opens the editor.
 	for {
-		interp, err := interpretWithLLM(userPrompt, repoNames, missionsSummary)
+		action, err := interpretWithLLM(userPrompt, repoNames, missionsSummary)
 		if err != nil {
 			return err
-		}
-
-		// Build the action using the original user prompt verbatim
-		action := &doAction{Repo: interp.Repo}
-		if interp.HasTask {
-			action.Prompt = userPrompt
 		}
 
 		missionNewArgs := buildMissionNewArgs(action)
@@ -250,9 +236,8 @@ func buildMissionsSummary() (string, error) {
 }
 
 // interpretWithLLM sends the user prompt and system state to Claude for
-// interpretation. It determines which repo to target and whether the user
-// has an actual task. The original user prompt is never rewritten by the LLM.
-func interpretWithLLM(userPrompt string, repoNames []string, missionsSummary string) (*llmInterpretation, error) {
+// interpretation and returns the parsed action.
+func interpretWithLLM(userPrompt string, repoNames []string, missionsSummary string) (*doAction, error) {
 	// Check that claude is available
 	if _, err := exec.LookPath("claude"); err != nil {
 		return nil, stacktrace.NewError(
@@ -265,7 +250,7 @@ func interpretWithLLM(userPrompt string, repoNames []string, missionsSummary str
 		reposSection = strings.Join(repoNames, "\n")
 	}
 
-	systemPrompt := fmt.Sprintf(`You are AgenC's command interpreter. Given a user request and the current system state, determine which repo to use and whether the user has a task for the agent.
+	systemPrompt := fmt.Sprintf(`You are AgenC's command interpreter. Given a user request and the current system state, determine which repo to use and what prompt to give the agent.
 
 AVAILABLE REPOS:
 %s
@@ -278,14 +263,15 @@ RULES:
 - Match the user's repo reference generously: "dotfiles" → "github.com/mieubrisse/dotfiles".
 - If no repo matches, set repo to "" for a blank mission.
 - Distinguish between requests that contain a TASK for the agent vs requests that just want to OPEN a repo.
-  - "In dotfiles, add a test agent" → has_task = true
-  - "open my todoist project" → has_task = false
-  - "fix the auth bug in web app" → has_task = true
-  - "launch dotfiles" → has_task = false
-- Do NOT extract or rewrite the user's prompt. Only determine the repo and whether a task exists.
+  - "In dotfiles, add a test agent" → has a task → prompt = "add a test agent"
+  - "open my todoist project" → just opening → prompt = ""
+  - "fix the auth bug in web app" → has a task → prompt = "fix the auth bug"
+  - "launch dotfiles" → just opening → prompt = ""
+- When there IS a task, extract just the agent instruction (strip the repo reference). Do not embellish.
+- When the request is purely about opening/launching/starting a repo with no task, set prompt to "".
 
 Respond with ONLY a JSON object (no markdown fences, no explanation):
-{"repo": "github.com/owner/repo", "has_task": true}`, reposSection, missionsSummary)
+{"repo": "github.com/owner/repo", "prompt": "the instruction for the agent"}`, reposSection, missionsSummary)
 
 	claudeCmd := exec.Command("claude", "-p", "--model", "haiku")
 	claudeCmd.Stdin = strings.NewReader(systemPrompt + "\n\nUser request: " + userPrompt)
@@ -306,9 +292,9 @@ Respond with ONLY a JSON object (no markdown fences, no explanation):
 	return parseLLMResponse(stdout.String())
 }
 
-// parseLLMResponse extracts an llmInterpretation from the LLM's raw output,
-// handling optional markdown fences.
-func parseLLMResponse(raw string) (*llmInterpretation, error) {
+// parseLLMResponse extracts a doAction from the LLM's raw output, handling
+// optional markdown fences.
+func parseLLMResponse(raw string) (*doAction, error) {
 	cleaned := strings.TrimSpace(raw)
 
 	// Strip markdown fences if present
@@ -321,12 +307,12 @@ func parseLLMResponse(raw string) (*llmInterpretation, error) {
 		cleaned = strings.TrimSpace(cleaned)
 	}
 
-	var interp llmInterpretation
-	if err := json.Unmarshal([]byte(cleaned), &interp); err != nil {
+	var action doAction
+	if err := json.Unmarshal([]byte(cleaned), &action); err != nil {
 		return nil, stacktrace.NewError("failed to parse LLM response as JSON:\n%s", cleaned)
 	}
 
-	return &interp, nil
+	return &action, nil
 }
 
 // buildMissionNewArgs constructs the argument list for `agenc mission new`.

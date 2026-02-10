@@ -6,48 +6,48 @@ import (
 
 func TestParseLLMResponse_ValidJSON(t *testing.T) {
 	tests := []struct {
-		name        string
-		raw         string
-		wantRepo    string
-		wantHasTask bool
+		name       string
+		raw        string
+		wantRepo   string
+		wantPrompt string
 	}{
 		{
-			name:        "repo with task",
-			raw:         `{"repo": "github.com/mieubrisse/dotfiles", "has_task": true}`,
-			wantRepo:    "github.com/mieubrisse/dotfiles",
-			wantHasTask: true,
+			name:       "repo with prompt",
+			raw:        `{"repo": "github.com/mieubrisse/dotfiles", "prompt": "add a test agent"}`,
+			wantRepo:   "github.com/mieubrisse/dotfiles",
+			wantPrompt: "add a test agent",
 		},
 		{
-			name:        "repo without task (open/launch request)",
-			raw:         `{"repo": "github.com/mieubrisse/todoist-manager", "has_task": false}`,
-			wantRepo:    "github.com/mieubrisse/todoist-manager",
-			wantHasTask: false,
+			name:       "repo with empty prompt (open/launch request)",
+			raw:        `{"repo": "github.com/mieubrisse/todoist-manager", "prompt": ""}`,
+			wantRepo:   "github.com/mieubrisse/todoist-manager",
+			wantPrompt: "",
 		},
 		{
-			name:        "blank mission with task",
-			raw:         `{"repo": "", "has_task": true}`,
-			wantRepo:    "",
-			wantHasTask: true,
+			name:       "blank mission with prompt",
+			raw:        `{"repo": "", "prompt": "help me write a bash script"}`,
+			wantRepo:   "",
+			wantPrompt: "help me write a bash script",
 		},
 		{
-			name:        "blank mission no task",
-			raw:         `{"repo": "", "has_task": false}`,
-			wantRepo:    "",
-			wantHasTask: false,
+			name:       "blank mission no prompt",
+			raw:        `{"repo": "", "prompt": ""}`,
+			wantRepo:   "",
+			wantPrompt: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interp, err := parseLLMResponse(tt.raw)
+			action, err := parseLLMResponse(tt.raw)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if interp.Repo != tt.wantRepo {
-				t.Errorf("repo = %q, want %q", interp.Repo, tt.wantRepo)
+			if action.Repo != tt.wantRepo {
+				t.Errorf("repo = %q, want %q", action.Repo, tt.wantRepo)
 			}
-			if interp.HasTask != tt.wantHasTask {
-				t.Errorf("has_task = %v, want %v", interp.HasTask, tt.wantHasTask)
+			if action.Prompt != tt.wantPrompt {
+				t.Errorf("prompt = %q, want %q", action.Prompt, tt.wantPrompt)
 			}
 		})
 	}
@@ -55,48 +55,48 @@ func TestParseLLMResponse_ValidJSON(t *testing.T) {
 
 func TestParseLLMResponse_MarkdownFences(t *testing.T) {
 	tests := []struct {
-		name        string
-		raw         string
-		wantRepo    string
-		wantHasTask bool
+		name       string
+		raw        string
+		wantRepo   string
+		wantPrompt string
 	}{
 		{
 			name: "json fence",
 			raw: "```json\n" +
-				`{"repo": "github.com/owner/repo", "has_task": true}` + "\n" +
+				`{"repo": "github.com/owner/repo", "prompt": "do something"}` + "\n" +
 				"```",
-			wantRepo:    "github.com/owner/repo",
-			wantHasTask: true,
+			wantRepo:   "github.com/owner/repo",
+			wantPrompt: "do something",
 		},
 		{
 			name: "plain fence",
 			raw: "```\n" +
-				`{"repo": "github.com/owner/repo", "has_task": false}` + "\n" +
+				`{"repo": "github.com/owner/repo", "prompt": ""}` + "\n" +
 				"```",
-			wantRepo:    "github.com/owner/repo",
-			wantHasTask: false,
+			wantRepo:   "github.com/owner/repo",
+			wantPrompt: "",
 		},
 		{
 			name: "fence with surrounding whitespace",
 			raw: "\n  ```json\n" +
-				`{"repo": "github.com/owner/repo", "has_task": true}` + "\n" +
+				`{"repo": "github.com/owner/repo", "prompt": "fix bug"}` + "\n" +
 				"```  \n",
-			wantRepo:    "github.com/owner/repo",
-			wantHasTask: true,
+			wantRepo:   "github.com/owner/repo",
+			wantPrompt: "fix bug",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interp, err := parseLLMResponse(tt.raw)
+			action, err := parseLLMResponse(tt.raw)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if interp.Repo != tt.wantRepo {
-				t.Errorf("repo = %q, want %q", interp.Repo, tt.wantRepo)
+			if action.Repo != tt.wantRepo {
+				t.Errorf("repo = %q, want %q", action.Repo, tt.wantRepo)
 			}
-			if interp.HasTask != tt.wantHasTask {
-				t.Errorf("has_task = %v, want %v", interp.HasTask, tt.wantHasTask)
+			if action.Prompt != tt.wantPrompt {
+				t.Errorf("prompt = %q, want %q", action.Prompt, tt.wantPrompt)
 			}
 		})
 	}
