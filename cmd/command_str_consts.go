@@ -46,6 +46,8 @@ const (
 
 	// Config subcommands
 	initCmdStr             = "init"
+	getCmdStr              = "get"
+	setCmdStr              = "set"
 	paletteCommandCmdStr   = "palette-command"
 
 	// Repo subcommands
