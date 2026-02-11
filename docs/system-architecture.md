@@ -52,7 +52,7 @@ graph TB
 |-----------|--------|--------|---------|
 | `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats, pane tracking |
 | `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
-| `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI (`login`, `update-config`), hooks (`mission send claude-update`) | Restart commands, Claude state updates |
+| `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI (`login`), hooks (`mission send claude-update`) | Restart commands, Claude state updates |
 | `daemon/daemon.pid` | Daemon | CLI (`daemon stop/status`) | Process coordination |
 | `.git/refs/remotes/origin/<branch>` | Git (after push) | Wrapper (via fsnotify) | Trigger repo library update |
 

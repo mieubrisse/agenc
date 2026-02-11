@@ -67,9 +67,15 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
+	// Compute shadow repo HEAD once for config staleness display
+	var shadowHeadCommitHash string
+	if lsAllFlag {
+		shadowHeadCommitHash = claudeconfig.GetShadowRepoCommitHash(agencDirpath)
+	}
+
 	var tbl table.Table
 	if lsAllFlag {
-		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "SESSION", "REPO")
+		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "CONFIG", "SESSION", "REPO")
 	} else {
 		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
 	}
@@ -90,6 +96,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				m.ShortID,
 				colorizeStatus(status),
 				pane,
+				formatConfigCommit(m.ConfigCommit, shadowHeadCommitHash),
 				truncatePrompt(sessionName, defaultPromptMaxLen),
 				repo,
 			)
@@ -223,6 +230,30 @@ func truncatePrompt(prompt string, maxLen int) string {
 		return collapsed
 	}
 	return collapsed[:maxLen] + "…"
+}
+
+// formatConfigCommit returns a display string for a mission's config commit.
+// Shows the 12-char short hash, plus "(-N)" in red if behind HEAD.
+// Returns "--" if the mission has no config commit.
+func formatConfigCommit(configCommit *string, shadowHeadCommitHash string) string {
+	if configCommit == nil {
+		return "--"
+	}
+
+	display := shortHash(*configCommit)
+
+	if shadowHeadCommitHash == "" {
+		return display
+	}
+
+	behind := claudeconfig.CountCommitsBehind(agencDirpath, *configCommit, shadowHeadCommitHash)
+	if behind > 0 {
+		display += fmt.Sprintf(" %s(-%d)%s", ansiRed, behind, ansiReset)
+	} else if behind < 0 {
+		display += " " + ansiRed + "(??)" + ansiReset
+	}
+
+	return display
 }
 
 // getMissionStatus returns the unified status for a mission: RUNNING, STOPPED,

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,14 +13,14 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/wrapper"
 )
 
 var updateConfigAllFlag bool
 
 var missionUpdateConfigCmd = &cobra.Command{
-	Use:   updateConfigCmdStr + " [mission-id|search-terms...]",
-	Short: "Rebuild a mission's Claude config from the shadow repo",
+	Use:     updateCmdStr + " [mission-id|search-terms...]",
+	Aliases: []string{updateConfigCmdStr},
+	Short:   "Rebuild a mission's Claude config from the shadow repo",
 	Long: fmt.Sprintf(`Rebuild a mission's Claude config from the shadow repo.
 
 The shadow repo tracks your ~/.claude configuration files. This command
@@ -196,24 +195,8 @@ func updateMissionConfig(db *database.DB, missionID string, newCommitHash string
 	}
 	fmt.Println()
 
-	// If the mission is running, signal it to restart with the updated config
 	if getMissionStatus(missionID, missionRecord.Status) == "RUNNING" {
-		socketFilepath := config.GetMissionSocketFilepath(agencDirpath, missionID)
-		_, err := wrapper.SendCommand(socketFilepath, wrapper.Command{
-			Command: "restart",
-			Mode:    "graceful",
-			Reason:  "config_updated",
-		})
-		if err != nil {
-			if errors.Is(err, wrapper.ErrWrapperNotRunning) {
-				// Race condition: wrapper exited between status check and socket send
-				fmt.Printf("  Note: mission stopped before restart signal could be sent\n")
-			} else {
-				fmt.Printf("  Warning: failed to signal restart: %v\n", err)
-			}
-		} else {
-			fmt.Printf("  Signaled running mission to restart with updated config\n")
-		}
+		fmt.Printf("  Note: restart the mission to pick up config changes\n")
 	}
 
 	return nil

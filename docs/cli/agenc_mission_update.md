@@ -1,4 +1,4 @@
-## agenc mission update-config
+## agenc mission update
 
 Rebuild a mission's Claude config from the shadow repo
 
@@ -16,14 +16,14 @@ With arguments, accepts a mission ID (short or full UUID) or search terms.
 Use --all to update all non-archived missions that have per-mission config.
 
 ```
-agenc mission update-config [mission-id|search-terms...] [flags]
+agenc mission update [mission-id|search-terms...] [flags]
 ```
 
 ### Options
 
 ```
       --all    update all non-archived missions
-  -h, --help   help for update-config
+  -h, --help   help for update
 ```
 
 ### SEE ALSO

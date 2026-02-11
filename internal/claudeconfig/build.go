@@ -537,6 +537,34 @@ func DeleteKeychainCredentials(claudeConfigDirpath string) error {
 	return nil
 }
 
+// CountCommitsBehind returns the number of commits between missionCommitHash
+// and HEAD in the shadow repo. Returns 0 if the hashes are equal or if the
+// shadow repo has no commits. Returns -1 if the mission commit is not found
+// in the shadow repo (e.g., after repo recreation).
+func CountCommitsBehind(agencDirpath string, missionCommitHash string, headCommitHash string) int {
+	if missionCommitHash == headCommitHash {
+		return 0
+	}
+
+	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
+	cmd := exec.Command("git", "rev-list", "--count", missionCommitHash+".."+headCommitHash)
+	cmd.Dir = shadowDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return -1
+	}
+
+	countStr := strings.TrimSpace(string(output))
+	count := 0
+	for _, ch := range countStr {
+		if ch < '0' || ch > '9' {
+			return -1
+		}
+		count = count*10 + int(ch-'0')
+	}
+	return count
+}
+
 // ResolveConfigCommitHash returns the HEAD commit hash from the git repo
 // containing the config source directory. Returns empty string if not a git repo.
 func ResolveConfigCommitHash(configSourceDirpath string) string {
