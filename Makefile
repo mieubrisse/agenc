@@ -22,14 +22,11 @@ LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
 .PHONY: build clean docs
 
-build: .git/hooks/pre-commit docs
+build: docs
 	go build -ldflags "$(LDFLAGS)" -o agenc .
 
 docs:
 	go run ./cmd/gendocs
-
-.git/hooks/pre-commit: scripts/hooks/pre-commit
-	@ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
 
 clean:
 	rm -f agenc
