@@ -271,13 +271,13 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 
 	case stateRestartPending:
 		if mode == "hard" {
-			// Hard overrides a pending graceful: kill immediately
+			// Hard overrides a pending graceful: interrupt immediately
 			w.logger.Info("Hard restart overrides pending graceful restart", "reason", cmd.Reason)
 			w.state = stateRestarting
 			w.pendingRestart = &cmd
 			// For hard restart, don't preserve conversation
 			w.hasConversation = false
-			_ = w.claudeCmd.Process.Kill()
+			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
 			return Response{Status: "ok"}
 		}
 		// Already pending graceful — idempotent
@@ -286,12 +286,12 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 
 	case stateRunning:
 		if mode == "hard" {
-			w.logger.Info("Hard restart requested, killing Claude immediately", "reason", cmd.Reason)
+			w.logger.Info("Hard restart requested, interrupting Claude immediately", "reason", cmd.Reason)
 			w.state = stateRestarting
 			w.pendingRestart = &cmd
 			// For hard restart, don't preserve conversation
 			w.hasConversation = false
-			_ = w.claudeCmd.Process.Kill()
+			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
 			return Response{Status: "ok"}
 		}
 
