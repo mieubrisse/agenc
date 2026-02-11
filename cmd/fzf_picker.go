@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/tableprinter"
@@ -54,6 +55,10 @@ func runFzfPickerWithSentinel(cfg FzfPickerConfig, sentinelRow []string) ([]int,
 // is nil, it behaves like runFzfPicker. When sentinelRow is provided, it behaves
 // like runFzfPickerWithSentinel.
 func runFzfPickerCore(cfg FzfPickerConfig, sentinelRow []string) ([]int, error) {
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return nil, stacktrace.NewError("interactive selection requires a terminal; provide arguments directly instead")
+	}
+
 	if err := validateHeaders(cfg.Headers); err != nil {
 		return nil, err
 	}

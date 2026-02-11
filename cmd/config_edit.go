@@ -6,6 +6,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
@@ -23,6 +24,13 @@ func init() {
 }
 
 func runConfigEdit(cmd *cobra.Command, args []string) error {
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return stacktrace.NewError("'%s %s %s' requires a terminal; use '%s %s %s'/'%s %s %s' instead",
+			agencCmdStr, configCmdStr, editCmdStr,
+			agencCmdStr, configCmdStr, getCmdStr,
+			agencCmdStr, configCmdStr, setCmdStr,
+		)
+	}
 	if _, err := getAgencContext(); err != nil {
 		return err
 	}

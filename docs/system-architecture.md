@@ -170,6 +170,8 @@ Directory Structure
 ├── CLAUDE.md                     # Agent instructions for working on this codebase
 ├── AGENTS.md                     # Agent definitions
 ├── cmd/                          # CLI commands (Cobra); see docs/cli/ for full reference
+│   ├── gendocs/                  # Build-time CLI doc generator
+│   └── genskill/                 # Build-time agenc-self-usage skill generator
 ├── internal/
 │   ├── config/                   # Path management, YAML config
 │   ├── database/                 # SQLite CRUD
@@ -221,7 +223,7 @@ $AGENC_DIRPATH/
 │       │   ├── CLAUDE.md                  # Merged: shadow repo + claude-modifications
 │       │   ├── settings.json              # Merged + hooks + deny entries
 │       │   ├── .claude.json               # Copy of user's account identity + trust entry
-│       │   ├── skills/                    # From shadow repo (path-rewritten)
+│       │   ├── skills/                    # From shadow repo (path-rewritten) + auto-generated agenc-self-usage
 │       │   ├── hooks/                     # From shadow repo (path-rewritten)
 │       │   ├── commands/                  # From shadow repo (path-rewritten)
 │       │   ├── agents/                    # From shadow repo (path-rewritten)
@@ -271,6 +273,7 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 - `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management, called by wrapper at spawn time), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
+- `agenc_usage_skill.go` — auto-generated agenc CLI quick-reference skill injected into every mission's `skills/agenc-self-usage/SKILL.md`. Content is generated at build time by `cmd/genskill/` from the Cobra command tree and embedded via `go:embed`.
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
 
 ### `internal/database/`
@@ -321,11 +324,12 @@ Key Architectural Patterns
 
 ### Per-mission config merging
 
-Each mission gets its own `claude-config/` directory, built at creation time from three sources:
+Each mission gets its own `claude-config/` directory, built at creation time from four sources:
 
 1. **Shadow repo** — a verbatim copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `~/.claude` paths rewritten at build time to point to the mission's concrete config path. See "Shadow repo" below.
-2. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
-3. **AgenC operational overrides** — programmatically injected hooks and deny permissions
+2. **Auto-generated skills** — the `agenc-self-usage` skill is written into `skills/agenc-self-usage/SKILL.md` after the shadow repo copy, providing agents with a CLI quick-reference. Content is generated at build time from the Cobra command tree (`cmd/genskill/`).
+3. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
+4. **AgenC operational overrides** — programmatically injected hooks and deny permissions
 
 Two directories are symlinked rather than copied: `plugins/` → `~/.claude/plugins/` (so plugin installations are shared), and `projects/` → `~/.claude/projects/` (so conversation transcripts and auto-memory persist beyond the mission lifecycle).
 

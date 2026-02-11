@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
@@ -20,6 +21,12 @@ var loginCmd = &cobra.Command{
 	Use:   loginCmdStr,
 	Short: "Log in to Claude and update credentials for all missions",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if !isatty.IsTerminal(os.Stdin.Fd()) {
+			return stacktrace.NewError("'%s %s' requires a terminal for interactive authentication",
+				agencCmdStr, loginCmdStr,
+			)
+		}
+
 		// Run claude login in a disposable temp directory so that no
 		// project-level .claude/ config interferes. CLAUDE_CONFIG_DIR is
 		// intentionally unset so credentials are written to the default

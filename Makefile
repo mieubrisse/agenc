@@ -20,13 +20,16 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
-.PHONY: build clean docs
+.PHONY: build clean docs genskill
 
-build: docs
+build: docs genskill
 	go build -ldflags "$(LDFLAGS)" -o agenc .
 
 docs:
 	go run ./cmd/gendocs
+
+genskill:
+	go run ./cmd/genskill
 
 clean:
 	rm -f agenc

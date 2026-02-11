@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
@@ -44,6 +45,12 @@ func runMissionNuke(cmd *cobra.Command, args []string) error {
 	}
 
 	if !nukeForceFlag {
+		if !isatty.IsTerminal(os.Stdin.Fd()) {
+			return stacktrace.NewError("'%s %s %s' requires a terminal for confirmation; use --%s to skip",
+				agencCmdStr, missionCmdStr, nukeCmdStr, forceFlagName,
+			)
+		}
+
 		fmt.Printf("WARNING: This will permanently remove ALL %d mission(s).\n", len(missions))
 		fmt.Print("Continue? [y/N] ")
 

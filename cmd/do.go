@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -73,6 +74,11 @@ func runDo(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		userPrompt = strings.Join(args, " ")
 	} else {
+		if !isatty.IsTerminal(os.Stdin.Fd()) {
+			return stacktrace.NewError("'%s %s' requires a terminal when no prompt is given; pass the prompt inline: %s %s \"your prompt\"",
+				agencCmdStr, doCmdStr, agencCmdStr, doCmdStr,
+			)
+		}
 		userPrompt, err = openEditorForPrompt("")
 		if err != nil {
 			return err

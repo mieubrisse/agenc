@@ -63,6 +63,12 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		}
 	}
 
+	// Write auto-generated agenc-self-usage skill (overwrites any user skill
+	// with the same name since it is written after the shadow repo copy)
+	if err := writeAgencUsageSkill(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to write agenc-self-usage skill")
+	}
+
 	// Merge CLAUDE.md: user's from shadow repo (rewritten) + agenc modifications
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
 	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {

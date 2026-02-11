@@ -179,6 +179,21 @@ AgenC currently supports:
 
 The core loop is: launch missions, observe what works and what doesn't, refine your Claude config, and repeat. Basically, [painting with your mind](https://mieubrisse.substack.com/p/be-rembrandt).
 
+Self-Management
+---------------
+
+Agents running inside AgenC missions can use `agenc` to manage the system they are running in. Every mission automatically includes an `agenc-self-usage` skill — a CLI quick-reference generated at build time from the actual command tree — so agents know exactly what commands are available.
+
+This means agents can:
+
+- **Spawn sibling missions:** `agenc mission new owner/repo --prompt "fix the auth bug"` to delegate work to a new mission
+- **Manage repos:** `agenc repo add owner/repo --sync` to register a new repo in the library
+- **Configure crons:** edit `config.yml` directly to add or update scheduled jobs, then `agenc cron enable <name>`
+- **Update config:** `agenc config set <key> <value>` to adjust agenc settings programmatically
+- **Check system status:** `agenc daemon status`, `agenc mission ls`, `agenc cron ls`
+
+Interactive commands that require a terminal (fzf pickers, `$EDITOR`, confirmation prompts) detect non-TTY environments and return clear error messages with non-interactive alternatives, so agents never hang on interactive input.
+
 Troubleshooting
 ---------------
 
