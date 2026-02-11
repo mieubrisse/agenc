@@ -18,8 +18,8 @@ Currently, fresh credentials remain trapped in the originating session's per-mis
 
 This feature implements a hybrid sync mechanism:
 - **Upward sync**: Per-mission credentials periodically poll and merge to global Keychain
-- **Downward sync**: Global credential changes trigger immediate notification via filesystem timestamp file watched by fsnotify
-- **Graceful restart**: Sessions detecting new credentials restart upon next idle period
+- **Downward sync**: Global credential changes broadcast via a `global-credentials-expiry` file watched by fsnotify; each wrapper compares the file's expiry to its own cached expiry to decide whether to pull fresh credentials
+- **Graceful restart**: Sessions detecting newer credentials restart upon next idle period
 
 Context
 -------
@@ -73,23 +73,27 @@ When a user runs `/login` in one session:
 Design Decision
 ---------------
 
-### Hybrid Polling + Timestamp File
+### Hybrid Polling + Expiry Broadcast File
 
 **Upward sync** (per-mission -> global):
 - Extend existing token expiry watcher goroutine to also poll per-mission credentials every 60 seconds
 - Compute SHA-256 hash of per-mission credential JSON
 - Compare against cached baseline (set at spawn + after each detected change)
 - On mismatch: read per-mission, read global, merge per-mission -> global, write global, update baseline
-- After successful write to global: touch `~/.agenc/credential-updated-at` timestamp file
+- After successful write to global: extract the new `claudeAiOauth.expiresAt` and write it to `~/.agenc/global-credentials-expiry`
+- Also update `w.tokenExpiresAt` to the new expiry (so this wrapper's cache matches the file)
 
 **Downward sync** (global -> per-mission):
-- New goroutine watches `~/.agenc/credential-updated-at` via fsnotify
+- New goroutine watches `~/.agenc/global-credentials-expiry` via fsnotify
 - On file write event (debounced 1 second):
-  - Read global Keychain entry
-  - Compute hash, compare against cached global baseline
-  - On mismatch: merge global -> per-mission, write per-mission Keychain
-  - If per-mission actually changed: set `stateRestartPending`, write statusline message
-- On restart (respawn): clear statusline message, refresh cached baselines from current Keychain
+  - Read expiry value from the file
+  - Compare to `w.tokenExpiresAt`
+  - If file expiry is newer: read global Keychain, merge global -> per-mission, write per-mission Keychain
+  - If per-mission actually changed: update `w.tokenExpiresAt`, set `stateRestartPending`, write statusline message
+  - If file expiry <= `w.tokenExpiresAt`: no action (this wrapper already has current or newer credentials)
+- On restart (respawn): clear statusline message, refresh cached hashes and `tokenExpiresAt` from fresh Keychain state
+
+**Why self-detection is a non-issue**: When a wrapper performs upward sync, it updates `w.tokenExpiresAt` to the new expiry *before* writing the file. When fsnotify fires back on the same wrapper, the comparison `fileExpiry > w.tokenExpiresAt` is false — the wrapper already has the fresh credentials. No flags, no time windows, no special cases.
 
 ### Why This Design
 
@@ -139,33 +143,35 @@ User Stories
 Implementation Plan
 -------------------
 
-### Phase 1: Credential Hash Utilities
+### Phase 1: Credential Hash Utilities and Path Helper
 
 - [ ] Create `internal/claudeconfig/hash.go` with `ComputeCredentialHash(credentialJSON []byte) (string, error)` — normalize JSON via unmarshal/marshal, SHA-256 hash, hex encode
-- [ ] Add `GetCredentialTimestampFilepath(agencDirpath string) string` to `internal/config/config.go` — returns `filepath.Join(agencDirpath, "credential-updated-at")`
+- [ ] Add `GetGlobalCredentialsExpiryFilepath(agencDirpath string) string` to `internal/config/config.go` — returns `filepath.Join(agencDirpath, "global-credentials-expiry")`
 - [ ] Unit tests for hash normalization in `internal/claudeconfig/hash_test.go`
 
 ### Phase 2: Upward Sync (Per-Mission -> Global)
 
-- [ ] Add fields to `Wrapper` struct in `internal/wrapper/wrapper.go`: `perMissionCredentialHash`, `globalCredentialHash`, `justWroteTimestamp bool`, `timestampWriteTime time.Time`
-- [ ] Initialize hash caches in `Run()` after `cloneCredentials()` — read both Keychain entries, compute and cache hashes
+- [ ] Add field to `Wrapper` struct in `internal/wrapper/wrapper.go`: `perMissionCredentialHash string`
+- [ ] Initialize hash cache in `Run()` after `cloneCredentials()` — read per-mission Keychain entry, compute and cache hash
 - [ ] Expand token expiry watcher in `internal/wrapper/token_expiry.go` (or rename to `credential_sync.go`) to also check per-mission credential hash every 60 seconds
-- [ ] On hash mismatch: read global, merge per-mission -> global via `MergeCredentialJSON`, write to global Keychain, touch timestamp file, update cached hashes
+- [ ] On hash mismatch: read global, merge per-mission -> global via `MergeCredentialJSON`, write to global Keychain, update cached hash
+- [ ] After writing global: extract `expiresAt` from merged credentials, update `w.tokenExpiresAt`, write expiry value to `global-credentials-expiry` file
 - [ ] Log: "Propagated per-mission credential changes to global Keychain"
 
 ### Phase 3: Downward Sync (Global -> Per-Mission)
 
 - [ ] Create `internal/wrapper/credential_sync.go` with `runCredentialDownwardSyncWatcher()` function
-- [ ] Setup fsnotify watcher on `GetCredentialTimestampFilepath(agencDirpath)` — create file if missing, watch parent dir as fallback
+- [ ] Setup fsnotify watcher on `GetGlobalCredentialsExpiryFilepath(agencDirpath)` — create file if missing, watch parent dir as fallback
 - [ ] Debounce events: 1-second timer, reset on each event, process after silence
-- [ ] Self-detection: if `justWroteTimestamp` and within 5 seconds of `timestampWriteTime`, skip processing
-- [ ] On external timestamp change: read global, compare hash, merge global -> per-mission if different
-- [ ] If per-mission actually changed: write to per-mission Keychain, set `stateRestartPending`, write statusline message
+- [ ] On file change: read expiry from file, compare to `w.tokenExpiresAt`
+- [ ] If file expiry > `w.tokenExpiresAt`: read global Keychain, merge global -> per-mission, write per-mission Keychain
+- [ ] If per-mission actually changed: update `w.tokenExpiresAt`, update `w.perMissionCredentialHash`, set `stateRestartPending`, write statusline message
+- [ ] If file expiry <= `w.tokenExpiresAt`: no action (already current)
 - [ ] Launch goroutine in `Run()` after credential initialization
 
 ### Phase 4: Restart Integration
 
-- [ ] In respawn flow after `cloneCredentials()`: read fresh credentials, recompute and update both hash caches
+- [ ] In respawn flow after `cloneCredentials()`: read fresh per-mission credentials, recompute and update `perMissionCredentialHash` and `tokenExpiresAt`
 - [ ] Clear statusline message on restart
 - [ ] Skip credential sync operations when `w.state != stateRunning` (avoid double-restart)
 - [ ] Existing `writeBackCredentials()` at exit remains as safety net (no changes)
@@ -174,8 +180,7 @@ Implementation Plan
 
 - [ ] Unit tests: `ComputeCredentialHash` normalization and uniqueness
 - [ ] Unit tests: upward sync logic with mocked Keychain
-- [ ] Unit tests: downward sync logic with mocked Keychain and filesystem
-- [ ] Unit tests: self-detection avoidance
+- [ ] Unit tests: downward sync logic — file expiry newer triggers pull, file expiry equal/older is no-op
 - [ ] Integration tests: full propagation cycle across multiple wrappers
 
 Technical Details
@@ -200,13 +205,23 @@ func ComputeCredentialHash(credentialJSON []byte) (string, error) {
 }
 ```
 
-### Self-Detection Avoidance
+### Expiry Broadcast File
 
-When a wrapper touches the timestamp file during upward sync:
-1. Set `w.justWroteTimestamp = true`
-2. Record `w.timestampWriteTime = time.Now()`
-3. In fsnotify handler: if event fires within 5 seconds of write time, skip
-4. Otherwise: process as external write
+The file `~/.agenc/global-credentials-expiry` contains a single float64 value (Unix timestamp) representing the `claudeAiOauth.expiresAt` from the global Keychain entry. Written as a decimal string (e.g., `1739318400.0`).
+
+When a wrapper performs upward sync:
+1. Merge per-mission -> global in Keychain
+2. Extract `expiresAt` from merged result
+3. Update `w.tokenExpiresAt` to the new value
+4. Write new expiry to file
+
+When any wrapper's fsnotify fires:
+1. Read expiry from file
+2. Compare to `w.tokenExpiresAt`
+3. If file > cached: pull fresh credentials from global Keychain
+4. If file <= cached: no action (this wrapper already has current credentials)
+
+The originating wrapper naturally short-circuits at step 3 because it updated `w.tokenExpiresAt` in step 3 above before writing the file. No self-detection flags or time windows needed.
 
 ### Debouncing fsnotify Events
 
@@ -218,20 +233,20 @@ Filesystem events may fire multiple times for a single logical change (especiall
 ### Keychain Read Cost
 
 Each Keychain read shells out to `security find-generic-password` (~50ms). Cost profile:
-- Upward sync: 1 read per wrapper per 60s
-- Downward sync: 1 read per wrapper per timestamp update (rare)
-- 10 concurrent missions: ~0.17 reads/sec amortized. Negligible.
+- Upward sync: 1 read per wrapper per 60s (per-mission Keychain)
+- Downward sync: 0 Keychain reads at rest; 1 read per wrapper only when expiry file changes and file expiry > cached expiry (rare — only on `/login` events)
+- 10 concurrent missions: ~0.17 reads/sec amortized for upward sync. Negligible.
 
 ### State Machine Interaction
 
 - `stateRunning`: Normal sync operations proceed
 - `stateRestartPending`: Skip sync to avoid double-restart
 - `stateRestarting`: Skip sync, respawn will refresh credentials
-- After respawn: Refresh cached hashes from current Keychain state
+- After respawn: Refresh `perMissionCredentialHash` and `tokenExpiresAt` from current Keychain state
 
-### Timestamp File Location
+### Expiry File Location
 
-File: `~/.agenc/credential-updated-at` (root of agenc directory, not per-mission). Single file for all missions to watch.
+File: `~/.agenc/global-credentials-expiry` (root of agenc directory, not per-mission). Single file for all missions to watch.
 
 ### Statusline Message
 
@@ -245,12 +260,12 @@ Testing Strategy
 ### Unit Tests
 
 - `internal/claudeconfig/hash_test.go`: Hash normalization, uniqueness, invalid JSON handling
-- `internal/wrapper/credential_sync_test.go`: Mock Keychain read/write, test upward sync, downward sync, self-detection, debouncing
+- `internal/wrapper/credential_sync_test.go`: Mock Keychain read/write, test upward sync, downward sync (expiry comparison), debouncing
 
 ### Integration Tests
 
-- Full upward sync cycle: per-mission change -> global merge -> timestamp touch
-- Full downward sync cycle: global change -> per-mission merge -> restart
+- Full upward sync cycle: per-mission change -> global merge -> expiry file write
+- Full downward sync cycle: expiry file change -> expiry comparison -> global pull -> per-mission merge -> restart
 - Multi-mission convergence under rapid updates
 - MCP OAuth token propagation (newer `expiresAt` wins)
 
@@ -259,7 +274,7 @@ Testing Strategy
 1. Start 3 missions, run `/login` in one, observe propagation within 60s
 2. Verify statusline messages appear and clear after restart
 3. Kill mission mid-sync, verify no corruption
-4. Delete timestamp file, verify self-healing on next write
+4. Delete expiry file, verify self-healing on next upward sync write
 
 Acceptance Criteria
 -------------------
@@ -270,7 +285,7 @@ Acceptance Criteria
 - [ ] After restart, missions use the fresh credentials
 - [ ] MCP OAuth token refreshes propagate correctly (newer `expiresAt` wins per server)
 - [ ] Multiple rapid credential updates converge to consistent state
-- [ ] No spurious restarts occur (self-detection avoidance works)
+- [ ] No spurious restarts occur (originating wrapper's expiry matches file, short-circuits naturally)
 - [ ] Credential sync skips when wrapper state is not `stateRunning`
 - [ ] Existing write-back at wrapper exit continues to function as safety net
 - [ ] All unit and integration tests pass
@@ -284,7 +299,7 @@ Risks & Considerations
 
 **Race between upward and downward sync**: Merge logic is commutative and idempotent. Eventual consistency guaranteed within 60 seconds via polling + merge. Low risk.
 
-**Timestamp file deletion**: fsnotify handles gracefully. Recreated on next upward sync. Transient disruption only.
+**Expiry file deletion**: fsnotify handles gracefully. Recreated on next upward sync. Transient disruption only.
 
 **Token expiry during restart wait**: Token expiry watcher continues running. User sees expiry warning. System corrects on restart.
 
