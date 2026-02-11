@@ -338,6 +338,7 @@ func (w *Wrapper) cloneCredentials() {
 	// Read the token expiry so the watchTokenExpiry goroutine can warn
 	// before expiration without additional Keychain reads.
 	w.tokenExpiresAt = claudeconfig.GetCredentialExpiresAt()
+	w.logger.Info("Read token expiry timestamp", "tokenExpiresAt", w.tokenExpiresAt)
 }
 
 // writeBackCredentials merges per-mission Keychain credentials back into the

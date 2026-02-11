@@ -599,8 +599,11 @@ func injectStatuslineWrapper(settingsData []byte, agencDirpath string, missionID
 }
 
 // GetCredentialExpiresAt reads the global Keychain credentials and returns
-// the expiresAt timestamp for the claudeAiOauth token. Returns 0 if the
-// credential cannot be read or the expiresAt field is missing.
+// the expiresAt timestamp (in Unix seconds) for the claudeAiOauth token.
+// Returns 0 if the credential cannot be read or the expiresAt field is missing.
+//
+// Claude Code stores expiresAt as epoch milliseconds; this function normalizes
+// to seconds so callers can compare directly against time.Now().Unix().
 func GetCredentialExpiresAt() float64 {
 	credential, err := ReadKeychainCredentials(GlobalCredentialServiceName)
 	if err != nil {
@@ -617,7 +620,19 @@ func GetCredentialExpiresAt() float64 {
 		return 0
 	}
 
-	return extractExpiresAt(oauthRaw)
+	expiresAt := extractExpiresAt(oauthRaw)
+	if expiresAt == 0 {
+		return 0
+	}
+
+	// Claude Code stores expiresAt in milliseconds. Normalize to seconds
+	// by checking magnitude: any value above 1e12 is clearly milliseconds
+	// (year ~33658 in seconds vs year ~2001 in milliseconds).
+	if expiresAt > 1e12 {
+		expiresAt /= 1000
+	}
+
+	return expiresAt
 }
 
 // findGitRoot walks up from the given path looking for a .git directory.

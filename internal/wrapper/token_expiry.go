@@ -25,6 +25,10 @@ func (w *Wrapper) watchTokenExpiry(ctx context.Context) {
 
 	messageFilepath := config.GetMissionStatuslineMessageFilepath(w.agencDirpath, w.missionID)
 
+	// Run an immediate check so expiry warnings appear at mission start,
+	// not after the first ticker interval (1 minute).
+	w.checkTokenExpiry(messageFilepath)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -40,7 +44,7 @@ func (w *Wrapper) watchTokenExpiry(ctx context.Context) {
 // Otherwise, removes the message file (if it exists).
 func (w *Wrapper) checkTokenExpiry(messageFilepath string) {
 	if w.tokenExpiresAt == 0 {
-		// No expiry timestamp available — nothing to warn about
+		w.logger.Warn("Token expiry check skipped: no expiresAt timestamp available (credential may lack claudeAiOauth.expiresAt)")
 		return
 	}
 
@@ -48,6 +52,7 @@ func (w *Wrapper) checkTokenExpiry(messageFilepath string) {
 	remaining := w.tokenExpiresAt - nowUnix
 
 	if remaining <= tokenExpiryWarningWindow.Seconds() {
+		w.logger.Info("Token expiry warning triggered", "remaining_seconds", remaining, "expiresAt", w.tokenExpiresAt)
 		if err := os.WriteFile(messageFilepath, []byte(tokenExpiryWarningMsg), 0644); err != nil {
 			w.logger.Warn("Failed to write statusline warning", "error", err)
 		}
