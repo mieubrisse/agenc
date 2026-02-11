@@ -1,4 +1,4 @@
-![](./readme-images/cover.jpg)
+![](./readme-images/cover.png)
 
 AgenC
 =====
