@@ -264,7 +264,7 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 Per-mission Claude configuration building, merging, and shadow repo management.
 
-- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management, called by wrapper at spawn time), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
+- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `BuildMissionConfigDirAtCommit` (same pipeline but extracts the shadow repo at a specific commit via `git archive` — used by `mission clone` to inherit the source mission's config snapshot), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management, called by wrapper at spawn time), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
@@ -300,14 +300,14 @@ Per-mission Claude child process management.
 
 - `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, credential cloning at spawn time
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
-- `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
+- `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `QueryIdle` (polls whether Claude is idle via the `query_idle` socket command — used by `mission clone` to wait for a consistent snapshot), `ErrWrapperNotRunning` sentinel error
 - `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (uses custom `windowTitle` from config.yml if set, otherwise falls back to repo short name), pane color management (`setPaneNeedsAttention`, `resetPaneStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
 
 ### Utility packages
 
 - `internal/version/` — single `Version` string set via ldflags at build time (`version.go`)
 - `internal/history/` — `FindFirstPrompt` extracts the first user prompt from Claude's `history.jsonl` for a given mission UUID (`history.go`)
-- `internal/session/` — `FindSessionName` resolves a mission's session name from Claude metadata (priority: custom-title > sessions-index.json summary > JSONL summary) (`session.go`)
+- `internal/session/` — `FindSessionName` resolves a mission's session name from Claude metadata (priority: custom-title > sessions-index.json summary > JSONL summary) (`session.go`); `EncodeProjectDirname`, `FindProjectDirpath`, `FindLatestSessionID` for locating Claude Code project directories and sessions (`project.go`); `CopyAndForkSession` for cloning a session with sessionId replacement (`copy.go`)
 - `internal/tableprinter/` — ANSI-aware table formatting using `rodaine/table` with `runewidth` for wide character support (`tableprinter.go`)
 
 
@@ -440,6 +440,16 @@ Data Flow: Mission Lifecycle
 - **User-initiated** (`agenc mission stop`): reads PID file, sends SIGINT to wrapper, wrapper forwards to Claude, waits for exit, cleans up PID file
 - **Natural exit**: Claude exits on its own (e.g., user types `/exit`), wrapper detects via `cmd.Wait()`, cleans up
 - **Headless timeout**: context cancellation triggers SIGTERM to Claude, then SIGKILL after 30 seconds
+
+### Cloning (`agenc mission clone`)
+
+1. Resolves the source mission ID and retrieves its database record
+2. If the source mission is running, polls `query_idle` via the wrapper socket until Claude reaches idle state (times out after 5 minutes)
+3. Creates a new database record inheriting the source mission's `config_commit`
+4. Copies the source mission's `agent/` directory into the new mission via `mission.CopyAgentDir`
+5. Builds the per-mission Claude config at the source's `config_commit` (uses `git archive` to extract the shadow repo at that commit, then runs the standard config build pipeline)
+6. Forks the latest conversation session: copies the JSONL transcript with JSON-key-targeted sessionId replacement, copies the session subdirectory (subagents, tool-results), sessions-index.json, and auto-memory
+7. Launches the new mission with `--resume` so it continues the forked conversation
 
 ### Resuming (`agenc mission resume`)
 

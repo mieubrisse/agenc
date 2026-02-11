@@ -10,9 +10,6 @@ Positional arguments select a repo. They can be:
   - A git reference (URL, shorthand like owner/repo, or local path)
   - Search terms to match against your library ("my repo")
 
-Use --clone <mission-uuid> to create a new mission with a full copy of an
-existing mission's agent directory.
-
 ```
 agenc mission new [search-terms...] [flags]
 ```
@@ -21,7 +18,6 @@ agenc mission new [search-terms...] [flags]
 
 ```
       --blank            create a blank mission with no repo (skip picker)
-      --clone string     mission UUID to clone agent directory from
       --headless         run in headless mode (no terminal, outputs to log)
   -h, --help             help for new
       --prompt string    initial prompt to start Claude with

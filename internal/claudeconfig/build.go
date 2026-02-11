@@ -1,6 +1,7 @@
 package claudeconfig
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -31,12 +32,53 @@ var TrackableItemNames = []string{
 }
 
 // BuildMissionConfigDir creates and populates the per-mission claude config
-// directory from the shadow repo. It copies tracked files with path rewriting,
-// applies AgenC modifications (merged CLAUDE.md, merged settings.json with
-// hooks), copies and patches .claude.json, dumps credentials, and symlinks
-// plugins to ~/.claude/plugins.
+// directory from the shadow repo's current working tree. It copies tracked
+// files with path rewriting, applies AgenC modifications (merged CLAUDE.md,
+// merged settings.json with hooks), copies and patches .claude.json, dumps
+// credentials, and symlinks plugins to ~/.claude/plugins.
 func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
+	return buildMissionConfigDirFromSource(agencDirpath, missionID, shadowDirpath)
+}
+
+// BuildMissionConfigDirAtCommit creates the per-mission claude config directory
+// using the shadow repo's state at a specific commit. If configCommit is empty,
+// it falls back to the current shadow repo working tree (same as BuildMissionConfigDir).
+func BuildMissionConfigDirAtCommit(agencDirpath string, missionID string, configCommit string) error {
+	if configCommit == "" {
+		return BuildMissionConfigDir(agencDirpath, missionID)
+	}
+
+	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
+
+	// Extract the shadow repo at the specific commit to a temp directory
+	tmpDirpath, err := os.MkdirTemp("", "agenc-config-*")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to create temp directory for config extraction")
+	}
+	defer os.RemoveAll(tmpDirpath)
+
+	archiveCmd := exec.Command("git", "archive", "--format=tar", configCommit)
+	archiveCmd.Dir = shadowDirpath
+	archiveData, err := archiveCmd.Output()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to archive shadow repo at commit '%s'", configCommit)
+	}
+
+	tarCmd := exec.Command("tar", "-x", "-C", tmpDirpath)
+	tarCmd.Stdin = bytes.NewReader(archiveData)
+	if output, err := tarCmd.CombinedOutput(); err != nil {
+		return stacktrace.Propagate(err, "failed to extract config archive: %s", string(output))
+	}
+
+	return buildMissionConfigDirFromSource(agencDirpath, missionID, tmpDirpath)
+}
+
+// buildMissionConfigDirFromSource is the shared implementation for building
+// per-mission config. configSourceDirpath points to the directory containing
+// the user's Claude config files (either the shadow repo working tree or a
+// temporary extraction of a specific commit).
+func buildMissionConfigDirFromSource(agencDirpath string, missionID string, configSourceDirpath string) error {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
 	missionAgentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
@@ -45,9 +87,9 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		return stacktrace.Propagate(err, "failed to create claude-config directory")
 	}
 
-	// Copy tracked directories from shadow repo with path rewriting
+	// Copy tracked directories from config source with path rewriting
 	for _, dirName := range TrackedDirNames {
-		srcDirpath := filepath.Join(shadowDirpath, dirName)
+		srcDirpath := filepath.Join(configSourceDirpath, dirName)
 		dstDirpath := filepath.Join(claudeConfigDirpath, dirName)
 
 		if _, err := os.Stat(srcDirpath); os.IsNotExist(err) {
@@ -59,19 +101,19 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		// Remove existing destination and copy fresh with path rewriting
 		os.RemoveAll(dstDirpath)
 		if err := copyDirWithRewriting(srcDirpath, dstDirpath, claudeConfigDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to copy '%s' from shadow repo", dirName)
+			return stacktrace.Propagate(err, "failed to copy '%s' from config source", dirName)
 		}
 	}
 
-	// Merge CLAUDE.md: user's from shadow repo (rewritten) + agenc modifications
+	// Merge CLAUDE.md: user's from config source (rewritten) + agenc modifications
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
-	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
+	if err := buildMergedClaudeMd(configSourceDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
 	}
 
-	// Merge settings.json: user's from shadow repo + agenc modifications + hooks/deny,
+	// Merge settings.json: user's from config source + agenc modifications + hooks/deny,
 	// then selectively rewrite paths (preserving permissions block)
-	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath); err != nil {
+	if err := buildMergedSettings(configSourceDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged settings.json")
 	}
 

@@ -14,11 +14,14 @@ func TestCopyAndForkSession(t *testing.T) {
 	srcSessionID := "aaaa-1111-2222-3333-444444444444"
 	newSessionID := "bbbb-5555-6666-7777-888888888888"
 
-	// Create source JSONL with sessionId references
+	// Create source JSONL with sessionId references.
+	// Include a line where the UUID appears in user message content to verify
+	// that only the "sessionId" JSON key is replaced.
 	jsonlContent := strings.Join([]string{
 		`{"type":"user","sessionId":"aaaa-1111-2222-3333-444444444444","message":"hello"}`,
 		`{"type":"assistant","sessionId":"aaaa-1111-2222-3333-444444444444","message":"hi"}`,
 		`{"type":"summary","sessionId":"aaaa-1111-2222-3333-444444444444","summary":"test"}`,
+		`{"type":"user","sessionId":"aaaa-1111-2222-3333-444444444444","message":"my session is aaaa-1111-2222-3333-444444444444 ok"}`,
 	}, "\n") + "\n"
 	writeTestFile(t, srcDirpath, srcSessionID+".jsonl", jsonlContent)
 
@@ -52,14 +55,13 @@ func TestCopyAndForkSession(t *testing.T) {
 	}
 	dstJSONL := string(dstJSONLData)
 
-	if strings.Contains(dstJSONL, srcSessionID) {
-		t.Error("destination JSONL still contains source session ID")
+	// The "sessionId" keys should all be replaced (4 lines × 1 key each = 4 occurrences)
+	if count := strings.Count(dstJSONL, `"sessionId":"`+newSessionID+`"`); count != 4 {
+		t.Errorf("expected 4 sessionId key replacements, got %d", count)
 	}
-	if !strings.Contains(dstJSONL, newSessionID) {
-		t.Error("destination JSONL does not contain new session ID")
-	}
-	if count := strings.Count(dstJSONL, newSessionID); count != 3 {
-		t.Errorf("expected 3 occurrences of new session ID, got %d", count)
+	// The UUID in the user message content should NOT be replaced
+	if !strings.Contains(dstJSONL, `"message":"my session is `+srcSessionID+` ok"`) {
+		t.Error("UUID inside message content was incorrectly replaced")
 	}
 
 	// Verify session subdirectory was copied

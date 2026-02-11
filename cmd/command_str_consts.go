@@ -39,6 +39,7 @@ const (
 
 	// Mission subcommands
 	newCmdStr          = "new"
+	cloneCmdStr        = "clone"
 	resumeCmdStr       = "resume"
 	archiveCmdStr      = "archive"
 	inspectCmdStr      = "inspect"
@@ -75,7 +76,6 @@ const (
 
 const (
 	// mission new flags
-	cloneFlagName  = "clone"
 	promptFlagName = "prompt"
 	blankFlagName  = "blank"
 

@@ -91,7 +91,10 @@ func copyFileWithSessionIDReplacement(srcFilepath string, dstFilepath string, ol
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		line = strings.ReplaceAll(line, oldSessionID, newSessionID)
+		// Target only the JSON "sessionId" key to avoid replacing UUIDs that
+		// happen to appear inside user messages or tool output.
+		line = strings.ReplaceAll(line, `"sessionId":"`+oldSessionID+`"`, `"sessionId":"`+newSessionID+`"`)
+		line = strings.ReplaceAll(line, `"sessionId": "`+oldSessionID+`"`, `"sessionId": "`+newSessionID+`"`)
 		if _, err := writer.WriteString(line + "\n"); err != nil {
 			return stacktrace.Propagate(err, "failed to write to '%s'", dstFilepath)
 		}
