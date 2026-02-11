@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 
 	"github.com/mieubrisse/stacktrace"
@@ -42,7 +41,7 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 
 	tbl := tableprinter.NewTable("REPO", "SYNCED")
 	for _, repoName := range repoNames {
-		synced := formatCheckmark(slices.Contains(cfg.SyncedRepos, repoName))
+		synced := formatCheckmark(cfg.ContainsSyncedRepo(repoName))
 		tbl.AddRow(displayGitRepo(repoName), synced)
 	}
 	tbl.Print()

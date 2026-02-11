@@ -123,7 +123,8 @@ func runMissionNewWithClone() error {
 		fmt.Println("Launching claude...")
 
 		gitRepoName := sourceMission.GitRepo
-		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, promptFlag, db)
+		windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
+		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, promptFlag, db)
 		return w.Run(false)
 	})
 }
@@ -327,7 +328,8 @@ func createAndLaunchMission(
 
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, initialPrompt, db)
+	windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt, db)
 
 	// Run in headless mode if requested
 	if headlessFlag {

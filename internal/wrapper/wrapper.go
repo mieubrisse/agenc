@@ -39,6 +39,7 @@ type Wrapper struct {
 	agencDirpath   string
 	missionID      string
 	gitRepoName    string
+	windowTitle    string
 	initialPrompt  string
 	missionDirpath string
 	agentDirpath   string
@@ -74,12 +75,15 @@ type Wrapper struct {
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
 // parameter is optional; if non-empty, it will be passed to Claude when
-// starting a new conversation (not used for resumes).
-func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initialPrompt string, db *database.DB) *Wrapper {
+// starting a new conversation (not used for resumes). The windowTitle
+// parameter is optional; if non-empty, it overrides the default tmux window
+// title derived from the repo name.
+func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windowTitle string, initialPrompt string, db *database.DB) *Wrapper {
 	return &Wrapper{
 		agencDirpath:   agencDirpath,
 		missionID:      missionID,
 		gitRepoName:    gitRepoName,
+		windowTitle:    windowTitle,
 		initialPrompt:  initialPrompt,
 		missionDirpath: config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:   config.GetMissionAgentDirpath(agencDirpath, missionID),

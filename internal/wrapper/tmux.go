@@ -10,9 +10,11 @@ const (
 	agencTmuxEnvVar = "AGENC_TMUX"
 )
 
-// renameWindowForTmux renames the current tmux window to the repo name
-// when running inside the AgenC tmux session (AGENC_TMUX == 1). In regular tmux
-// sessions or outside tmux, this is a no-op.
+// renameWindowForTmux renames the current tmux window when running inside the
+// AgenC tmux session (AGENC_TMUX == 1). Uses the custom windowTitle from
+// config.yml if set, otherwise falls back to the repo's short name, and
+// finally to the mission ID. In regular tmux sessions or outside tmux, this
+// is a no-op.
 func (w *Wrapper) renameWindowForTmux() {
 	if os.Getenv(agencTmuxEnvVar) != "1" {
 		return
@@ -23,16 +25,19 @@ func (w *Wrapper) renameWindowForTmux() {
 		return
 	}
 
-	windowTitle := w.missionID
+	title := w.missionID
 	if w.gitRepoName != "" {
 		repoName := extractRepoName(w.gitRepoName)
 		if repoName != "" {
-			windowTitle = repoName
+			title = repoName
 		}
+	}
+	if w.windowTitle != "" {
+		title = w.windowTitle
 	}
 
 	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "rename-window", "-t", paneID, windowTitle).Run()
+	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
 }
 
 // registerTmuxPane records the current tmux pane ID in the database so that

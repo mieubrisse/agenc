@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -102,7 +101,7 @@ func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName stri
 	repoDirpath := config.GetRepoDirpath(agencDirpath, repoName)
 	_, statErr := os.Stat(repoDirpath)
 	existsOnDisk := statErr == nil
-	isSynced := slices.Contains(cfg.SyncedRepos, repoName)
+	isSynced := cfg.ContainsSyncedRepo(repoName)
 
 	if !existsOnDisk && !isSynced {
 		fmt.Printf("'%s' not found\n", repoName)
@@ -123,8 +122,7 @@ func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName stri
 			return nil
 		}
 
-		idx := slices.Index(cfg.SyncedRepos, repoName)
-		cfg.SyncedRepos = slices.Delete(cfg.SyncedRepos, idx, idx+1)
+		cfg.RemoveSyncedRepo(repoName)
 
 		if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 			return stacktrace.Propagate(err, "failed to write config")

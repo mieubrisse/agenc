@@ -173,6 +173,19 @@ func prepareMissionForAction(db *database.DB, missionID string) (*database.Missi
 // Config helpers
 // ============================================================================
 
+// lookupWindowTitle reads the config and returns the window title for the
+// given repo, or empty string if not configured or on read error.
+func lookupWindowTitle(agencDirpath string, gitRepoName string) string {
+	if gitRepoName == "" {
+		return ""
+	}
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return ""
+	}
+	return cfg.GetWindowTitle(gitRepoName)
+}
+
 // readConfig centralizes the config reading boilerplate. It returns the config
 // only; use readConfigWithComments when the comment map is needed for write-back.
 func readConfig() (*config.AgencConfig, error) {

@@ -15,7 +15,10 @@ func TestReadWriteAgencConfig(t *testing.T) {
 	}
 
 	cfg := &AgencConfig{
-		SyncedRepos: []string{"github.com/owner/repo1", "github.com/owner/repo2"},
+		SyncedRepos: []SyncedRepoConfig{
+			{Repo: "github.com/owner/repo1"},
+			{Repo: "github.com/owner/repo2"},
+		},
 	}
 
 	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
@@ -31,12 +34,12 @@ func TestReadWriteAgencConfig(t *testing.T) {
 		t.Fatalf("expected 2 synced repos, got %d", len(got.SyncedRepos))
 	}
 
-	if got.SyncedRepos[0] != "github.com/owner/repo1" {
-		t.Errorf("expected 'github.com/owner/repo1', got '%s'", got.SyncedRepos[0])
+	if got.SyncedRepos[0].Repo != "github.com/owner/repo1" {
+		t.Errorf("expected 'github.com/owner/repo1', got '%s'", got.SyncedRepos[0].Repo)
 	}
 
-	if got.SyncedRepos[1] != "github.com/owner/repo2" {
-		t.Errorf("expected 'github.com/owner/repo2', got '%s'", got.SyncedRepos[1])
+	if got.SyncedRepos[1].Repo != "github.com/owner/repo2" {
+		t.Errorf("expected 'github.com/owner/repo2', got '%s'", got.SyncedRepos[1].Repo)
 	}
 }
 
@@ -172,6 +175,161 @@ func TestEnsureConfigFile(t *testing.T) {
 	}
 	if string(data2) != expected {
 		t.Errorf("file was modified by second EnsureConfigFile call")
+	}
+}
+
+// --- SyncedRepo window title tests ---
+
+func TestSyncedRepo_PlainString(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+syncedRepos:
+  - github.com/owner/repo1
+  - github.com/owner/repo2
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if len(cfg.SyncedRepos) != 2 {
+		t.Fatalf("expected 2 synced repos, got %d", len(cfg.SyncedRepos))
+	}
+	if cfg.SyncedRepos[0].Repo != "github.com/owner/repo1" {
+		t.Errorf("expected repo1, got '%s'", cfg.SyncedRepos[0].Repo)
+	}
+	if cfg.SyncedRepos[0].WindowTitle != "" {
+		t.Errorf("expected empty window title for plain string entry, got '%s'", cfg.SyncedRepos[0].WindowTitle)
+	}
+}
+
+func TestSyncedRepo_StructuredWithWindowTitle(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+syncedRepos:
+  - repo: github.com/owner/repo1
+    windowTitle: "My Repo"
+  - github.com/owner/repo2
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if len(cfg.SyncedRepos) != 2 {
+		t.Fatalf("expected 2 synced repos, got %d", len(cfg.SyncedRepos))
+	}
+	if cfg.SyncedRepos[0].Repo != "github.com/owner/repo1" {
+		t.Errorf("expected repo1, got '%s'", cfg.SyncedRepos[0].Repo)
+	}
+	if cfg.SyncedRepos[0].WindowTitle != "My Repo" {
+		t.Errorf("expected 'My Repo', got '%s'", cfg.SyncedRepos[0].WindowTitle)
+	}
+	if cfg.SyncedRepos[1].Repo != "github.com/owner/repo2" {
+		t.Errorf("expected repo2, got '%s'", cfg.SyncedRepos[1].Repo)
+	}
+	if cfg.SyncedRepos[1].WindowTitle != "" {
+		t.Errorf("expected empty window title for plain string entry, got '%s'", cfg.SyncedRepos[1].WindowTitle)
+	}
+}
+
+func TestSyncedRepo_GetWindowTitle(t *testing.T) {
+	cfg := &AgencConfig{
+		SyncedRepos: []SyncedRepoConfig{
+			{Repo: "github.com/owner/repo1", WindowTitle: "Custom Title"},
+			{Repo: "github.com/owner/repo2"},
+		},
+	}
+
+	if got := cfg.GetWindowTitle("github.com/owner/repo1"); got != "Custom Title" {
+		t.Errorf("expected 'Custom Title', got '%s'", got)
+	}
+	if got := cfg.GetWindowTitle("github.com/owner/repo2"); got != "" {
+		t.Errorf("expected empty string for repo without window title, got '%s'", got)
+	}
+	if got := cfg.GetWindowTitle("github.com/owner/nonexistent"); got != "" {
+		t.Errorf("expected empty string for nonexistent repo, got '%s'", got)
+	}
+}
+
+func TestSyncedRepo_RoundTrip_PlainAndStructured(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{
+		SyncedRepos: []SyncedRepoConfig{
+			{Repo: "github.com/owner/repo1", WindowTitle: "Custom"},
+			{Repo: "github.com/owner/repo2"},
+		},
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if len(got.SyncedRepos) != 2 {
+		t.Fatalf("expected 2 synced repos, got %d", len(got.SyncedRepos))
+	}
+	if got.SyncedRepos[0].Repo != "github.com/owner/repo1" {
+		t.Errorf("expected repo1, got '%s'", got.SyncedRepos[0].Repo)
+	}
+	if got.SyncedRepos[0].WindowTitle != "Custom" {
+		t.Errorf("expected 'Custom', got '%s'", got.SyncedRepos[0].WindowTitle)
+	}
+	if got.SyncedRepos[1].Repo != "github.com/owner/repo2" {
+		t.Errorf("expected repo2, got '%s'", got.SyncedRepos[1].Repo)
+	}
+	if got.SyncedRepos[1].WindowTitle != "" {
+		t.Errorf("expected empty window title, got '%s'", got.SyncedRepos[1].WindowTitle)
+	}
+}
+
+func TestSyncedRepo_ContainsAndRemove(t *testing.T) {
+	cfg := &AgencConfig{
+		SyncedRepos: []SyncedRepoConfig{
+			{Repo: "github.com/owner/repo1", WindowTitle: "Custom"},
+			{Repo: "github.com/owner/repo2"},
+		},
+	}
+
+	if !cfg.ContainsSyncedRepo("github.com/owner/repo1") {
+		t.Error("expected to contain repo1")
+	}
+	if cfg.ContainsSyncedRepo("github.com/owner/nonexistent") {
+		t.Error("expected not to contain nonexistent repo")
+	}
+
+	cfg.RemoveSyncedRepo("github.com/owner/repo1")
+	if cfg.ContainsSyncedRepo("github.com/owner/repo1") {
+		t.Error("expected repo1 to be removed")
+	}
+	if len(cfg.SyncedRepos) != 1 {
+		t.Fatalf("expected 1 repo remaining, got %d", len(cfg.SyncedRepos))
+	}
+}
+
+func TestSyncedRepo_AddSyncedRepo(t *testing.T) {
+	cfg := &AgencConfig{}
+
+	cfg.AddSyncedRepo("github.com/owner/repo1")
+	if len(cfg.SyncedRepos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(cfg.SyncedRepos))
+	}
+
+	// Adding the same repo again should be a no-op
+	cfg.AddSyncedRepo("github.com/owner/repo1")
+	if len(cfg.SyncedRepos) != 1 {
+		t.Fatalf("expected 1 repo after duplicate add, got %d", len(cfg.SyncedRepos))
 	}
 }
 

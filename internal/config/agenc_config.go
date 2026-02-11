@@ -192,9 +192,47 @@ func (c ResolvedPaletteCommand) FormatKeybinding() string {
 // (e.g. "-T agenc k") or bind directly on the prefix table (e.g. "C-k").
 const DefaultPaletteTmuxKeybinding = "-T agenc k"
 
+// SyncedRepoConfig represents a repo entry in the syncedRepos list.
+// Supports both plain string format ("github.com/owner/repo") and structured
+// format with optional properties like windowTitle.
+type SyncedRepoConfig struct {
+	Repo        string `yaml:"repo"`
+	WindowTitle string `yaml:"windowTitle,omitempty"`
+}
+
+// UnmarshalYAML allows SyncedRepoConfig to be unmarshaled from either a plain
+// string or a structured object, providing backward compatibility.
+func (s *SyncedRepoConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try plain string first
+	var str string
+	if err := unmarshal(&str); err == nil {
+		s.Repo = str
+		return nil
+	}
+
+	// Fall back to structured form
+	type rawSyncedRepoConfig SyncedRepoConfig
+	var raw rawSyncedRepoConfig
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+	*s = SyncedRepoConfig(raw)
+	return nil
+}
+
+// MarshalYAML emits a plain string when windowTitle is empty, or a structured
+// object when windowTitle is set. This keeps config.yml clean for simple entries.
+func (s SyncedRepoConfig) MarshalYAML() (interface{}, error) {
+	if s.WindowTitle == "" {
+		return s.Repo, nil
+	}
+	type rawSyncedRepoConfig SyncedRepoConfig
+	return rawSyncedRepoConfig(s), nil
+}
+
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	SyncedRepos            []string                         `yaml:"syncedRepos,omitempty"`
+	SyncedRepos            []SyncedRepoConfig               `yaml:"syncedRepos,omitempty"`
 	TmuxAgencFilepath      string                           `yaml:"tmuxAgencFilepath,omitempty"`
 	Crons                  map[string]CronConfig            `yaml:"crons,omitempty"`
 	CronsMaxConcurrent     int                              `yaml:"cronsMaxConcurrent,omitempty"`
@@ -229,19 +267,59 @@ func (c *AgencConfig) GetCronsMaxConcurrent() int {
 	return c.CronsMaxConcurrent
 }
 
-// GetAllSyncedRepos returns the deduplicated list of SyncedRepos.
+// GetAllSyncedRepos returns the deduplicated list of synced repo names.
 func (c *AgencConfig) GetAllSyncedRepos() []string {
 	seen := make(map[string]bool, len(c.SyncedRepos))
 	var repos []string
 
-	for _, repo := range c.SyncedRepos {
-		if !seen[repo] {
-			seen[repo] = true
-			repos = append(repos, repo)
+	for _, entry := range c.SyncedRepos {
+		if !seen[entry.Repo] {
+			seen[entry.Repo] = true
+			repos = append(repos, entry.Repo)
 		}
 	}
 
 	return repos
+}
+
+// GetWindowTitle returns the configured window title for a repo, or empty
+// string if no custom title is set.
+func (c *AgencConfig) GetWindowTitle(repoName string) string {
+	for _, entry := range c.SyncedRepos {
+		if entry.Repo == repoName {
+			return entry.WindowTitle
+		}
+	}
+	return ""
+}
+
+// ContainsSyncedRepo reports whether the given repo name is in the synced repos list.
+func (c *AgencConfig) ContainsSyncedRepo(repoName string) bool {
+	for _, entry := range c.SyncedRepos {
+		if entry.Repo == repoName {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveSyncedRepo removes the given repo name from the synced repos list.
+// Returns true if the repo was found and removed.
+func (c *AgencConfig) RemoveSyncedRepo(repoName string) bool {
+	for i, entry := range c.SyncedRepos {
+		if entry.Repo == repoName {
+			c.SyncedRepos = append(c.SyncedRepos[:i], c.SyncedRepos[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// AddSyncedRepo adds a repo to the synced repos list if not already present.
+func (c *AgencConfig) AddSyncedRepo(repoName string) {
+	if !c.ContainsSyncedRepo(repoName) {
+		c.SyncedRepos = append(c.SyncedRepos, SyncedRepoConfig{Repo: repoName})
+	}
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -271,11 +349,11 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		return nil, nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
 	}
 
-	for _, repo := range cfg.SyncedRepos {
-		if !canonicalRepoRegex.MatchString(repo) {
+	for _, entry := range cfg.SyncedRepos {
+		if !canonicalRepoRegex.MatchString(entry.Repo) {
 			return nil, nil, stacktrace.NewError(
 				"invalid syncedRepos entry '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				repo, configFilepath,
+				entry.Repo, configFilepath,
 			)
 		}
 	}

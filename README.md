@@ -218,8 +218,12 @@ The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file
 
 ```yaml
 # Repos to keep synced in the shared library (daemon fetches every 60s)
+# Plain string format:
 syncedRepos:
   - github.com/owner/repo
+  # Structured format with optional windowTitle (overrides tmux window name):
+  - repo: github.com/owner/other-repo
+    windowTitle: "other"
 
 # Max concurrent headless cron missions (default: 10)
 cronsMaxConcurrent: 10
@@ -268,6 +272,17 @@ paletteCommands:
 #### syncedRepos
 
 A list of repositories the daemon keeps continuously up-to-date (fetched and fast-forwarded every 60 seconds). Use `syncedRepos` for repos you want kept fresh in the shared library.
+
+Each entry can be a plain string or a structured object:
+
+```yaml
+syncedRepos:
+  - github.com/owner/repo                    # plain string
+  - repo: github.com/owner/other-repo        # structured with optional fields
+    windowTitle: "other"                      # custom tmux window title
+```
+
+When `windowTitle` is set, missions using that repo will display the custom title in the tmux window tab instead of the default repo name.
 
 Manage the list via the CLI:
 

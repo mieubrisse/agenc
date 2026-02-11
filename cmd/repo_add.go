@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -69,8 +68,8 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		if !slices.Contains(cfg.SyncedRepos, result.RepoName) {
-			cfg.SyncedRepos = append(cfg.SyncedRepos, result.RepoName)
+		if !cfg.ContainsSyncedRepo(result.RepoName) {
+			cfg.AddSyncedRepo(result.RepoName)
 
 			if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 				return stacktrace.Propagate(err, "failed to write config")
