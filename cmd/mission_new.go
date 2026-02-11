@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -197,11 +198,23 @@ func runMissionNewWithPicker(args []string) error {
 // to represent the "AgenC assistant" option.
 const assistantSentinelRepoName = "__assistant__"
 
+// cloneNewRepoSentinelRepoName is the sentinel value used in fzf picker entries
+// to represent the "clone new repo" option.
+const cloneNewRepoSentinelRepoName = "__clone_new__"
+
 // launchFromLibrarySelection creates and launches a mission based on the
 // library picker selection.
 func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 	if selection.RepoName == assistantSentinelRepoName {
 		return createAndLaunchAssistantMission(agencDirpath, promptFlag)
+	}
+
+	if selection.RepoName == cloneNewRepoSentinelRepoName {
+		result, err := promptForRepoLocator(agencDirpath)
+		if err != nil {
+			return err
+		}
+		return createAndLaunchMission(agencDirpath, result.RepoName, result.CloneDirpath, promptFlag)
 	}
 
 	if selection.RepoName == "" {
@@ -310,9 +323,10 @@ func formatLibraryFzfLine(entry repoLibraryEntry) string {
 // An "AgenC assistant" option is prepended as the first data row, followed by
 // repo entries. A NONE sentinel (blank mission) is appended at the bottom.
 func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibraryEntry, error) {
-	// First data row is the assistant option; repos follow at index offset 1
+	// First two data rows are special options; repos follow at index offset 2
 	var rows [][]string
 	rows = append(rows, []string{"🤖", "AgenC assistant"})
+	rows = append(rows, []string{"🔗", "— clone new repo"})
 	for _, entry := range entries {
 		rows = append(rows, []string{"📦", displayGitRepo(entry.RepoName)})
 	}
@@ -348,9 +362,13 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		// Assistant row selected
 		return &repoLibraryEntry{RepoName: assistantSentinelRepoName}, nil
 	}
+	if idx == 1 {
+		// Clone new repo row selected
+		return &repoLibraryEntry{RepoName: cloneNewRepoSentinelRepoName}, nil
+	}
 
-	// Adjust index for the assistant row offset
-	return &entries[idx-1], nil
+	// Adjust index for the two special rows (assistant + clone new)
+	return &entries[idx-2], nil
 }
 
 // createAndLaunchMission creates the mission record and directory, and
@@ -423,5 +441,37 @@ func createAndLaunchMission(
 
 	fmt.Println("Launching claude...")
 	return w.Run(false)
+}
+
+// promptForRepoLocator interactively prompts the user for a repo locator,
+// printing the accepted formats and looping on invalid input. Returns the
+// resolved repo result ready for mission creation.
+func promptForRepoLocator(agencDirpath string) (*RepoResolutionResult, error) {
+	fmt.Println()
+	printRepoFormatHelp()
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("\nRepo: ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to read input")
+		}
+		input = strings.TrimSpace(input)
+
+		if input == "" {
+			fmt.Println("No repo provided. Please enter a repo reference or press Ctrl-C to cancel.")
+			continue
+		}
+
+		result, err := ResolveRepoInput(agencDirpath, input, "Select repo: ")
+		if err != nil {
+			fmt.Printf("Invalid repo: %v\n", err)
+			fmt.Println("Please try again.")
+			continue
+		}
+
+		return result, nil
+	}
 }
 
