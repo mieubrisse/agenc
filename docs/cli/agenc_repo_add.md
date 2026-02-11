@@ -13,9 +13,6 @@ Accepts any of these formats:
   git@github.com:owner/repo.git        - SSH URL
   /path/to/local/clone                 - local filesystem path
 
-You can also use search terms to find an existing repo in your library:
-  agenc repo add my repo               - searches for repos matching "my repo"
-
 For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
