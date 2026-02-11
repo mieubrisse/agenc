@@ -80,6 +80,14 @@ func runMissionClone(cmd *cobra.Command, args []string) error {
 
 		fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
 
+		// Track cleanup artifacts so we can roll back on failure
+		cleanup := &cloneCleanup{
+			db:           db,
+			missionID:    missionRecord.ID,
+			agencDirpath: agencDirpath,
+		}
+		defer cleanup.runIfNeeded()
+
 		// Create the mission directory (but not the config — that's built
 		// separately at the source's config commit)
 		missionDirpath := config.GetMissionDirpath(agencDirpath, missionRecord.ID)
@@ -104,7 +112,8 @@ func runMissionClone(cmd *cobra.Command, args []string) error {
 		}
 
 		// Fork the conversation history from the source mission
-		hasSession := forkSessionHistory(sourceMission.ID, missionRecord.ID)
+		hasSession, dstProjectDirpath := forkSessionHistory(sourceMission.ID, missionRecord.ID)
+		cleanup.sessionProjectDirpath = dstProjectDirpath
 
 		fmt.Printf("Mission directory: %s\n", missionDirpath)
 		fmt.Println("Launching claude...")
@@ -113,9 +122,50 @@ func runMissionClone(cmd *cobra.Command, args []string) error {
 		windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
 		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, "", db)
 
+		// All setup succeeded — disarm cleanup before launching
+		cleanup.disarm()
+
 		// Resume with the forked conversation if one was copied, otherwise start fresh
 		return w.Run(hasSession)
 	})
+}
+
+// cloneCleanup tracks artifacts created during a clone operation so they can
+// be removed if the clone fails partway through.
+type cloneCleanup struct {
+	db                     *database.DB
+	missionID              string
+	agencDirpath           string
+	sessionProjectDirpath  string
+	disarmed               bool
+}
+
+// disarm prevents cleanup from running (call on success).
+func (c *cloneCleanup) disarm() {
+	c.disarmed = true
+}
+
+// runIfNeeded removes all clone artifacts if the clone was not disarmed.
+func (c *cloneCleanup) runIfNeeded() {
+	if c.disarmed {
+		return
+	}
+
+	fmt.Printf("Clone failed, cleaning up mission %s...\n", c.missionID[:8])
+
+	// Remove mission directory (includes agent dir and claude-config)
+	missionDirpath := config.GetMissionDirpath(c.agencDirpath, c.missionID)
+	os.RemoveAll(missionDirpath)
+
+	// Remove forked session project directory
+	if c.sessionProjectDirpath != "" {
+		os.RemoveAll(c.sessionProjectDirpath)
+	}
+
+	// Remove database record
+	if err := c.db.DeleteMission(c.missionID); err != nil {
+		fmt.Printf("Warning: failed to clean up mission record: %v\n", err)
+	}
 }
 
 // waitForMissionIdle checks if the source mission's wrapper is running and,
@@ -167,19 +217,19 @@ func waitForMissionIdle(sourceMission *database.Mission) error {
 
 // forkSessionHistory copies the latest session from the source mission's
 // project directory into the new mission's project directory with a new
-// session UUID. Returns true if a session was successfully forked, false
-// if no session was available to copy.
-func forkSessionHistory(sourceMissionID string, newMissionID string) bool {
+// session UUID. Returns true if a session was successfully forked, and the
+// destination project directory path (for cleanup on failure).
+func forkSessionHistory(sourceMissionID string, newMissionID string) (bool, string) {
 	srcProjectDirpath, err := session.FindProjectDirpath(sourceMissionID)
 	if err != nil {
 		fmt.Printf("Note: no conversation history found to clone (source has no sessions)\n")
-		return false
+		return false, ""
 	}
 
 	srcSessionID, err := session.FindLatestSessionID(srcProjectDirpath)
 	if err != nil {
 		fmt.Printf("Note: no conversation history found to clone (no session files)\n")
-		return false
+		return false, ""
 	}
 
 	// Compute the destination project directory name by encoding the new mission's agent path
@@ -189,7 +239,7 @@ func forkSessionHistory(sourceMissionID string, newMissionID string) bool {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Printf("Warning: failed to determine home directory for session copy: %v\n", err)
-		return false
+		return false, ""
 	}
 	dstProjectDirpath := filepath.Join(homeDir, ".claude", "projects", dstProjectDirname)
 
@@ -197,9 +247,9 @@ func forkSessionHistory(sourceMissionID string, newMissionID string) bool {
 
 	if err := session.CopyAndForkSession(srcProjectDirpath, dstProjectDirpath, srcSessionID, newSessionID); err != nil {
 		fmt.Printf("Warning: failed to copy conversation history: %v\n", err)
-		return false
+		return false, dstProjectDirpath
 	}
 
 	fmt.Printf("Forked conversation history (session %s → %s)\n", srcSessionID[:8], newSessionID[:8])
-	return true
+	return true, dstProjectDirpath
 }

@@ -11,14 +11,18 @@ import (
 )
 
 // CopyAndForkSession copies a session from one project directory to another,
-// replacing all sessionId references with a new UUID. This creates a forked
-// copy of the conversation that Claude Code will treat as an independent session.
+// replacing "sessionId" JSON keys with a new UUID. This creates a forked copy
+// of the conversation that Claude Code will treat as an independent session.
 //
 // It copies:
-//   - The JSONL transcript file (with sessionId replacement)
-//   - The session subdirectory (subagents/, tool-results/) as-is
-//   - sessions-index.json (with sessionId replacement) if it exists
+//   - The JSONL transcript file (with sessionId key replacement)
+//   - The session subdirectory (subagents/, tool-results/) with sessionId
+//     key replacement in JSONL files
 //   - memory/ directory if it exists (auto-memory)
+//
+// sessions-index.json is intentionally NOT copied. Claude Code regenerates it
+// on session activity, and the source's index may contain stale entries for
+// sessions that weren't forked.
 func CopyAndForkSession(
 	srcProjectDirpath string,
 	dstProjectDirpath string,
@@ -36,21 +40,13 @@ func CopyAndForkSession(
 		return stacktrace.Propagate(err, "failed to copy session JSONL")
 	}
 
-	// Copy the session subdirectory (subagents, tool-results) if it exists
+	// Copy the session subdirectory (subagents, tool-results) if it exists.
+	// JSONL files inside get sessionId replacement; other files are copied as-is.
 	srcSessionDirpath := filepath.Join(srcProjectDirpath, srcSessionID)
 	dstSessionDirpath := filepath.Join(dstProjectDirpath, newSessionID)
 	if _, err := os.Stat(srcSessionDirpath); err == nil {
-		if err := copyDirRecursive(srcSessionDirpath, dstSessionDirpath); err != nil {
+		if err := copyDirWithSessionIDReplacement(srcSessionDirpath, dstSessionDirpath, srcSessionID, newSessionID); err != nil {
 			return stacktrace.Propagate(err, "failed to copy session subdirectory")
-		}
-	}
-
-	// Copy sessions-index.json if it exists, replacing session IDs
-	srcIndexFilepath := filepath.Join(srcProjectDirpath, "sessions-index.json")
-	dstIndexFilepath := filepath.Join(dstProjectDirpath, "sessions-index.json")
-	if _, err := os.Stat(srcIndexFilepath); err == nil {
-		if err := copyFileWithSessionIDReplacement(srcIndexFilepath, dstIndexFilepath, srcSessionID, newSessionID); err != nil {
-			return stacktrace.Propagate(err, "failed to copy sessions-index.json")
 		}
 	}
 
@@ -66,9 +62,10 @@ func CopyAndForkSession(
 	return nil
 }
 
-// copyFileWithSessionIDReplacement copies a file line-by-line, replacing all
-// occurrences of oldSessionID with newSessionID. This handles large JSONL files
-// efficiently by streaming rather than loading the entire file into memory.
+// copyFileWithSessionIDReplacement copies a file line-by-line, replacing
+// "sessionId" JSON keys that reference oldSessionID with newSessionID. Only the
+// JSON key is targeted (e.g. "sessionId":"<uuid>") so UUIDs appearing in user
+// messages or tool output are preserved. Streams line-by-line for large files.
 func copyFileWithSessionIDReplacement(srcFilepath string, dstFilepath string, oldSessionID string, newSessionID string) error {
 	srcFile, err := os.Open(srcFilepath)
 	if err != nil {
@@ -105,6 +102,44 @@ func copyFileWithSessionIDReplacement(srcFilepath string, dstFilepath string, ol
 	}
 
 	return nil
+}
+
+// copyDirWithSessionIDReplacement recursively copies a directory tree,
+// applying sessionId key replacement to .jsonl files and copying everything
+// else as-is. Used for session subdirectories containing subagent logs.
+func copyDirWithSessionIDReplacement(srcDirpath string, dstDirpath string, oldSessionID string, newSessionID string) error {
+	return filepath.Walk(srcDirpath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(srcDirpath, path)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to compute relative path")
+		}
+
+		dstPath := filepath.Join(dstDirpath, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		// Handle symlinks
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(path)
+			if err != nil {
+				return stacktrace.Propagate(err, "failed to read symlink '%s'", path)
+			}
+			return os.Symlink(linkTarget, dstPath)
+		}
+
+		// Apply sessionId replacement to JSONL files (subagent logs reference the parent session)
+		if strings.HasSuffix(path, ".jsonl") {
+			return copyFileWithSessionIDReplacement(path, dstPath, oldSessionID, newSessionID)
+		}
+
+		return copyFile(path, dstPath, info.Mode())
+	})
 }
 
 // copyDirRecursive recursively copies a directory tree from src to dst.

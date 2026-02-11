@@ -25,14 +25,15 @@ func TestCopyAndForkSession(t *testing.T) {
 	}, "\n") + "\n"
 	writeTestFile(t, srcDirpath, srcSessionID+".jsonl", jsonlContent)
 
-	// Create session subdirectory with a file
+	// Create session subdirectory with a subagent log that references the parent session
 	sessionSubdirpath := filepath.Join(srcDirpath, srcSessionID, "subagents")
 	if err := os.MkdirAll(sessionSubdirpath, 0755); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(srcDirpath, srcSessionID, "subagents"), "log.jsonl", `{"data":"test"}`)
+	subagentContent := `{"isSidechain":true,"sessionId":"aaaa-1111-2222-3333-444444444444","agentId":"a0893d7","type":"user","message":"warmup"}`
+	writeTestFile(t, sessionSubdirpath, "agent-a0893d7.jsonl", subagentContent)
 
-	// Create sessions-index.json
+	// Create sessions-index.json (should NOT be copied)
 	indexContent := `{"entries":[{"sessionId":"aaaa-1111-2222-3333-444444444444","summary":"test session"}]}`
 	writeTestFile(t, srcDirpath, "sessions-index.json", indexContent)
 
@@ -48,7 +49,7 @@ func TestCopyAndForkSession(t *testing.T) {
 		t.Fatalf("CopyAndForkSession failed: %v", err)
 	}
 
-	// Verify JSONL was copied with session ID replaced
+	// Verify JSONL was copied with sessionId keys replaced
 	dstJSONLData, err := os.ReadFile(filepath.Join(dstDirpath, newSessionID+".jsonl"))
 	if err != nil {
 		t.Fatalf("failed to read destination JSONL: %v", err)
@@ -65,22 +66,27 @@ func TestCopyAndForkSession(t *testing.T) {
 	}
 
 	// Verify session subdirectory was copied
-	subagentLogFilepath := filepath.Join(dstDirpath, newSessionID, "subagents", "log.jsonl")
+	subagentLogFilepath := filepath.Join(dstDirpath, newSessionID, "subagents", "agent-a0893d7.jsonl")
 	if _, err := os.Stat(subagentLogFilepath); os.IsNotExist(err) {
 		t.Error("session subdirectory was not copied")
 	}
 
-	// Verify sessions-index.json was copied with ID replaced
-	dstIndexData, err := os.ReadFile(filepath.Join(dstDirpath, "sessions-index.json"))
+	// Verify subagent JSONL got sessionId replacement
+	subagentData, err := os.ReadFile(subagentLogFilepath)
 	if err != nil {
-		t.Fatalf("failed to read destination sessions-index.json: %v", err)
+		t.Fatalf("failed to read subagent log: %v", err)
 	}
-	dstIndex := string(dstIndexData)
-	if strings.Contains(dstIndex, srcSessionID) {
-		t.Error("destination sessions-index.json still contains source session ID")
+	subagentLog := string(subagentData)
+	if strings.Contains(subagentLog, `"sessionId":"`+srcSessionID+`"`) {
+		t.Error("subagent log still contains source session ID in sessionId key")
 	}
-	if !strings.Contains(dstIndex, newSessionID) {
-		t.Error("destination sessions-index.json does not contain new session ID")
+	if !strings.Contains(subagentLog, `"sessionId":"`+newSessionID+`"`) {
+		t.Error("subagent log does not contain new session ID in sessionId key")
+	}
+
+	// Verify sessions-index.json was NOT copied (intentionally skipped)
+	if _, err := os.Stat(filepath.Join(dstDirpath, "sessions-index.json")); !os.IsNotExist(err) {
+		t.Error("sessions-index.json should not be copied (Claude Code regenerates it)")
 	}
 
 	// Verify memory directory was copied

@@ -8,25 +8,6 @@ import (
 	"github.com/mieubrisse/stacktrace"
 )
 
-// FindProjectDirpathByEncoding locates the Claude Code project directory for a
-// mission by computing the expected encoded directory name from the agent
-// dirpath. This is more reliable than substring matching on the mission UUID.
-func FindProjectDirpathByEncoding(agentDirpath string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to determine home directory")
-	}
-
-	expectedDirname := EncodeProjectDirname(agentDirpath)
-	projectDirpath := filepath.Join(homeDir, ".claude", "projects", expectedDirname)
-
-	if _, err := os.Stat(projectDirpath); err != nil {
-		return "", stacktrace.Propagate(err, "project directory not found at '%s'", projectDirpath)
-	}
-
-	return projectDirpath, nil
-}
-
 // EncodeProjectDirname replicates Claude Code's path-to-dirname encoding.
 // Both '/' and '.' are replaced with '-'. Symlinks are resolved first so the
 // encoded name matches what Claude Code sees at runtime.
