@@ -85,6 +85,23 @@ func SendCommandWithTimeout(socketFilepath string, cmd Command, timeout time.Dur
 	return &resp, nil
 }
 
+// QueryIdle sends a query_idle command to the wrapper and returns whether
+// Claude is currently idle. Returns ErrWrapperNotRunning if the wrapper is
+// not running.
+func QueryIdle(socketFilepath string) (bool, error) {
+	resp, err := SendCommand(socketFilepath, Command{Command: "query_idle"})
+	if err != nil {
+		return false, err
+	}
+	if resp.Status != "ok" {
+		return false, stacktrace.NewError("query_idle failed: %s", resp.Error)
+	}
+	if resp.Idle == nil {
+		return false, stacktrace.NewError("query_idle response missing idle field")
+	}
+	return *resp.Idle, nil
+}
+
 // isConnectionRefused checks if an error is a "connection refused" error,
 // which indicates a stale socket file.
 func isConnectionRefused(err error) bool {

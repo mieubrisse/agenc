@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
+	"github.com/odyssey/agenc/internal/session"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
@@ -84,9 +87,13 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	return runMissionNewWithPicker(args)
 }
 
+const (
+	cloneIdlePollInterval = 500 * time.Millisecond
+)
+
 // runMissionNewWithClone creates a new mission by cloning the agent directory
-// of an existing mission. The source mission's git_repo carries over to the
-// new mission.
+// and conversation history of an existing mission. The source mission's
+// git_repo and config_commit carry over to the new mission.
 func runMissionNewWithClone() error {
 	return resolveAndRunForMission(cloneFlag, func(db *database.DB, sourceMissionID string) error {
 		sourceMission, err := db.GetMission(sourceMissionID)
@@ -94,8 +101,17 @@ func runMissionNewWithClone() error {
 			return stacktrace.Propagate(err, "failed to get source mission")
 		}
 
+		// Wait for the source mission to reach idle state if it's running
+		if err := waitForMissionIdle(sourceMission); err != nil {
+			return stacktrace.Propagate(err, "failed waiting for source mission to become idle")
+		}
+
+		// Use the source mission's config_commit so the clone inherits the
+		// same Claude config snapshot
 		createParams := &database.CreateMissionParams{}
-		if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
+		if sourceMission.ConfigCommit != nil {
+			createParams.ConfigCommit = sourceMission.ConfigCommit
+		} else if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
 			createParams.ConfigCommit = &commitHash
 		}
 
@@ -119,14 +135,97 @@ func runMissionNewWithClone() error {
 			return stacktrace.Propagate(err, "failed to copy agent directory from source mission")
 		}
 
+		// Fork the conversation history from the source mission
+		hasSession := forkSessionHistory(sourceMission.ID, missionRecord.ID)
+
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
 		fmt.Println("Launching claude...")
 
 		gitRepoName := sourceMission.GitRepo
 		windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
 		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, promptFlag, db)
-		return w.Run(false)
+
+		// Resume with the forked conversation if one was copied, otherwise start fresh
+		return w.Run(hasSession)
 	})
+}
+
+// waitForMissionIdle checks if the source mission's wrapper is running and,
+// if so, polls until Claude is idle. If the wrapper is not running (stopped
+// mission), returns immediately.
+func waitForMissionIdle(sourceMission *database.Mission) error {
+	socketFilepath := config.GetMissionSocketFilepath(agencDirpath, sourceMission.ID)
+
+	// Check if the wrapper is running by attempting the first idle query
+	idle, err := wrapper.QueryIdle(socketFilepath)
+	if errors.Is(err, wrapper.ErrWrapperNotRunning) {
+		// Source mission is stopped — no need to wait
+		return nil
+	}
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to query idle state")
+	}
+	if idle {
+		return nil
+	}
+
+	fmt.Printf("Waiting for mission %s to reach idle state...\n", sourceMission.ShortID)
+
+	for {
+		time.Sleep(cloneIdlePollInterval)
+
+		idle, err = wrapper.QueryIdle(socketFilepath)
+		if errors.Is(err, wrapper.ErrWrapperNotRunning) {
+			// Wrapper died while we were waiting — proceed anyway
+			return nil
+		}
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to query idle state")
+		}
+		if idle {
+			fmt.Println("Mission is idle, cloning...")
+			return nil
+		}
+	}
+}
+
+// forkSessionHistory copies the latest session from the source mission's
+// project directory into the new mission's project directory with a new
+// session UUID. Returns true if a session was successfully forked, false
+// if no session was available to copy.
+func forkSessionHistory(sourceMissionID string, newMissionID string) bool {
+	srcProjectDirpath, err := session.FindProjectDirpath(sourceMissionID)
+	if err != nil {
+		fmt.Printf("Note: no conversation history found to clone (source has no sessions)\n")
+		return false
+	}
+
+	srcSessionID, err := session.FindLatestSessionID(srcProjectDirpath)
+	if err != nil {
+		fmt.Printf("Note: no conversation history found to clone (no session files)\n")
+		return false
+	}
+
+	// Compute the destination project directory name by encoding the new mission's agent path
+	newAgentDirpath := config.GetMissionAgentDirpath(agencDirpath, newMissionID)
+	dstProjectDirname := session.EncodeProjectDirname(newAgentDirpath)
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("Warning: failed to determine home directory for session copy: %v\n", err)
+		return false
+	}
+	dstProjectDirpath := filepath.Join(homeDir, ".claude", "projects", dstProjectDirname)
+
+	newSessionID := uuid.New().String()
+
+	if err := session.CopyAndForkSession(srcProjectDirpath, dstProjectDirpath, srcSessionID, newSessionID); err != nil {
+		fmt.Printf("Warning: failed to copy conversation history: %v\n", err)
+		return false
+	}
+
+	fmt.Printf("Forked conversation history (session %s → %s)\n", srcSessionID[:8], newSessionID[:8])
+	return true
 }
 
 // runMissionNewWithPicker shows an fzf picker over the repo library. Positional

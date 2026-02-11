@@ -22,6 +22,7 @@ type Command struct {
 type Response struct {
 	Status string `json:"status"`          // "ok" or "error"
 	Error  string `json:"error,omitempty"` // set when status is "error"
+	Idle   *bool  `json:"idle,omitempty"`  // set by query_idle command
 }
 
 const (

@@ -253,6 +253,9 @@ func (w *Wrapper) handleCommand(cmd Command) Response {
 		return w.handleRestartCommand(cmd)
 	case "claude_update":
 		return w.handleClaudeUpdate(cmd)
+	case "query_idle":
+		idle := w.claudeIdle
+		return Response{Status: "ok", Idle: &idle}
 	default:
 		return Response{Status: "error", Error: "unknown command: " + cmd.Command}
 	}
