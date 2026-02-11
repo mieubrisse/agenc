@@ -173,7 +173,12 @@ func renderSkill(groups []commandGroup) (string, error) {
 // skillTemplate is the Go text/template for the SKILL.md content.
 // The static preamble provides context for agents; the dynamic sections
 // are populated from the Cobra command tree.
-var skillTemplate = `AgenC CLI Quick Reference
+var skillTemplate = `---
+name: agenc-self-usage
+description: AgenC CLI quick reference for managing missions, repos, config, cron jobs, and the daemon from within a mission.
+---
+
+AgenC CLI Quick Reference
 =========================
 
 You are running inside an **AgenC mission** — an isolated sandbox managed by the ` + "`agenc`" + ` CLI. You can use ` + "`agenc`" + ` to manage the system you are running in: spawn new missions, manage repos, configure cron jobs, check status, and update config.
