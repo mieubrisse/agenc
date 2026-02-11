@@ -18,7 +18,7 @@ But you can't implement them all because Claude is the bottleneck:
 Launching new Claudes is effortful, you have to ensure they don't step on each other, managing the various terminal windows is a circus, and if you upgrade your prompts or configs you have to hunt down the sessions and reload them manually.
 
 ### AgenC
-AgenC isolates Claudes in sandboxes, makes it trivial to spawn side missions, and provides a command palette with the tools you need to herd everything:
+AgenC isolates Claudes in self-contained sandboxed workspaces, makes it trivial to spawn side missions, and provides a command palette with the tools you need to herd everything:
 
 ![](readme-images/big-threadpool.png)
 
