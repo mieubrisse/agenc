@@ -77,6 +77,12 @@ type Wrapper struct {
 	// The watchTokenExpiry goroutine compares this against time.Now() to
 	// decide when to show a warning.
 	tokenExpiresAt float64
+
+	// perMissionCredentialHash caches the SHA-256 hash of the per-mission
+	// Keychain credential JSON. The credential sync goroutine compares the
+	// current Keychain contents against this hash to detect when Claude
+	// updates credentials (e.g. via /login). Initialized after cloneCredentials.
+	perMissionCredentialHash string
 }
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
@@ -180,9 +186,16 @@ func (w *Wrapper) Run(isResume bool) error {
 
 	// Clone fresh credentials from global Keychain before initial spawn
 	w.cloneCredentials()
+	w.initCredentialHash()
 
 	// Start token expiry watcher to warn when credentials are about to expire
 	go w.watchTokenExpiry(ctx)
+
+	// Start credential sync watchers:
+	// - Upward sync: polls per-mission Keychain every 60s, merges to global on change
+	// - Downward sync: watches global-credentials-expiry file for changes from other sessions
+	go w.watchCredentialUpwardSync(ctx)
+	go w.watchCredentialDownwardSync(ctx)
 
 	// Spawn initial Claude process
 	if isResume {
@@ -225,6 +238,8 @@ func (w *Wrapper) Run(isResume bool) error {
 				w.logger.Info("Claude exited for restart, respawning")
 				w.writeBackCredentials()
 				w.cloneCredentials()
+				w.initCredentialHash()
+				w.clearStatuslineMessage()
 
 				// Respawn Claude: use -c if we have a conversation (graceful),
 				// fresh session otherwise (hard)

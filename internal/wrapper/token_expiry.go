@@ -42,9 +42,19 @@ func (w *Wrapper) watchTokenExpiry(ctx context.Context) {
 // checkTokenExpiry compares the stored token expiry timestamp against the
 // current time. If within the warning window, writes the warning message.
 // Otherwise, removes the message file (if it exists).
+//
+// Suppresses warnings when a restart is pending — the credential sync system
+// has already scheduled a restart that will deliver fresh credentials, so the
+// expiry warning is moot.
 func (w *Wrapper) checkTokenExpiry(messageFilepath string) {
 	if w.tokenExpiresAt == 0 {
 		w.logger.Warn("Token expiry check skipped: no expiresAt timestamp available (credential may lack claudeAiOauth.expiresAt)")
+		return
+	}
+
+	// If a restart is pending (credential sync scheduled it), suppress the
+	// expiry warning — the restart will deliver fresh credentials.
+	if w.state == stateRestartPending || w.state == stateRestarting {
 		return
 	}
 

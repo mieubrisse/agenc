@@ -120,11 +120,13 @@ The wrapper:
 4. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
 5. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 6. Sets `AGENC_MISSION_UUID` for the child process
-7. Starts four background goroutines:
+7. Starts six background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` in the database every 30 seconds
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (restart, claude_update)
-   - **Token expiry watcher** (interactive mode only) — checks the stored OAuth token expiry timestamp every 60 seconds; when within 1 hour of expiry, writes a warning to the per-mission `statusline-message` file; when fresh credentials are cloned (after restart), clears the warning
+   - **Token expiry watcher** (interactive mode only) — checks the stored OAuth token expiry timestamp every 60 seconds; when within 1 hour of expiry, writes a warning to the per-mission `statusline-message` file; when fresh credentials are cloned (after restart), clears the warning. Suppresses warnings when a credential-triggered restart is pending.
+   - **Credential upward sync** (interactive mode only) — polls the per-mission Keychain entry every 60 seconds. When the credential hash changes (e.g. after `/login`), merges per-mission credentials into the global Keychain and writes the new expiry to `$AGENC_DIRPATH/global-credentials-expiry` to notify other wrappers.
+   - **Credential downward sync** (interactive mode only) — watches `$AGENC_DIRPATH/global-credentials-expiry` via fsnotify. When the file's expiry is newer than the wrapper's cached `tokenExpiresAt`, pulls fresh credentials from the global Keychain, merges into per-mission, and schedules a graceful restart. The originating wrapper short-circuits naturally (its cached expiry already matches the file).
 8. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Supports restart commands via unix socket.
@@ -154,6 +156,8 @@ The wrapper:
 - `claude_update` — sent by Claude hooks to report state changes (event types: `Stop`, `UserPromptSubmit`, `Notification`). The wrapper uses these to track idle state, conversation existence, trigger deferred restarts, and set tmux pane colors for visual feedback.
 
 **Credential cloning at spawn time**: credentials are cloned from the global Keychain into the per-mission entry immediately before each Claude spawn (both initial and restart). This ensures credentials are always fresh and stopped missions don't accumulate stale Keychain entries.
+
+**Credential propagation across sessions**: when a user runs `/login` in one session, the upward sync goroutine detects the per-mission Keychain change within 60 seconds, merges to global, and writes the new expiry to `$AGENC_DIRPATH/global-credentials-expiry`. Other wrappers' downward sync goroutines detect the file change via fsnotify, compare the expiry to their cached value, and schedule a graceful restart if the file's expiry is newer. After restart, fresh credentials are cloned from the updated global Keychain. Statusline shows "🔄 New authentication token detected; restarting upon next idle" while waiting for idle.
 
 
 Directory Structure
@@ -197,6 +201,7 @@ $AGENC_DIRPATH/
 ├── database.sqlite                        # SQLite: missions table
 ├── statusline-wrapper.sh                  # Shared statusline wrapper script
 ├── statusline-original-cmd                # User's original statusLine.command (saved on first build)
+├── global-credentials-expiry              # Broadcast file: global Keychain credential expiry (Unix timestamp)
 │
 ├── config/                                # User configuration (optionally a git repo)
 │   ├── config.yml                         # Synced repos, Claude config source, cron jobs
@@ -386,7 +391,9 @@ The statusline wrapper (`$AGENC_DIRPATH/statusline-wrapper.sh`) intercepts Claud
 
 The wrapper script reads stdin (the JSON payload from Claude Code), checks whether the per-mission `statusline-message` file exists and is non-empty, and either displays its contents or delegates to the user's original command.
 
-The token expiry watcher (`internal/wrapper/token_expiry.go`) is a background goroutine started by the wrapper in interactive mode. At credential clone time, the wrapper reads `claudeAiOauth.expiresAt` from the global Keychain and stores it in memory. The goroutine ticks every 60 seconds, comparing `time.Now()` against the stored timestamp. When the token is within 1 hour of expiry, it writes a warning message to the per-mission `statusline-message` file. When the wrapper restarts and clones fresh credentials, the stored timestamp is updated and the goroutine clears the file on its next tick. No repeated Keychain reads are needed — the goroutine only performs a time comparison.
+The token expiry watcher (`internal/wrapper/token_expiry.go`) is a background goroutine started by the wrapper in interactive mode. At credential clone time, the wrapper reads `claudeAiOauth.expiresAt` from the global Keychain and stores it in memory. The goroutine ticks every 60 seconds, comparing `time.Now()` against the stored timestamp. When the token is within 1 hour of expiry, it writes a warning message to the per-mission `statusline-message` file. When the wrapper restarts and clones fresh credentials, the stored timestamp is updated and the goroutine clears the file on its next tick. No repeated Keychain reads are needed — the goroutine only performs a time comparison. The watcher suppresses its warnings when a credential-triggered restart is pending (`stateRestartPending` or `stateRestarting`), since the restart will deliver fresh credentials.
+
+Two systems write to the per-mission `statusline-message` file: the token expiry watcher (expiry warnings) and the credential downward sync (restart notification). The credential sync message takes priority — when it writes a restart message, it overwrites any expiry warning. On restart, the file is cleared; the token expiry watcher re-evaluates on its next tick.
 
 ### Tmux pane coloring
 

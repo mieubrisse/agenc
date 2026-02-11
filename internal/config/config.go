@@ -37,7 +37,8 @@ const (
 	StatuslineMessageFilename      = "statusline-message"
 	StatuslineOriginalCmdFilename  = "statusline-original-cmd"
 	StatuslineWrapperFilename      = "statusline-wrapper.sh"
-	AssistantMarkerFilename        = ".assistant"
+	AssistantMarkerFilename             = ".assistant"
+	GlobalCredentialsExpiryFilename     = "global-credentials-expiry"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -201,6 +202,14 @@ func GetClaudeModificationsDirpath(agencDirpath string) string {
 // in the Claude Code statusline instead of the user's original command.
 func GetMissionStatuslineMessageFilepath(agencDirpath string, missionID string) string {
 	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), StatuslineMessageFilename)
+}
+
+// GetGlobalCredentialsExpiryFilepath returns the path to the shared file that
+// broadcasts the current global credential expiry timestamp. Wrappers write
+// this file after propagating fresh credentials to the global Keychain;
+// other wrappers watch it via fsnotify to detect credential changes.
+func GetGlobalCredentialsExpiryFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, GlobalCredentialsExpiryFilename)
 }
 
 // GetStatuslineOriginalCmdFilepath returns the path to the file that stores
