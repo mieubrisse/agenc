@@ -121,7 +121,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"reloadMission": {
 		Title:       "🔄 Reload mission",
 		Description: "Stop and restart the mission in the focused pane",
-		Command:     "agenc mission reload $AGENC_CALLING_MISSION_UUID",
+		Command:     "agenc mission stop $AGENC_CALLING_MISSION_UUID && agenc tmux window new -- agenc mission resume $AGENC_CALLING_MISSION_UUID",
 	},
 	"removeMission": {
 		Title:       "❌ Remove mission",
