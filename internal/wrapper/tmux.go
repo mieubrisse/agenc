@@ -69,26 +69,45 @@ func (w *Wrapper) setWindowNeedsAttention() {
 	w.setWindowTabColor(windowAttentionColor)
 }
 
-// resetWindowTabStyle resets the tmux window tab to the default style.
-// No-op when TMUX_PANE is empty.
+// resetWindowTabStyle unsets the window-level window-status-style override,
+// letting the global tmux style show through. No-op outside tmux.
 func (w *Wrapper) resetWindowTabStyle() {
-	w.setWindowTabColor(windowDefaultColor)
+	windowID := resolveWindowID()
+	if windowID == "" {
+		return
+	}
+	//nolint:errcheck // best-effort; failure is not critical
+	exec.Command("tmux", "set-option", "-wu", "-t", windowID, "window-status-style").Run()
 }
 
 // setWindowTabColor sets the background color of this window's title in the
-// tmux tab bar. Both window-status-style (inactive) and
-// window-status-current-style (active) are set so the color is visible
-// regardless of which window is focused. No-op when TMUX_PANE is empty.
+// tmux tab bar via window-status-style. Only the inactive style is set;
+// window-status-current-style is left alone so the user's active-window
+// styling is preserved. No-op outside tmux.
 func (w *Wrapper) setWindowTabColor(color string) {
-	paneID := os.Getenv("TMUX_PANE")
-	if paneID == "" {
+	windowID := resolveWindowID()
+	if windowID == "" {
 		return
 	}
-	style := "bg=" + color
 	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "set-window-option", "-t", paneID, "window-status-style", style).Run()
-	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "set-window-option", "-t", paneID, "window-status-current-style", style).Run()
+	exec.Command("tmux", "set-option", "-w", "-t", windowID, "window-status-style", "bg="+color).Run()
+}
+
+// resolveWindowID returns the tmux window ID (e.g. "@3") for the pane this
+// process is running in, or "" if not inside tmux.
+func resolveWindowID() string {
+	if os.Getenv("TMUX") == "" {
+		return ""
+	}
+	paneID := os.Getenv("TMUX_PANE")
+	if paneID == "" {
+		return ""
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "#{window_id}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // extractRepoName extracts just the repository name from a canonical repo
@@ -109,7 +128,4 @@ const (
 	// windowAttentionColor is displayed when the mission needs user attention
 	// (Claude is idle, waiting for permission, etc.).
 	windowAttentionColor = "colour136"
-
-	// windowDefaultColor resets the window tab to the default style.
-	windowDefaultColor = "default"
 )
