@@ -91,6 +91,18 @@ The correct sequence is: `git add` → `git commit` → `git pull --rebase` → 
 
 If the rebase surfaces conflicts, resolve them before pushing. Do not skip the pull-rebase step — even if you just pulled recently, another agent may have pushed in the interim.
 
+Releasing
+---------
+
+Releases are managed by `.goreleaser.yml`. To publish a new release, push a new Git tag to the remote:
+
+```
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+Do not run GoReleaser manually — CI handles the build and publish when it sees a new tag.
+
 Database Functions
 ------------------
 
