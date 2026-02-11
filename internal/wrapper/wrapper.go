@@ -148,11 +148,11 @@ func (w *Wrapper) Run(isResume bool) error {
 	}
 
 	// Record which tmux pane this mission's wrapper is running in, and clear
-	// it on exit so the pane→mission mapping stays accurate. Reset the pane
-	// style to default on exit so it doesn't stay colored after the mission ends.
+	// it on exit so the pane→mission mapping stays accurate. Reset the window
+	// tab style on exit so it doesn't stay colored after the mission ends.
 	w.registerTmuxPane()
 	defer w.clearTmuxPane()
-	defer w.resetPaneStyle()
+	defer w.resetWindowTabStyle()
 
 	// Change the wrapper's working directory to the agent directory so that
 	// tmux's #{pane_current_path} reflects the mission directory. This makes
@@ -344,7 +344,7 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 	case "Stop":
 		w.claudeIdle = true
 		w.hasConversation = true
-		w.setPaneNeedsAttention()
+		w.setWindowNeedsAttention()
 
 		// If a graceful restart is pending, now is the time to initiate it
 		if w.state == stateRestartPending {
@@ -357,13 +357,13 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 	case "UserPromptSubmit":
 		w.claudeIdle = false
 		w.hasConversation = true
-		w.setPaneBusy()
+		w.setWindowBusy()
 
 	case "Notification":
 		// Color the pane for notification types that need user attention
 		switch cmd.NotificationType {
 		case "permission_prompt", "idle_prompt", "elicitation_dialog":
-			w.setPaneNeedsAttention()
+			w.setWindowNeedsAttention()
 		}
 	}
 

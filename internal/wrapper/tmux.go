@@ -56,34 +56,39 @@ func (w *Wrapper) clearTmuxPane() {
 	_ = w.db.ClearTmuxPane(w.missionID)
 }
 
-// setPaneBusy sets the tmux pane background to the busy color, indicating
+// setWindowBusy sets the tmux window tab to the busy color, indicating
 // Claude is actively working. No-op when TMUX_PANE is empty.
-func (w *Wrapper) setPaneBusy() {
-	w.setPaneColor(paneBusyColor)
+func (w *Wrapper) setWindowBusy() {
+	w.setWindowTabColor(windowBusyColor)
 }
 
-// setPaneNeedsAttention sets the tmux pane background to the attention color,
+// setWindowNeedsAttention sets the tmux window tab to the attention color,
 // signaling that the mission needs user interaction (e.g., Claude is idle or
 // waiting for permission). No-op when TMUX_PANE is empty.
-func (w *Wrapper) setPaneNeedsAttention() {
-	w.setPaneColor(paneAttentionColor)
+func (w *Wrapper) setWindowNeedsAttention() {
+	w.setWindowTabColor(windowAttentionColor)
 }
 
-// resetPaneStyle resets the tmux pane background to the terminal default.
+// resetWindowTabStyle resets the tmux window tab to the default style.
 // No-op when TMUX_PANE is empty.
-func (w *Wrapper) resetPaneStyle() {
-	w.setPaneColor(paneDefaultColor)
+func (w *Wrapper) resetWindowTabStyle() {
+	w.setWindowTabColor(windowDefaultColor)
 }
 
-// setPaneColor sets the tmux pane background to the given color.
-// No-op when TMUX_PANE is empty.
-func (w *Wrapper) setPaneColor(color string) {
+// setWindowTabColor sets the background color of this window's title in the
+// tmux tab bar. Both window-status-style (inactive) and
+// window-status-current-style (active) are set so the color is visible
+// regardless of which window is focused. No-op when TMUX_PANE is empty.
+func (w *Wrapper) setWindowTabColor(color string) {
 	paneID := os.Getenv("TMUX_PANE")
 	if paneID == "" {
 		return
 	}
+	style := "bg=" + color
 	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "select-pane", "-t", paneID, "-P", "bg="+color).Run()
+	exec.Command("tmux", "set-window-option", "-t", paneID, "window-status-style", style).Run()
+	//nolint:errcheck // best-effort; failure is not critical
+	exec.Command("tmux", "set-window-option", "-t", paneID, "window-status-current-style", style).Run()
 }
 
 // extractRepoName extracts just the repository name from a canonical repo
@@ -96,15 +101,15 @@ func extractRepoName(gitRepoName string) string {
 	return parts[len(parts)-1]
 }
 
-// Pane color constants for tmux visual feedback.
+// Window tab color constants for tmux visual feedback.
 const (
-	// paneBusyColor is displayed when Claude is actively working.
-	paneBusyColor = "colour018"
+	// windowBusyColor is displayed when Claude is actively working.
+	windowBusyColor = "colour018"
 
-	// paneAttentionColor is displayed when the mission needs user attention
+	// windowAttentionColor is displayed when the mission needs user attention
 	// (Claude is idle, waiting for permission, etc.).
-	paneAttentionColor = "colour136"
+	windowAttentionColor = "colour136"
 
-	// paneDefaultColor resets the pane to the terminal's normal background.
-	paneDefaultColor = "default"
+	// windowDefaultColor resets the window tab to the default style.
+	windowDefaultColor = "default"
 )
