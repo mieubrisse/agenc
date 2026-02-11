@@ -29,6 +29,8 @@ func TestGetPrimeContent(t *testing.T) {
 			"agenc config",
 			"agenc cron",
 			"agenc daemon",
+			"Key Concepts",
+			"Palette commands",
 			"Repo Formats",
 			"$AGENC_MISSION_UUID",
 			"Never use interactive commands",

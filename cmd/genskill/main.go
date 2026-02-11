@@ -197,6 +197,16 @@ The ` + "`agenc`" + ` binary is in your PATH. Your current mission's UUID is in 
 {{ $maxLen := maxUsageLen .Commands }}{{ range .Commands }}{{ padRight .Usage $maxLen }}  # {{ .Description }}
 {{ end }}` + "```" + `
 {{ end }}{{ end }}
+Key Concepts
+------------
+
+- **Missions** are isolated workspaces. Each mission gets its own tmux window, its own copy of a git repo (the ` + "`agent/`" + ` directory), and its own Claude Code config (` + "`claude-config/`" + `). Missions are ephemeral — local filesystems do not survive archival. Always commit and push.
+- **Repos** are git repositories in the repo library (` + "`~/.agenc/repos/`" + `). When a mission is created from a repo, the repo is cloned into the mission's ` + "`agent/`" + ` directory.
+- **Tmux** is the primary interface. Each mission is a tmux window. "Window title" means the tmux window name — the text shown in the status bar. AgenC sets window titles from the repo name or a custom string.
+- **Palette commands** are quick-launch entries in the AgenC tmux command palette. Each has a ` + "`name`" + ` (internal key), ` + "`title`" + ` (display text), ` + "`command`" + ` (what it runs), and optional ` + "`tmuxKeybinding`" + `. Stored in ` + "`config.yml`" + ` under ` + "`paletteCommands`" + `. Manage with ` + "`agenc config palette-command`" + `.
+- **Cron jobs** are scheduled headless missions defined in ` + "`config.yml`" + `. Manage with ` + "`agenc cron`" + `.
+- **The daemon** is a background process that handles scheduled tasks, repo syncing, and credential management.
+
 Repo Formats
 ------------
 
