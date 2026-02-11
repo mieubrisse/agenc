@@ -136,11 +136,11 @@ agenc config get paletteTmuxKeybinding               # check current value
 Manage palette commands via the CLI:
 
 ```
-agenc config palette-command ls                                    # list all (builtin + custom)
-agenc config palette-command add myCmd --title="Test" --command="agenc do" --keybinding="t"
-agenc config palette-command update startMission --keybinding="C-n"  # override builtin
-agenc config palette-command rm myCmd                              # remove custom
-agenc config palette-command rm startMission                       # restore builtin defaults
+agenc config paletteCommand ls                                    # list all (builtin + custom)
+agenc config paletteCommand add myCmd --title="Test" --command="agenc do" --keybinding="t"
+agenc config paletteCommand update startMission --keybinding="C-n"  # override builtin
+agenc config paletteCommand rm myCmd                              # remove custom
+agenc config paletteCommand rm startMission                       # restore builtin defaults
 ```
 
 Config Auto-Sync

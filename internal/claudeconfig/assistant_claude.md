@@ -9,7 +9,7 @@ AgenC Overview
 - **Missions** are isolated workspaces. Each mission gets its own tmux window, its own copy of a git repo (the `agent/` directory), and its own Claude Code config (`claude-config/`). Missions are ephemeral — their local filesystems do not survive archival.
 - **Repos** are git repositories in the repo library (`~/.agenc/repos/`). When a mission is created from a repo, the repo is copied into the mission's `agent/` directory.
 - **Tmux** is the primary interface. Each mission is a tmux window. **"Window title" means the tmux window name** — the text shown in the tmux status bar for that window. AgenC sets window titles from the repo name or a custom string.
-- **Palette commands** are quick-launch entries in the AgenC tmux command palette (opened via a keybinding). Each has a `name` (internal key), `title` (display text, often with an emoji), `command` (what it runs), and optional `tmuxKeybinding`. Stored in `config.yml` under `paletteCommands`. Manage with `agenc config palette-command`.
+- **Palette commands** are quick-launch entries in the AgenC tmux command palette (opened via a keybinding). Each has a `name` (internal key), `title` (display text, often with an emoji), `command` (what it runs), and optional `tmuxKeybinding`. Stored in `config.yml` under `paletteCommands`. Manage with `agenc config paletteCommand`.
 - **Cron jobs** are scheduled headless missions defined in `config.yml`.
 - **The daemon** is a background process that handles scheduled tasks, repo syncing, and credential management.
 

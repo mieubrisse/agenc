@@ -119,7 +119,7 @@ func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []Cu
 
 // RefreshKeybindings regenerates the tmux keybindings file from the current
 // config and sources it into any running tmux server. This is called by CLI
-// commands that modify keybinding-related config (config set, palette-command
+// commands that modify keybinding-related config (config set, paletteCommand
 // add/update/rm) so changes take effect immediately.
 func RefreshKeybindings(agencDirpath string) error {
 	keybindingsFilepath := config.GetTmuxKeybindingsFilepath(agencDirpath)

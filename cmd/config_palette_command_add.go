@@ -23,12 +23,12 @@ Commands that reference $AGENC_CALLING_MISSION_UUID are "mission-scoped" —
 they only appear in the palette when the focused pane is running a mission.
 
 Examples:
-  agenc config palette-command add dotfiles \
+  agenc config paletteCommand add dotfiles \
     --title="📁 Open dotfiles" \
     --command="agenc tmux window new -- agenc mission new mieubrisse/dotfiles" \
     --keybinding="f"
 
-  agenc config palette-command add stopThisMission \
+  agenc config paletteCommand add stopThisMission \
     --title="🛑 Stop this mission" \
     --command="agenc mission stop \$AGENC_CALLING_MISSION_UUID"
 `,

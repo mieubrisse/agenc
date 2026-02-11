@@ -52,7 +52,7 @@ const (
 	initCmdStr             = "init"
 	getCmdStr              = "get"
 	setCmdStr              = "set"
-	paletteCommandCmdStr   = "palette-command"
+	paletteCommandCmdStr   = "paletteCommand"
 
 	// Repo subcommands
 	editCmdStr = "edit"
@@ -96,7 +96,7 @@ const (
 	// daemon status flags
 	jsonFlagName = "json"
 
-	// palette-command flags
+	// paletteCommand flags
 	paletteCommandCommandFlagName     = "command"
 	paletteCommandTitleFlagName       = "title"
 	paletteCommandDescriptionFlagName = "description"

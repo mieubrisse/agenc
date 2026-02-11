@@ -144,7 +144,7 @@ Then show a custom keybinding in action — e.g., press `prefix + a, f` to insta
 Briefly show how to create one:
 
 ```
-agenc config palette-command add myCmd \
+agenc config paletteCommand add myCmd \
   --title="🚀 Deploy staging" \
   --command="agenc mission new deploy-repo --prompt 'Deploy to staging'" \
   --keybinding="d"
