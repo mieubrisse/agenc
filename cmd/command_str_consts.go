@@ -75,9 +75,10 @@ const (
 
 const (
 	// mission new flags
-	cloneFlagName  = "clone"
-	promptFlagName = "prompt"
-	blankFlagName  = "blank"
+	cloneFlagName     = "clone"
+	promptFlagName    = "prompt"
+	blankFlagName     = "blank"
+	assistantFlagName = "assistant"
 
 	// mission ls flags
 	allFlagName = "all"

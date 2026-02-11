@@ -76,6 +76,10 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
 		sessionName := resolveSessionName(db, m)
+		repo := displayGitRepo(m.GitRepo)
+		if config.IsMissionAssistant(agencDirpath, m.ID) {
+			repo = "🤖 AgenC assistant"
+		}
 		if lsAllFlag {
 			pane := "--"
 			if m.TmuxPane != nil {
@@ -87,7 +91,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				colorizeStatus(status),
 				pane,
 				truncatePrompt(sessionName, defaultPromptMaxLen),
-				displayGitRepo(m.GitRepo),
+				repo,
 			)
 		} else {
 			tbl.AddRow(
@@ -95,7 +99,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				m.ShortID,
 				colorizeStatus(status),
 				truncatePrompt(sessionName, defaultPromptMaxLen),
-				displayGitRepo(m.GitRepo),
+				repo,
 			)
 		}
 	}

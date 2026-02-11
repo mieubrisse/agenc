@@ -102,6 +102,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Launch a blank mission instantly",
 		Command:     "agenc tmux window new -- agenc mission new --blank",
 	},
+	"talkToAgenc": {
+		Title:       "🤖 Talk to AgenC",
+		Description: "Launch an AgenC assistant mission",
+		Command:     "agenc tmux window new -- agenc mission new --assistant",
+	},
 	"startMission": {
 		Title:          "🚀 Start mission",
 		Description:    "Create a new mission and launch Claude",
@@ -140,6 +145,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 var builtinPaletteCommandOrder = []string{
 	"do",
 	"quickClaude",
+	"talkToAgenc",
 	"startMission",
 	"resumeMission",
 	"stopMission",

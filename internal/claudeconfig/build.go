@@ -41,6 +41,8 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
 	missionAgentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
+	isAssistant := config.IsMissionAssistant(agencDirpath, missionID)
+
 	if err := os.MkdirAll(claudeConfigDirpath, 0755); err != nil {
 		return stacktrace.Propagate(err, "failed to create claude-config directory")
 	}
@@ -63,22 +65,35 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		}
 	}
 
-	// Write auto-generated agenc-self-usage skill (overwrites any user skill
-	// with the same name since it is written after the shadow repo copy)
-	if err := writeAgencUsageSkill(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to write agenc-self-usage skill")
+	// Write auto-generated agenc-self-usage skill only for assistant missions
+	if isAssistant {
+		if err := writeAgencUsageSkill(claudeConfigDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to write agenc-self-usage skill")
+		}
 	}
 
-	// Merge CLAUDE.md: user's from shadow repo (rewritten) + agenc modifications
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
-	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
+
+	// CLAUDE.md: assistant missions get extra assistant instructions appended
+	if isAssistant {
+		if err := buildAssistantClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to build assistant CLAUDE.md")
+		}
+	} else {
+		if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
+		}
 	}
 
-	// Merge settings.json: user's from shadow repo + agenc modifications + hooks/deny,
-	// then selectively rewrite paths (preserving permissions block)
-	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
-		return stacktrace.Propagate(err, "failed to build merged settings.json")
+	// settings.json: assistant missions get extra permissions injected
+	if isAssistant {
+		if err := buildAssistantSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
+			return stacktrace.Propagate(err, "failed to build assistant settings.json")
+		}
+	} else {
+		if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
+			return stacktrace.Propagate(err, "failed to build merged settings.json")
+		}
 	}
 
 	// Copy and patch .claude.json with trust entry for mission agent dir

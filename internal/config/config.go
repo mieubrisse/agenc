@@ -37,6 +37,7 @@ const (
 	StatuslineMessageFilename      = "statusline-message"
 	StatuslineOriginalCmdFilename  = "statusline-original-cmd"
 	StatuslineWrapperFilename      = "statusline-wrapper.sh"
+	AssistantMarkerFilename        = ".assistant"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -244,6 +245,21 @@ func EnsureStatuslineWrapper(agencDirpath string) error {
 		return stacktrace.Propagate(err, "failed to write statusline wrapper script")
 	}
 	return nil
+}
+
+// GetMissionAssistantMarkerFilepath returns the path to the assistant marker
+// file for a mission. The presence of this file indicates the mission is an
+// AgenC assistant (not a regular code mission).
+func GetMissionAssistantMarkerFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), AssistantMarkerFilename)
+}
+
+// IsMissionAssistant reports whether a mission is an AgenC assistant mission
+// by checking for the presence of the .assistant marker file.
+func IsMissionAssistant(agencDirpath string, missionID string) bool {
+	markerFilepath := GetMissionAssistantMarkerFilepath(agencDirpath, missionID)
+	_, err := os.Stat(markerFilepath)
+	return err == nil
 }
 
 // EnsureClaudeModificationsFiles creates seed files inside the

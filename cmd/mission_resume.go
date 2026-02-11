@@ -136,6 +136,9 @@ func resumeMission(db *database.DB, missionID string) error {
 	fmt.Println("Launching claude --continue...")
 
 	windowTitle := lookupWindowTitle(agencDirpath, missionRecord.GitRepo)
+	if config.IsMissionAssistant(agencDirpath, missionID) {
+		windowTitle = "AgenC"
+	}
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", db)
 	return w.Run(true)
 }

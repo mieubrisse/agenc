@@ -20,6 +20,7 @@ agenc mission new [search-terms...] [flags]
 ### Options
 
 ```
+      --assistant        create an AgenC assistant mission
       --blank            create a blank mission with no repo (skip picker)
       --clone string     mission UUID to clone agent directory from
       --headless         run in headless mode (no terminal, outputs to log)

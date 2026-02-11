@@ -21,6 +21,7 @@ import (
 var cloneFlag string
 var promptFlag string
 var blankFlag bool
+var assistantFlag bool
 var headlessFlag bool
 var timeoutFlag string
 var cronIDFlag string
@@ -46,6 +47,7 @@ func init() {
 	missionNewCmd.Flags().StringVar(&cloneFlag, cloneFlagName, "", "mission UUID to clone agent directory from")
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
 	missionNewCmd.Flags().BoolVar(&blankFlag, blankFlagName, false, "create a blank mission with no repo (skip picker)")
+	missionNewCmd.Flags().BoolVar(&assistantFlag, assistantFlagName, false, "create an AgenC assistant mission")
 	missionNewCmd.Flags().BoolVar(&headlessFlag, headlessFlagName, false, "run in headless mode (no terminal, outputs to log)")
 	missionNewCmd.Flags().StringVar(&timeoutFlag, timeoutFlagName, "1h", "max runtime for headless missions (e.g., '1h', '30m')")
 	missionNewCmd.Flags().StringVar(&cronIDFlag, cronIDFlagName, "", "cron job ID (internal use)")
@@ -75,6 +77,10 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 
 	if cloneFlag != "" {
 		return runMissionNewWithClone()
+	}
+
+	if assistantFlag {
+		return createAndLaunchAssistantMission(agencDirpath, promptFlag)
 	}
 
 	if blankFlag {
@@ -187,9 +193,17 @@ func runMissionNewWithPicker(args []string) error {
 	return launchFromLibrarySelection(&entry)
 }
 
+// assistantSentinelRepoName is the sentinel value used in fzf picker entries
+// to represent the "AgenC assistant" option.
+const assistantSentinelRepoName = "__assistant__"
+
 // launchFromLibrarySelection creates and launches a mission based on the
 // library picker selection.
 func launchFromLibrarySelection(selection *repoLibraryEntry) error {
+	if selection.RepoName == assistantSentinelRepoName {
+		return createAndLaunchAssistantMission(agencDirpath, promptFlag)
+	}
+
 	if selection.RepoName == "" {
 		// NONE selected — blank mission
 		return createAndLaunchMission(agencDirpath, "", "", promptFlag)
@@ -198,6 +212,53 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 	// Repo selected — clone into agent directory
 	gitCloneDirpath := config.GetRepoDirpath(agencDirpath, selection.RepoName)
 	return createAndLaunchMission(agencDirpath, selection.RepoName, gitCloneDirpath, promptFlag)
+}
+
+// createAndLaunchAssistantMission creates an AgenC assistant mission. The
+// assistant has no git repo but gets the agenc-self-usage skill and permissions
+// to run agenc commands. A .assistant marker file is written so that
+// BuildMissionConfigDir can detect assistant missions autonomously.
+func createAndLaunchAssistantMission(agencDirpath string, initialPrompt string) error {
+	db, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	createParams := &database.CreateMissionParams{}
+	if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
+		createParams.ConfigCommit = &commitHash
+	}
+
+	missionRecord, err := db.CreateMission("", createParams)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to create assistant mission record")
+	}
+
+	fmt.Printf("Created assistant mission: %s\n", missionRecord.ShortID)
+
+	// Ensure the mission directory exists before writing the marker file
+	missionDirpath := config.GetMissionDirpath(agencDirpath, missionRecord.ID)
+	if err := os.MkdirAll(missionDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create mission directory")
+	}
+
+	// Write the .assistant marker file before CreateMissionDir so that
+	// BuildMissionConfigDir can detect this is an assistant mission.
+	markerFilepath := config.GetMissionAssistantMarkerFilepath(agencDirpath, missionRecord.ID)
+	if err := os.WriteFile(markerFilepath, []byte{}, 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write assistant marker file")
+	}
+
+	if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, "", ""); err != nil {
+		return stacktrace.Propagate(err, "failed to create assistant mission directory")
+	}
+
+	fmt.Printf("Mission directory: %s\n", missionDirpath)
+	fmt.Println("Launching AgenC assistant...")
+
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "AgenC", initialPrompt, db)
+	return w.Run(false)
 }
 
 // listRepoLibrary scans $AGENC_DIRPATH/repos/ three levels deep
@@ -246,14 +307,17 @@ func formatLibraryFzfLine(entry repoLibraryEntry) string {
 }
 
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
-// A NONE option is prepended for creating a blank mission.
+// An "AgenC assistant" option is prepended as the first data row, followed by
+// repo entries. A NONE sentinel (blank mission) is appended at the bottom.
 func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibraryEntry, error) {
+	// First data row is the assistant option; repos follow at index offset 1
 	var rows [][]string
+	rows = append(rows, []string{"🤖", "AgenC assistant"})
 	for _, entry := range entries {
 		rows = append(rows, []string{"📦", displayGitRepo(entry.RepoName)})
 	}
 
-	// Use sentinel row for NONE option
+	// Use sentinel row for NONE option (blank mission)
 	sentinelRow := []string{"😶", "— blank mission"}
 
 	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
@@ -279,7 +343,14 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		return nil, stacktrace.NewError("no selection made")
 	}
 
-	return &entries[indices[0]], nil
+	idx := indices[0]
+	if idx == 0 {
+		// Assistant row selected
+		return &repoLibraryEntry{RepoName: assistantSentinelRepoName}, nil
+	}
+
+	// Adjust index for the assistant row offset
+	return &entries[idx-1], nil
 }
 
 // createAndLaunchMission creates the mission record and directory, and

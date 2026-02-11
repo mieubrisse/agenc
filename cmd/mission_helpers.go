@@ -54,13 +54,17 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 	for _, m := range missions {
 		sessionName := resolveSessionName(db, m)
 		status := getMissionStatus(m.ID, m.Status)
+		repo := displayGitRepo(m.GitRepo)
+		if config.IsMissionAssistant(agencDirpath, m.ID) {
+			repo = "🤖 AgenC assistant"
+		}
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,
 			LastActive: formatLastActive(m.LastHeartbeat),
 			ShortID:    m.ShortID,
 			Status:     colorizeStatus(status),
 			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
-			Repo:       displayGitRepo(m.GitRepo),
+			Repo:       repo,
 		})
 	}
 	return entries, nil
