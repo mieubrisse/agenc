@@ -140,12 +140,10 @@ Tips
 - **Open a shell pane with prefix + %.** Inside the AgenC tmux session, the standard tmux split (`prefix + %`) opens a shell in the mission's workspace directory. Handy for running tests, checking git status, or poking around while Claude works.
 - **Cycle between missions with prefix + n / prefix + p.** Each mission is a tmux window. Use the standard tmux shortcuts — `prefix + n` (next window) and `prefix + p` (previous window) — to move between them. You can also jump directly to a window by number with `prefix + <number>`.
 - **Always commit and push.** Missions are ephemeral — their local filesystems don't persist. If your agent makes changes but doesn't push them, the work vanishes when the mission ends. Teach your agents (via CLAUDE.md) to commit and push after every meaningful change so that each mission's output is durable and independent.
-- **Bind a friendlier hotkey for swap-pane.** When you split a pane with `prefix + %`, the default tmux bindings for swapping panes are `prefix + {` and `prefix + }` — which require Shift and are awkward to hit repeatedly. Consider adding friendlier bindings in your `~/.tmux.conf`:
+- **Bind a friendlier hotkey for swap-pane.** When you split a pane with `prefix + %`, you'll often want to rearrange which side is which. The default tmux bindings (`prefix + {` / `prefix + }`) are awkward. Consider binding something like `C-;` in your `~/.tmux.conf` to swap to the other pane:
   ```
-  bind -r < swap-pane -U
-  bind -r > swap-pane -D
+  bind -n 'C-;' select-pane -t :.+
   ```
-  Then `prefix + <` and `prefix + >` swap the active pane up or down. The `-r` flag makes them repeatable so you can tap the key multiple times without re-pressing prefix.
 
 How It Works
 ------------
