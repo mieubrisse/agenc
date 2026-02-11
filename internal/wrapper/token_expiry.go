@@ -2,6 +2,7 @@ package wrapper
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 const (
 	tokenExpiryCheckInterval = 1 * time.Minute
 	tokenExpiryWarningWindow = 1 * time.Hour
-	tokenExpiryWarningMsg    = "\u26a0\ufe0f  Claude token expires soon \u2014 run 'agenc login' to refresh"
 )
 
 // watchTokenExpiry periodically checks whether the stored token expiry
@@ -52,8 +52,13 @@ func (w *Wrapper) checkTokenExpiry(messageFilepath string) {
 	remaining := w.tokenExpiresAt - nowUnix
 
 	if remaining <= tokenExpiryWarningWindow.Seconds() {
+		remainingMinutes := int(remaining / 60)
+		if remainingMinutes < 0 {
+			remainingMinutes = 0
+		}
+		msg := fmt.Sprintf("\u26a0\ufe0f  Claude Code token expires in %d minutes; run /login to avoid agenc interruptions", remainingMinutes)
 		w.logger.Info("Token expiry warning triggered", "remaining_seconds", remaining, "expiresAt", w.tokenExpiresAt)
-		if err := os.WriteFile(messageFilepath, []byte(tokenExpiryWarningMsg), 0644); err != nil {
+		if err := os.WriteFile(messageFilepath, []byte(msg), 0644); err != nil {
 			w.logger.Warn("Failed to write statusline warning", "error", err)
 		}
 	} else {
