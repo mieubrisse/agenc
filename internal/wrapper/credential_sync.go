@@ -15,13 +15,15 @@ import (
 )
 
 const (
-	credentialSyncInterval         = 1 * time.Minute
+	credentialSyncInterval          = 1 * time.Minute
 	credentialDownwardDebouncePeriod = 1 * time.Second
-	credentialRestartStatuslineMsg  = "\U0001f504 New authentication token detected; restarting upon next idle"
+	credentialRestartStatuslineMsg   = "\U0001f504 New authentication token detected; restarting upon next idle"
 )
 
 // initCredentialHash reads the current per-mission Keychain entry and caches
 // its hash. Called after cloneCredentials (at initial spawn and after restarts).
+// Runs on the main goroutine, so no mutex needed (no concurrent access yet at
+// init time, and during respawn the sync goroutines skip work via state check).
 func (w *Wrapper) initCredentialHash() {
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
 	serviceName := claudeconfig.ComputeCredentialServiceName(claudeConfigDirpath)
@@ -38,7 +40,9 @@ func (w *Wrapper) initCredentialHash() {
 		return
 	}
 
+	w.credentialHashMu.Lock()
 	w.perMissionCredentialHash = hash
+	w.credentialHashMu.Unlock()
 }
 
 // watchCredentialUpwardSync polls the per-mission Keychain entry every 60
@@ -66,8 +70,8 @@ func (w *Wrapper) watchCredentialUpwardSync(ctx context.Context) {
 }
 
 // checkUpwardSync reads the per-mission Keychain, compares hash, and merges
-// to global if changed. After merging, writes the new global expiry to the
-// broadcast file and updates w.tokenExpiresAt.
+// to global if changed. Only broadcasts the new expiry when the global
+// Keychain was actually updated, to avoid spurious fsnotify events.
 func (w *Wrapper) checkUpwardSync(perMissionServiceName string) {
 	perMissionCred, err := claudeconfig.ReadKeychainCredentials(perMissionServiceName)
 	if err != nil {
@@ -81,7 +85,11 @@ func (w *Wrapper) checkUpwardSync(perMissionServiceName string) {
 		return
 	}
 
-	if currentHash == w.perMissionCredentialHash {
+	w.credentialHashMu.Lock()
+	cachedHash := w.perMissionCredentialHash
+	w.credentialHashMu.Unlock()
+
+	if currentHash == cachedHash {
 		return // No change
 	}
 
@@ -100,19 +108,25 @@ func (w *Wrapper) checkUpwardSync(perMissionServiceName string) {
 		return
 	}
 
-	if changed {
-		if err := claudeconfig.WriteKeychainCredentials(claudeconfig.GlobalCredentialServiceName, string(merged)); err != nil {
-			w.logger.Warn("Upward sync: failed to write merged credentials to global Keychain", "error", err)
-			return
-		}
-		w.logger.Info("Propagated per-mission credential changes to global Keychain")
+	// Update cached hash regardless of whether global changed — our per-mission
+	// credentials DID change from the baseline.
+	w.credentialHashMu.Lock()
+	w.perMissionCredentialHash = currentHash
+	w.credentialHashMu.Unlock()
+
+	if !changed {
+		// Per-mission changed but matches global already — no broadcast needed.
+		return
 	}
 
-	// Update cached hash
-	w.perMissionCredentialHash = currentHash
+	if err := claudeconfig.WriteKeychainCredentials(claudeconfig.GlobalCredentialServiceName, string(merged)); err != nil {
+		w.logger.Warn("Upward sync: failed to write merged credentials to global Keychain", "error", err)
+		return
+	}
+	w.logger.Info("Propagated per-mission credential changes to global Keychain")
 
-	// Extract expiry from merged credentials and update in-memory cache
-	newExpiry := claudeconfig.GetCredentialExpiresAt()
+	// Extract expiry from the merged result (no extra Keychain read needed)
+	newExpiry := claudeconfig.ExtractExpiresAtFromJSON(merged)
 	if newExpiry > 0 {
 		w.tokenExpiresAt = newExpiry
 	}
@@ -188,7 +202,7 @@ func (w *Wrapper) watchCredentialDownwardSync(ctx context.Context) {
 			if w.state != stateRunning {
 				continue
 			}
-			w.handleDownwardSync(expiryFilepath)
+			w.handleDownwardSync(ctx, expiryFilepath)
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -202,7 +216,7 @@ func (w *Wrapper) watchCredentialDownwardSync(ctx context.Context) {
 // handleDownwardSync reads the expiry from the broadcast file, compares it
 // to the cached tokenExpiresAt, and pulls fresh credentials if the file
 // contains a newer expiry.
-func (w *Wrapper) handleDownwardSync(expiryFilepath string) {
+func (w *Wrapper) handleDownwardSync(ctx context.Context, expiryFilepath string) {
 	data, err := os.ReadFile(expiryFilepath)
 	if err != nil {
 		w.logger.Warn("Downward sync: failed to read credential expiry file", "error", err)
@@ -260,7 +274,9 @@ func (w *Wrapper) handleDownwardSync(expiryFilepath string) {
 	w.tokenExpiresAt = fileExpiry
 	newHash, err := claudeconfig.ComputeCredentialHash(string(merged))
 	if err == nil {
+		w.credentialHashMu.Lock()
 		w.perMissionCredentialHash = newHash
+		w.credentialHashMu.Unlock()
 	}
 
 	// Write statusline message before sending restart command, so the user
@@ -272,7 +288,8 @@ func (w *Wrapper) handleDownwardSync(expiryFilepath string) {
 
 	// Send a graceful restart command through the command channel so the main
 	// event loop handles the state transition (avoids data races on w.state,
-	// w.claudeIdle, and w.claudeCmd).
+	// w.claudeIdle, and w.claudeCmd). Block until the command is accepted or
+	// the context is cancelled — do not silently drop the restart.
 	w.logger.Info("Downward sync: sending graceful restart command for fresh credentials")
 	restartCmd := Command{
 		Command: "restart",
@@ -282,15 +299,12 @@ func (w *Wrapper) handleDownwardSync(expiryFilepath string) {
 	responseCh := make(chan Response, 1)
 	select {
 	case w.commandCh <- commandWithResponse{cmd: restartCmd, responseCh: responseCh}:
-		// Wait for the response to confirm the restart was accepted
 		resp := <-responseCh
 		if resp.Status != "ok" {
 			w.logger.Warn("Downward sync: restart command failed", "error", resp.Error)
 		}
-	default:
-		// commandCh is full (capacity 1) — a command is already pending.
-		// The restart will be picked up on the next cycle.
-		w.logger.Warn("Downward sync: command channel full, restart will be retried")
+	case <-ctx.Done():
+		return
 	}
 }
 

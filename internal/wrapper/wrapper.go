@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -82,7 +83,10 @@ type Wrapper struct {
 	// Keychain credential JSON. The credential sync goroutine compares the
 	// current Keychain contents against this hash to detect when Claude
 	// updates credentials (e.g. via /login). Initialized after cloneCredentials.
+	// Protected by credentialHashMu since it's accessed by both the upward
+	// and downward sync goroutines.
 	perMissionCredentialHash string
+	credentialHashMu         sync.Mutex
 }
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
