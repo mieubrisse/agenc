@@ -52,10 +52,8 @@ const (
 	initCmdStr             = "init"
 	getCmdStr              = "get"
 	setCmdStr              = "set"
+	editCmdStr             = "edit"
 	paletteCommandCmdStr   = "paletteCommand"
-
-	// Repo subcommands
-	editCmdStr = "edit"
 
 	// Daemon subcommands
 	startCmdStr   = "start"
