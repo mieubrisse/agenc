@@ -17,7 +17,8 @@ For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
-Use --sync to keep the repo continuously synced by the daemon.
+Use --always-synced to keep the repo continuously synced by the daemon.
+Use --window-title to set a custom tmux window title.
 
 ```
 agenc repo add <repo> [flags]
@@ -26,8 +27,9 @@ agenc repo add <repo> [flags]
 ### Options
 
 ```
-  -h, --help   help for add
-      --sync   keep this repo continuously synced by the daemon
+      --always-synced         keep this repo continuously synced by the daemon
+  -h, --help                  help for add
+      --window-title string   custom tmux window title for missions using this repo
 ```
 
 ### SEE ALSO

@@ -10,8 +10,6 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
-var repoAddSyncFlag bool
-
 var repoAddCmd = &cobra.Command{
 	Use:   addCmdStr + " <repo>",
 	Short: "Add a repository to the repo library",
@@ -28,14 +26,16 @@ For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
-Use --%s to keep the repo continuously synced by the daemon.`,
-		syncFlagName),
+Use --%s to keep the repo continuously synced by the daemon.
+Use --%s to set a custom tmux window title.`,
+		repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName),
 	Args: cobra.MinimumNArgs(1),
 	RunE: runRepoAdd,
 }
 
 func init() {
-	repoAddCmd.Flags().BoolVar(&repoAddSyncFlag, syncFlagName, false, "keep this repo continuously synced by the daemon")
+	repoAddCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the daemon")
+	repoAddCmd.Flags().String(repoConfigWindowTitleFlagName, "", "custom tmux window title for missions using this repo")
 	repoCmd.AddCommand(repoAddCmd)
 }
 
@@ -50,9 +50,12 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
+	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
+
 	var cfg *config.AgencConfig
 	var cm yaml.CommentMap
-	if repoAddSyncFlag {
+	if alwaysSyncedChanged || windowTitleChanged {
 		var err error
 		cfg, cm, err = readConfigWithComments()
 		if err != nil {
@@ -66,8 +69,26 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to resolve repo '%s'", arg)
 		}
 
-		if repoAddSyncFlag && !cfg.IsAlwaysSynced(result.RepoName) {
-			cfg.SetAlwaysSynced(result.RepoName, true)
+		if cfg != nil {
+			rc, _ := cfg.GetRepoConfig(result.RepoName)
+
+			if alwaysSyncedChanged {
+				synced, err := cmd.Flags().GetBool(repoConfigAlwaysSyncedFlagName)
+				if err != nil {
+					return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigAlwaysSyncedFlagName)
+				}
+				rc.AlwaysSynced = synced
+			}
+
+			if windowTitleChanged {
+				title, err := cmd.Flags().GetString(repoConfigWindowTitleFlagName)
+				if err != nil {
+					return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigWindowTitleFlagName)
+				}
+				rc.WindowTitle = title
+			}
+
+			cfg.SetRepoConfig(result.RepoName, rc)
 		}
 
 		status := "Added"
@@ -75,14 +96,10 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 			status = "Already exists"
 		}
 
-		if repoAddSyncFlag {
-			fmt.Printf("%s '%s' (synced)\n", status, result.RepoName)
-		} else {
-			fmt.Printf("%s '%s'\n", status, result.RepoName)
-		}
+		fmt.Printf("%s '%s'\n", status, result.RepoName)
 	}
 
-	if repoAddSyncFlag {
+	if cfg != nil {
 		if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 			return stacktrace.Propagate(err, "failed to write config")
 		}

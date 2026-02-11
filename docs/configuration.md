@@ -88,7 +88,7 @@ agenc config repo-config ls                                                  # l
 agenc config repo-config set github.com/owner/repo --always-synced=true      # enable auto-sync
 agenc config repo-config set github.com/owner/repo --window-title="my-repo"  # set window title
 agenc config repo-config rm github.com/owner/repo                            # remove config entry
-agenc repo add owner/repo --sync                                             # clone and enable sync
+agenc repo add owner/repo --always-synced                                    # clone and enable sync
 agenc repo rm owner/repo                                                     # remove from disk and config
 ```
 

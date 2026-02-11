@@ -89,9 +89,6 @@ const (
 	// mission nuke flags
 	forceFlagName = "force"
 
-	// repo add flags
-	syncFlagName = "sync"
-
 	// daemon status flags
 	jsonFlagName = "json"
 
