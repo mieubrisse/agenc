@@ -16,6 +16,7 @@ Manage agent missions
 * [agenc mission ls](agenc_mission_ls.md)	 - List active missions
 * [agenc mission new](agenc_mission_new.md)	 - Create a new mission and launch claude
 * [agenc mission nuke](agenc_mission_nuke.md)	 - Stop and permanently remove ALL missions
+* [agenc mission reload](agenc_mission_reload.md)	 - Stop a running mission and immediately resume it
 * [agenc mission resume](agenc_mission_resume.md)	 - Unarchive (if needed) and resume a mission with claude --continue
 * [agenc mission rm](agenc_mission_rm.md)	 - Stop and permanently remove one or more missions
 * [agenc mission send](agenc_mission_send.md)	 - Send messages to a running mission wrapper
