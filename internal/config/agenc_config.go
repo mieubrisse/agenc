@@ -116,7 +116,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"stopMission": {
 		Title:       "🛑 Stop this mission",
 		Description: "Stop the mission in the focused pane",
-		Command:     "nohup agenc mission stop $AGENC_CALLING_MISSION_UUID >/dev/null 2>&1 &",
+		Command:     "agenc mission stop $AGENC_CALLING_MISSION_UUID &",
 	},
 	"reloadMission": {
 		Title:       "🔄 Reload mission",
