@@ -54,9 +54,9 @@ func (w *Wrapper) checkTokenExpiry(messageFilepath string) {
 	if remaining <= tokenExpiryWarningWindow.Seconds() {
 		var msg string
 		if remaining <= 0 {
-			msg = "\u2757 Claude Code token expired; run /login to refresh!"
+			msg = "\u2757 Claude Code token expired; run /login to get a new token (agenc will propagate it)"
 		} else {
-			msg = fmt.Sprintf("\u26a0\ufe0f  Claude Code token expires in %d minutes; run /login to avoid agenc interruptions", int(remaining/60))
+			msg = fmt.Sprintf("\u26a0\ufe0f  Claude Code token expires in %d minutes; run /login to get a new token (agenc will propagate it)", int(remaining/60))
 		}
 		w.logger.Info("Token expiry warning triggered", "remaining_seconds", remaining, "expiresAt", w.tokenExpiresAt)
 		if err := os.WriteFile(messageFilepath, []byte(msg), 0644); err != nil {
