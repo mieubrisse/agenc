@@ -74,25 +74,21 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
 
-	// CLAUDE.md: assistant missions get extra assistant instructions appended
-	if isAssistant {
-		if err := buildAssistantClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to build assistant CLAUDE.md")
-		}
-	} else {
-		if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
-		}
+	// CLAUDE.md: merge user content + agenc modifications
+	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
 	}
 
-	// settings.json: assistant missions get extra permissions injected
+	// settings.json: merge user settings + agenc modifications + hooks/deny
+	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
+		return stacktrace.Propagate(err, "failed to build merged settings.json")
+	}
+
+	// Assistant missions: write assistant-specific CLAUDE.md and settings to the
+	// agent directory (project-level config), separate from claude-config (global).
 	if isAssistant {
-		if err := buildAssistantSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
-			return stacktrace.Propagate(err, "failed to build assistant settings.json")
-		}
-	} else {
-		if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
-			return stacktrace.Propagate(err, "failed to build merged settings.json")
+		if err := writeAssistantAgentConfig(missionAgentDirpath, agencDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to write assistant agent config")
 		}
 	}
 

@@ -58,19 +58,46 @@ func TestBuildAssistantDenyEntries(t *testing.T) {
 	}
 }
 
-func TestInjectAssistantPermissions(t *testing.T) {
+func TestWriteAssistantAgentConfig(t *testing.T) {
 	agencDirpath := "/home/user/.agenc"
 
-	t.Run("injects into empty permissions", func(t *testing.T) {
-		input := []byte(`{"permissions": {}}`)
-		result, err := injectAssistantPermissions(input, agencDirpath)
-		if err != nil {
+	t.Run("writes CLAUDE.md to agent directory", func(t *testing.T) {
+		agentDirpath := t.TempDir()
+
+		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
+		data, err := os.ReadFile(filepath.Join(agentDirpath, "CLAUDE.md"))
+		if err != nil {
+			t.Fatalf("failed to read CLAUDE.md: %v", err)
+		}
+
+		content := string(data)
+		if !strings.Contains(content, "AgenC Assistant Mission") {
+			t.Error("expected assistant content in agent/CLAUDE.md")
+		}
+		if !strings.Contains(content, "agenc-self-usage") {
+			t.Error("expected agenc-self-usage reference in agent/CLAUDE.md")
+		}
+	})
+
+	t.Run("writes settings.json to agent/.claude directory", func(t *testing.T) {
+		agentDirpath := t.TempDir()
+
+		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		settingsFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, "settings.json")
+		data, err := os.ReadFile(settingsFilepath)
+		if err != nil {
+			t.Fatalf("failed to read settings.json: %v", err)
+		}
+
 		var settings map[string]json.RawMessage
-		if err := json.Unmarshal(result, &settings); err != nil {
-			t.Fatalf("failed to parse result: %v", err)
+		if err := json.Unmarshal(data, &settings); err != nil {
+			t.Fatalf("failed to parse settings: %v", err)
 		}
 
 		var perms map[string]json.RawMessage
@@ -83,13 +110,13 @@ func TestInjectAssistantPermissions(t *testing.T) {
 			t.Fatalf("failed to parse allow array: %v", err)
 		}
 
+		if len(allow) != len(BuildAssistantAllowEntries(agencDirpath)) {
+			t.Errorf("expected %d allow entries, got %d", len(BuildAssistantAllowEntries(agencDirpath)), len(allow))
+		}
+
 		var deny []string
 		if err := json.Unmarshal(perms["deny"], &deny); err != nil {
 			t.Fatalf("failed to parse deny array: %v", err)
-		}
-
-		if len(allow) != len(BuildAssistantAllowEntries(agencDirpath)) {
-			t.Errorf("expected %d allow entries, got %d", len(BuildAssistantAllowEntries(agencDirpath)), len(allow))
 		}
 
 		if len(deny) != len(BuildAssistantDenyEntries(agencDirpath)) {
@@ -97,124 +124,30 @@ func TestInjectAssistantPermissions(t *testing.T) {
 		}
 	})
 
-	t.Run("preserves existing permissions", func(t *testing.T) {
-		input := []byte(`{"permissions": {"allow": ["Read(foo)"], "deny": ["Write(bar)"]}}`)
-		result, err := injectAssistantPermissions(input, agencDirpath)
-		if err != nil {
+	t.Run("settings contains only permissions", func(t *testing.T) {
+		agentDirpath := t.TempDir()
+
+		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		var settings map[string]json.RawMessage
-		if err := json.Unmarshal(result, &settings); err != nil {
-			t.Fatalf("failed to parse result: %v", err)
-		}
-
-		var perms map[string]json.RawMessage
-		if err := json.Unmarshal(settings["permissions"], &perms); err != nil {
-			t.Fatalf("failed to parse permissions: %v", err)
-		}
-
-		var allow []string
-		if err := json.Unmarshal(perms["allow"], &allow); err != nil {
-			t.Fatalf("failed to parse allow array: %v", err)
-		}
-
-		if allow[0] != "Read(foo)" {
-			t.Errorf("expected first allow entry to be preserved, got %q", allow[0])
-		}
-
-		var deny []string
-		if err := json.Unmarshal(perms["deny"], &deny); err != nil {
-			t.Fatalf("failed to parse deny array: %v", err)
-		}
-
-		if deny[0] != "Write(bar)" {
-			t.Errorf("expected first deny entry to be preserved, got %q", deny[0])
-		}
-	})
-
-	t.Run("creates permissions when missing", func(t *testing.T) {
-		input := []byte(`{}`)
-		result, err := injectAssistantPermissions(input, agencDirpath)
+		settingsFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, "settings.json")
+		data, err := os.ReadFile(settingsFilepath)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf("failed to read settings.json: %v", err)
 		}
 
 		var settings map[string]json.RawMessage
-		if err := json.Unmarshal(result, &settings); err != nil {
-			t.Fatalf("failed to parse result: %v", err)
+		if err := json.Unmarshal(data, &settings); err != nil {
+			t.Fatalf("failed to parse settings: %v", err)
+		}
+
+		if len(settings) != 1 {
+			t.Errorf("expected settings to contain only 'permissions' key, got %d keys", len(settings))
 		}
 
 		if _, ok := settings["permissions"]; !ok {
-			t.Fatal("expected permissions key in result")
-		}
-	})
-}
-
-func TestBuildAssistantClaudeMd(t *testing.T) {
-	t.Run("appends assistant content to merged CLAUDE.md", func(t *testing.T) {
-		tmpDirpath := t.TempDir()
-		shadowDirpath := filepath.Join(tmpDirpath, "shadow")
-		modsDirpath := filepath.Join(tmpDirpath, "mods")
-		destDirpath := filepath.Join(tmpDirpath, "dest")
-
-		for _, dirpath := range []string{shadowDirpath, modsDirpath, destDirpath} {
-			if err := os.MkdirAll(dirpath, 0755); err != nil {
-				t.Fatalf("failed to create dir: %v", err)
-			}
-		}
-
-		// Write user CLAUDE.md in shadow repo
-		userContent := "User Instructions\n================\n\nDo good things.\n"
-		if err := os.WriteFile(filepath.Join(shadowDirpath, "CLAUDE.md"), []byte(userContent), 0644); err != nil {
-			t.Fatalf("failed to write user CLAUDE.md: %v", err)
-		}
-
-		if err := buildAssistantClaudeMd(shadowDirpath, modsDirpath, destDirpath); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		data, err := os.ReadFile(filepath.Join(destDirpath, "CLAUDE.md"))
-		if err != nil {
-			t.Fatalf("failed to read CLAUDE.md: %v", err)
-		}
-
-		content := string(data)
-		if !strings.Contains(content, "User Instructions") {
-			t.Error("expected user content to be preserved")
-		}
-		if !strings.Contains(content, "AgenC Assistant Mission") {
-			t.Error("expected assistant content to be appended")
-		}
-		if !strings.Contains(content, "agenc-self-usage") {
-			t.Error("expected assistant content to reference agenc-self-usage skill")
-		}
-	})
-
-	t.Run("works with empty user CLAUDE.md", func(t *testing.T) {
-		tmpDirpath := t.TempDir()
-		shadowDirpath := filepath.Join(tmpDirpath, "shadow")
-		modsDirpath := filepath.Join(tmpDirpath, "mods")
-		destDirpath := filepath.Join(tmpDirpath, "dest")
-
-		for _, dirpath := range []string{shadowDirpath, modsDirpath, destDirpath} {
-			if err := os.MkdirAll(dirpath, 0755); err != nil {
-				t.Fatalf("failed to create dir: %v", err)
-			}
-		}
-
-		if err := buildAssistantClaudeMd(shadowDirpath, modsDirpath, destDirpath); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		data, err := os.ReadFile(filepath.Join(destDirpath, "CLAUDE.md"))
-		if err != nil {
-			t.Fatalf("failed to read CLAUDE.md: %v", err)
-		}
-
-		content := string(data)
-		if !strings.Contains(content, "AgenC Assistant Mission") {
-			t.Error("expected assistant content even with no user CLAUDE.md")
+			t.Error("expected 'permissions' key in settings")
 		}
 	})
 }

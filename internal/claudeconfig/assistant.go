@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"os"
+	"path/filepath"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -13,108 +14,53 @@ import (
 //go:embed assistant_claude.md
 var assistantClaudeMdContent string
 
-// buildAssistantClaudeMd builds the CLAUDE.md for assistant missions by merging
-// the user's CLAUDE.md, agenc modifications, and the assistant-specific
-// instructions. The assistant content is appended last so it takes precedence.
-func buildAssistantClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string) error {
-	// First build the standard merged CLAUDE.md (user + agenc mods)
-	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, destDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to build base merged CLAUDE.md for assistant")
+// writeAssistantAgentConfig writes assistant-specific project-level config into
+// the agent directory. This includes:
+//   - agent/CLAUDE.md with assistant instructions
+//   - agent/.claude/settings.json with assistant permissions
+//
+// These are project-level files that Claude Code picks up from the working
+// directory, separate from the global config in claude-config/.
+func writeAssistantAgentConfig(agentDirpath string, agencDirpath string) error {
+	// Write assistant CLAUDE.md to agent/CLAUDE.md
+	claudeMdFilepath := filepath.Join(agentDirpath, "CLAUDE.md")
+	if err := os.WriteFile(claudeMdFilepath, []byte(assistantClaudeMdContent), 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write assistant CLAUDE.md to agent directory")
 	}
 
-	// Now read the just-written merged CLAUDE.md and append assistant content
-	destFilepath := destDirpath + "/CLAUDE.md"
-	existingContent, _ := readFileOrEmpty(destFilepath)
-
-	mergedBytes := MergeClaudeMd(existingContent, []byte(assistantClaudeMdContent))
-	if mergedBytes == nil {
-		mergedBytes = []byte(assistantClaudeMdContent + "\n")
+	// Write assistant settings.json to agent/.claude/settings.json
+	claudeDirpath := filepath.Join(agentDirpath, config.UserClaudeDirname)
+	if err := os.MkdirAll(claudeDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create agent .claude directory")
 	}
 
-	return WriteIfChanged(destFilepath, mergedBytes)
+	settingsData, err := buildAssistantProjectSettings(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to build assistant project settings")
+	}
+
+	settingsFilepath := filepath.Join(claudeDirpath, "settings.json")
+	if err := os.WriteFile(settingsFilepath, settingsData, 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write assistant settings to agent directory")
+	}
+
+	return nil
 }
 
-// buildAssistantSettings builds the settings.json for assistant missions by
-// performing the standard merge and then injecting assistant-specific
-// permissions (allow entries for agenc operations, deny entries for other
-// missions' agent dirs).
-func buildAssistantSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string, missionID string) error {
-	// Build the standard merged settings first
-	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, destDirpath, agencDirpath, missionID); err != nil {
-		return stacktrace.Propagate(err, "failed to build base merged settings for assistant")
+// buildAssistantProjectSettings creates a minimal settings.json containing only
+// the assistant-specific permissions. Claude Code merges project-level settings
+// with global settings, so only the assistant additions are needed here.
+func buildAssistantProjectSettings(agencDirpath string) ([]byte, error) {
+	settings := map[string]interface{}{
+		"permissions": map[string]interface{}{
+			"allow": BuildAssistantAllowEntries(agencDirpath),
+			"deny":  BuildAssistantDenyEntries(agencDirpath),
+		},
 	}
-
-	// Read the just-written settings and inject assistant permissions
-	destFilepath := destDirpath + "/settings.json"
-	settingsData, err := readFileOrError(destFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read merged settings for assistant permission injection")
-	}
-
-	injectedData, err := injectAssistantPermissions(settingsData, agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to inject assistant permissions")
-	}
-
-	return WriteIfChanged(destFilepath, injectedData)
-}
-
-// injectAssistantPermissions appends assistant-specific allow and deny entries
-// to the permissions block of the given settings JSON.
-func injectAssistantPermissions(settingsData []byte, agencDirpath string) ([]byte, error) {
-	var settings map[string]json.RawMessage
-	if err := json.Unmarshal(settingsData, &settings); err != nil {
-		return nil, stacktrace.Propagate(err, "failed to parse settings JSON for assistant permission injection")
-	}
-
-	var permsMap map[string]json.RawMessage
-	if existingPerms, ok := settings["permissions"]; ok {
-		if err := json.Unmarshal(existingPerms, &permsMap); err != nil {
-			return nil, stacktrace.Propagate(err, "failed to parse existing permissions")
-		}
-	} else {
-		permsMap = make(map[string]json.RawMessage)
-	}
-
-	// Inject allow entries
-	var existingAllow []string
-	if allowData, ok := permsMap["allow"]; ok {
-		if err := json.Unmarshal(allowData, &existingAllow); err != nil {
-			return nil, stacktrace.Propagate(err, "failed to parse existing allow array")
-		}
-	}
-
-	mergedAllow := append(existingAllow, BuildAssistantAllowEntries(agencDirpath)...)
-	allowBytes, err := json.Marshal(mergedAllow)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to marshal merged allow array")
-	}
-	permsMap["allow"] = json.RawMessage(allowBytes)
-
-	// Inject deny entries
-	var existingDeny []string
-	if denyData, ok := permsMap["deny"]; ok {
-		if err := json.Unmarshal(denyData, &existingDeny); err != nil {
-			return nil, stacktrace.Propagate(err, "failed to parse existing deny array")
-		}
-	}
-
-	mergedDeny := append(existingDeny, BuildAssistantDenyEntries(agencDirpath)...)
-	denyBytes, err := json.Marshal(mergedDeny)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to marshal merged deny array")
-	}
-	permsMap["deny"] = json.RawMessage(denyBytes)
-
-	permsBytes, err := json.Marshal(permsMap)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to marshal merged permissions")
-	}
-	settings["permissions"] = json.RawMessage(permsBytes)
 
 	result, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to marshal settings with assistant permissions")
+		return nil, stacktrace.Propagate(err, "failed to marshal assistant project settings")
 	}
 	result = append(result, '\n')
 
@@ -150,23 +96,4 @@ func BuildAssistantDenyEntries(agencDirpath string) []string {
 	}
 
 	return entries
-}
-
-// readFileOrEmpty reads a file and returns its content, or nil if the file
-// does not exist.
-func readFileOrEmpty(filepath string) ([]byte, error) {
-	data, err := os.ReadFile(filepath)
-	if err != nil {
-		return nil, nil
-	}
-	return data, nil
-}
-
-// readFileOrError reads a file and returns an error if it cannot be read.
-func readFileOrError(filepath string) ([]byte, error) {
-	data, err := os.ReadFile(filepath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to read file '%s'", filepath)
-	}
-	return data, nil
 }
