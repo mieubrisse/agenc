@@ -41,7 +41,7 @@ brew tap mieubrisse/agenc
 brew install agenc
 ```
 
-This automatically installs required dependencies (`gh`, `fzf`).
+This automatically installs required dependencies (`gh`, `fzf`, `tmux`).
 
 ### Launch a mission
 

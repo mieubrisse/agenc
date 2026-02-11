@@ -54,6 +54,7 @@ brews:
     dependencies:
       - name: gh
       - name: fzf
+      - name: tmux
     install: |
       bin.install "agenc"
     test: |
