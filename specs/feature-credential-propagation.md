@@ -169,10 +169,12 @@ Implementation Plan
 - [ ] If file expiry <= `w.tokenExpiresAt`: no action (already current)
 - [ ] Launch goroutine in `Run()` after credential initialization
 
-### Phase 4: Restart Integration
+### Phase 4: Statusline Coordination and Restart Integration
 
+- [ ] Modify token expiry watcher in `internal/wrapper/token_expiry.go`: before writing expiry warning, check `w.state != stateRunning` — if restart is pending, skip writing (restart will deliver fresh credentials)
+- [ ] In downward sync (Phase 3): when setting `stateRestartPending`, write `"🔄 New authentication token detected; restarting upon next idle"` to statusline file (overwrites any existing expiry warning)
+- [ ] In respawn flow after `cloneCredentials()`: remove (or truncate) the statusline message file — token expiry watcher will re-evaluate on next tick and re-write if needed
 - [ ] In respawn flow after `cloneCredentials()`: read fresh per-mission credentials, recompute and update `perMissionCredentialHash` and `tokenExpiresAt`
-- [ ] Clear statusline message on restart
 - [ ] Skip credential sync operations when `w.state != stateRunning` (avoid double-restart)
 - [ ] Existing `writeBackCredentials()` at exit remains as safety net (no changes)
 
@@ -248,11 +250,29 @@ Each Keychain read shells out to `security find-generic-password` (~50ms). Cost 
 
 File: `~/.agenc/global-credentials-expiry` (root of agenc directory, not per-mission). Single file for all missions to watch.
 
-### Statusline Message
+### Statusline Message Ownership
 
-On credential change detected: `"🔄 New authentication token detected; restarting upon next idle"`
+Two systems write to the same per-mission statusline file (`~/.agenc/missions/<uuid>/statusline-message`):
 
-On restart complete: clear message (remove file or write empty string)
+1. **Token expiry watcher**: `"⚠️  Claude token expires soon — run 'agenc login' to refresh"`
+2. **Credential sync** (new): `"🔄 New authentication token detected; restarting upon next idle"`
+
+Rules for resolving contention:
+
+**Writing:**
+- Credential sync writes its restart message when setting `stateRestartPending`
+- This overwrites any existing expiry warning (the pending restart will fix the expiry, so the warning is moot)
+
+**Suppression:**
+- Token expiry watcher must check `w.state` before writing. If `stateRestartPending`, skip writing the expiry warning — a restart is already scheduled and will deliver fresh credentials
+
+**Clearing after restart:**
+- On respawn: remove the statusline file (or truncate to empty)
+- Token expiry watcher re-evaluates on its next tick (~60s). If fresh credentials → no warning. If somehow still expiring → re-writes warning naturally
+- This avoids needing the restart path to know which message was previously displayed
+
+**Clearing after expiry resolves naturally:**
+- If token is no longer within the expiry warning window (e.g., user ran `/login` in this session), token expiry watcher removes the file on its next tick (existing behavior)
 
 Testing Strategy
 ----------------
@@ -287,6 +307,9 @@ Acceptance Criteria
 - [ ] Multiple rapid credential updates converge to consistent state
 - [ ] No spurious restarts occur (originating wrapper's expiry matches file, short-circuits naturally)
 - [ ] Credential sync skips when wrapper state is not `stateRunning`
+- [ ] Statusline shows restart message when credential change detected, overwriting any expiry warning
+- [ ] Token expiry watcher suppresses its warning when `stateRestartPending` (restart will fix it)
+- [ ] Statusline file is cleared on restart; token expiry watcher re-evaluates naturally on next tick
 - [ ] Existing write-back at wrapper exit continues to function as safety net
 - [ ] All unit and integration tests pass
 
@@ -301,7 +324,7 @@ Risks & Considerations
 
 **Expiry file deletion**: fsnotify handles gracefully. Recreated on next upward sync. Transient disruption only.
 
-**Token expiry during restart wait**: Token expiry watcher continues running. User sees expiry warning. System corrects on restart.
+**Token expiry during restart wait**: Token expiry watcher checks `w.state` and suppresses its warning when restart is pending. User sees the credential restart message instead. After restart, token expiry watcher re-evaluates with fresh credentials on next tick.
 
 **Backward compatibility**: Existing missions without sync watchers continue with exit-time write-back. New wrappers activate automatically. No migration needed.
 
