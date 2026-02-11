@@ -65,13 +65,6 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		}
 	}
 
-	// Write auto-generated agenc-self-usage skill only for assistant missions
-	if isAssistant {
-		if err := writeAgencUsageSkill(claudeConfigDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to write agenc-self-usage skill")
-		}
-	}
-
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
 
 	// CLAUDE.md: merge user content + agenc modifications

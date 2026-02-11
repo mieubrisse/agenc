@@ -47,14 +47,28 @@ func writeAssistantAgentConfig(agentDirpath string, agencDirpath string) error {
 	return nil
 }
 
-// buildAssistantProjectSettings creates a minimal settings.json containing only
-// the assistant-specific permissions. Claude Code merges project-level settings
-// with global settings, so only the assistant additions are needed here.
+// buildAssistantProjectSettings creates a minimal settings.json containing
+// assistant-specific permissions and a SessionStart hook that runs `agenc prime`
+// to inject the CLI quick reference into the agent's context.
+// Claude Code merges project-level settings with global settings, so only the
+// assistant additions are needed here.
 func buildAssistantProjectSettings(agencDirpath string) ([]byte, error) {
 	settings := map[string]interface{}{
 		"permissions": map[string]interface{}{
 			"allow": BuildAssistantAllowEntries(agencDirpath),
 			"deny":  BuildAssistantDenyEntries(agencDirpath),
+		},
+		"hooks": map[string]interface{}{
+			"SessionStart": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "agenc prime",
+						},
+					},
+				},
+			},
 		},
 	}
 

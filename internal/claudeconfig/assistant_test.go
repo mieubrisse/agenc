@@ -77,8 +77,8 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 		if !strings.Contains(content, "AgenC Assistant Mission") {
 			t.Error("expected assistant content in agent/CLAUDE.md")
 		}
-		if !strings.Contains(content, "agenc-self-usage") {
-			t.Error("expected agenc-self-usage reference in agent/CLAUDE.md")
+		if !strings.Contains(content, "CLI quick reference") {
+			t.Error("expected CLI quick reference mention in agent/CLAUDE.md")
 		}
 	})
 
@@ -124,7 +124,7 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("settings contains only permissions", func(t *testing.T) {
+	t.Run("settings contains permissions and hooks", func(t *testing.T) {
 		agentDirpath := t.TempDir()
 
 		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
@@ -142,12 +142,39 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 			t.Fatalf("failed to parse settings: %v", err)
 		}
 
-		if len(settings) != 1 {
-			t.Errorf("expected settings to contain only 'permissions' key, got %d keys", len(settings))
+		if len(settings) != 2 {
+			t.Errorf("expected settings to contain 'permissions' and 'hooks' keys, got %d keys", len(settings))
 		}
 
 		if _, ok := settings["permissions"]; !ok {
 			t.Error("expected 'permissions' key in settings")
+		}
+
+		if _, ok := settings["hooks"]; !ok {
+			t.Error("expected 'hooks' key in settings")
+		}
+	})
+
+	t.Run("settings has SessionStart hook running agenc prime", func(t *testing.T) {
+		agentDirpath := t.TempDir()
+
+		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		settingsFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, "settings.json")
+		data, err := os.ReadFile(settingsFilepath)
+		if err != nil {
+			t.Fatalf("failed to read settings.json: %v", err)
+		}
+
+		// Verify the JSON contains the SessionStart hook with "agenc prime"
+		content := string(data)
+		if !strings.Contains(content, "SessionStart") {
+			t.Error("settings missing SessionStart hook")
+		}
+		if !strings.Contains(content, "agenc prime") {
+			t.Error("SessionStart hook missing 'agenc prime' command")
 		}
 	})
 }
@@ -162,7 +189,7 @@ func TestAssistantClaudeMdContent(t *testing.T) {
 	t.Run("contains expected sections", func(t *testing.T) {
 		expectedPhrases := []string{
 			"AgenC Assistant Mission",
-			"agenc-self-usage",
+			"CLI quick reference",
 			"$AGENC_MISSION_UUID",
 			"Do NOT modify other missions",
 		}

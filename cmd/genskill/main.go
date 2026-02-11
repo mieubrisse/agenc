@@ -1,6 +1,6 @@
-// cmd/genskill generates the agenc-self-usage SKILL.md file by introspecting
+// cmd/genskill generates the AgenC CLI quick reference content by introspecting
 // the Cobra command tree. The output is embedded into the binary via go:embed
-// at compile time. Run via: go run ./cmd/genskill
+// at compile time and printed by `agenc prime`. Run via: go run ./cmd/genskill
 package main
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/odyssey/agenc/cmd"
 )
 
-const outputFilepath = "./internal/claudeconfig/agenc_usage_skill.md"
+const outputFilepath = "./internal/claudeconfig/prime_content.md"
 
 // commandGroup represents a top-level command and its subcommands for
 // template rendering.
@@ -173,12 +173,7 @@ func renderSkill(groups []commandGroup) (string, error) {
 // skillTemplate is the Go text/template for the SKILL.md content.
 // The static preamble provides context for agents; the dynamic sections
 // are populated from the Cobra command tree.
-var skillTemplate = `---
-name: agenc-self-usage
-description: AgenC CLI quick reference for managing missions, repos, config, cron jobs, and the daemon from within a mission.
----
-
-AgenC CLI Quick Reference
+var skillTemplate = `AgenC CLI Quick Reference
 =========================
 
 You are running inside an **AgenC mission** — an isolated sandbox managed by the ` + "`agenc`" + ` CLI. You can use ` + "`agenc`" + ` to manage the system you are running in: spawn new missions, manage repos, configure cron jobs, check status, and update config.

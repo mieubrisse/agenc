@@ -228,8 +228,8 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 }
 
 // createAndLaunchAssistantMission creates an AgenC assistant mission. The
-// assistant has no git repo but gets the agenc-self-usage skill and permissions
-// to run agenc commands. A .assistant marker file is written so that
+// assistant has no git repo but gets permissions to run agenc commands and a
+// SessionStart hook that injects the CLI quick reference. A .assistant marker file is written so that
 // BuildMissionConfigDir can detect assistant missions autonomously.
 func createAndLaunchAssistantMission(agencDirpath string, initialPrompt string) error {
 	db, err := openDB()

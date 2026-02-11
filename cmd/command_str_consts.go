@@ -20,6 +20,7 @@ const (
 	loginCmdStr   = "login"
 	cronCmdStr    = "cron"
 	doctorCmdStr  = "doctor"
+	primeCmdStr   = "prime"
 
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"

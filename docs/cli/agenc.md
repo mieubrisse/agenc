@@ -17,6 +17,7 @@ The AgenC — agent mission management CLI
 * [agenc doctor](agenc_doctor.md)	 - Check for common configuration issues
 * [agenc login](agenc_login.md)	 - Log in to Claude and update credentials for all missions
 * [agenc mission](agenc_mission.md)	 - Manage agent missions
+* [agenc prime](agenc_prime.md)	 - Print AgenC CLI quick reference for AI agent context
 * [agenc repo](agenc_repo.md)	 - Manage the repo library
 * [agenc tmux](agenc_tmux.md)	 - Manage the AgenC tmux session
 * [agenc version](agenc_version.md)	 - Print the agenc version

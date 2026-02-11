@@ -8,7 +8,7 @@ Operating Rules
 
 **Use `agenc` commands for all operations.** The binary is in your PATH — invoke it as `agenc` (never `./agenc` or an absolute path). Prefer CLI commands over direct file manipulation for any operation that `agenc` supports.
 
-**Look up command syntax before running commands.** Invoke `/agenc-self-usage` to access the full CLI reference. Do this whenever you are unsure of a command's flags, arguments, or behavior.
+**The AgenC CLI quick reference is injected at session start** via a hook. Refer to it for command syntax, flags, and arguments whenever you are unsure.
 
 **Your mission UUID** is available in `$AGENC_MISSION_UUID`.
 

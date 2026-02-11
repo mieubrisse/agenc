@@ -175,7 +175,7 @@ Directory Structure
 ├── AGENTS.md                     # Agent definitions
 ├── cmd/                          # CLI commands (Cobra); see docs/cli/ for full reference
 │   ├── gendocs/                  # Build-time CLI doc generator
-│   └── genskill/                 # Build-time agenc-self-usage skill generator
+│   └── genskill/                 # Build-time CLI quick reference generator (agenc prime)
 ├── internal/
 │   ├── config/                   # Path management, YAML config
 │   ├── database/                 # SQLite CRUD
@@ -229,7 +229,7 @@ $AGENC_DIRPATH/
 │       │   ├── CLAUDE.md                  # Merged: shadow repo + claude-modifications (+ assistant instructions for assistant missions)
 │       │   ├── settings.json              # Merged + hooks + deny entries (+ assistant permissions for assistant missions)
 │       │   ├── .claude.json               # Copy of user's account identity + trust entry
-│       │   ├── skills/                    # From shadow repo (path-rewritten); assistant missions also get agenc-self-usage
+│       │   ├── skills/                    # From shadow repo (path-rewritten)
 │       │   ├── hooks/                     # From shadow repo (path-rewritten)
 │       │   ├── commands/                  # From shadow repo (path-rewritten)
 │       │   ├── agents/                    # From shadow repo (path-rewritten)
@@ -279,7 +279,7 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 - `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management, called by wrapper at spawn time), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
-- `agenc_usage_skill.go` — auto-generated agenc CLI quick-reference skill injected into assistant missions' `skills/agenc-self-usage/SKILL.md`. Content is generated at build time by `cmd/genskill/` from the Cobra command tree and embedded via `go:embed`.
+- `prime_content.go` — embeds the CLI quick reference generated at build time by `cmd/genskill/` from the Cobra command tree. Content is printed by `agenc prime` and injected into assistant missions via a `SessionStart` hook.
 - `assistant.go` — assistant mission config builders: `buildAssistantClaudeMd` (appends assistant instructions), `buildAssistantSettings` (injects assistant permissions), `BuildAssistantAllowEntries`/`BuildAssistantDenyEntries` (permission entry generators)
 - `assistant_claude.md` — embedded CLAUDE.md instructions for assistant missions (tells the agent it is the AgenC assistant, directs CLI usage, establishes filesystem access boundaries)
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
@@ -335,7 +335,7 @@ Key Architectural Patterns
 Each mission gets its own `claude-config/` directory, built at creation time from four sources:
 
 1. **Shadow repo** — a verbatim copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `~/.claude` paths rewritten at build time to point to the mission's concrete config path. See "Shadow repo" below.
-2. **Auto-generated skills** — for assistant missions only, the `agenc-self-usage` skill is written into `skills/agenc-self-usage/SKILL.md` after the shadow repo copy, providing the agent with a CLI quick-reference. Content is generated at build time from the Cobra command tree (`cmd/genskill/`). Regular missions do not receive this skill.
+2. **`agenc prime` hook** — for assistant missions only, a `SessionStart` hook in the project-level settings runs `agenc prime`, which prints the CLI quick reference into the agent's context. Content is generated at build time from the Cobra command tree (`cmd/genskill/`).
 3. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
 4. **AgenC operational overrides** — programmatically injected hooks and deny permissions
 
@@ -343,7 +343,7 @@ Each mission gets its own `claude-config/` directory, built at creation time fro
 
 - **CLAUDE.md** — the assistant-specific instructions (`internal/claudeconfig/assistant_claude.md`) are appended after the standard user + modifications merge
 - **settings.json** — assistant permissions are injected: allow entries for Read/Write/Edit/Glob/Grep on `$AGENC_DIRPATH/**` and `Bash(agenc:*)`, plus deny entries for Write/Edit on other missions' agent directories
-- **agenc-self-usage skill** — written only for assistant missions (regular missions do not get it)
+- **`agenc prime` SessionStart hook** — project-level hook in assistant missions only (regular missions do not get it)
 
 Two directories are symlinked rather than copied: `plugins/` → `~/.claude/plugins/` (so plugin installations are shared), and `projects/` → `~/.claude/projects/` (so conversation transcripts and auto-memory persist beyond the mission lifecycle).
 

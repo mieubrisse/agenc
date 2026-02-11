@@ -30,7 +30,7 @@ docs: genskill
 
 genskill:
 	@# Ensure embed placeholder exists before Go compilation (fresh checkout)
-	@test -f internal/claudeconfig/agenc_usage_skill.md || touch internal/claudeconfig/agenc_usage_skill.md
+	@test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md
 	go run ./cmd/genskill
 
 clean:

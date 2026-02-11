@@ -2,4 +2,4 @@
 /dist/
 
 # Generated at build time by cmd/genskill (embedded via go:embed)
-internal/claudeconfig/agenc_usage_skill.md
+internal/claudeconfig/prime_content.md

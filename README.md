@@ -121,9 +121,9 @@ Self-Management
 
 AgenC includes a dedicated **assistant mission** type for managing AgenC itself. Launch one with `agenc mission new --assistant` (or select "🤖 AgenC assistant" from the fzf picker, or use the "🤖 Talk to AgenC" command palette entry). The assistant agent gets:
 
-- The `agenc-self-usage` skill — a CLI quick-reference generated at build time from the actual command tree
+- A `SessionStart` hook that runs `agenc prime` to inject the CLI quick reference into the agent's context
 - Permissions to run `agenc` commands and read/write the agenc data directory
-- Instructions to use the CLI for all operations
+- Project-level CLAUDE.md with assistant instructions
 
 This means the assistant can:
 
@@ -134,7 +134,7 @@ This means the assistant can:
 - **Check system status:** `agenc daemon status`, `agenc mission ls`, `agenc cron ls`
 - **Troubleshoot:** inspect mission directories, read logs, diagnose daemon issues
 
-Regular missions do not include the agenc-self-usage skill or agenc permissions — they are focused on the code repository they were created for.
+Regular missions do not include the assistant config or agenc permissions — they are focused on the code repository they were created for.
 
 Interactive commands that require a terminal (fzf pickers, `$EDITOR`, confirmation prompts) detect non-TTY environments and return clear error messages with non-interactive alternatives, so agents never hang on interactive input.
 
