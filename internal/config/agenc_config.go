@@ -198,47 +198,22 @@ func (c ResolvedPaletteCommand) FormatKeybinding() string {
 // (e.g. "-T agenc k") or bind directly on the prefix table (e.g. "C-k").
 const DefaultPaletteTmuxKeybinding = "-T agenc k"
 
-// SyncedRepoConfig represents a repo entry in the syncedRepos list.
-// Supports both plain string format ("github.com/owner/repo") and structured
-// format with optional properties like windowTitle.
-type SyncedRepoConfig struct {
-	Repo        string `yaml:"repo"`
-	WindowTitle string `yaml:"windowTitle,omitempty"`
+// IsCanonicalRepoName reports whether the given string is in canonical format (github.com/owner/repo).
+func IsCanonicalRepoName(name string) bool {
+	return canonicalRepoRegex.MatchString(name)
 }
 
-// UnmarshalYAML allows SyncedRepoConfig to be unmarshaled from either a plain
-// string or a structured object, providing backward compatibility.
-func (s *SyncedRepoConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// Try plain string first
-	var str string
-	if err := unmarshal(&str); err == nil {
-		s.Repo = str
-		return nil
-	}
-
-	// Fall back to structured form
-	type rawSyncedRepoConfig SyncedRepoConfig
-	var raw rawSyncedRepoConfig
-	if err := unmarshal(&raw); err != nil {
-		return err
-	}
-	*s = SyncedRepoConfig(raw)
-	return nil
-}
-
-// MarshalYAML emits a plain string when windowTitle is empty, or a structured
-// object when windowTitle is set. This keeps config.yml clean for simple entries.
-func (s SyncedRepoConfig) MarshalYAML() (interface{}, error) {
-	if s.WindowTitle == "" {
-		return s.Repo, nil
-	}
-	type rawSyncedRepoConfig SyncedRepoConfig
-	return rawSyncedRepoConfig(s), nil
+// RepoConfig represents per-repo configuration in the repoConfig map.
+// Both fields are optional: alwaysSynced controls whether the daemon keeps
+// the repo continuously fetched, and windowTitle overrides the tmux window name.
+type RepoConfig struct {
+	AlwaysSynced bool   `yaml:"alwaysSynced,omitempty"`
+	WindowTitle  string `yaml:"windowTitle,omitempty"`
 }
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	SyncedRepos            []SyncedRepoConfig               `yaml:"syncedRepos,omitempty"`
+	RepoConfigs            map[string]RepoConfig            `yaml:"repoConfig,omitempty"`
 	TmuxAgencFilepath      string                           `yaml:"tmuxAgencFilepath,omitempty"`
 	Crons                  map[string]CronConfig            `yaml:"crons,omitempty"`
 	CronsMaxConcurrent     int                              `yaml:"cronsMaxConcurrent,omitempty"`
@@ -273,59 +248,67 @@ func (c *AgencConfig) GetCronsMaxConcurrent() int {
 	return c.CronsMaxConcurrent
 }
 
-// GetAllSyncedRepos returns the deduplicated list of synced repo names.
+// GetAllSyncedRepos returns the sorted list of repo names that have alwaysSynced enabled.
 func (c *AgencConfig) GetAllSyncedRepos() []string {
-	seen := make(map[string]bool, len(c.SyncedRepos))
 	var repos []string
-
-	for _, entry := range c.SyncedRepos {
-		if !seen[entry.Repo] {
-			seen[entry.Repo] = true
-			repos = append(repos, entry.Repo)
+	for repoName, rc := range c.RepoConfigs {
+		if rc.AlwaysSynced {
+			repos = append(repos, repoName)
 		}
 	}
-
+	sort.Strings(repos)
 	return repos
 }
 
 // GetWindowTitle returns the configured window title for a repo, or empty
 // string if no custom title is set.
 func (c *AgencConfig) GetWindowTitle(repoName string) string {
-	for _, entry := range c.SyncedRepos {
-		if entry.Repo == repoName {
-			return entry.WindowTitle
-		}
+	if rc, ok := c.RepoConfigs[repoName]; ok {
+		return rc.WindowTitle
 	}
 	return ""
 }
 
-// ContainsSyncedRepo reports whether the given repo name is in the synced repos list.
-func (c *AgencConfig) ContainsSyncedRepo(repoName string) bool {
-	for _, entry := range c.SyncedRepos {
-		if entry.Repo == repoName {
-			return true
-		}
+// GetRepoConfig returns the config for a repo and whether it exists.
+func (c *AgencConfig) GetRepoConfig(repoName string) (RepoConfig, bool) {
+	rc, ok := c.RepoConfigs[repoName]
+	return rc, ok
+}
+
+// SetRepoConfig sets or updates the config for a repo.
+func (c *AgencConfig) SetRepoConfig(repoName string, rc RepoConfig) {
+	if c.RepoConfigs == nil {
+		c.RepoConfigs = make(map[string]RepoConfig)
+	}
+	c.RepoConfigs[repoName] = rc
+}
+
+// RemoveRepoConfig removes the config entry for a repo.
+// Returns true if the entry existed and was removed.
+func (c *AgencConfig) RemoveRepoConfig(repoName string) bool {
+	if _, ok := c.RepoConfigs[repoName]; !ok {
+		return false
+	}
+	delete(c.RepoConfigs, repoName)
+	return true
+}
+
+// IsAlwaysSynced reports whether the given repo has alwaysSynced enabled.
+func (c *AgencConfig) IsAlwaysSynced(repoName string) bool {
+	if rc, ok := c.RepoConfigs[repoName]; ok {
+		return rc.AlwaysSynced
 	}
 	return false
 }
 
-// RemoveSyncedRepo removes the given repo name from the synced repos list.
-// Returns true if the repo was found and removed.
-func (c *AgencConfig) RemoveSyncedRepo(repoName string) bool {
-	for i, entry := range c.SyncedRepos {
-		if entry.Repo == repoName {
-			c.SyncedRepos = append(c.SyncedRepos[:i], c.SyncedRepos[i+1:]...)
-			return true
-		}
+// SetAlwaysSynced sets the alwaysSynced flag for a repo, creating the entry if needed.
+func (c *AgencConfig) SetAlwaysSynced(repoName string, synced bool) {
+	if c.RepoConfigs == nil {
+		c.RepoConfigs = make(map[string]RepoConfig)
 	}
-	return false
-}
-
-// AddSyncedRepo adds a repo to the synced repos list if not already present.
-func (c *AgencConfig) AddSyncedRepo(repoName string) {
-	if !c.ContainsSyncedRepo(repoName) {
-		c.SyncedRepos = append(c.SyncedRepos, SyncedRepoConfig{Repo: repoName})
-	}
+	rc := c.RepoConfigs[repoName]
+	rc.AlwaysSynced = synced
+	c.RepoConfigs[repoName] = rc
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
@@ -334,7 +317,7 @@ func GetConfigFilepath(agencDirpath string) string {
 }
 
 // ReadAgencConfig reads and parses config.yml. Returns an empty config if the
-// file does not exist. Returns an error if any syncedRepos entry is not in
+// file does not exist. Returns an error if any repoConfig key is not in
 // canonical format (github.com/owner/repo).
 // The returned yaml.CommentMap captures any YAML comments for round-trip
 // preservation; callers that only read config may discard it with _.
@@ -355,11 +338,14 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		return nil, nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
 	}
 
-	for _, entry := range cfg.SyncedRepos {
-		if !canonicalRepoRegex.MatchString(entry.Repo) {
+	if cfg.RepoConfigs == nil {
+		cfg.RepoConfigs = make(map[string]RepoConfig)
+	}
+	for repoName := range cfg.RepoConfigs {
+		if !canonicalRepoRegex.MatchString(repoName) {
 			return nil, nil, stacktrace.NewError(
-				"invalid syncedRepos entry '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				entry.Repo, configFilepath,
+				"invalid repoConfig key '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				repoName, configFilepath,
 			)
 		}
 	}

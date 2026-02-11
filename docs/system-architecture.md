@@ -81,7 +81,7 @@ The daemon runs five concurrent goroutines:
 
 **1. Repo update loop** (`internal/daemon/template_updater.go`)
 - Runs every 60 seconds
-- Fetches and fast-forwards all repos in the synced set: `config.yml` `syncedRepos` + `claudeConfig.repo` + repos from missions with a recent heartbeat (< 5 minutes)
+- Fetches and fast-forwards all repos in the synced set: `config.yml` `repoConfig` entries with `alwaysSynced: true` + repos from missions with a recent heartbeat (< 5 minutes)
 - Refreshes `origin/HEAD` every 10 cycles (~10 minutes) via `git remote set-head origin --auto`
 
 **2. Config auto-commit loop** (`internal/daemon/config_auto_commit.go`)
@@ -262,7 +262,7 @@ Core Packages
 Path management and YAML configuration. All path construction flows from `GetAgencDirpath()`, which reads `$AGENC_DIRPATH` and falls back to `~/.agenc`.
 
 - `config.go` — path helper functions (`GetMissionDirpath`, `GetRepoDirpath`, `GetDatabaseFilepath`, etc.), directory structure initialization (`EnsureDirStructure`), constant definitions for filenames and directory names, assistant mission detection (`IsMissionAssistant` checks for `.assistant` marker file)
-- `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation), `SyncedRepoConfig` struct (supports plain string or structured entries with optional `windowTitle`), `CronConfig` struct, `PaletteCommandConfig` struct (user-defined and builtin palette entries with optional tmux keybindings), `PaletteTmuxKeybinding` (configurable key for the command palette, defaults to `k`), `BuiltinPaletteCommands` defaults map, `GetResolvedPaletteCommands` merge logic, validation functions for repo format, cron names, palette command names, schedules, timeouts, and overlap policies. Cron expression evaluation via the `gronx` library.
+- `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation), `RepoConfig` struct (per-repo settings: `alwaysSynced`, `windowTitle`), `CronConfig` struct, `PaletteCommandConfig` struct (user-defined and builtin palette entries with optional tmux keybindings), `PaletteTmuxKeybinding` (configurable key for the command palette, defaults to `k`), `BuiltinPaletteCommands` defaults map, `GetResolvedPaletteCommands` merge logic, validation functions for repo format, cron names, palette command names, schedules, timeouts, and overlap policies. Cron expression evaluation via the `gronx` library.
 - `first_run.go` — `IsFirstRun()` detection
 
 ### `internal/mission/`

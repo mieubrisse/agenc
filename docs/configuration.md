@@ -14,13 +14,11 @@ config.yml
 The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file. All repo values must be in canonical format: `github.com/owner/repo`. The CLI accepts shorthand — `owner/repo`, `github.com/owner/repo`, or a full GitHub URL — and normalizes it automatically.
 
 ```yaml
-# Repos to keep synced in the shared library (daemon fetches every 60s)
-# Plain string format:
-syncedRepos:
-  - github.com/owner/repo
-  # Structured format with optional windowTitle (overrides tmux window name):
-  - repo: github.com/owner/other-repo
-    windowTitle: "other"
+# Per-repo configuration (keyed by canonical repo name)
+repoConfig:
+  github.com/owner/repo:
+    alwaysSynced: true                # daemon fetches every 60s (optional, default: false)
+    windowTitle: "my-repo"            # custom tmux window name (optional)
 
 # Max concurrent headless cron missions (default: 10)
 cronsMaxConcurrent: 10
@@ -66,27 +64,32 @@ paletteCommands:
 # tmuxAgencFilepath: /usr/local/bin/agenc-dev
 ```
 
-syncedRepos
------------
+repoConfig
+----------
 
-A list of repositories the daemon keeps continuously up-to-date (fetched and fast-forwarded every 60 seconds). Use `syncedRepos` for repos you want kept fresh in the shared library.
+Per-repo configuration, keyed by canonical repo name (`github.com/owner/repo`). Each entry supports two optional settings:
 
-Each entry can be a plain string or a structured object:
+- **alwaysSynced** — when `true`, the daemon keeps the repo continuously fetched and fast-forwarded (every 60 seconds). Defaults to `false`.
+- **windowTitle** — custom tmux window name for missions using this repo. When set, missions display this title instead of the default repo name.
 
 ```yaml
-syncedRepos:
-  - github.com/owner/repo                    # plain string
-  - repo: github.com/owner/other-repo        # structured with optional fields
-    windowTitle: "other"                      # custom tmux window title
+repoConfig:
+  github.com/owner/repo:
+    alwaysSynced: true
+  github.com/owner/other-repo:
+    alwaysSynced: true
+    windowTitle: "other"
 ```
 
-When `windowTitle` is set, missions using that repo will display the custom title in the tmux window tab instead of the default repo name.
-
-Manage the list via the CLI:
+Manage via the CLI:
 
 ```
-agenc repo add owner/repo --sync   # clone and add to syncedRepos
-agenc repo rm owner/repo           # remove from disk and syncedRepos
+agenc config repo-config ls                                                  # list all repo configs
+agenc config repo-config set github.com/owner/repo --always-synced=true      # enable auto-sync
+agenc config repo-config set github.com/owner/repo --window-title="my-repo"  # set window title
+agenc config repo-config rm github.com/owner/repo                            # remove config entry
+agenc repo add owner/repo --sync                                             # clone and enable sync
+agenc repo rm owner/repo                                                     # remove from disk and config
 ```
 
 crons

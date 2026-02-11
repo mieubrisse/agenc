@@ -15,9 +15,9 @@ func TestReadWriteAgencConfig(t *testing.T) {
 	}
 
 	cfg := &AgencConfig{
-		SyncedRepos: []SyncedRepoConfig{
-			{Repo: "github.com/owner/repo1"},
-			{Repo: "github.com/owner/repo2"},
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {AlwaysSynced: true},
+			"github.com/owner/repo2": {AlwaysSynced: true, WindowTitle: "Custom"},
 		},
 	}
 
@@ -30,16 +30,24 @@ func TestReadWriteAgencConfig(t *testing.T) {
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
-	if len(got.SyncedRepos) != 2 {
-		t.Fatalf("expected 2 synced repos, got %d", len(got.SyncedRepos))
+	if len(got.RepoConfigs) != 2 {
+		t.Fatalf("expected 2 repo configs, got %d", len(got.RepoConfigs))
 	}
 
-	if got.SyncedRepos[0].Repo != "github.com/owner/repo1" {
-		t.Errorf("expected 'github.com/owner/repo1', got '%s'", got.SyncedRepos[0].Repo)
+	rc1, ok := got.RepoConfigs["github.com/owner/repo1"]
+	if !ok {
+		t.Fatal("expected repo1 to exist in RepoConfigs")
+	}
+	if !rc1.AlwaysSynced {
+		t.Error("expected repo1 to have alwaysSynced=true")
 	}
 
-	if got.SyncedRepos[1].Repo != "github.com/owner/repo2" {
-		t.Errorf("expected 'github.com/owner/repo2', got '%s'", got.SyncedRepos[1].Repo)
+	rc2, ok := got.RepoConfigs["github.com/owner/repo2"]
+	if !ok {
+		t.Fatal("expected repo2 to exist in RepoConfigs")
+	}
+	if rc2.WindowTitle != "Custom" {
+		t.Errorf("expected repo2 windowTitle 'Custom', got '%s'", rc2.WindowTitle)
 	}
 }
 
@@ -50,8 +58,8 @@ func TestReadAgencConfig_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed for missing file: %v", err)
 	}
-	if len(cfg.SyncedRepos) != 0 {
-		t.Errorf("expected empty synced repos, got %d", len(cfg.SyncedRepos))
+	if len(cfg.RepoConfigs) != 0 {
+		t.Errorf("expected empty repo configs, got %d", len(cfg.RepoConfigs))
 	}
 }
 
@@ -71,27 +79,22 @@ func TestReadAgencConfig_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed for empty file: %v", err)
 	}
-	if len(cfg.SyncedRepos) != 0 {
-		t.Errorf("expected empty synced repos, got %d", len(cfg.SyncedRepos))
+	if len(cfg.RepoConfigs) != 0 {
+		t.Errorf("expected empty repo configs, got %d", len(cfg.RepoConfigs))
 	}
 }
 
-func TestReadAgencConfig_NonCanonicalSyncedRepo(t *testing.T) {
+func TestReadAgencConfig_NonCanonicalRepoConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	configDirpath := filepath.Join(tmpDir, ConfigDirname)
-	if err := os.MkdirAll(configDirpath, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	configFilepath := filepath.Join(configDirpath, ConfigFilename)
-	content := "syncedRepos:\n  - owner/repo\n"
-	if err := os.WriteFile(configFilepath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
+	writeConfigYAML(t, tmpDir, `
+repoConfig:
+  owner/repo:
+    alwaysSynced: true
+`)
 
 	_, _, err := ReadAgencConfig(tmpDir)
 	if err == nil {
-		t.Fatal("expected error for non-canonical synced repo, got nil")
+		t.Fatal("expected error for non-canonical repo config key, got nil")
 	}
 }
 
@@ -105,9 +108,9 @@ func TestWriteReadPreservesComments(t *testing.T) {
 	// Write a config file with comments via raw YAML
 	configFilepath := filepath.Join(configDirpath, ConfigFilename)
 	rawYAML := `# Top-level config comment
-syncedRepos:
-  - github.com/owner/repo1 # this is a synced repo
-  - github.com/owner/repo2
+repoConfig:
+  github.com/owner/repo1: # this is a synced repo
+    alwaysSynced: true
 `
 	if err := os.WriteFile(configFilepath, []byte(rawYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -178,39 +181,17 @@ func TestEnsureConfigFile(t *testing.T) {
 	}
 }
 
-// --- SyncedRepo window title tests ---
+// --- RepoConfig tests ---
 
-func TestSyncedRepo_PlainString(t *testing.T) {
+func TestRepoConfig_FromYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
-syncedRepos:
-  - github.com/owner/repo1
-  - github.com/owner/repo2
-`)
-
-	cfg, _, err := ReadAgencConfig(tmpDir)
-	if err != nil {
-		t.Fatalf("ReadAgencConfig failed: %v", err)
-	}
-
-	if len(cfg.SyncedRepos) != 2 {
-		t.Fatalf("expected 2 synced repos, got %d", len(cfg.SyncedRepos))
-	}
-	if cfg.SyncedRepos[0].Repo != "github.com/owner/repo1" {
-		t.Errorf("expected repo1, got '%s'", cfg.SyncedRepos[0].Repo)
-	}
-	if cfg.SyncedRepos[0].WindowTitle != "" {
-		t.Errorf("expected empty window title for plain string entry, got '%s'", cfg.SyncedRepos[0].WindowTitle)
-	}
-}
-
-func TestSyncedRepo_StructuredWithWindowTitle(t *testing.T) {
-	tmpDir := t.TempDir()
-	writeConfigYAML(t, tmpDir, `
-syncedRepos:
-  - repo: github.com/owner/repo1
+repoConfig:
+  github.com/owner/repo1:
+    alwaysSynced: true
+  github.com/owner/repo2:
+    alwaysSynced: true
     windowTitle: "My Repo"
-  - github.com/owner/repo2
 `)
 
 	cfg, _, err := ReadAgencConfig(tmpDir)
@@ -218,28 +199,32 @@ syncedRepos:
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
-	if len(cfg.SyncedRepos) != 2 {
-		t.Fatalf("expected 2 synced repos, got %d", len(cfg.SyncedRepos))
+	if len(cfg.RepoConfigs) != 2 {
+		t.Fatalf("expected 2 repo configs, got %d", len(cfg.RepoConfigs))
 	}
-	if cfg.SyncedRepos[0].Repo != "github.com/owner/repo1" {
-		t.Errorf("expected repo1, got '%s'", cfg.SyncedRepos[0].Repo)
+
+	rc1 := cfg.RepoConfigs["github.com/owner/repo1"]
+	if !rc1.AlwaysSynced {
+		t.Error("expected repo1 to have alwaysSynced=true")
 	}
-	if cfg.SyncedRepos[0].WindowTitle != "My Repo" {
-		t.Errorf("expected 'My Repo', got '%s'", cfg.SyncedRepos[0].WindowTitle)
+	if rc1.WindowTitle != "" {
+		t.Errorf("expected empty window title for repo1, got '%s'", rc1.WindowTitle)
 	}
-	if cfg.SyncedRepos[1].Repo != "github.com/owner/repo2" {
-		t.Errorf("expected repo2, got '%s'", cfg.SyncedRepos[1].Repo)
+
+	rc2 := cfg.RepoConfigs["github.com/owner/repo2"]
+	if !rc2.AlwaysSynced {
+		t.Error("expected repo2 to have alwaysSynced=true")
 	}
-	if cfg.SyncedRepos[1].WindowTitle != "" {
-		t.Errorf("expected empty window title for plain string entry, got '%s'", cfg.SyncedRepos[1].WindowTitle)
+	if rc2.WindowTitle != "My Repo" {
+		t.Errorf("expected 'My Repo' window title for repo2, got '%s'", rc2.WindowTitle)
 	}
 }
 
-func TestSyncedRepo_GetWindowTitle(t *testing.T) {
+func TestRepoConfig_GetWindowTitle(t *testing.T) {
 	cfg := &AgencConfig{
-		SyncedRepos: []SyncedRepoConfig{
-			{Repo: "github.com/owner/repo1", WindowTitle: "Custom Title"},
-			{Repo: "github.com/owner/repo2"},
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {WindowTitle: "Custom Title"},
+			"github.com/owner/repo2": {},
 		},
 	}
 
@@ -254,7 +239,29 @@ func TestSyncedRepo_GetWindowTitle(t *testing.T) {
 	}
 }
 
-func TestSyncedRepo_RoundTrip_PlainAndStructured(t *testing.T) {
+func TestRepoConfig_GetAllSyncedRepos(t *testing.T) {
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {AlwaysSynced: true},
+			"github.com/owner/repo2": {AlwaysSynced: false},
+			"github.com/owner/repo3": {AlwaysSynced: true, WindowTitle: "R3"},
+		},
+	}
+
+	synced := cfg.GetAllSyncedRepos()
+	if len(synced) != 2 {
+		t.Fatalf("expected 2 synced repos, got %d", len(synced))
+	}
+	// Sorted alphabetically
+	if synced[0] != "github.com/owner/repo1" {
+		t.Errorf("expected repo1, got '%s'", synced[0])
+	}
+	if synced[1] != "github.com/owner/repo3" {
+		t.Errorf("expected repo3, got '%s'", synced[1])
+	}
+}
+
+func TestRepoConfig_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)
 	if err := os.MkdirAll(configDirpath, 0755); err != nil {
@@ -262,9 +269,9 @@ func TestSyncedRepo_RoundTrip_PlainAndStructured(t *testing.T) {
 	}
 
 	cfg := &AgencConfig{
-		SyncedRepos: []SyncedRepoConfig{
-			{Repo: "github.com/owner/repo1", WindowTitle: "Custom"},
-			{Repo: "github.com/owner/repo2"},
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {AlwaysSynced: true, WindowTitle: "Custom"},
+			"github.com/owner/repo2": {AlwaysSynced: true},
 		},
 	}
 
@@ -277,59 +284,90 @@ func TestSyncedRepo_RoundTrip_PlainAndStructured(t *testing.T) {
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
 
-	if len(got.SyncedRepos) != 2 {
-		t.Fatalf("expected 2 synced repos, got %d", len(got.SyncedRepos))
+	if len(got.RepoConfigs) != 2 {
+		t.Fatalf("expected 2 repo configs, got %d", len(got.RepoConfigs))
 	}
-	if got.SyncedRepos[0].Repo != "github.com/owner/repo1" {
-		t.Errorf("expected repo1, got '%s'", got.SyncedRepos[0].Repo)
+
+	rc1 := got.RepoConfigs["github.com/owner/repo1"]
+	if !rc1.AlwaysSynced {
+		t.Error("expected repo1 alwaysSynced=true")
 	}
-	if got.SyncedRepos[0].WindowTitle != "Custom" {
-		t.Errorf("expected 'Custom', got '%s'", got.SyncedRepos[0].WindowTitle)
+	if rc1.WindowTitle != "Custom" {
+		t.Errorf("expected 'Custom', got '%s'", rc1.WindowTitle)
 	}
-	if got.SyncedRepos[1].Repo != "github.com/owner/repo2" {
-		t.Errorf("expected repo2, got '%s'", got.SyncedRepos[1].Repo)
+
+	rc2 := got.RepoConfigs["github.com/owner/repo2"]
+	if !rc2.AlwaysSynced {
+		t.Error("expected repo2 alwaysSynced=true")
 	}
-	if got.SyncedRepos[1].WindowTitle != "" {
-		t.Errorf("expected empty window title, got '%s'", got.SyncedRepos[1].WindowTitle)
+	if rc2.WindowTitle != "" {
+		t.Errorf("expected empty window title, got '%s'", rc2.WindowTitle)
 	}
 }
 
-func TestSyncedRepo_ContainsAndRemove(t *testing.T) {
-	cfg := &AgencConfig{
-		SyncedRepos: []SyncedRepoConfig{
-			{Repo: "github.com/owner/repo1", WindowTitle: "Custom"},
-			{Repo: "github.com/owner/repo2"},
-		},
-	}
-
-	if !cfg.ContainsSyncedRepo("github.com/owner/repo1") {
-		t.Error("expected to contain repo1")
-	}
-	if cfg.ContainsSyncedRepo("github.com/owner/nonexistent") {
-		t.Error("expected not to contain nonexistent repo")
-	}
-
-	cfg.RemoveSyncedRepo("github.com/owner/repo1")
-	if cfg.ContainsSyncedRepo("github.com/owner/repo1") {
-		t.Error("expected repo1 to be removed")
-	}
-	if len(cfg.SyncedRepos) != 1 {
-		t.Fatalf("expected 1 repo remaining, got %d", len(cfg.SyncedRepos))
-	}
-}
-
-func TestSyncedRepo_AddSyncedRepo(t *testing.T) {
+func TestRepoConfig_SetAndRemove(t *testing.T) {
 	cfg := &AgencConfig{}
 
-	cfg.AddSyncedRepo("github.com/owner/repo1")
-	if len(cfg.SyncedRepos) != 1 {
-		t.Fatalf("expected 1 repo, got %d", len(cfg.SyncedRepos))
+	cfg.SetRepoConfig("github.com/owner/repo1", RepoConfig{AlwaysSynced: true})
+	if len(cfg.RepoConfigs) != 1 {
+		t.Fatalf("expected 1 repo config, got %d", len(cfg.RepoConfigs))
 	}
 
-	// Adding the same repo again should be a no-op
-	cfg.AddSyncedRepo("github.com/owner/repo1")
-	if len(cfg.SyncedRepos) != 1 {
-		t.Fatalf("expected 1 repo after duplicate add, got %d", len(cfg.SyncedRepos))
+	if !cfg.IsAlwaysSynced("github.com/owner/repo1") {
+		t.Error("expected repo1 to be always synced")
+	}
+
+	// Remove it
+	removed := cfg.RemoveRepoConfig("github.com/owner/repo1")
+	if !removed {
+		t.Error("expected RemoveRepoConfig to return true")
+	}
+	if len(cfg.RepoConfigs) != 0 {
+		t.Fatalf("expected 0 repo configs after remove, got %d", len(cfg.RepoConfigs))
+	}
+
+	// Removing again should be a no-op
+	removed = cfg.RemoveRepoConfig("github.com/owner/repo1")
+	if removed {
+		t.Error("expected RemoveRepoConfig to return false for nonexistent repo")
+	}
+}
+
+func TestRepoConfig_SetAlwaysSynced(t *testing.T) {
+	cfg := &AgencConfig{}
+
+	cfg.SetAlwaysSynced("github.com/owner/repo1", true)
+	if !cfg.IsAlwaysSynced("github.com/owner/repo1") {
+		t.Error("expected repo1 to be always synced after SetAlwaysSynced(true)")
+	}
+
+	// Set to false
+	cfg.SetAlwaysSynced("github.com/owner/repo1", false)
+	if cfg.IsAlwaysSynced("github.com/owner/repo1") {
+		t.Error("expected repo1 to not be always synced after SetAlwaysSynced(false)")
+	}
+
+	// Existing window title should be preserved
+	cfg.SetRepoConfig("github.com/owner/repo2", RepoConfig{WindowTitle: "test"})
+	cfg.SetAlwaysSynced("github.com/owner/repo2", true)
+	rc, _ := cfg.GetRepoConfig("github.com/owner/repo2")
+	if rc.WindowTitle != "test" {
+		t.Errorf("expected window title 'test' preserved, got '%s'", rc.WindowTitle)
+	}
+	if !rc.AlwaysSynced {
+		t.Error("expected alwaysSynced=true")
+	}
+}
+
+func TestIsCanonicalRepoName(t *testing.T) {
+	if !IsCanonicalRepoName("github.com/owner/repo") {
+		t.Error("expected github.com/owner/repo to be canonical")
+	}
+	if IsCanonicalRepoName("owner/repo") {
+		t.Error("expected owner/repo to not be canonical")
+	}
+	if IsCanonicalRepoName("") {
+		t.Error("expected empty string to not be canonical")
 	}
 }
 

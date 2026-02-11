@@ -129,7 +129,7 @@ Use [`adhocore/gronx`](https://github.com/adhocore/gronx) (v1.19.6+, MIT license
 - Cron name must be unique (not already defined in config).
 - Schedule must be a valid 5-field crontab expression.
 - Agent must exist in `agentTemplates` section of config.yml.
-- Git repo (if specified) must exist in `syncedRepos` section of config.yml.
+- Git repo (if specified) must exist in the `repoConfig` section of config.yml.
 - Timeout must be a valid Go duration string (e.g., `30m`, `1h`, `2h30m`).
 - Overlap must be one of: `skip`, `allow`.
 

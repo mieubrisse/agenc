@@ -20,7 +20,7 @@ var repoRmCmd = &cobra.Command{
 	Long: fmt.Sprintf(`Remove one or more repositories from the repo library.
 
 Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
-syncedRepos list in config.yml if present.
+repoConfig in config.yml if present.
 
 When called without arguments, opens an interactive fzf picker.
 
@@ -101,9 +101,10 @@ func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName stri
 	repoDirpath := config.GetRepoDirpath(agencDirpath, repoName)
 	_, statErr := os.Stat(repoDirpath)
 	existsOnDisk := statErr == nil
-	isSynced := cfg.ContainsSyncedRepo(repoName)
+	isSynced := cfg.IsAlwaysSynced(repoName)
+	_, hasRepoConfig := cfg.GetRepoConfig(repoName)
 
-	if !existsOnDisk && !isSynced {
+	if !existsOnDisk && !hasRepoConfig {
 		fmt.Printf("'%s' not found\n", repoName)
 		return nil
 	}
@@ -121,8 +122,10 @@ func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName stri
 			fmt.Printf("Skipped '%s'\n", repoName)
 			return nil
 		}
+	}
 
-		cfg.RemoveSyncedRepo(repoName)
+	if hasRepoConfig {
+		cfg.RemoveRepoConfig(repoName)
 
 		if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 			return stacktrace.Propagate(err, "failed to write config")

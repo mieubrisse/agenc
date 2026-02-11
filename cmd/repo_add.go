@@ -68,8 +68,8 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		if !cfg.ContainsSyncedRepo(result.RepoName) {
-			cfg.AddSyncedRepo(result.RepoName)
+		if !cfg.IsAlwaysSynced(result.RepoName) {
+			cfg.SetAlwaysSynced(result.RepoName, true)
 
 			if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
 				return stacktrace.Propagate(err, "failed to write config")

@@ -7,7 +7,7 @@ Remove a repository from the repo library
 Remove one or more repositories from the repo library.
 
 Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
-syncedRepos list in config.yml if present.
+repoConfig in config.yml if present.
 
 When called without arguments, opens an interactive fzf picker.
 

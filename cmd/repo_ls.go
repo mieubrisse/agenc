@@ -41,7 +41,7 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 
 	tbl := tableprinter.NewTable("REPO", "SYNCED")
 	for _, repoName := range repoNames {
-		synced := formatCheckmark(cfg.ContainsSyncedRepo(repoName))
+		synced := formatCheckmark(cfg.IsAlwaysSynced(repoName))
 		tbl.AddRow(displayGitRepo(repoName), synced)
 	}
 	tbl.Print()
