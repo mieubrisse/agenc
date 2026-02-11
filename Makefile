@@ -22,13 +22,15 @@ LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
 .PHONY: build clean docs genskill
 
-build: docs genskill
+build: genskill docs
 	go build -ldflags "$(LDFLAGS)" -o agenc .
 
-docs:
+docs: genskill
 	go run ./cmd/gendocs
 
 genskill:
+	@# Ensure embed placeholder exists before Go compilation (fresh checkout)
+	@test -f internal/claudeconfig/agenc_usage_skill.md || touch internal/claudeconfig/agenc_usage_skill.md
 	go run ./cmd/genskill
 
 clean:
