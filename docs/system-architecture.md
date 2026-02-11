@@ -120,10 +120,11 @@ The wrapper:
 4. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
 5. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 6. Sets `AGENC_MISSION_UUID` for the child process
-7. Starts three background goroutines:
+7. Starts four background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` in the database every 30 seconds
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (restart, claude_update)
+   - **Token expiry watcher** (interactive mode only) — checks the stored OAuth token expiry timestamp every 60 seconds; when within 1 hour of expiry, writes a warning to the per-mission `statusline-message` file; when fresh credentials are cloned (after restart), clears the warning
 8. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Supports restart commands via unix socket.
@@ -192,6 +193,8 @@ Directory Structure
 ```
 $AGENC_DIRPATH/
 ├── database.sqlite                        # SQLite: missions table
+├── statusline-wrapper.sh                  # Shared statusline wrapper script
+├── statusline-original-cmd                # User's original statusLine.command (saved on first build)
 │
 ├── config/                                # User configuration (optionally a git repo)
 │   ├── config.yml                         # Synced repos, Claude config source, cron jobs
@@ -227,6 +230,7 @@ $AGENC_DIRPATH/
 │       ├── pid                            # Wrapper process ID
 │       ├── wrapper.sock                   # Unix socket for wrapper commands (restart, claude_update)
 │       ├── wrapper.log                    # Wrapper lifecycle log
+│       ├── statusline-message             # Per-mission statusline message (e.g. token expiry warning)
 │       └── claude-output.log              # Headless mode output (with rotation)
 │
 └── daemon/
@@ -298,7 +302,8 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 
 Per-mission Claude child process management.
 
-- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, credential cloning at spawn time
+- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener, token expiry watcher), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, credential cloning at spawn time
+- `token_expiry.go` — `watchTokenExpiry` goroutine that checks stored OAuth token expiry against the clock every 60 seconds, writes/removes the per-mission statusline message file
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
 - `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (uses custom `windowTitle` from config.yml if set, otherwise falls back to repo short name), pane color management (`setPaneNeedsAttention`, `resetPaneStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
@@ -361,6 +366,14 @@ The wrapper processes these updates in its main event loop (`handleClaudeUpdate`
 - **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending
 - **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
+
+### Statusline wrapper and token expiry warning
+
+The statusline wrapper (`$AGENC_DIRPATH/statusline-wrapper.sh`) intercepts Claude Code's `statusLine` feature to display per-mission messages. During config building, the user's original `statusLine.command` is saved to `$AGENC_DIRPATH/statusline-original-cmd`, and the merged `settings.json` is patched to invoke the wrapper script with the mission's message file path as an argument.
+
+The wrapper script reads stdin (the JSON payload from Claude Code), checks whether the per-mission `statusline-message` file exists and is non-empty, and either displays its contents or delegates to the user's original command.
+
+The token expiry watcher (`internal/wrapper/token_expiry.go`) is a background goroutine started by the wrapper in interactive mode. At credential clone time, the wrapper reads `claudeAiOauth.expiresAt` from the global Keychain and stores it in memory. The goroutine ticks every 60 seconds, comparing `time.Now()` against the stored timestamp. When the token is within 1 hour of expiry, it writes a warning message to the per-mission `statusline-message` file. When the wrapper restarts and clones fresh credentials, the stored timestamp is updated and the goroutine clears the file on its next tick. No repeated Keychain reads are needed — the goroutine only performs a time comparison.
 
 ### Tmux pane coloring
 

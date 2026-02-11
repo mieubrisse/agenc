@@ -71,7 +71,7 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 
 	// Merge settings.json: user's from shadow repo + agenc modifications + hooks/deny,
 	// then selectively rewrite paths (preserving permissions block)
-	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath); err != nil {
+	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged settings.json")
 	}
 
@@ -179,9 +179,10 @@ func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirp
 }
 
 // buildMergedSettings reads user settings from shadow repo and agenc
-// modifications, deep-merges them, adds agenc hooks/deny, then selectively
-// rewrites paths (preserving permission entries). Writes to dest.
-func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
+// modifications, deep-merges them, adds agenc hooks/deny, injects the
+// statusline wrapper, then selectively rewrites paths (preserving permission
+// entries). Writes to dest.
+func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string, missionID string) error {
 	destFilepath := filepath.Join(destDirpath, "settings.json")
 
 	userSettingsData, err := os.ReadFile(filepath.Join(shadowDirpath, "settings.json"))
@@ -205,6 +206,13 @@ func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirp
 	mergedData, err := MergeSettings(userSettingsData, modsSettingsData, agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to merge settings")
+	}
+
+	// Inject the statusline wrapper so per-mission messages override the
+	// user's original statusLine command
+	mergedData, err = injectStatuslineWrapper(mergedData, agencDirpath, missionID)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to inject statusline wrapper")
 	}
 
 	// Selectively rewrite paths: permissions block preserved, everything else rewritten
@@ -528,6 +536,82 @@ func ResolveConfigCommitHash(configSourceDirpath string) string {
 	}
 
 	return strings.TrimSpace(string(output))
+}
+
+// injectStatuslineWrapper modifies the merged settings JSON to replace any
+// existing statusLine.command with our wrapper script. The user's original
+// command is saved to a file so the wrapper can delegate to it when there is
+// no per-mission message to display.
+func injectStatuslineWrapper(settingsData []byte, agencDirpath string, missionID string) ([]byte, error) {
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(settingsData, &settings); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse settings JSON for statusline injection")
+	}
+
+	wrapperFilepath := config.GetStatuslineWrapperFilepath(agencDirpath)
+	messageFilepath := config.GetMissionStatuslineMessageFilepath(agencDirpath, missionID)
+	originalCmdFilepath := config.GetStatuslineOriginalCmdFilepath(agencDirpath)
+
+	// Extract existing statusLine.command, if any, and save it
+	if statusLineRaw, ok := settings["statusLine"]; ok {
+		var statusLine map[string]json.RawMessage
+		if err := json.Unmarshal(statusLineRaw, &statusLine); err == nil {
+			if cmdRaw, ok := statusLine["command"]; ok {
+				var existingCmd string
+				if err := json.Unmarshal(cmdRaw, &existingCmd); err == nil {
+					// Only save the original command if it's not already our wrapper
+					if !strings.HasPrefix(existingCmd, wrapperFilepath) {
+						if err := os.WriteFile(originalCmdFilepath, []byte(existingCmd), 0644); err != nil {
+							return nil, stacktrace.Propagate(err, "failed to save original statusLine command")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Build our wrapper command: <wrapper-path> <mission-message-filepath>
+	wrapperCmd := wrapperFilepath + " " + messageFilepath
+
+	statusLineObj := map[string]string{
+		"type":    "command",
+		"command": wrapperCmd,
+	}
+	statusLineData, err := json.Marshal(statusLineObj)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal statusLine object")
+	}
+	settings["statusLine"] = json.RawMessage(statusLineData)
+
+	result, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal settings with statusline wrapper")
+	}
+	result = append(result, '\n')
+
+	return result, nil
+}
+
+// GetCredentialExpiresAt reads the global Keychain credentials and returns
+// the expiresAt timestamp for the claudeAiOauth token. Returns 0 if the
+// credential cannot be read or the expiresAt field is missing.
+func GetCredentialExpiresAt() float64 {
+	credential, err := ReadKeychainCredentials(GlobalCredentialServiceName)
+	if err != nil {
+		return 0
+	}
+
+	var credMap map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(credential), &credMap); err != nil {
+		return 0
+	}
+
+	oauthRaw, ok := credMap["claudeAiOauth"]
+	if !ok {
+		return 0
+	}
+
+	return extractExpiresAt(oauthRaw)
 }
 
 // findGitRoot walks up from the given path looking for a .git directory.

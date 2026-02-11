@@ -71,6 +71,12 @@ type Wrapper struct {
 
 	// pendingRestart stores the deferred restart command when in stateRestartPending.
 	pendingRestart *Command
+
+	// tokenExpiresAt stores the Unix timestamp (as float64) when the Claude
+	// OAuth token expires. Read from the Keychain at credential clone time.
+	// The watchTokenExpiry goroutine compares this against time.Now() to
+	// decide when to show a warning.
+	tokenExpiresAt float64
 }
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
@@ -174,6 +180,9 @@ func (w *Wrapper) Run(isResume bool) error {
 
 	// Clone fresh credentials from global Keychain before initial spawn
 	w.cloneCredentials()
+
+	// Start token expiry watcher to warn when credentials are about to expire
+	go w.watchTokenExpiry(ctx)
 
 	// Spawn initial Claude process
 	if isResume {
@@ -318,12 +327,17 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 }
 
 // cloneCredentials clones fresh credentials from the global Keychain into
-// the per-mission entry. Errors are logged as warnings but never fatal.
+// the per-mission entry and reads the token expiry timestamp. Errors are
+// logged as warnings but never fatal.
 func (w *Wrapper) cloneCredentials() {
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
 	if err := claudeconfig.CloneKeychainCredentials(claudeConfigDirpath); err != nil {
 		w.logger.Warn("Failed to clone Keychain credentials", "error", err)
 	}
+
+	// Read the token expiry so the watchTokenExpiry goroutine can warn
+	// before expiration without additional Keychain reads.
+	w.tokenExpiresAt = claudeconfig.GetCredentialExpiresAt()
 }
 
 // writeBackCredentials merges per-mission Keychain credentials back into the
