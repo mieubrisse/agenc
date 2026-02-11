@@ -29,6 +29,12 @@ var agencUsageSkillContent string
 // user-defined skill with the same name.
 func writeAgencUsageSkill(claudeConfigDirpath string) error {
 	skillDirpath := filepath.Join(claudeConfigDirpath, "skills", AgencUsageSkillDirname)
+
+	// Remove any user-defined skill with the same name (may have been copied
+	// from the shadow repo) so stale files don't leak into the auto-generated
+	// skill directory.
+	os.RemoveAll(skillDirpath)
+
 	if err := os.MkdirAll(skillDirpath, 0755); err != nil {
 		return stacktrace.Propagate(err, "failed to create agenc-self-usage skill directory")
 	}
