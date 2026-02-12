@@ -410,8 +410,8 @@ func TestPaletteCommands_BuiltinDefaults(t *testing.T) {
 	// Check specific defaults
 	for _, cmd := range resolved {
 		if cmd.Name == "do" {
-			if cmd.Title != "✅ Do" {
-				t.Errorf("expected do title '✅ Do', got '%s'", cmd.Title)
+			if cmd.Title != "✅  Do" {
+				t.Errorf("expected do title '✅  Do', got '%s'", cmd.Title)
 			}
 			if cmd.TmuxKeybinding != "d" {
 				t.Errorf("expected do keybinding 'd', got '%s'", cmd.TmuxKeybinding)
@@ -443,8 +443,8 @@ paletteCommands:
 				t.Errorf("expected overridden keybinding 'C-n', got '%s'", cmd.TmuxKeybinding)
 			}
 			// Title should keep the default
-			if cmd.Title != "🚀 New Mission" {
-				t.Errorf("expected default title '🚀 New Mission', got '%s'", cmd.Title)
+			if cmd.Title != "🚀  New Mission" {
+				t.Errorf("expected default title '🚀  New Mission', got '%s'", cmd.Title)
 			}
 			if !cmd.IsBuiltin {
 				t.Error("expected newMission to be marked as builtin")
@@ -536,7 +536,7 @@ func TestPaletteCommands_TitleUniqueness(t *testing.T) {
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
   custom1:
-    title: "✅ Do"
+    title: "✅  Do"
     command: "agenc do"
 `)
 
