@@ -108,10 +108,9 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		TmuxKeybinding: "n",
 	},
 	"switchMission": {
-		Title:          "🔀  Switch Mission",
-		Description:    "Switch to a running mission's tmux window",
-		Command:        "tmux display-popup -E -w 60% -h 50% 'agenc tmux switch'",
-		TmuxKeybinding: "s",
+		Title:       "🔀  Switch Mission",
+		Description: "Switch to a running mission's tmux window",
+		Command:     "agenc tmux switch",
 	},
 	"resumeMission": {
 		Title:       "🟢  Resume Mission",
