@@ -214,7 +214,6 @@ type RepoConfig struct {
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
 	RepoConfigs            map[string]RepoConfig            `yaml:"repoConfig,omitempty"`
-	TmuxAgencFilepath      string                           `yaml:"tmuxAgencFilepath,omitempty"`
 	Crons                  map[string]CronConfig            `yaml:"crons,omitempty"`
 	CronsMaxConcurrent     int                              `yaml:"cronsMaxConcurrent,omitempty"`
 	PaletteCommands        map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
@@ -229,15 +228,6 @@ func (c *AgencConfig) GetPaletteTmuxKeybinding() string {
 		return DefaultPaletteTmuxKeybinding
 	}
 	return c.PaletteTmuxKeybinding
-}
-
-// GetTmuxAgencBinary returns the agenc binary name/path used in tmux
-// keybindings. Defaults to "agenc" when not configured.
-func (c *AgencConfig) GetTmuxAgencBinary() string {
-	if c.TmuxAgencFilepath == "" {
-		return "agenc"
-	}
-	return c.TmuxAgencFilepath
 }
 
 // GetCronsMaxConcurrent returns the max concurrent cron missions, using the default if not set.
@@ -475,10 +465,8 @@ func IsBuiltinPaletteCommand(name string) bool {
 
 // GetResolvedPaletteCommands returns the fully merged list of palette commands:
 // builtins (with user overrides applied) followed by custom entries (alphabetical).
-// Commands with "agenc" in their command string have it replaced with the
-// configured tmux agenc binary. Disabled builtins (empty override) are excluded.
+// Disabled builtins (empty override) are excluded.
 func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
-	agencBinary := c.GetTmuxAgencBinary()
 	var result []ResolvedPaletteCommand
 
 	// Process builtins in defined order
@@ -516,9 +504,6 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			}
 		}
 
-		// Substitute agenc binary in command
-		resolved.Command = substituteAgencBinary(resolved.Command, agencBinary)
-
 		result = append(result, resolved)
 	}
 
@@ -540,7 +525,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Name:           name,
 			Title:          cmdCfg.Title,
 			Description:    cmdCfg.Description,
-			Command:        substituteAgencBinary(cmdCfg.Command, agencBinary),
+			Command:        cmdCfg.Command,
 			TmuxKeybinding: cmdCfg.TmuxKeybinding,
 			IsBuiltin:      false,
 		}
@@ -548,22 +533,6 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 	}
 
 	return result
-}
-
-// substituteAgencBinary replaces standalone "agenc" tokens in a command string
-// with the configured binary path. Only space-delimited tokens that are exactly
-// "agenc" are replaced — substrings like "mieubrisse/agenc" are left alone.
-func substituteAgencBinary(command, agencBinary string) string {
-	if agencBinary == "agenc" {
-		return command
-	}
-	parts := strings.Split(command, " ")
-	for i, part := range parts {
-		if part == "agenc" {
-			parts[i] = agencBinary
-		}
-	}
-	return strings.Join(parts, " ")
 }
 
 // validatePaletteUniqueness checks that titles and keybindings are unique across

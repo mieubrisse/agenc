@@ -15,7 +15,7 @@ func TestGenerateKeybindingsContent_MissionScopedKeybinding(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "agenc", "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
 
 	// Should contain resolve-mission preamble for mission-scoped keybinding
 	if !strings.Contains(content, "resolve-mission") {
@@ -37,7 +37,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "agenc", "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
 
 	// Should contain the simple run-shell form
 	if !strings.Contains(content, "run-shell 'agenc tmux window new -- agenc do'") {
@@ -58,7 +58,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 }
 
 func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 4, "agenc", "-T agenc k", nil)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", nil)
 
 	// Palette keybinding (k) should always include resolve-mission
 	if !strings.Contains(content, "resolve-mission") {
@@ -77,7 +77,7 @@ func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) 
 }
 
 func TestGenerateKeybindingsContent_PaletteOmittedOnOldTmux(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 1, "agenc", "-T agenc k", nil)
+	content := GenerateKeybindingsContent(3, 1, "-T agenc k", nil)
 
 	// tmux < 3.2 should not have the palette keybinding
 	if strings.Contains(content, "display-popup") {
@@ -86,7 +86,7 @@ func TestGenerateKeybindingsContent_PaletteOmittedOnOldTmux(t *testing.T) {
 }
 
 func TestGenerateKeybindingsContent_CustomPaletteKey(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 4, "agenc", "-T agenc p", nil)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc p", nil)
 
 	// Should bind the palette to the custom key in the agenc table
 	if !strings.Contains(content, "bind-key -T agenc p run-shell") {
@@ -101,7 +101,7 @@ func TestGenerateKeybindingsContent_CustomPaletteKey(t *testing.T) {
 
 func TestGenerateKeybindingsContent_PaletteKeyOutsideAgencTable(t *testing.T) {
 	// User binds the palette directly on prefix (no agenc table)
-	content := GenerateKeybindingsContent(3, 4, "agenc", "C-k", nil)
+	content := GenerateKeybindingsContent(3, 4, "C-k", nil)
 
 	// Should emit the keybinding verbatim
 	if !strings.Contains(content, "bind-key C-k run-shell") {

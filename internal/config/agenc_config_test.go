@@ -549,35 +549,6 @@ paletteCommands:
 	}
 }
 
-func TestPaletteCommands_AgencBinarySubstitution(t *testing.T) {
-	tmpDir := t.TempDir()
-	writeConfigYAML(t, tmpDir, `
-tmuxAgencFilepath: /tmp/claude/test-agenc
-paletteCommands:
-  dotfiles:
-    title: "📁 Dotfiles"
-    command: "agenc tmux window new -- agenc mission new github.com/owner/agenc"
-`)
-
-	cfg, _, err := ReadAgencConfig(tmpDir)
-	if err != nil {
-		t.Fatalf("ReadAgencConfig failed: %v", err)
-	}
-
-	resolved := cfg.GetResolvedPaletteCommands()
-	for _, cmd := range resolved {
-		if cmd.Name == "dotfiles" {
-			// Only standalone "agenc" tokens should be replaced, not substrings like "owner/agenc"
-			expected := "/tmp/claude/test-agenc tmux window new -- /tmp/claude/test-agenc mission new github.com/owner/agenc"
-			if cmd.Command != expected {
-				t.Errorf("expected command\n  '%s'\ngot\n  '%s'", expected, cmd.Command)
-			}
-			return
-		}
-	}
-	t.Error("dotfiles not found in resolved commands")
-}
-
 func TestPaletteCommands_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)

@@ -306,7 +306,7 @@ Background daemon with five concurrent loops.
 
 Tmux keybindings generation and version detection, shared by the CLI (`tmux inject`) and daemon.
 
-- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`. Keybinding generation accepts the detected tmux version, the agenc binary path, and a slice of `CustomKeybinding` entries (built from resolved palette commands). Version-gates features: the command palette keybinding (`display-popup`) is only emitted on tmux >= 3.2. The hardcoded key table entry (`prefix + a`) and palette popup (`k`) remain fixed; all other keybindings (including built-in defaults like `n`, `p`, `d`) are driven by the resolved palette commands.
+- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`. Keybinding generation accepts the detected tmux version and a slice of `CustomKeybinding` entries (built from resolved palette commands). Version-gates features: the command palette keybinding (`display-popup`) is only emitted on tmux >= 3.2. The hardcoded key table entry (`prefix + a`) and palette popup (`k`) remain fixed; all other keybindings (including built-in defaults like `n`, `p`, `d`) are driven by the resolved palette commands.
 - `version.go` — `ParseVersion` (parses `tmux -V` output), `DetectVersion` (runs `tmux -V` and parses the result). Used by keybindings generation, the daemon, and the CLI to detect the installed tmux version.
 
 ### `internal/wrapper/`

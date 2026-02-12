@@ -53,17 +53,15 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 	// other keybindings are still emitted.
 	tmuxMajor, tmuxMinor, _ := agentmux.DetectVersion()
 
-	// Read config for the tmuxAgencFilepath override, palette key, and palette commands.
-	agencBinary := "agenc"
+	// Read config for palette key and palette commands.
 	paletteKey := config.DefaultPaletteTmuxKeybinding
 	var keybindings []agentmux.CustomKeybinding
 	if cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath); cfgErr == nil {
-		agencBinary = cfg.GetTmuxAgencBinary()
 		paletteKey = cfg.GetPaletteTmuxKeybinding()
 		keybindings = agentmux.BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
 	}
 
-	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, agencBinary, paletteKey, keybindings); err != nil {
+	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, paletteKey, keybindings); err != nil {
 		return err
 	}
 	fmt.Printf("Wrote keybindings to %s\n", keybindingsFilepath)

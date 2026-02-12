@@ -18,8 +18,7 @@ var configSetCmd = &cobra.Command{
 
 Supported keys:
   doAutoConfirm          Skip confirmation in 'agenc do' (bool: true/false)
-  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
-  tmuxAgencFilepath      Path to agenc binary used in tmux keybindings (string)`,
+  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")`,
 	Args: cobra.ExactArgs(2),
 	RunE: runConfigSet,
 }
@@ -64,7 +63,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 // isTmuxKeybindingKey returns true if the config key affects tmux keybindings
 // and should trigger a keybindings refresh.
 func isTmuxKeybindingKey(key string) bool {
-	return key == "paletteTmuxKeybinding" || key == "tmuxAgencFilepath"
+	return key == "paletteTmuxKeybinding"
 }
 
 // setConfigValue applies a string value to the named config key, performing
@@ -80,9 +79,6 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 		return nil
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value
-		return nil
-	case "tmuxAgencFilepath":
-		cfg.TmuxAgencFilepath = value
 		return nil
 	default:
 		return stacktrace.NewError(

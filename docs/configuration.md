@@ -60,8 +60,6 @@ paletteCommands:
 # paletteTmuxKeybinding: "-T agenc p"    # still in agenc table, different key
 # paletteTmuxKeybinding: "C-k"           # bind directly on prefix
 
-# Override the agenc binary path used in tmux keybindings and palette commands
-# tmuxAgencFilepath: /usr/local/bin/agenc-dev
 ```
 
 repoConfig
