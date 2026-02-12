@@ -18,6 +18,8 @@ Operating Rules
 
 **Use `agenc` commands for all operations.** The binary is in your PATH — invoke it as `agenc` (never `./agenc` or an absolute path). Prefer CLI commands over direct file manipulation for any operation that `agenc` supports.
 
+**Never edit `config.yml` directly.** Use the `agenc config` subcommands (`agenc config set`, `agenc config palette-command`, etc.) to modify AgenC's configuration. Direct edits to the config file may be overwritten or cause validation errors.
+
 **The AgenC CLI quick reference is injected at session start** via a hook. Refer to it for command syntax, flags, and arguments whenever you are unsure. Use `--help` on any subcommand to see its full usage.
 
 **Your mission UUID** is available in `$AGENC_MISSION_UUID`.
