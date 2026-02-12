@@ -149,7 +149,7 @@ Tips
 - **Rename missions when you stop them.** When you run `agenc mission stop`, give the mission a descriptive name so you can find it later with `agenc mission resume`. A wall of unnamed missions is hard to navigate.
 - **Open a shell pane with prefix + %.** Inside the AgenC tmux session, the standard tmux split (`prefix + %`) opens a shell in the mission's workspace directory. Handy for running tests, checking git status, or poking around while Claude works.
 - **Cycle between missions with prefix + n / prefix + p.** Each mission is a tmux window. Use the standard tmux shortcuts — `prefix + n` (next window) and `prefix + p` (previous window) — to move between them. You can also jump directly to a window by number with `prefix + <number>`.
-- **Teach your agents to always push.** Mission filesystems are ephemeral — unpushed work vanishes when the mission ends. Add instructions to your CLAUDE.md telling agents to `git push` after every commit. This is the single most important habit to instill: a mission that pushes its work is durable and independent; one that doesn't is a loss.
+- **Teach your agents to always push.** Unpushed work sits stranded on the mission's local filesystem. Add instructions to your CLAUDE.md telling agents to `git push` after every commit. A mission that pushes its work is durable and independent; one that doesn't leaves you digging through stopped missions to recover changes.
 - **Bind a friendlier hotkey for swap-pane.** When you split a pane with `prefix + %`, you'll often want to rearrange which side is which. The default tmux bindings (`prefix + {` / `prefix + }`) are awkward. Consider binding something like `C-;` in your `~/.tmux.conf` to swap to the other pane:
   ```
   bind -n 'C-;' select-pane -t :.+
