@@ -55,15 +55,15 @@ This is the primary interface — the command palette, window management, and ke
 
 ### 2. Launch a mission
 
-From inside the tmux session, start a mission on any GitHub repo:
+Start a new mission:
 
 ```
-agenc mission new owner/repo
+agenc mission new
 ```
 
-AgenC clones the repo into an isolated sandbox and launches Claude ready to work. Each mission gets its own tmux window and its own copy of the repo, so multiple missions can run against the same repo without interfering.
+Select **"Clone new repo"** from the picker, paste a GitHub URL or `owner/repo` shorthand, and AgenC clones the repo into an isolated sandbox and launches Claude ready to work. Each mission gets its own tmux window and its own copy of the repo, so multiple missions can run against the same repo without interfering.
 
-AgenC accepts multiple repo formats:
+You can also skip the picker by passing the repo directly:
 
 ```
 agenc mission new owner/repo                          # shorthand
@@ -74,7 +74,7 @@ agenc mission new git@github.com:owner/repo.git       # SSH URL
 
 Use Claude as you normally would. If your repo has a `.claude/secrets.env` file, AgenC automatically uses the [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) to resolve the secret references therein and inject them as environment variables into the Claude process — keeping your MCP server tokens and API keys in 1Password rather than on disk. See [docs/1password.md](docs/1password.md) for details.
 
-To launch a mission without a repo (e.g., for general-purpose tasks), use `agenc mission new --blank`. Or run `agenc mission new` with no arguments to get an interactive picker.
+To launch a mission without a repo (e.g., for general-purpose tasks), use `agenc mission new --blank`.
 
 ### 3. Explore alongside Claude
 
