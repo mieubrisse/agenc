@@ -11,7 +11,6 @@ const (
 
 	// Top-level commands
 	configCmdStr  = "config"
-	doCmdStr      = "do"
 	missionCmdStr = "mission"
 	repoCmdStr    = "repo"
 	daemonCmdStr  = "daemon"
@@ -102,9 +101,6 @@ const (
 	// repoConfig flags
 	repoConfigAlwaysSyncedFlagName = "always-synced"
 	repoConfigWindowTitleFlagName  = "window-title"
-
-	// do flags
-	yesFlagName = "yes"
 
 	// cron flags
 	headlessFlagName = "headless"

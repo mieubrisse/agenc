@@ -95,7 +95,6 @@ Other commands
 --------------
 
 ```
-agenc do [prompt]  # Describe what you want in plain English and AgenC will do it
 agenc doctor       # Check for common configuration issues
 agenc login        # Log in to Claude and update credentials for all missions
 agenc version      # Print the agenc version

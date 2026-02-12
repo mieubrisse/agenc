@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -17,7 +16,6 @@ var configSetCmd = &cobra.Command{
 	Long: `Set a configuration key in config.yml.
 
 Supported keys:
-  doAutoConfirm          Skip confirmation in 'agenc do' (bool: true/false)
   paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
 
 The paletteTmuxKeybinding value is inserted verbatim after "bind-key" in the
@@ -79,13 +77,6 @@ func isTmuxKeybindingKey(key string) bool {
 // type conversion and validation as needed.
 func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 	switch key {
-	case "doAutoConfirm":
-		b, err := strconv.ParseBool(value)
-		if err != nil {
-			return stacktrace.NewError("invalid value '%s' for %s; must be true or false", value, key)
-		}
-		cfg.DoAutoConfirm = b
-		return nil
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value
 		return nil

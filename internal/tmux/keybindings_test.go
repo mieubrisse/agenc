@@ -31,16 +31,16 @@ func TestGenerateKeybindingsContent_MissionScopedKeybinding(t *testing.T) {
 func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 	keybindings := []CustomKeybinding{
 		{
-			Key:     "d",
-			Command: "agenc tmux window new -- agenc do",
-			Comment: "do — Do (prefix + a, d)",
+			Key:     "n",
+			Command: "agenc tmux window new -- agenc mission new",
+			Comment: "newMission — New Mission (prefix + a, n)",
 		},
 	}
 
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
 
 	// Should contain the simple run-shell form
-	if !strings.Contains(content, "run-shell 'agenc tmux window new -- agenc do'") {
+	if !strings.Contains(content, "run-shell 'agenc tmux window new -- agenc mission new'") {
 		t.Error("expected non-mission-scoped keybinding to use simple run-shell form")
 	}
 
@@ -48,7 +48,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 	// (palette keybinding does, but that's separate)
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "bind-key -T agenc d") {
+		if strings.Contains(line, "bind-key -T agenc n") {
 			if strings.Contains(line, "resolve-mission") {
 				t.Error("expected non-mission-scoped keybinding to not contain resolve-mission")
 			}

@@ -7,7 +7,6 @@ Set a config value
 Set a configuration key in config.yml.
 
 Supported keys:
-  doAutoConfirm          Skip confirmation in 'agenc do' (bool: true/false)
   paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
 
 The paletteTmuxKeybinding value is inserted verbatim after "bind-key" in the

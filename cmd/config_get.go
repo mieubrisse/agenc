@@ -10,7 +10,7 @@ import (
 )
 
 // supportedConfigKeys lists all keys accepted by 'config get' and 'config set'.
-var supportedConfigKeys = []string{"doAutoConfirm", "paletteTmuxKeybinding"}
+var supportedConfigKeys = []string{"paletteTmuxKeybinding"}
 
 var configGetCmd = &cobra.Command{
 	Use:   getCmdStr + " <key>",
@@ -20,7 +20,6 @@ var configGetCmd = &cobra.Command{
 Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
-  doAutoConfirm          Skip confirmation in 'agenc do' (bool)
   paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")`,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigGet,
@@ -55,11 +54,6 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 // value, or "unset" if the key has not been explicitly set in the config file.
 func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 	switch key {
-	case "doAutoConfirm":
-		if !cfg.DoAutoConfirm {
-			return "unset", nil
-		}
-		return "true", nil
 	case "paletteTmuxKeybinding":
 		if cfg.PaletteTmuxKeybinding == "" {
 			return "unset", nil

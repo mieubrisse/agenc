@@ -91,12 +91,6 @@ func (c *PaletteCommandConfig) IsEmpty() bool {
 // BuiltinPaletteCommands defines the default palette commands shipped with agenc.
 // Keys match the config.yml paletteCommands keys for override/disable purposes.
 var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
-	"do": {
-		Title:          "✅  Do",
-		Description:    "tell AgenC what it should do",
-		Command:        "agenc tmux window new -- agenc do",
-		TmuxKeybinding: "d",
-	},
 	"quickClaude": {
 		Title:       "🦀  Quick Claude",
 		Description: "Launch a blank mission instantly",
@@ -153,7 +147,6 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 // builtinPaletteCommandOrder controls the display order of builtin commands
 // in the palette and ls output.
 var builtinPaletteCommandOrder = []string{
-	"do",
 	"quickClaude",
 	"talkToAgenc",
 	"newMission",
@@ -230,7 +223,6 @@ type AgencConfig struct {
 	CronsMaxConcurrent     int                              `yaml:"cronsMaxConcurrent,omitempty"`
 	PaletteCommands        map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
 	PaletteTmuxKeybinding  string                           `yaml:"paletteTmuxKeybinding,omitempty"`
-	DoAutoConfirm          bool                             `yaml:"doAutoConfirm,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,

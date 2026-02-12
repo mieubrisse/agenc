@@ -409,15 +409,15 @@ func TestPaletteCommands_BuiltinDefaults(t *testing.T) {
 
 	// Check specific defaults
 	for _, cmd := range resolved {
-		if cmd.Name == "do" {
-			if cmd.Title != "✅  Do" {
-				t.Errorf("expected do title '✅  Do', got '%s'", cmd.Title)
+		if cmd.Name == "newMission" {
+			if cmd.Title != "🚀  New Mission" {
+				t.Errorf("expected newMission title '🚀  New Mission', got '%s'", cmd.Title)
 			}
-			if cmd.TmuxKeybinding != "d" {
-				t.Errorf("expected do keybinding 'd', got '%s'", cmd.TmuxKeybinding)
+			if cmd.TmuxKeybinding != "n" {
+				t.Errorf("expected newMission keybinding 'n', got '%s'", cmd.TmuxKeybinding)
 			}
 			if !cmd.IsBuiltin {
-				t.Error("expected do to be marked as builtin")
+				t.Error("expected newMission to be marked as builtin")
 			}
 		}
 	}
@@ -518,8 +518,8 @@ func TestPaletteCommands_KeybindingUniqueness(t *testing.T) {
 paletteCommands:
   custom1:
     title: "Custom 1"
-    command: "agenc do"
-    tmuxKeybinding: "d"
+    command: "echo test"
+    tmuxKeybinding: "n"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
@@ -536,8 +536,8 @@ func TestPaletteCommands_TitleUniqueness(t *testing.T) {
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
   custom1:
-    title: "✅  Do"
-    command: "agenc do"
+    title: "🚀  New Mission"
+    command: "echo test"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
@@ -604,7 +604,7 @@ func TestPaletteCommands_CustomMissingTitle(t *testing.T) {
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
   custom1:
-    command: "agenc do"
+    command: "echo test"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
@@ -639,7 +639,7 @@ func TestPaletteCommands_InvalidName(t *testing.T) {
 paletteCommands:
   123bad:
     title: "Bad Name"
-    command: "agenc do"
+    command: "echo test"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
@@ -657,10 +657,10 @@ func TestPaletteCommands_OrderPreserved(t *testing.T) {
 paletteCommands:
   zzz:
     title: "ZZZ"
-    command: "agenc do"
+    command: "echo test"
   aaa:
     title: "AAA"
-    command: "agenc do"
+    command: "echo test"
 `)
 
 	cfg, _, err := ReadAgencConfig(tmpDir)
@@ -698,8 +698,8 @@ func TestIsMissionScoped_True(t *testing.T) {
 
 func TestIsMissionScoped_False(t *testing.T) {
 	cmd := ResolvedPaletteCommand{
-		Name:    "do",
-		Command: "agenc tmux window new -- agenc do",
+		Name:    "newMission",
+		Command: "agenc tmux window new -- agenc mission new",
 	}
 	if cmd.IsMissionScoped() {
 		t.Error("expected command without AGENC_CALLING_MISSION_UUID to not be mission-scoped")
@@ -745,7 +745,7 @@ func TestPaletteTmuxKeybinding_RoundTrip(t *testing.T) {
 func TestPaletteTmuxKeybinding_ConflictsWithCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
-paletteTmuxKeybinding: "-T agenc d"
+paletteTmuxKeybinding: "-T agenc n"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)

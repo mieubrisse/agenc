@@ -138,7 +138,7 @@ Manage palette commands via the CLI:
 
 ```
 agenc config paletteCommand ls                                    # list all (builtin + custom)
-agenc config paletteCommand add myCmd --title="Test" --command="agenc do" --keybinding="t"
+agenc config paletteCommand add myCmd --title="Test" --command="echo hello" --keybinding="t"
 agenc config paletteCommand update newMission --keybinding="C-n"  # override builtin
 agenc config paletteCommand rm myCmd                              # remove custom
 agenc config paletteCommand rm newMission                         # restore builtin defaults

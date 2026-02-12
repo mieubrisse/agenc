@@ -11,7 +11,6 @@ immediately.
 Default keybindings (all under the "agenc" key table, prefix + a):
   prefix + a, k  — open command palette
   prefix + a, n  — new mission in a new tmux window
-  prefix + a, d  — run 'agenc do'
 
 The command palette keybinding (paletteTmuxKeybinding) is fully configurable
 and can be bound outside the agenc key table if desired.
