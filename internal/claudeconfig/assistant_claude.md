@@ -24,6 +24,14 @@ Operating Rules
 
 **Your mission UUID** is available in `$AGENC_MISSION_UUID`.
 
+Launching and Resuming Missions
+-------------------------------
+
+Check the `$AGENC_TMUX` environment variable to determine whether you are running inside AgenC's tmux session.
+
+- **`AGENC_TMUX` is set** — you are inside tmux. You can launch and resume missions directly by running `agenc tmux window new -- agenc mission new <args>` or `agenc tmux window new -- agenc mission resume <args>`. This opens a new tmux window for the mission.
+- **`AGENC_TMUX` is not set** — you are outside tmux. You cannot launch missions yourself because there is no tmux session to create windows in. Instead, give the user the command they need to run (e.g., `agenc mission new <args>` or `agenc mission resume <args>`) and let them execute it.
+
 Sandbox Rules
 -------------
 
