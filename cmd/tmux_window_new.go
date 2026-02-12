@@ -43,14 +43,7 @@ func init() {
 }
 
 func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
-	tmuxDebugLog("=== tmux window new ===")
-	tmuxDebugLog("args: %v", args)
-	tmuxDebugLog("AGENC_TMUX=%q", os.Getenv(agencTmuxEnvVar))
-	tmuxDebugLog("TMUX_PANE=%q", os.Getenv("TMUX_PANE"))
-	tmuxDebugLog("PATH=%q", os.Getenv("PATH"))
-
 	if !isInsideAgencTmux() {
-		tmuxDebugLog("FAIL: isInsideAgencTmux() returned false")
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
@@ -71,7 +64,6 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 	// tmux reads pane_current_path from the process group leader's CWD, so
 	// os.Chdir() in the wrapper will be visible to tmux.
 	userCommand := buildShellCommand(args)
-	tmuxDebugLog("userCommand=%q", userCommand)
 
 	// Create a new window in the session's active window.
 	// tmux resolves the active window from the current client context,
@@ -86,18 +78,15 @@ func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
 		tmuxArgs = append(tmuxArgs, "-d")
 	}
 	tmuxArgs = append(tmuxArgs, userCommand)
-	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	newWindowCmd := exec.Command("tmux", tmuxArgs...)
 	newWindowCmd.Stdout = os.Stdout
 	newWindowCmd.Stderr = os.Stderr
 
 	if err := newWindowCmd.Run(); err != nil {
-		tmuxDebugLog("FAIL: new-window: %v", err)
 		return stacktrace.Propagate(err, "failed to create new tmux window")
 	}
 
-	tmuxDebugLog("SUCCESS: window created")
 	return nil
 }
 

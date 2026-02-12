@@ -117,6 +117,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Resume a stopped mission with claude --continue",
 		Command:     "agenc tmux window new -- agenc mission resume",
 	},
+	"openShell": {
+		Title:       "🐚  Open Shell",
+		Description: "Split pane and open a shell in the current directory",
+		Command:     "agenc tmux pane new -- $SHELL",
+	},
 	"stopMission": {
 		Title:       "🛑  Stop Mission",
 		Description: "Stop the mission in the focused pane",
@@ -157,6 +162,7 @@ var builtinPaletteCommandOrder = []string{
 	"newMission",
 	"switchMission",
 	"resumeMission",
+	"openShell",
 	"stopMission",
 	"reconfigMission",
 	"reloadMission",

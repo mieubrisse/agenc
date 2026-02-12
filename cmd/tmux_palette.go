@@ -154,8 +154,6 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	}
 
 	// Dispatch: execute the command string via sh -c
-	tmuxDebugLog("palette: executing %q", selectedEntry.Command)
-
 	execCmd := exec.Command("sh", "-c", selectedEntry.Command)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout

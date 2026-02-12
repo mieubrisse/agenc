@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	verticalFlagName = "vertical"
+	paneNewBelowFlagName  = "below"
+	paneNewDetachFlagName = "detach"
 )
 
 var tmuxPaneNewCmd = &cobra.Command{
@@ -18,64 +19,61 @@ var tmuxPaneNewCmd = &cobra.Command{
 	Long: `Create a new pane in the current tmux window by splitting it, and run a
 command inside the new pane. When the command exits, the pane closes.
 
-By default the split is vertical (side-by-side). Use --vertical for a
-top/bottom split.
+By default the new pane opens to the right. Use --below for a top/bottom
+split. Use --detach to create the pane without switching focus to it.
+
+The new pane inherits the current pane's working directory.
 
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
 
 Example:
   agenc tmux pane new -- agenc mission new mieubrisse/agenc
-  agenc tmux pane new --vertical -- agenc mission new`,
+  agenc tmux pane new --below -- agenc mission new
+  agenc tmux pane new --detach -- tail -f /tmp/log`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runTmuxPaneNew,
 }
 
 func init() {
 	tmuxPaneCmd.AddCommand(tmuxPaneNewCmd)
-	tmuxPaneNewCmd.Flags().BoolP(verticalFlagName, "V", false, "Split vertically (top/bottom) instead of the default side-by-side")
+	tmuxPaneNewCmd.Flags().BoolP(paneNewBelowFlagName, "b", false, "Place the new pane below instead of to the right")
+	tmuxPaneNewCmd.Flags().BoolP(paneNewDetachFlagName, "d", false, "Create the pane without switching focus to it")
 }
 
 func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
-	tmuxDebugLog("=== tmux pane new ===")
-	tmuxDebugLog("args: %v", args)
-	tmuxDebugLog("AGENC_TMUX=%q", os.Getenv(agencTmuxEnvVar))
-	tmuxDebugLog("TMUX_PANE=%q", os.Getenv("TMUX_PANE"))
-	tmuxDebugLog("PATH=%q", os.Getenv("PATH"))
-
 	if !isInsideAgencTmux() {
-		tmuxDebugLog("FAIL: isInsideAgencTmux() returned false")
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
-	vertical, _ := cmd.Flags().GetBool(verticalFlagName)
-	tmuxDebugLog("vertical=%v", vertical)
+	below, _ := cmd.Flags().GetBool(paneNewBelowFlagName)
+	detach, _ := cmd.Flags().GetBool(paneNewDetachFlagName)
 
 	// Pass the user's command directly (no shell wrapping) so the shell can
 	// exec into it. See tmux_window_new.go for the rationale.
 	userCommand := buildShellCommand(args)
-	tmuxDebugLog("userCommand=%q", userCommand)
 
 	// Split the current window to create a new pane.
-	// Default is side-by-side (-h); --vertical omits -h for top/bottom.
+	// Default is side-by-side (-h); --below omits -h for top/bottom.
+	// -c #{pane_current_path} inherits the current pane's working directory.
 	// tmux splits the active pane by default, which is correct for both
 	// direct invocation and keybindings.
-	tmuxArgs := []string{"split-window"}
-	if !vertical {
+	tmuxArgs := []string{"split-window", "-c", "#{pane_current_path}"}
+	if !below {
 		tmuxArgs = append(tmuxArgs, "-h")
 	}
+	if detach {
+		tmuxArgs = append(tmuxArgs, "-d")
+	}
 	tmuxArgs = append(tmuxArgs, userCommand)
-	tmuxDebugLog("tmux args: %v", tmuxArgs)
 
 	splitCmd := exec.Command("tmux", tmuxArgs...)
 	splitCmd.Stdout = os.Stdout
 	splitCmd.Stderr = os.Stderr
 
 	if err := splitCmd.Run(); err != nil {
-		tmuxDebugLog("FAIL: split-window: %v", err)
 		return stacktrace.Propagate(err, "failed to create new tmux pane")
 	}
 
-	tmuxDebugLog("SUCCESS: pane created")
 	return nil
 }
