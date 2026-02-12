@@ -279,6 +279,10 @@ func IsMissionAssistant(agencDirpath string, missionID string) bool {
 func EnsureClaudeModificationsFiles(agencDirpath string) error {
 	modsDirpath := GetClaudeModificationsDirpath(agencDirpath)
 
+	if err := os.MkdirAll(modsDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create directory '%s'", modsDirpath)
+	}
+
 	claudeMdFilepath := filepath.Join(modsDirpath, "CLAUDE.md")
 	if _, err := os.Stat(claudeMdFilepath); os.IsNotExist(err) {
 		if err := os.WriteFile(claudeMdFilepath, []byte{}, 0644); err != nil {
