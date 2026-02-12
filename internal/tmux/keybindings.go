@@ -60,10 +60,10 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
 			"'\n", paletteKey, agencBinary, agencBinary)
 
-		// Mission switcher (prefix + a, s) — fzf picker in a popup
+		// Mission switcher (prefix + a, m) — fzf picker in a popup
 		sb.WriteString("\n")
-		fmt.Fprintf(&sb, "# Mission switcher (prefix + a, s)\n")
-		fmt.Fprintf(&sb, "bind-key -T %s s run-shell '"+
+		fmt.Fprintf(&sb, "# Mission switcher (prefix + a, m)\n")
+		fmt.Fprintf(&sb, "bind-key -T %s m run-shell '"+
 			"tmux display-popup -E -w 60%% -h 50%% \"%s tmux switch\""+
 			"'\n", agencKeyTable, agencBinary)
 	}
