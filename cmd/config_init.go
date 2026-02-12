@@ -237,11 +237,15 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 	gitCmd.Stdout = os.Stdout
 	gitCmd.Stderr = os.Stderr
 	if err := gitCmd.Run(); err != nil {
-		// Restore backup on failure if we had one
 		if hadExistingDir {
+			// Restore the pre-existing config directory
 			if restoreErr := os.Rename(backupDirpath, configDirpath); restoreErr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to restore config backup: %v\n", restoreErr)
 			}
+		} else {
+			// Remove any partial clone artifacts so we don't leave a
+			// non-git config directory behind
+			os.RemoveAll(configDirpath)
 		}
 		return stacktrace.Propagate(err, "failed to clone config repo")
 	}
