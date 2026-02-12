@@ -317,7 +317,7 @@ Per-mission Claude child process management.
 - `token_expiry.go` — `watchTokenExpiry` goroutine that checks stored OAuth token expiry against the clock every 60 seconds, writes/removes the per-mission statusline message file
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
-- `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (uses custom `windowTitle` from config.yml if set, otherwise falls back to repo short name), pane color management (`setPaneNeedsAttention`, `resetPaneStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
+- `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (uses custom `windowTitle` from config.yml if set, otherwise falls back to repo short name; dynamically updates to the session name on each Claude Stop event), pane color management (`setPaneNeedsAttention`, `resetPaneStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
 
 ### Utility packages
 
@@ -381,7 +381,7 @@ The config merge injects three hooks into each mission's `settings.json` (`inter
 The `agenc mission send claude-update` command reads hook JSON from stdin (to extract `notification_type` for Notification events), then sends a `claude_update` command to the wrapper's unix socket with a 1-second timeout. It always exits 0 to avoid blocking Claude.
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
-- **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending
+- **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending, updates tmux window title to the session name (if available and no custom windowTitle is configured)
 - **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
 
