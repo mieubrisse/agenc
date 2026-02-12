@@ -67,7 +67,7 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 		status := getMissionStatus(m.ID, m.Status)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAssistant(agencDirpath, m.ID) {
-			repo = "🤖 AgenC assistant"
+			repo = "💁‍♂️ AgenC Assistant"
 		}
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,

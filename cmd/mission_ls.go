@@ -84,7 +84,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		sessionName := resolveSessionName(db, m)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAssistant(agencDirpath, m.ID) {
-			repo = "🤖 AgenC assistant"
+			repo = "💁‍♂️ AgenC Assistant"
 		}
 		if lsAllFlag {
 			pane := "--"

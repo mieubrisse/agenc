@@ -103,7 +103,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     "agenc tmux window new -- agenc mission new --blank",
 	},
 	"talkToAgenc": {
-		Title:       "🤖 Assistant",
+		Title:       "💁‍♂️ AgenC Assistant",
 		Description: "Launch an AgenC assistant mission",
 		Command:     "agenc tmux window new -- agenc mission new --assistant",
 	},
