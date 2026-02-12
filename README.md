@@ -1,37 +1,32 @@
 ![AgenC — AI work factory](./readme-images/cover.png)
 
-AgenC
-========
-AgenC (pronounced "agency") is an approachable orchestrator for taming multiple Claude agent chaos. Think: mission control for your AI work factory. Starcraft instead of Minecraft.
+AgenC: From Minecraft to Starcraft
+==================================
+AgenC (pronounced "agency") is a self-upgrading AI work factory that will make you absurdly productive.
 
-TODO demo video
+### Wait what?
+If you're like most people, you use Claude like this:
 
-### The Problem
-Claude can run longer and better since Opus 4.5, so now you're trying to drive multiple windows at once.
+![](readme-images/common-ai-workflow.png)
 
-But driving multiple Claudes sucks:
+Much better is John Rush's philosophy of [Inputs, Not Outputs](https://www.john-rush.com/posts/ai-20250701.html):
 
-You have to set up Git worktrees to ensure they don't step on each other
+![](readme-images/inputs-not-outputs.png)
 
-Juggling terminal windows to keep them all fed is a circus
+Each iteration of the loop makes all future outputs better.
 
-Claude's poor refresh token handling means they invalidate each other
+Unfortunately, it's hard to scale this up. The Claudes start to step on each other, each lesson requires forking a new window, juggling all the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
 
-And if you're following [Inputs, Not Outputs](https://mieubrisse.substack.com/p/inputs-not-outputs) then each main Claude results in exponential side quest Claudes as you roll "lesson exhaust" back into your factory config. Which if you don't run `--dangerously-skip-permissions` is a _lot_ of `settings.json` config.
+That's where AgenC comes in:
 
-### The Solution
-Treat your Claude agents like cattle, not pets.
+![](readme-images/agenc-scale-up.png)
 
-AgenC:
+Example: this was my terminal today, with 16 Claudes each working on different features, bugs, and housekeeping.
 
-- 📦 Gives each Claude session its own repo copy
-- 🙋‍♂️ Shows when Claudes need attention
+![](./readme-images/status-bar.png)
 
-![All of these are Claude sessions. Yellow ones need my attention, blue ones are bubbling still.](./readme-images/status-bar.png)
-- 🔐 Handles auth propagation automatically
-- 🚀 Makes it instant to spawn, stop, and resume missions
-- 🎮 Provides an access-anywhere command palette
-- 💁‍♂️ Gives you an assistant agent so AgenC can drive itself
+It's like going from Minecraft to Starcraft.
+
 
 Quick Start
 -----------
