@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 )
 
@@ -43,6 +44,11 @@ func (w *Wrapper) watchTokenExpiry(ctx context.Context) {
 // current time. If within the warning window, writes the warning message.
 // Otherwise, removes the message file (if it exists).
 //
+// When the cached expiry looks stale (within the warning window), re-reads
+// the per-mission Keychain to check whether Claude Code has auto-refreshed
+// the token. This avoids a false "token expired" warning that would persist
+// for up to 60 seconds until the upward credential sync detects the change.
+//
 // Suppresses warnings when a restart is pending — the credential sync system
 // has already scheduled a restart that will deliver fresh credentials, so the
 // expiry warning is moot.
@@ -62,6 +68,24 @@ func (w *Wrapper) checkTokenExpiry(messageFilepath string) {
 	remaining := w.tokenExpiresAt - nowUnix
 
 	if remaining <= tokenExpiryWarningWindow.Seconds() {
+		// Before warning the user, re-read the per-mission Keychain to check
+		// whether Claude Code has auto-refreshed the token. This eliminates
+		// false "token expired" warnings that appear when the cached
+		// tokenExpiresAt is stale but the actual credential is fresh.
+		freshExpiry := w.readPerMissionExpiry()
+		if freshExpiry > w.tokenExpiresAt {
+			w.logger.Info("Token expiry watcher: credential refreshed in Keychain, updating cached expiry",
+				"oldExpiry", w.tokenExpiresAt, "newExpiry", freshExpiry)
+			w.tokenExpiresAt = freshExpiry
+			remaining = freshExpiry - nowUnix
+		}
+
+		if remaining > tokenExpiryWarningWindow.Seconds() {
+			// Token is now fresh after re-read — remove any stale warning
+			_ = os.Remove(messageFilepath)
+			return
+		}
+
 		var msg string
 		if remaining <= 0 {
 			msg = "\u2757 Claude Code token expired; run /login to get a new token (agenc will propagate it)"
@@ -76,4 +100,21 @@ func (w *Wrapper) checkTokenExpiry(messageFilepath string) {
 		// Token is fresh — remove any stale warning
 		_ = os.Remove(messageFilepath)
 	}
+}
+
+// readPerMissionExpiry reads the per-mission Keychain credentials and extracts
+// the expiresAt timestamp. Returns 0 if the credential cannot be read or
+// parsed. Used by checkTokenExpiry to verify the cached expiry before showing
+// a warning.
+func (w *Wrapper) readPerMissionExpiry() float64 {
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
+	serviceName := claudeconfig.ComputeCredentialServiceName(claudeConfigDirpath)
+
+	cred, err := claudeconfig.ReadKeychainCredentials(serviceName)
+	if err != nil {
+		w.logger.Warn("Token expiry watcher: failed to read per-mission credentials for verification", "error", err)
+		return 0
+	}
+
+	return claudeconfig.ExtractExpiresAtFromJSON([]byte(cred))
 }
