@@ -160,8 +160,8 @@ func SourceKeybindings(keybindingsFilepath string) error {
 		return nil
 	}
 
-	if err := exec.Command("tmux", "source-file", keybindingsFilepath).Run(); err != nil {
-		return stacktrace.Propagate(err, "failed to source keybindings into running tmux server")
+	if output, err := exec.Command("tmux", "source-file", keybindingsFilepath).CombinedOutput(); err != nil {
+		return stacktrace.Propagate(err, "failed to source keybindings into running tmux server\n%s", strings.TrimSpace(string(output)))
 	}
 
 	return nil
