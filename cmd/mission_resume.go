@@ -11,6 +11,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/history"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
@@ -123,13 +124,23 @@ func resumeMission(db *database.DB, missionID string) error {
 		)
 	}
 
-	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
-	fmt.Println("Launching claude --continue...")
+	// Check if a conversation actually exists for this mission. If the user
+	// created a mission but never sent a message, there's nothing to continue
+	// and `claude -c` would fail.
+	historyFilepath := config.GetHistoryFilepath(agencDirpath)
+	hasConversation := history.FindFirstPrompt(historyFilepath, missionID) != ""
+
+	if hasConversation {
+		fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
+		fmt.Println("Launching claude --continue...")
+	} else {
+		fmt.Printf("Resuming mission: %s (no prior conversation, starting fresh)\n", database.ShortID(missionID))
+	}
 
 	windowTitle := lookupWindowTitle(agencDirpath, missionRecord.GitRepo)
 	if config.IsMissionAssistant(agencDirpath, missionID) {
 		windowTitle = "AgenC"
 	}
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", db)
-	return w.Run(true)
+	return w.Run(hasConversation)
 }
