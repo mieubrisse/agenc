@@ -94,17 +94,17 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"quickClaude": {
 		Title:       "🦀  Quick Claude",
 		Description: "Launch a blank mission instantly",
-		Command:     "agenc tmux window new -- agenc mission new --blank",
+		Command:     "agenc tmux window new -a -- agenc mission new --blank",
 	},
 	"talkToAgenc": {
 		Title:       "💁‍♂️  AgenC Assistant",
 		Description: "Launch an AgenC assistant mission",
-		Command:     "agenc tmux window new -- agenc mission new --assistant",
+		Command:     "agenc tmux window new -a -- agenc mission new --assistant",
 	},
 	"newMission": {
 		Title:          "🚀  New Mission",
 		Description:    "Create a new mission and launch Claude",
-		Command:        "agenc tmux window new -- agenc mission new",
+		Command:        "agenc tmux window new -a -- agenc mission new",
 		TmuxKeybinding: "n",
 	},
 	"switchMission": {
@@ -115,7 +115,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"resumeMission": {
 		Title:       "🟢  Resume Mission",
 		Description: "Resume a stopped mission with claude --continue",
-		Command:     "agenc tmux window new -- agenc mission resume",
+		Command:     "agenc tmux window new -a -- agenc mission resume",
 	},
 	"openShell": {
 		Title:       "🐚  Open Shell",
@@ -135,22 +135,22 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"reloadMission": {
 		Title:       "🔄  Reload Mission",
 		Description: "Stop and restart the mission in the focused pane",
-		Command:     "agenc mission stop $AGENC_CALLING_MISSION_UUID && agenc tmux window new -- agenc mission resume $AGENC_CALLING_MISSION_UUID",
+		Command:     "agenc mission stop $AGENC_CALLING_MISSION_UUID && agenc tmux window new -a -- agenc mission resume $AGENC_CALLING_MISSION_UUID",
 	},
 	"removeMission": {
 		Title:       "❌  Remove Mission",
 		Description: "Remove a mission and its directory",
-		Command:     "agenc tmux window new -- agenc mission rm",
+		Command:     "agenc tmux window new -a -- agenc mission rm",
 	},
 	"nukeMissions": {
 		Title:       "💥  Nuke Missions",
 		Description: "Remove all archived missions",
-		Command:     "agenc tmux window new -- agenc mission nuke",
+		Command:     "agenc tmux window new -a -- agenc mission nuke",
 	},
 	"sendFeedback": {
 		Title:       "💬  Send Feedback",
 		Description: "Send feedback about AgenC",
-		Command:     "agenc tmux window new -- agenc mission new --assistant --prompt \"I'd like to send feedback about AgenC\"",
+		Command:     "agenc tmux window new -a -- agenc mission new --assistant --prompt \"I'd like to send feedback about AgenC\"",
 	},
 }
 
