@@ -55,21 +55,14 @@ This is the primary interface — the command palette, window management, and ke
 
 ### 2. Launch a mission
 
-Start a new mission:
+Open the **command palette** with `prefix + a, k` and select **"New Mission"**. Pick **"Clone new repo"**, paste a GitHub URL or `owner/repo` shorthand, and AgenC clones the repo into an isolated sandbox and launches Claude ready to work.
+
+Each mission gets its own tmux window and its own copy of the repo, so multiple missions can run against the same repo without interfering.
+
+The default command palette keybinding requires two keystrokes after the prefix. You can set a global shortcut using `agenc config set paletteTmuxKeybinding` — the value is passed directly to `tmux bind-key`. For example, to make the palette always available via `Ctrl-y` (no prefix needed):
 
 ```
-agenc mission new
-```
-
-Select **"Clone new repo"** from the picker, paste a GitHub URL or `owner/repo` shorthand, and AgenC clones the repo into an isolated sandbox and launches Claude ready to work. Each mission gets its own tmux window and its own copy of the repo, so multiple missions can run against the same repo without interfering.
-
-You can also skip the picker by passing the repo directly:
-
-```
-agenc mission new owner/repo                          # shorthand
-agenc mission new github.com/owner/repo               # canonical
-agenc mission new https://github.com/owner/repo       # HTTPS URL
-agenc mission new git@github.com:owner/repo.git       # SSH URL
+agenc config set paletteTmuxKeybinding "-n C-y"
 ```
 
 Use Claude as you normally would. If your repo has a `.claude/secrets.env` file, AgenC automatically uses the [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) to resolve the secret references therein and inject them as environment variables into the Claude process — keeping your MCP server tokens and API keys in 1Password rather than on disk. See [docs/1password.md](docs/1password.md) for details.
@@ -82,13 +75,7 @@ Press `prefix + %` to split a shell pane in the mission's workspace directory. H
 
 ### 4. Spin up side missions
 
-When you need to deviate — fix a bug in another repo, try a different approach, handle a quick task — open the **command palette** (`prefix + a, k`) and launch a new mission. Each mission is its own tmux window; switch between them with `prefix + n` / `prefix + p`.
-
-The default command palette keybinding requires two keystrokes. You can bind a faster shortcut — the value is passed directly to `tmux bind-key`. For example, to use `Ctrl-y`:
-
-```
-agenc config set paletteTmuxKeybinding "-n C-y"
-```
+When you need to deviate — fix a bug in another repo, try a different approach, handle a quick task — open the command palette and launch a new mission. Each mission is its own tmux window; switch between them with `prefix + n` / `prefix + p`.
 
 ### 5. Ask the assistant
 

@@ -18,7 +18,16 @@ var configSetCmd = &cobra.Command{
 
 Supported keys:
   doAutoConfirm          Skip confirmation in 'agenc do' (bool: true/false)
-  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")`,
+  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
+
+The paletteTmuxKeybinding value is inserted verbatim after "bind-key" in the
+tmux config. By default ("-T agenc k") it lives in the agenc key table, reached
+via prefix + a. To make a global keybinding that works anywhere without a prefix,
+use "-n BINDING". For example:
+
+  agenc config set paletteTmuxKeybinding "-n C-y"
+
+This binds Ctrl-y globally so the palette opens with a single keystroke.`,
 	Args: cobra.ExactArgs(2),
 	RunE: runConfigSet,
 }
