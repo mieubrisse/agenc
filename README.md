@@ -45,133 +45,54 @@ brew install agenc
 
 This automatically installs required dependencies (`gh`, `fzf`, `tmux`).
 
-### 1. Set AgenC config
+### 1. Initialize
 
-By default AgenC stores all its configuration in `~/.agenc`. You can override this location by setting the `AGENC_DIRPATH` environment variable.
+Run `agenc config init` and answer the prompts. If this is your first time, say "yes" to creating a config repo - AgenC will sync it to GitHub automatically.
 
-Run the initialization wizard:
+Config defaults to `~/.agenc`. Override with `AGENC_DIRPATH` if needed.
 
-```bash
-agenc config init
-```
-
-When prompted:
-- **"Do you have an existing agenc config repo?"** → Answer "no" if this is your first time
-- **"Would you like to create one?"** → Recommend "yes" — AgenC will keep your config synced to GitHub automatically, making it portable across machines and recoverable if something goes wrong
-
-### 2. Enter the interface
-
-Launch the AgenC tmux session:
+### 2. Launch
 
 ```bash
 agenc attach
 ```
 
-You'll be dropped into tmux with the "New Mission" dialog ready. The tmux session persists in the background — you can detach anytime with `Ctrl-b d` and reattach later with `agenc attach`.
+Pick a repo (recommend starting with your dotfiles) and start working. The Claude session is your mission.
 
-### 3. Launch a mission
+View all missions: `agenc mission ls`
 
-The "New Mission" picker offers several options:
-- **New repo** — Start a mission in a GitHub repository (recommended: start with your dotfiles repo, as you'll be updating your global Claude config frequently)
-- **Existing repo** — Resume work in a repository you've used before
-- **New directory** — Work in an arbitrary local directory
+Navigate between missions with standard tmux window commands (`Ctrl-b n/p/[0-9]`).
 
-Once inside the Claude session, work normally — write code, ask questions, iterate. Your mission is running.
+### 3. Work alongside Claude
 
-**View mission status:**
+Split a shell pane (`Ctrl-b %`) to run commands or check git status while Claude works.
 
-```bash
-agenc mission ls
-```
-
-This shows all active missions with their status, repository, and session title.
-
-**Navigate between missions:**
-
-Use standard tmux window commands:
-- `Ctrl-b n` — next window
-- `Ctrl-b p` — previous window
-- `Ctrl-b [0-9]` — jump to window by number
-
-**Tip:** Rebind these in your `~/.tmux.conf` for faster navigation:
+Suggested `~/.tmux.conf` bindings:
 
 ```tmux
 bind -n C-h previous-window
 bind -n C-l next-window
-```
-
-### 4. Explore alongside Claude
-
-Split a shell pane in the mission's workspace directory:
-
-```
-Ctrl-b %
-```
-
-This gives you a shell alongside Claude, handy for checking `git status`, running commands, or exploring files while Claude works.
-
-**Tip:** Add these to your `~/.tmux.conf` for friendlier pane management:
-
-```tmux
 bind -n C-p split-window -h -c "#{pane_current_path}"
 bind -n 'C-;' select-pane -t :.+
 ```
 
-Now `Ctrl-p` creates a new pane and `Ctrl-;` swaps between them.
+### 4. Spawn more missions
 
-### 5. Start a new mission
+Open the command palette (`Ctrl-b a k`) and select "New Mission". Each mission is an independent Claude session.
 
-Eventually you'll need a separate Claude session — a bug to investigate, config to change, or a different task entirely.
+### 5. Stop and resume
 
-Open the command palette:
+Exit Claude to stop a mission. Resume later with `agenc mission resume`.
 
-```
-prefix + a, k
-```
+Use `/rename` in Claude before exiting to make missions easier to identify. Remove finished missions with `agenc mission rm`.
 
-(By default, `prefix` is `Ctrl-b`, so the full sequence is `Ctrl-b`, then `a`, then `k`)
+Full CLI docs: [docs/cli/](docs/cli/)
 
-Type to filter, then select **"New Mission"**. This launches a fresh mission without disturbing your current work.
+### 6. Customize
 
-**Tip:** You can change the palette keybinding — see "Use the assistant" below.
+Use the AgenC Assistant from the command palette to add custom commands, change keybindings, or modify settings.
 
-### 6. End the mission
-
-When you're done, exit Claude normally (`/exit` or Ctrl-D). The mission stops and enters "STOPPED" status.
-
-**Resume later:**
-
-```bash
-agenc mission resume
-```
-
-This opens a picker showing stopped missions. Select one to resume with `claude --continue`, picking up exactly where you left off.
-
-**Rename for easier recall:**
-
-Use `/rename` inside Claude before exiting. AgenC shows this name in `agenc mission ls`, making missions easier to identify later.
-
-**Remove completed missions:**
-
-```bash
-agenc mission rm
-```
-
-Select one or more missions to permanently remove.
-
-**Full CLI reference:** See [docs/cli/](docs/cli/) for complete command documentation.
-
-### 7. Use the assistant
-
-You'll inevitably want to customize AgenC — add palette commands, change hotkeys, adjust window titles, or configure repo-specific settings.
-
-The easiest way: use the **AgenC Assistant** from the command palette (`prefix + a, k`). It knows how to configure AgenC and can:
-- Add custom palette commands (e.g., "Open dotfiles" → `agenc mission new github.com/mieubrisse/dotfiles`)
-- Update keybindings
-- Spawn, stop, resume, and remove missions
-- Modify `config.yml` settings
-
-**Example custom command:**
+Example - add a hotkey to open your dotfiles:
 
 ```bash
 agenc config paletteCommand add \
@@ -181,50 +102,22 @@ agenc config paletteCommand add \
   --keybinding="f"
 ```
 
-Now `prefix + a, f` instantly opens your dotfiles in a new mission.
+Now `Ctrl-b a f` opens dotfiles instantly.
 
-### 8. Secrets (optional)
+### 7. Secrets (optional)
 
-AgenC isn't just for coding — it works for any agentic task: Todoist management, Notion organization, Google Workspace automation, and more. Many of these require API tokens for MCP servers.
-
-To handle secrets securely, create a `.claude/secrets.env` file in your project using 1Password secret references:
-
-**Example `.claude/secrets.env`:**
+For non-coding missions (Todoist, Notion, Google Workspace), use 1Password secret references in `.claude/secrets.env`:
 
 ```bash
 SUBSTACK_SESSION_TOKEN="op://Private/Substack Session Token/credential"
 SUBSTACK_USER_ID="op://Private/Substack Session Token/username"
 ```
 
-**Example `.mcp.json`:**
+Requires the [1Password CLI](https://developer.1password.com/docs/cli/get-started/). AgenC resolves references automatically before launching Claude.
 
-```json
-{
-  "mcpServers": {
-    "substack": {
-      "command": "npx",
-      "args": ["-y", "@substack/mcp-server"],
-      "env": {
-        "SUBSTACK_SESSION_TOKEN": "op://Private/Substack Session Token/credential",
-        "SUBSTACK_USER_ID": "op://Private/Substack Session Token/username"
-      }
-    }
-  }
-}
-```
+### 8. Send feedback
 
-**Prerequisites:** Install the [1Password CLI (`op`)](https://developer.1password.com/docs/cli/get-started/) and authenticate.
-
-When AgenC detects 1Password references in `.claude/secrets.env`, it automatically resolves them before launching Claude.
-
-### 9. Send feedback
-
-AgenC is new and actively evolving — your feedback shapes its direction. Share how you're using it, what's working, and what's not.
-
-**Ways to send feedback:**
-- Use the **"Send Feedback"** entry in the command palette (`prefix + a, k`)
-- Ask the AgenC Assistant to send feedback for you
-- [Join the Discord](https://discord.gg/x9Y8Se4XF3) and share your experience directly
+Use "Send Feedback" in the command palette, ask the AgenC Assistant, or [join the Discord](https://discord.gg/x9Y8Se4XF3).
 
 Tips
 ----
