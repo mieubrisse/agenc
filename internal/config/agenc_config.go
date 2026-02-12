@@ -115,7 +115,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	},
 	"resumeMission": {
 		Title:       "🟢 Resume Mission",
-		Description: "Reactivate an archived mission",
+		Description: "Resume a stopped mission with claude --continue",
 		Command:     "agenc tmux window new -- agenc mission resume",
 	},
 	"stopMission": {
