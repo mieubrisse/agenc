@@ -130,12 +130,7 @@ func resumeMission(db *database.DB, missionID string) error {
 	historyFilepath := config.GetHistoryFilepath(agencDirpath)
 	hasConversation := history.FindFirstPrompt(historyFilepath, missionID) != ""
 
-	if hasConversation {
-		fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
-		fmt.Println("Launching claude --continue...")
-	} else {
-		fmt.Printf("Resuming mission: %s (no prior conversation, starting fresh)\n", database.ShortID(missionID))
-	}
+	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 
 	windowTitle := lookupWindowTitle(agencDirpath, missionRecord.GitRepo)
 	if config.IsMissionAssistant(agencDirpath, missionID) {
