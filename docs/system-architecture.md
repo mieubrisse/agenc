@@ -382,7 +382,7 @@ The `agenc mission send claude-update` command reads hook JSON from stdin (to ex
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
 - **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending, updates tmux window title to the session name (if available and no custom windowTitle is configured)
-- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color
+- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, updates `last_active` in the database
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
 
 ### Statusline wrapper and token expiry warning
@@ -415,6 +415,8 @@ Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — n
 ### Heartbeat system
 
 Each wrapper writes a heartbeat to the database every 30 seconds (`internal/wrapper/wrapper.go:writeHeartbeat`). The daemon uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/daemon/template_updater.go`).
+
+The `last_active` column tracks a different signal: when the user last submitted a prompt to the mission's Claude session (`internal/wrapper/wrapper.go:handleClaudeUpdate`). Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_active` persists indefinitely and reflects true user engagement. Mission listing and the switcher sort by `last_active` first, falling back to `last_heartbeat` then `created_at`.
 
 ### Repo library
 
@@ -510,6 +512,7 @@ Database Schema
 | `status` | TEXT | `active` or `archived` |
 | `prompt` | TEXT | First user prompt, cached for listing display |
 | `last_heartbeat` | TEXT | Last wrapper heartbeat timestamp (RFC3339, nullable) |
+| `last_active` | TEXT | Last user prompt submission timestamp (RFC3339, nullable). Updated by `UserPromptSubmit` hook; persists after wrapper stops. Used for sorting by recency of use. |
 | `session_name` | TEXT | User-assigned or auto-generated session name |
 | `session_name_updated_at` | TEXT | When `session_name` was last updated (nullable) |
 | `cron_id` | TEXT | UUID of the cron that spawned this mission (nullable) |

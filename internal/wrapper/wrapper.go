@@ -397,6 +397,9 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 		w.claudeIdle = false
 		w.hasConversation = true
 		w.setWindowBusy()
+		if err := w.db.UpdateLastActive(w.missionID); err != nil {
+			w.logger.Warn("Failed to update last_active", "error", err)
+		}
 
 	case "Notification":
 		// Color the pane for notification types that need user attention

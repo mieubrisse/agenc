@@ -92,7 +92,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				pane = *m.TmuxPane
 			}
 			tbl.AddRow(
-				formatLastActive(m.LastHeartbeat),
+				formatLastActive(m.LastActive, m.LastHeartbeat),
 				m.ShortID,
 				colorizeStatus(status),
 				pane,
@@ -102,7 +102,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			)
 		} else {
 			tbl.AddRow(
-				formatLastActive(m.LastHeartbeat),
+				formatLastActive(m.LastActive, m.LastHeartbeat),
 				m.ShortID,
 				colorizeStatus(status),
 				truncatePrompt(displayName, defaultPromptMaxLen),
@@ -136,13 +136,17 @@ func displayGitRepo(gitRepo string) string {
 	return ansiLightBlue + display + ansiReset
 }
 
-// formatLastActive returns a human-readable representation of the last
-// heartbeat timestamp. Returns "--" if the mission has never sent a heartbeat.
-func formatLastActive(lastHeartbeat *time.Time) string {
-	if lastHeartbeat == nil {
-		return "--"
+// formatLastActive returns a human-readable timestamp of the mission's last
+// activity. Prefers LastActive (user prompt submission) over LastHeartbeat
+// (wrapper liveness). Returns "--" if neither timestamp is available.
+func formatLastActive(lastActive *time.Time, lastHeartbeat *time.Time) string {
+	if lastActive != nil {
+		return lastActive.Local().Format("2006-01-02 15:04")
 	}
-	return lastHeartbeat.Local().Format("2006-01-02 15:04")
+	if lastHeartbeat != nil {
+		return lastHeartbeat.Local().Format("2006-01-02 15:04")
+	}
+	return "--"
 }
 
 // colorizeStatus wraps a status string with ANSI color codes.
