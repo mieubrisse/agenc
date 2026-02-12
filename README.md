@@ -56,7 +56,7 @@ By default AgenC will install all its config to `~/.agenc`. This can be overridd
 Run `agenc config init` to set up AGenC:
 
 - when asked if you have an existing agenc config repo, say "no"
-- when asked if you'd like to create one, I recommend saying "yes" since agenc will keep this synced up to Github. I called mine 'YOUR-GITHUB-USERNAME/agenc-config'
+- when asked if you'd like to create one, I recommend "yes" since agenc will keep this synced up to Github for you.
 
 ### 1. Enter the interface
 
