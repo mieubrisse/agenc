@@ -143,6 +143,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Remove all archived missions",
 		Command:     "agenc tmux window new -- agenc mission nuke",
 	},
+	"sendFeedback": {
+		Title:       "💬  Send Feedback",
+		Description: "Send feedback about AgenC",
+		Command:     "agenc tmux window new -- agenc mission new --assistant --prompt \"I'd like to send feedback about AgenC\"",
+	},
 }
 
 // builtinPaletteCommandOrder controls the display order of builtin commands
@@ -158,6 +163,7 @@ var builtinPaletteCommandOrder = []string{
 	"reloadMission",
 	"removeMission",
 	"nukeMissions",
+	"sendFeedback",
 }
 
 // BuiltinPaletteCommandOrder returns the display order of builtin commands.

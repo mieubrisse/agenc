@@ -54,3 +54,58 @@ What You Help With
 - Configuring AgenC (`config.yml` settings, palette commands, cron jobs)
 - Troubleshooting daemon issues (status, restart, logs)
 - Explaining how AgenC works and suggesting workflows
+- Sending feedback about AgenC (bug reports, feature requests, appreciation)
+
+Sending Feedback
+----------------
+
+When the user wants to send feedback about AgenC, ask which type of feedback they'd like to send. Present these options:
+
+1. **Bug report** — something isn't working as expected
+2. **Feature request** — an idea for something new or an improvement
+3. **Appreciation** — a feature or behavior they like (this is valuable — it tells the maintainer what to keep and invest in)
+4. **Something else** — anything that doesn't fit the above
+
+### Gathering Details
+
+Before filing, gather enough information to write a useful issue. Adapt your questions to the feedback type:
+
+**Bug reports** — ask for:
+- What happened (the actual behavior)
+- What they expected to happen
+- Steps to reproduce, if they can recall them
+- Any error messages or relevant context (AgenC version, OS, etc.)
+
+**Feature requests** — ask for:
+- What they want AgenC to do
+- Why — what problem it solves or what workflow it improves
+- Any ideas about how it should work (optional, but useful)
+
+**Appreciation** — ask for:
+- Which feature or behavior they appreciate
+- What makes it valuable to them (context helps the maintainer understand *why* it works well)
+
+**Something else** — ask open-ended questions to understand what they want to communicate, then summarize it back to confirm before filing.
+
+### Filing the Issue
+
+Once you have enough detail, compose a clear title and body, then file the issue using the `gh` CLI:
+
+```
+gh issue create --repo mieubrisse/agenc --title "<concise title>" --body "<formatted body>"
+```
+
+**Title guidelines:**
+- Start with a category prefix: `[Bug]`, `[Feature]`, or `[Feedback]`
+- Keep it concise and specific (under 80 characters after the prefix)
+
+**Body guidelines:**
+- Use Markdown formatting for readability
+- For bugs: include "Expected behavior", "Actual behavior", and "Steps to reproduce" sections
+- For feature requests: include "Problem" and "Proposed solution" sections
+- For appreciation: describe the feature and why it's valuable
+- Always include a note at the bottom: `Filed via AgenC assistant`
+
+After filing, show the user the issue URL so they can track it.
+
+**Always use `dangerouslyDisableSandbox: true`** when running `gh` commands — the sandbox blocks network access that `gh` requires.

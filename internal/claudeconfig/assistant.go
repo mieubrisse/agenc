@@ -97,6 +97,7 @@ func BuildAssistantAllowEntries(agencDirpath string) []string {
 		entries = append(entries, tool+"("+agencPattern+")")
 	}
 	entries = append(entries, "Bash(agenc:*)")
+	entries = append(entries, "Bash(gh:*)")
 
 	return entries
 }
