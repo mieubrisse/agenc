@@ -213,7 +213,7 @@ func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirp
 		}
 	}
 
-	mergedData, err := MergeSettings(userSettingsData, modsSettingsData, agencDirpath)
+	mergedData, err := MergeSettings(userSettingsData, modsSettingsData, agencDirpath, destDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to merge settings")
 	}

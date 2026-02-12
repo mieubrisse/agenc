@@ -32,3 +32,16 @@ func BuildRepoLibraryDenyEntries(agencDirpath string) []string {
 	}
 	return entries
 }
+
+// BuildClaudeConfigDenyEntries constructs permission deny entries that prevent
+// agents from editing their own mission's claude-config directory. This stops
+// the agent from modifying the settings, hooks, CLAUDE.md, and other config
+// that AgenC injects to control agent behavior.
+func BuildClaudeConfigDenyEntries(claudeConfigDirpath string) []string {
+	configPattern := claudeConfigDirpath + "/**"
+	entries := make([]string, 0, len(AgencDenyPermissionTools))
+	for _, tool := range AgencDenyPermissionTools {
+		entries = append(entries, tool+"("+configPattern+")")
+	}
+	return entries
+}

@@ -219,8 +219,9 @@ func MergeClaudeMd(userContent []byte, modsContent []byte) []byte {
 
 // MergeSettings reads user settings and agenc-modifications settings, deep-merges
 // them, and appends agenc operational overrides (hooks + deny permissions). Returns
-// the final merged JSON bytes.
-func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string) ([]byte, error) {
+// the final merged JSON bytes. claudeConfigDirpath is the per-mission config
+// directory that should be denied from agent access.
+func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string, claudeConfigDirpath string) ([]byte, error) {
 	// Default to empty objects if nil
 	if userSettingsData == nil {
 		userSettingsData = []byte("{}")
@@ -253,7 +254,7 @@ func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpat
 	}
 
 	// Append agenc operational overrides (hooks + deny permissions)
-	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath)
+	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath, claudeConfigDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to merge settings with agenc overrides")
 	}
@@ -264,7 +265,8 @@ func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpat
 // MergeSettingsWithAgencOverrides takes raw JSON bytes of settings, merges in
 // agenc-specific hooks and deny permissions, and returns the merged JSON bytes.
 // The existing hooks and permissions are preserved; agenc entries are appended.
-func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string) ([]byte, error) {
+// claudeConfigDirpath is the per-mission config directory to deny agent access to.
+func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, claudeConfigDirpath string) ([]byte, error) {
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal(settingsData, &settings); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse settings JSON")
@@ -327,6 +329,9 @@ func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string) (
 	}
 
 	mergedDeny := append(existingDeny, BuildRepoLibraryDenyEntries(agencDirpath)...)
+	if claudeConfigDirpath != "" {
+		mergedDeny = append(mergedDeny, BuildClaudeConfigDenyEntries(claudeConfigDirpath)...)
+	}
 	denyBytes, err := json.Marshal(mergedDeny)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to marshal merged deny array")

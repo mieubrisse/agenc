@@ -8,6 +8,7 @@ import (
 )
 
 const testAgencDirpath = "/tmp/test-agenc"
+const testClaudeConfigDirpath = "/tmp/test-agenc/missions/test-mission/claude-config"
 
 func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 	tests := []struct {
@@ -85,8 +86,8 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 			}`,
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
 				deny := parseDenyArray(t, settings)
-				// Should contain the 2 original + 5 agenc entries
-				expectedLen := 2 + len(claudeconfig.AgencDenyPermissionTools)
+				// Should contain the 2 original + repo library entries + claude-config entries
+				expectedLen := 2 + 2*len(claudeconfig.AgencDenyPermissionTools)
 				if len(deny) != expectedLen {
 					t.Errorf("expected deny array length %d, got %d", expectedLen, len(deny))
 				}
@@ -124,7 +125,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath)
+			result, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath, testClaudeConfigDirpath)
 			if err != nil {
 				t.Fatalf("claudeconfig.MergeSettingsWithAgencOverrides returned error: %v", err)
 			}
@@ -140,7 +141,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 }
 
 func TestMergeSettingsWithAgencOverrides_InvalidJSON(t *testing.T) {
-	_, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath)
+	_, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath, testClaudeConfigDirpath)
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}
@@ -327,6 +328,9 @@ func assertDenyContainsAgencEntries(t *testing.T, settings map[string]json.RawMe
 	t.Helper()
 	deny := parseDenyArray(t, settings)
 	for _, expected := range claudeconfig.BuildRepoLibraryDenyEntries(testAgencDirpath) {
+		assertDenyContains(t, deny, expected)
+	}
+	for _, expected := range claudeconfig.BuildClaudeConfigDenyEntries(testClaudeConfigDirpath) {
 		assertDenyContains(t, deny, expected)
 	}
 }
