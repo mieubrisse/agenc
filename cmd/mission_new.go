@@ -326,13 +326,13 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 	// First two data rows are special options; repos follow at index offset 2
 	var rows [][]string
 	rows = append(rows, []string{"🤖", "AgenC assistant"})
-	rows = append(rows, []string{"🔗", "— clone new repo"})
+	rows = append(rows, []string{"🔗", "clone new repo"})
 	for _, entry := range entries {
 		rows = append(rows, []string{"📦", displayGitRepo(entry.RepoName)})
 	}
 
 	// Use sentinel row for NONE option (blank mission)
-	sentinelRow := []string{"😶", "— blank mission"}
+	sentinelRow := []string{"😶", "blank mission"}
 
 	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
 		Prompt:       "Select repo: ",
