@@ -123,6 +123,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Stop the mission in the focused pane",
 		Command:     "agenc mission stop $AGENC_CALLING_MISSION_UUID",
 	},
+	"reconfigMission": {
+		Title:       "🔧 Reconfig Mission",
+		Description: "Update the mission's ~/.claude config snapshot",
+		Command:     "agenc mission reconfig $AGENC_CALLING_MISSION_UUID",
+	},
 	"reloadMission": {
 		Title:       "🔄 Reload Mission",
 		Description: "Stop and restart the mission in the focused pane",
@@ -149,6 +154,7 @@ var builtinPaletteCommandOrder = []string{
 	"newMission",
 	"resumeMission",
 	"stopMission",
+	"reconfigMission",
 	"reloadMission",
 	"removeMission",
 	"nukeMissions",
