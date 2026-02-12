@@ -10,7 +10,7 @@ func TestGenerateKeybindingsContent_MissionScopedKeybinding(t *testing.T) {
 		{
 			Key:             "x",
 			Command:         "agenc mission stop $AGENC_CALLING_MISSION_UUID",
-			Comment:         "stopThisMission — Stop this mission (prefix + a, x)",
+			Comment:         "stopMission — Stop Mission (prefix + a, x)",
 			IsMissionScoped: true,
 		},
 	}

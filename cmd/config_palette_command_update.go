@@ -19,7 +19,7 @@ Works for both built-in and custom commands. For built-ins, creates or updates
 the config override entry. At least one flag must be provided.
 
 Example:
-  agenc config paletteCommand update startMission --keybinding="C-n"
+  agenc config paletteCommand update newMission --keybinding="C-n"
   agenc config paletteCommand update dotfiles --title="📁 Dotfiles" --keybinding="f"
 `,
 	Args: cobra.ExactArgs(1),

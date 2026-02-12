@@ -427,7 +427,7 @@ func TestPaletteCommands_BuiltinOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
-  startMission:
+  newMission:
     tmuxKeybinding: "C-n"
 `)
 
@@ -438,21 +438,21 @@ paletteCommands:
 
 	resolved := cfg.GetResolvedPaletteCommands()
 	for _, cmd := range resolved {
-		if cmd.Name == "startMission" {
+		if cmd.Name == "newMission" {
 			if cmd.TmuxKeybinding != "C-n" {
 				t.Errorf("expected overridden keybinding 'C-n', got '%s'", cmd.TmuxKeybinding)
 			}
 			// Title should keep the default
-			if cmd.Title != "🚀 Start mission" {
-				t.Errorf("expected default title '🚀 Start mission', got '%s'", cmd.Title)
+			if cmd.Title != "🚀 New Mission" {
+				t.Errorf("expected default title '🚀 New Mission', got '%s'", cmd.Title)
 			}
 			if !cmd.IsBuiltin {
-				t.Error("expected startMission to be marked as builtin")
+				t.Error("expected newMission to be marked as builtin")
 			}
 			return
 		}
 	}
-	t.Error("startMission not found in resolved commands")
+	t.Error("newMission not found in resolved commands")
 }
 
 func TestPaletteCommands_BuiltinDisable(t *testing.T) {

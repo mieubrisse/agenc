@@ -17,7 +17,7 @@ Example config.yml:
 
   paletteCommands:
     # Override a builtin keybinding
-    startMission:
+    newMission:
       tmuxKeybinding: "C-n"
 
     # Disable a builtin
@@ -31,7 +31,7 @@ Example config.yml:
 
     # Mission-scoped command (only visible when a mission pane is focused)
     stopThisMission:
-      title: "🛑 Stop this mission"
+      title: "🛑 Stop Mission"
       command: "agenc mission stop $AGENC_CALLING_MISSION_UUID"
 `,
 }

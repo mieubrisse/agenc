@@ -37,7 +37,7 @@ crons:
 # Palette commands — customize the tmux command palette and keybindings
 paletteCommands:
   # Override a builtin's keybinding
-  startMission:
+  newMission:
     tmuxKeybinding: "C-n"
 
   # Disable a builtin entirely (no palette entry, no keybinding)
@@ -139,9 +139,9 @@ Manage palette commands via the CLI:
 ```
 agenc config paletteCommand ls                                    # list all (builtin + custom)
 agenc config paletteCommand add myCmd --title="Test" --command="agenc do" --keybinding="t"
-agenc config paletteCommand update startMission --keybinding="C-n"  # override builtin
+agenc config paletteCommand update newMission --keybinding="C-n"  # override builtin
 agenc config paletteCommand rm myCmd                              # remove custom
-agenc config paletteCommand rm startMission                       # restore builtin defaults
+agenc config paletteCommand rm newMission                         # restore builtin defaults
 ```
 
 Config Auto-Sync

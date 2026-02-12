@@ -92,7 +92,7 @@ agenc config set paletteTmuxKeybinding "-n C-y"
 
 ### 5. Ask the assistant
 
-For housekeeping — cleaning up old missions, checking daemon status, configuring cron jobs — open the assistant from the command palette ("Talk to AgenC") or via:
+For housekeeping — cleaning up old missions, checking daemon status, configuring cron jobs — open the assistant from the command palette ("Assistant") or via:
 
 ```
 agenc mission new --assistant
@@ -137,7 +137,7 @@ The core loop is: launch missions, observe what works and what doesn't, refine y
 Self-Management
 ---------------
 
-AgenC includes a dedicated **assistant mission** type for managing AgenC itself. Launch one with `agenc mission new --assistant` (or select "🤖 AgenC assistant" from the fzf picker, or use the "🤖 Talk to AgenC" command palette entry). The assistant agent gets:
+AgenC includes a dedicated **assistant mission** type for managing AgenC itself. Launch one with `agenc mission new --assistant` (or select "🤖 AgenC assistant" from the fzf picker, or use the "🤖 Assistant" command palette entry). The assistant agent gets:
 
 - A `SessionStart` hook that runs `agenc prime` to inject the CLI quick reference into the agent's context
 - Permissions to run `agenc` commands and read/write the agenc data directory

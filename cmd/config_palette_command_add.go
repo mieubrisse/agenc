@@ -29,7 +29,7 @@ Examples:
     --keybinding="f"
 
   agenc config paletteCommand add stopThisMission \
-    --title="🛑 Stop this mission" \
+    --title="🛑 Stop Mission" \
     --command="agenc mission stop \$AGENC_CALLING_MISSION_UUID"
 `,
 	Args: cobra.ExactArgs(1),
