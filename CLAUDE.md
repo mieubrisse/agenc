@@ -103,6 +103,10 @@ git push origin v1.2.3
 
 Do not run GoReleaser manually — CI handles the build and publish when it sees a new tag.
 
+**Choosing a version:** Always ask the user what version to tag. Do not assume or auto-increment — the user decides the version number.
+
+**Listing existing tags:** Use `git tag --sort=-v:refname` to list tags in descending semantic-version order. Do not use unsorted `git tag` output.
+
 Database Functions
 ------------------
 
