@@ -1,8 +1,8 @@
 ![AgenC — AI work factory](./readme-images/cover.png)
 
-AgenC
-=====
-AgenC is a tmux-based control plane for teams of Claudes doing your bidding. I call it an "AI work factory".
+AgenC: Starcraft For Agents
+===========================
+AgenC is a tmux-based control plane for juggling Claudes doing your bidding.
 
 ### The Problem
 
@@ -20,7 +20,7 @@ Launching new Claudes is effortful: you have to ensure they don't step on each o
 
 ### The Solution
 
-AgenC isolates Claudes in self-contained sandboxed workspaces, makes it trivial to spawn side missions, and provides a command palette with the tools you need to herd everything:
+AgenC isolates Claudes in sandboxed workspaces, makes it trivial to spawn side missions, and provides a command palette with the tools you need to herd everything:
 
 ![AgenC scales work across many parallel missions](readme-images/big-threadpool.png)
 
@@ -48,7 +48,7 @@ This automatically installs required dependencies (`gh`, `fzf`, `tmux`).
 ### 1. Enter the tmux session
 
 ```
-agenc tmux attach
+agenc attach
 ```
 
 This is the primary interface — the command palette, window management, and keybindings all live here.
