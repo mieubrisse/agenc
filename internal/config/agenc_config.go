@@ -107,6 +107,12 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:        "agenc tmux window new -- agenc mission new",
 		TmuxKeybinding: "n",
 	},
+	"switchMission": {
+		Title:          "🔀  Switch Mission",
+		Description:    "Switch to a running mission's tmux window",
+		Command:        "tmux display-popup -E -w 60% -h 50% 'agenc tmux switch'",
+		TmuxKeybinding: "s",
+	},
 	"resumeMission": {
 		Title:       "🟢  Resume Mission",
 		Description: "Resume a stopped mission with claude --continue",
@@ -150,6 +156,7 @@ var builtinPaletteCommandOrder = []string{
 	"quickClaude",
 	"talkToAgenc",
 	"newMission",
+	"switchMission",
 	"resumeMission",
 	"stopMission",
 	"reconfigMission",

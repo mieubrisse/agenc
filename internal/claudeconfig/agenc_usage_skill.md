@@ -88,6 +88,7 @@ agenc tmux palette                    # Open the AgenC command palette (runs ins
 agenc tmux pane                       # Manage tmux panes in the AgenC session
 agenc tmux resolve-mission <pane-id>  # Resolve a tmux pane to its mission UUID
 agenc tmux rm                         # Destroy the AgenC tmux session, stopping all running missions
+agenc tmux switch [mission-id]        # Switch to a running mission's tmux window
 agenc tmux window                     # Manage tmux windows in the AgenC session
 ```
 
