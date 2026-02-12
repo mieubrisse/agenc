@@ -96,9 +96,6 @@ func ensureConfigured() (string, error) {
 		configIsGitRepo = true
 	}
 
-	fmt.Println()
-	printConfigSummary(configIsGitRepo)
-
 	return dirpath, nil
 }
 
@@ -113,15 +110,13 @@ func isGitRepo(dirpath string) bool {
 // create one. Returns true if a repo was cloned.
 func setupConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
 	fmt.Println("Your config directory is not backed by a git repo.")
-	fmt.Print("Do you have an existing agenc config repo to clone? [y/N] ")
 
-	answer, err := reader.ReadString('\n')
+	hasRepo, err := promptYesNo(reader, "Do you have an existing agenc config repo to clone? [y/N] ")
 	if err != nil {
-		return false, stacktrace.Propagate(err, "failed to read input")
+		return false, err
 	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
 
-	if answer == "y" || answer == "yes" {
+	if hasRepo {
 		return promptAndCloneConfigRepo(reader, configDirpath)
 	}
 
@@ -158,15 +153,12 @@ func promptAndCloneConfigRepo(reader *bufio.Reader, configDirpath string) (bool,
 // repo on GitHub. If yes, creates it as a private repo and clones it into the
 // config directory.
 func offerCreateConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
-	fmt.Print("Would you like to create one? [y/N] ")
-
-	answer, err := reader.ReadString('\n')
+	wantsCreate, err := promptYesNo(reader, "Would you like to create one? [y/N] ")
 	if err != nil {
-		return false, stacktrace.Propagate(err, "failed to read input")
+		return false, err
 	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
 
-	if answer != "y" && answer != "yes" {
+	if !wantsCreate {
 		fmt.Println("Skipping config repo setup.")
 		return false, nil
 	}
@@ -261,6 +253,29 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 
 	fmt.Println("Config repo cloned successfully.")
 	return nil
+}
+
+// promptYesNo prints the given prompt and reads a y/n answer from the reader.
+// It returns true for "y"/"yes", false for "n"/"no"/empty. For any other
+// input it prints a warning and re-prompts.
+func promptYesNo(reader *bufio.Reader, prompt string) (bool, error) {
+	for {
+		fmt.Print(prompt)
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return false, stacktrace.Propagate(err, "failed to read input")
+		}
+		answer = strings.TrimSpace(strings.ToLower(answer))
+
+		switch answer {
+		case "y", "yes":
+			return true, nil
+		case "n", "no", "":
+			return false, nil
+		default:
+			fmt.Println("Please enter y or n.")
+		}
+	}
 }
 
 // printRepoFormatHelp prints the accepted repo reference formats. Use this
