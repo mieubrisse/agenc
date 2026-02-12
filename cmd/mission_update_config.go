@@ -18,25 +18,27 @@ import (
 var updateConfigAllFlag bool
 
 var missionUpdateConfigCmd = &cobra.Command{
-	Use:     updateCmdStr + " [mission-id|search-terms...]",
-	Aliases: []string{updateConfigCmdStr},
-	Short:   "Rebuild a mission's Claude config from the shadow repo",
-	Long: fmt.Sprintf(`Rebuild a mission's Claude config from the shadow repo.
+	Use:     reconfigCmdStr + " [mission-id|search-terms...]",
+	Aliases: []string{updateCmdStr, updateConfigCmdStr},
+	Short:   "Apply your latest ~/.claude config to a mission",
+	Long: fmt.Sprintf(`Apply your latest ~/.claude config to a mission.
 
-The shadow repo tracks your ~/.claude configuration files. This command
-rebuilds the per-mission Claude config directory from the current shadow
-repo state.
+Each mission gets a snapshot of your ~/.claude configuration (CLAUDE.md,
+settings.json, skills, hooks, etc.) at creation time. When you change
+~/.claude, existing missions keep their old config until you reconfig them.
 
-Without arguments, opens an interactive fzf picker to select a mission.
-With arguments, accepts a mission ID (short or full UUID) or search terms.
+This command rebuilds a mission's config directory from your current
+~/.claude state. Running missions must be restarted to pick up the changes.
 
-Use --%s to update all non-archived missions that have per-mission config.`, allFlagName),
+Use '%s %s %s -a' to see which missions are behind and by how many commits.
+Use --%s to reconfig all non-archived missions at once.`,
+		agencCmdStr, missionCmdStr, lsCmdStr, allFlagName),
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionUpdateConfig,
 }
 
 func init() {
-	missionUpdateConfigCmd.Flags().BoolVar(&updateConfigAllFlag, allFlagName, false, "update all non-archived missions")
+	missionUpdateConfigCmd.Flags().BoolVar(&updateConfigAllFlag, allFlagName, false, "reconfig all non-archived missions")
 	missionCmd.AddCommand(missionUpdateConfigCmd)
 }
 
@@ -99,7 +101,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		FormatRow: func(e missionPickerEntry) []string {
 			return []string{e.LastActive, e.ShortID, e.Status, e.Session, e.Repo}
 		},
-		FzfPrompt:   "Select mission to update config: ",
+		FzfPrompt:   "Select mission to reconfig: ",
 		FzfHeaders:  []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
 		MultiSelect: false,
 	})
