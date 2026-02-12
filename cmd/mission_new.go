@@ -291,7 +291,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 	// First two data rows are special options; repos follow at index offset 2
 	var rows [][]string
 	rows = append(rows, []string{"💁‍♂️ ", "AgenC Assistant"})
-	rows = append(rows, []string{"🔗", "clone new repo"})
+	rows = append(rows, []string{"🆕", "New Repo"})
 	for _, entry := range entries {
 		rows = append(rows, []string{"📦", displayGitRepo(entry.RepoName)})
 	}
