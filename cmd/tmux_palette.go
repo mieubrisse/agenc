@@ -109,13 +109,17 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(&fzfInput, formatPaletteEntryLine(entry))
 	}
 
-	// Run fzf for selection
+	// Run fzf for selection.
+	// --delimiter/--nth restrict matching to the title portion only (everything
+	// before the em-dash separator) so descriptions don't pollute search results.
 	fzfCmd := exec.Command("fzf",
 		"--ansi",
 		"--no-multi",
 		"--prompt=  ",
 		"--layout=reverse",
 		"--no-info",
+		"--delimiter", "—",
+		"--nth", "1",
 	)
 	fzfCmd.Stdin = strings.NewReader(fzfInput.String())
 	fzfCmd.Stderr = os.Stderr
