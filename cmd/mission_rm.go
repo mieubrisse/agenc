@@ -37,6 +37,21 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
+	// When multiple args are provided and each looks like a mission ID,
+	// resolve and remove each one directly without going through the picker.
+	if len(args) > 1 && allLookLikeMissionIDs(args) {
+		for _, idArg := range args {
+			missionID, err := db.ResolveMissionID(idArg)
+			if err != nil {
+				return stacktrace.Propagate(err, "failed to resolve mission ID '%s'", idArg)
+			}
+			if err := removeMission(db, missionID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: true})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")

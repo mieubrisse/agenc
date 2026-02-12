@@ -42,6 +42,17 @@ func looksLikeMissionID(input string) bool {
 	return shortIDPattern.MatchString(input) || fullUUIDPattern.MatchString(input)
 }
 
+// allLookLikeMissionIDs returns true if every element in the slice looks like
+// a mission ID (short hex or full UUID).
+func allLookLikeMissionIDs(inputs []string) bool {
+	for _, input := range inputs {
+		if !looksLikeMissionID(input) {
+			return false
+		}
+	}
+	return len(inputs) > 0
+}
+
 // stripAnsiCodes removes ANSI escape sequences from a string.
 func stripAnsiCodes(s string) string {
 	return ansiPattern.ReplaceAllString(s, "")
