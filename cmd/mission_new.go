@@ -464,7 +464,12 @@ func promptForRepoLocator(agencDirpath string) (*RepoResolutionResult, error) {
 			continue
 		}
 
-		result, err := ResolveRepoInput(agencDirpath, input, "Select repo: ")
+		if !looksLikeRepoReference(input) {
+			fmt.Println("Not a valid repo reference. Please try again.")
+			continue
+		}
+
+		result, err := resolveAsRepoReference(agencDirpath, input)
 		if err != nil {
 			fmt.Printf("Invalid repo: %v\n", err)
 			fmt.Println("Please try again.")
