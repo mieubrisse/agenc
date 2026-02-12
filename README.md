@@ -21,11 +21,11 @@ That's where AgenC comes in:
 
 ![](readme-images/agenc-scale-up.png)
 
-Example: this was my terminal today, with 16 Claudes each working on different features, bugs, and housekeeping.
+It's like going from Minecraft, slow and contemplative, to Starcraft: squads of minions flying all over the place.
+
+Example: this was my terminal today - 16 Claudes each working on different features, bugs, and housekeeping.
 
 ![](./readme-images/status-bar.png)
-
-It's like going from Minecraft to Starcraft.
 
 
 Quick Start
