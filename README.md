@@ -2,7 +2,7 @@
 
 AgenC: Starcraft For Agents
 ===========================
-AgenC is a tmux-based control plane for juggling Claudes doing your bidding.
+AgenC (pronounced "agency") is an orchestrator for doing work with Claude agents. Think of it like mission control for your AI work factory.
 
 ### The Problem
 
