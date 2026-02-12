@@ -7,8 +7,8 @@ Initialize agenc configuration (interactive)
 Initialize agenc configuration through an interactive wizard.
 
 If your config directory isn't backed by a git repo, prompts you to clone an
-existing agenc-config repo. The command is idempotent: if already configured,
-it simply prints the current state.
+existing agenc-config repo or create a new one. The command is idempotent: if
+already configured, it simply prints the current state.
 
 
 ```

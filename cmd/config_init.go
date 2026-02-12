@@ -22,8 +22,8 @@ var configInitCmd = &cobra.Command{
 	Long: `Initialize agenc configuration through an interactive wizard.
 
 If your config directory isn't backed by a git repo, prompts you to clone an
-existing agenc-config repo. The command is idempotent: if already configured,
-it simply prints the current state.
+existing agenc-config repo or create a new one. The command is idempotent: if
+already configured, it simply prints the current state.
 `,
 	RunE: runConfigInit,
 }
@@ -109,7 +109,8 @@ func isGitRepo(dirpath string) bool {
 }
 
 // setupConfigRepo prompts the user to clone an agenc-config repo into the
-// config directory. Returns true if a repo was cloned.
+// config directory. If the user doesn't have an existing repo, offers to
+// create one. Returns true if a repo was cloned.
 func setupConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
 	fmt.Println("Your config directory is not backed by a git repo.")
 	fmt.Print("Do you have an existing agenc config repo to clone? [y/N] ")
@@ -120,11 +121,17 @@ func setupConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
 	}
 	answer = strings.TrimSpace(strings.ToLower(answer))
 
-	if answer != "y" && answer != "yes" {
-		fmt.Println("Skipping config repo setup.")
-		return false, nil
+	if answer == "y" || answer == "yes" {
+		return promptAndCloneConfigRepo(reader, configDirpath)
 	}
 
+	// No existing repo — offer to create one
+	return offerCreateConfigRepo(reader, configDirpath)
+}
+
+// promptAndCloneConfigRepo asks the user for a repo reference and clones it
+// into the config directory.
+func promptAndCloneConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
 	fmt.Println()
 	printRepoFormatHelp()
 	fmt.Print("\nRepo: ")
@@ -145,6 +152,70 @@ func setupConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// offerCreateConfigRepo asks the user if they'd like to create a new config
+// repo on GitHub. If yes, creates it as a private repo and clones it into the
+// config directory.
+func offerCreateConfigRepo(reader *bufio.Reader, configDirpath string) (bool, error) {
+	fmt.Print("Would you like to create one? [y/N] ")
+
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return false, stacktrace.Propagate(err, "failed to read input")
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+
+	if answer != "y" && answer != "yes" {
+		fmt.Println("Skipping config repo setup.")
+		return false, nil
+	}
+
+	fmt.Print("Repo name (owner/repo): ")
+	repoRef, err := reader.ReadString('\n')
+	if err != nil {
+		return false, stacktrace.Propagate(err, "failed to read input")
+	}
+	repoRef = strings.TrimSpace(repoRef)
+
+	if repoRef == "" {
+		fmt.Println("No repo name provided, skipping.")
+		return false, nil
+	}
+
+	if err := createAndCloneConfigRepo(configDirpath, repoRef); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// createAndCloneConfigRepo creates a new private GitHub repo using the gh CLI,
+// then clones it into the config directory.
+func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
+	// Validate the repo reference parses correctly
+	_, _, err := mission.ParseRepoReference(repoRef, false)
+	if err != nil {
+		return stacktrace.Propagate(err, "invalid repo name")
+	}
+
+	// Create the repo as private via gh CLI
+	fmt.Printf("Creating private repo %s...\n", repoRef)
+	ghCmd := exec.Command("gh", "repo", "create", repoRef, "--private")
+	ghCmd.Stdout = os.Stdout
+	ghCmd.Stderr = os.Stderr
+	if err := ghCmd.Run(); err != nil {
+		return stacktrace.Propagate(err, "failed to create GitHub repo (is the 'gh' CLI installed and authenticated?)")
+	}
+
+	fmt.Println("Repo created.")
+
+	// Clone the newly created repo into the config directory
+	if err := cloneIntoConfigDir(configDirpath, repoRef); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // cloneIntoConfigDir clones the given repo reference into the config directory,
