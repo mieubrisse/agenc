@@ -129,6 +129,10 @@ func (w *Wrapper) checkUpwardSync(perMissionServiceName string) {
 	newExpiry := claudeconfig.ExtractExpiresAtFromJSON(merged)
 	if newExpiry > 0 {
 		w.tokenExpiresAt = newExpiry
+		// Clear stale token-expiry statusline warning immediately. Without this,
+		// the user sees "token expired" for up to 60s after /login while waiting
+		// for the token expiry watcher's next tick.
+		w.clearStatuslineMessage()
 	}
 
 	// Broadcast the new expiry so other wrappers detect the change
