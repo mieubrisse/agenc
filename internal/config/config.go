@@ -58,10 +58,12 @@ func GetAgencDirpath() (string, error) {
 // EnsureDirStructure creates the required agenc directory structure if it
 // doesn't already exist.
 func EnsureDirStructure(agencDirpath string) error {
+	// Create directories that are always needed (local-only, not part of the
+	// config repo). The config/ directory is intentionally excluded — it is
+	// created only by cloning the user's config repo.
 	dirs := []string{
 		filepath.Join(agencDirpath, ReposDirname),
 		filepath.Join(agencDirpath, ClaudeDirname),
-		filepath.Join(agencDirpath, ConfigDirname, ClaudeModificationsDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, DaemonDirname),
 	}
@@ -71,12 +73,17 @@ func EnsureDirStructure(agencDirpath string) error {
 		}
 	}
 
-	if err := EnsureClaudeModificationsFiles(agencDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to seed claude-modifications files")
-	}
+	// Seed files inside the config directory only if it already exists
+	// (i.e., a config repo was previously cloned).
+	configDirpath := filepath.Join(agencDirpath, ConfigDirname)
+	if _, err := os.Stat(configDirpath); err == nil {
+		if err := EnsureClaudeModificationsFiles(agencDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to seed claude-modifications files")
+		}
 
-	if err := EnsureConfigFile(agencDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to seed config file")
+		if err := EnsureConfigFile(agencDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to seed config file")
+		}
 	}
 
 	if err := EnsureStatuslineWrapper(agencDirpath); err != nil {

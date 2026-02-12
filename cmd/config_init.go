@@ -220,10 +220,15 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 		return stacktrace.Propagate(err, "invalid repo reference")
 	}
 
-	// Back up the existing config directory (contains seed files from EnsureDirStructure)
+	// Back up the existing config directory if it exists, so we can restore
+	// on clone failure.
 	backupDirpath := configDirpath + ".bak"
-	if err := os.Rename(configDirpath, backupDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to back up config directory")
+	hadExistingDir := false
+	if _, statErr := os.Stat(configDirpath); statErr == nil {
+		hadExistingDir = true
+		if err := os.Rename(configDirpath, backupDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to back up config directory")
+		}
 	}
 
 	fmt.Printf("Cloning %s into config directory...\n", cloneURL)
@@ -232,15 +237,19 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 	gitCmd.Stdout = os.Stdout
 	gitCmd.Stderr = os.Stderr
 	if err := gitCmd.Run(); err != nil {
-		// Restore backup on failure
-		if restoreErr := os.Rename(backupDirpath, configDirpath); restoreErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to restore config backup: %v\n", restoreErr)
+		// Restore backup on failure if we had one
+		if hadExistingDir {
+			if restoreErr := os.Rename(backupDirpath, configDirpath); restoreErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to restore config backup: %v\n", restoreErr)
+			}
 		}
 		return stacktrace.Propagate(err, "failed to clone config repo")
 	}
 
-	// Remove backup
-	os.RemoveAll(backupDirpath)
+	// Remove backup if we made one
+	if hadExistingDir {
+		os.RemoveAll(backupDirpath)
+	}
 
 	// Re-seed any files the clone might not have (config.yml, claude-modifications/)
 	agencDirpath := filepath.Dir(configDirpath)
