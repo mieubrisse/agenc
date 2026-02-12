@@ -4,8 +4,7 @@ AgenC
 =====
 AgenC is a tmux-based control plane for teams of Claudes doing your bidding. I call it an "AI work factory".
 
-The Problem
------------
+### The Problem
 
 Agentic work looks like this:
 
@@ -17,10 +16,9 @@ But you can't implement them all because Claude is the bottleneck:
 
 ![Ideas and lessons pile up, blocked by limited Claude bandwidth](readme-images/bottlenecked.png)
 
-Launching new Claudes is effortful, you have to ensure they don't step on each other, managing the various terminal windows is a circus, and if you upgrade your prompts or configs you have to hunt down the sessions and reload them manually.
+Launching new Claudes is effortful: you have to ensure they don't step on each other, managing the various terminal windows is a circus, and if you don't want to run with `--dangerously-skip-permissions` you'll spend a lot of time refining `settings.json` permission configs. If you upgrade your prompts or configs, you have to hunt down the sessions and reload them manually.
 
-The Solution
-------------
+### The Solution
 
 AgenC isolates Claudes in self-contained sandboxed workspaces, makes it trivial to spawn side missions, and provides a command palette with the tools you need to herd everything:
 
@@ -35,7 +33,7 @@ Quick Start
 
 ### Prerequisites
 
-- **macOS** (Linux support planned)
+- **macOS**
 - **Claude Code** installed and in your PATH ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
 
 ### Install
@@ -47,15 +45,15 @@ brew install agenc
 
 This automatically installs required dependencies (`gh`, `fzf`, `tmux`).
 
-### Launch
-
-Enter the AgenC tmux session:
+### 1. Enter the tmux session
 
 ```
 agenc tmux attach
 ```
 
 This is the primary interface — the command palette, window management, and keybindings all live here.
+
+### 2. Launch a mission
 
 From inside the tmux session, start a mission on any GitHub repo:
 
@@ -74,13 +72,33 @@ agenc mission new https://github.com/owner/repo       # HTTPS URL
 agenc mission new git@github.com:owner/repo.git       # SSH URL
 ```
 
-To launch a mission without a repo (e.g., for general-purpose tasks):
+Use Claude as you normally would. If your repo has a `.claude/secrets.env` file, AgenC automatically uses the [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) to resolve the secret references therein and inject them as environment variables into the Claude process — keeping your MCP server tokens and API keys in 1Password rather than on disk. See [docs/1password.md](docs/1password.md) for details.
+
+To launch a mission without a repo (e.g., for general-purpose tasks), use `agenc mission new --blank`. Or run `agenc mission new` with no arguments to get an interactive picker.
+
+### 3. Explore alongside Claude
+
+Press `prefix + %` to split a shell pane in the mission's workspace directory. Handy for running tests, checking git status, or poking around while Claude works.
+
+### 4. Spin up side missions
+
+When you need to deviate — fix a bug in another repo, try a different approach, handle a quick task — open the **command palette** (`prefix + a, k`) and launch a new mission. Each mission is its own tmux window; switch between them with `prefix + n` / `prefix + p`.
+
+The default command palette keybinding requires two keystrokes. You can bind a faster shortcut — the value is passed directly to `tmux bind-key`. For example, to use `Ctrl-y`:
 
 ```
-agenc mission new --blank
+agenc config set paletteTmuxKeybinding "-n C-y"
 ```
 
-Or run `agenc mission new` with no arguments to get an interactive picker.
+### 5. Ask the assistant
+
+For housekeeping — cleaning up old missions, checking daemon status, configuring cron jobs — open the assistant from the command palette ("Talk to AgenC") or via:
+
+```
+agenc mission new --assistant
+```
+
+The assistant knows the full AgenC CLI and can manage the system on your behalf.
 
 How It Works
 ------------
@@ -141,6 +159,7 @@ Interactive commands that require a terminal (fzf pickers, `$EDITOR`, confirmati
 Tips
 ----
 
+- **Enable sandbox mode in Claude.** Run `/sandbox` from your global Claude Code to enable sandboxed command execution. This lets Claude run commands within sandbox restrictions without manual approval prompts on every action, and the setting carries into every AgenC mission. This is the recommended alternative to `--dangerously-skip-permissions`.
 - **Rename missions when you stop them.** When you run `agenc mission stop`, give the mission a descriptive name so you can find it later with `agenc mission resume`. A wall of unnamed missions is hard to navigate.
 - **Open a shell pane with prefix + %.** Inside the AgenC tmux session, the standard tmux split (`prefix + %`) opens a shell in the mission's workspace directory. Handy for running tests, checking git status, or poking around while Claude works.
 - **Cycle between missions with prefix + n / prefix + p.** Each mission is a tmux window. Use the standard tmux shortcuts — `prefix + n` (next window) and `prefix + p` (previous window) — to move between them. You can also jump directly to a window by number with `prefix + <number>`.
