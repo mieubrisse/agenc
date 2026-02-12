@@ -3,15 +3,16 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/history"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
@@ -124,11 +125,11 @@ func resumeMission(db *database.DB, missionID string) error {
 		)
 	}
 
-	// Check if a conversation actually exists for this mission. If the user
-	// created a mission but never sent a message, there's nothing to continue
-	// and `claude -c` would fail.
-	historyFilepath := config.GetHistoryFilepath(agencDirpath)
-	hasConversation := history.FindFirstPrompt(historyFilepath, missionID) != ""
+	// Check if a conversation actually exists for this mission. Claude Code
+	// creates a project directory under claude-config/projects/ only after the
+	// user sends their first message. If no such directory exists, there's
+	// nothing to continue and `claude -c` would fail.
+	hasConversation := missionHasConversation(agencDirpath, missionID)
 
 	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 
@@ -138,4 +139,23 @@ func resumeMission(db *database.DB, missionID string) error {
 	}
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", db)
 	return w.Run(hasConversation)
+}
+
+// missionHasConversation checks whether a Claude conversation exists for the
+// given mission by looking for a project directory under claude-config/projects/
+// whose name contains the mission ID. Claude Code only creates this directory
+// after the user sends their first message.
+func missionHasConversation(agencDirpath string, missionID string) bool {
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
+	projectsDirpath := filepath.Join(claudeConfigDirpath, "projects")
+	entries, err := os.ReadDir(projectsDirpath)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.Contains(entry.Name(), missionID) {
+			return true
+		}
+	}
+	return false
 }
