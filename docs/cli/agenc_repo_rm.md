@@ -16,9 +16,6 @@ Accepts any of these formats:
   github.com/owner/repo                - canonical name
   https://github.com/owner/repo        - URL
 
-You can also use search terms to find a repo in your library:
-  agenc repo rm my repo                - searches for repos matching "my repo"
-
 ```
 agenc repo rm [repo...] [flags]
 ```

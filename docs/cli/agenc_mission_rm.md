@@ -7,11 +7,10 @@ Stop and permanently remove one or more missions
 Stop and permanently remove one or more missions.
 
 Without arguments, opens an interactive fzf picker showing all missions.
-With arguments, accepts a mission ID (short or full UUID) or search terms to
-filter the list. If exactly one mission matches search terms, it is auto-selected.
+With arguments, accepts one or more mission IDs (short 8-char hex or full UUID).
 
 ```
-agenc mission rm [mission-id|search-terms...] [flags]
+agenc mission rm [mission-id...] [flags]
 ```
 
 ### Options

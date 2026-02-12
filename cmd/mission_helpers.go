@@ -27,9 +27,6 @@ type missionPickerEntry struct {
 	Repo       string // display-formatted (may contain ANSI)
 }
 
-// ansiPattern matches ANSI SGR escape sequences for stripping colors.
-var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
 // shortIDPattern matches 8 hex characters (mission short ID).
 var shortIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}$`)
 
@@ -53,11 +50,6 @@ func allLookLikeMissionIDs(inputs []string) bool {
 	return len(inputs) > 0
 }
 
-// stripAnsiCodes removes ANSI escape sequences from a string.
-func stripAnsiCodes(s string) string {
-	return ansiPattern.ReplaceAllString(s, "")
-}
-
 // buildMissionPickerEntries converts database missions to picker entries using
 // the same formatting infrastructure as mission ls.
 func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
@@ -79,12 +71,6 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 		})
 	}
 	return entries, nil
-}
-
-// formatMissionMatchLine returns a plain-text representation of a mission
-// picker entry suitable for sequential substring matching.
-func formatMissionMatchLine(entry missionPickerEntry) string {
-	return entry.LastActive + " " + entry.ShortID + " " + entry.Session + " " + stripAnsiCodes(entry.Repo)
 }
 
 // filterStoppedMissions returns only missions that are currently stopped.

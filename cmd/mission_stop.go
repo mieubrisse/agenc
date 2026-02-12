@@ -21,13 +21,12 @@ const (
 )
 
 var missionStopCmd = &cobra.Command{
-	Use:   stopCmdStr + " [mission-id|search-terms...]",
+	Use:   stopCmdStr + " [mission-id...]",
 	Short: "Stop one or more mission wrapper processes",
 	Long: `Stop one or more mission wrapper processes.
 
 Without arguments, opens an interactive fzf picker showing running missions.
-With arguments, accepts a mission ID (short or full UUID) or search terms to
-filter the list. If exactly one mission matches search terms, it is auto-selected.`,
+With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionStop,
 }
@@ -92,11 +91,6 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 
 	if result.WasCancelled || len(result.Items) == 0 {
 		return nil
-	}
-
-	// Print auto-select message only if search terms (not UUID) matched exactly one
-	if input != "" && !looksLikeMissionID(input) && len(result.Items) == 1 {
-		fmt.Printf("Auto-selected: %s\n", result.Items[0].ShortID)
 	}
 
 	for _, entry := range result.Items {

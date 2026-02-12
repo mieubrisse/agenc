@@ -17,7 +17,7 @@ Use 'agenc mission ls -a' to see which missions are behind and by how many commi
 Use --all to reconfig all non-archived missions at once.
 
 ```
-agenc mission reconfig [mission-id|search-terms...] [flags]
+agenc mission reconfig [mission-id] [flags]
 ```
 
 ### Options

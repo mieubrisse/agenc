@@ -18,7 +18,7 @@ import (
 var updateConfigAllFlag bool
 
 var missionUpdateConfigCmd = &cobra.Command{
-	Use:     reconfigCmdStr + " [mission-id|search-terms...]",
+	Use:     reconfigCmdStr + " [mission-id]",
 	Aliases: []string{updateCmdStr, updateConfigCmdStr},
 	Short:   "Apply your latest ~/.claude config to a mission",
 	Long: fmt.Sprintf(`Apply your latest ~/.claude config to a mission.
@@ -113,14 +113,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	selected := result.Items[0]
-
-	input := strings.Join(args, " ")
-	if input != "" && !looksLikeMissionID(input) {
-		fmt.Printf("Auto-selected: %s\n", selected.ShortID)
-	}
-
-	return updateMissionConfig(db, selected.MissionID, newCommitHash)
+	return updateMissionConfig(db, result.Items[0].MissionID, newCommitHash)
 }
 
 // updateConfigForAllMissions updates the Claude config for all non-archived

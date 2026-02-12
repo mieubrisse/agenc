@@ -15,13 +15,12 @@ import (
 )
 
 var missionRmCmd = &cobra.Command{
-	Use:   rmCmdStr + " [mission-id|search-terms...]",
+	Use:   rmCmdStr + " [mission-id...]",
 	Short: "Stop and permanently remove one or more missions",
 	Long: `Stop and permanently remove one or more missions.
 
 Without arguments, opens an interactive fzf picker showing all missions.
-With arguments, accepts a mission ID (short or full UUID) or search terms to
-filter the list. If exactly one mission matches search terms, it is auto-selected.`,
+With arguments, accepts one or more mission IDs (short 8-char hex or full UUID).`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionRm,
 }
@@ -100,11 +99,6 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 
 	if result.WasCancelled || len(result.Items) == 0 {
 		return nil
-	}
-
-	// Print auto-select message only if search terms (not UUID) matched exactly one
-	if input != "" && !looksLikeMissionID(input) && len(result.Items) == 1 {
-		fmt.Printf("Auto-selected: %s\n", result.Items[0].ShortID)
 	}
 
 	for _, entry := range result.Items {

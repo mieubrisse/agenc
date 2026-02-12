@@ -29,13 +29,13 @@ var cronIDFlag string
 var cronNameFlag string
 
 var missionNewCmd = &cobra.Command{
-	Use:   newCmdStr + " [search-terms...]",
+	Use:   newCmdStr + " [repo]",
 	Short: "Create a new mission and launch claude",
 	Long: fmt.Sprintf(`Create a new mission and launch claude.
 
-Positional arguments select a repo. They can be:
-  - A git reference (URL, shorthand like owner/repo, or local path)
-  - Search terms to match against your library ("my repo")
+Without arguments, opens an interactive fzf picker showing your repo library.
+With arguments, accepts a git reference (URL, shorthand like owner/repo, or
+local path).
 
 Use --%s <mission-uuid> to create a new mission with a full copy of an
 existing mission's agent directory.`,
@@ -136,8 +136,8 @@ func runMissionNewWithClone() error {
 	})
 }
 
-// runMissionNewWithPicker shows an fzf picker over the repo library. Positional
-// args are used as search terms to filter or auto-select.
+// runMissionNewWithPicker shows an fzf picker over the repo library, or resolves
+// a positional arg as a repo reference.
 func runMissionNewWithPicker(args []string) error {
 	entries := listRepoLibrary(agencDirpath)
 
@@ -161,37 +161,8 @@ func runMissionNewWithPicker(args []string) error {
 		return launchFromLibrarySelection(&repoLibraryEntry{RepoName: result.RepoName})
 	}
 
-	// Use generic resolver for search/auto-select
-	// Sentinel is not included since we're searching, not browsing
-	result, err := Resolve(input, Resolver[repoLibraryEntry]{
-		TryCanonical: nil, // Already handled above
-		GetItems: func() ([]repoLibraryEntry, error) { return entries, nil },
-		FormatRow: func(e repoLibraryEntry) []string {
-			return []string{"📦", displayGitRepo(e.RepoName)}
-		},
-		FzfPrompt:        "Select repo: ",
-		FzfHeaders:       []string{"TYPE", "REPO"},
-		MultiSelect:      false,
-		NotCanonicalError: "not a valid repo reference",
-	})
-	if err != nil {
-		return err
-	}
-
-	if result.WasCancelled {
-		return stacktrace.NewError("fzf selection cancelled")
-	}
-
-	if len(result.Items) == 0 {
-		return stacktrace.NewError("no matching repos found")
-	}
-
-	entry := result.Items[0]
-
-	// Print auto-select message if search matched exactly one
-	fmt.Printf("Auto-selected: %s\n", displayGitRepo(entry.RepoName))
-
-	return launchFromLibrarySelection(&entry)
+	// Non-empty input that doesn't look like a repo reference is an error
+	return stacktrace.NewError("not a valid repo reference: %s", input)
 }
 
 // assistantSentinelRepoName is the sentinel value used in fzf picker entries
@@ -311,12 +282,6 @@ func listRepoLibrary(agencDirpath string) []repoLibraryEntry {
 	})
 
 	return entries
-}
-
-// formatLibraryFzfLine formats a repo library entry for display in fzf.
-// Uses displayGitRepo for consistent repo formatting across all commands.
-func formatLibraryFzfLine(entry repoLibraryEntry) string {
-	return fmt.Sprintf("📦 %s", displayGitRepo(entry.RepoName))
 }
 
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.

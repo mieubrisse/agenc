@@ -17,7 +17,7 @@ import (
 var repoRmCmd = &cobra.Command{
 	Use:   rmCmdStr + " [repo...]",
 	Short: "Remove a repository from the repo library",
-	Long: fmt.Sprintf(`Remove one or more repositories from the repo library.
+	Long: `Remove one or more repositories from the repo library.
 
 Deletes the cloned repo from $AGENC_DIRPATH/repos/ and removes it from the
 repoConfig in config.yml if present.
@@ -27,11 +27,7 @@ When called without arguments, opens an interactive fzf picker.
 Accepts any of these formats:
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)
   github.com/owner/repo                - canonical name
-  https://github.com/owner/repo        - URL
-
-You can also use search terms to find a repo in your library:
-  %s %s %s my repo                - searches for repos matching "my repo"`,
-		agencCmdStr, repoCmdStr, rmCmdStr),
+  https://github.com/owner/repo        - URL`,
 	RunE: runRepoRm,
 }
 
@@ -81,11 +77,6 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 
 	if result.WasCancelled || len(result.Items) == 0 {
 		return nil
-	}
-
-	// Print auto-select message if search matched exactly one
-	if len(args) > 0 && len(result.Items) == 1 && !looksLikeRepoReference(strings.Join(args, " ")) {
-		fmt.Printf("Auto-selected: %s\n", displayGitRepo(result.Items[0]))
 	}
 
 	for _, repoName := range result.Items {

@@ -7,11 +7,10 @@ Print information about a mission
 Print information about a mission.
 
 Without arguments, opens an interactive fzf picker to select a mission.
-With arguments, accepts a mission ID (short or full UUID) or search terms to
-filter the list. If exactly one mission matches search terms, it is auto-selected.
+With arguments, accepts a mission ID (short 8-char hex or full UUID).
 
 ```
-agenc mission inspect [mission-id|search-terms...] [flags]
+agenc mission inspect [mission-id] [flags]
 ```
 
 ### Options

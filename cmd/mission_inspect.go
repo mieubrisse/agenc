@@ -14,13 +14,12 @@ import (
 var inspectDirFlag bool
 
 var missionInspectCmd = &cobra.Command{
-	Use:   inspectCmdStr + " [mission-id|search-terms...]",
+	Use:   inspectCmdStr + " [mission-id]",
 	Short: "Print information about a mission",
 	Long: `Print information about a mission.
 
 Without arguments, opens an interactive fzf picker to select a mission.
-With arguments, accepts a mission ID (short or full UUID) or search terms to
-filter the list. If exactly one mission matches search terms, it is auto-selected.`,
+With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionInspect,
 }
@@ -87,14 +86,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	selected := result.Items[0]
-
-	// Print auto-select message only if search terms (not UUID) matched exactly one
-	if input != "" && !looksLikeMissionID(input) {
-		fmt.Printf("Auto-selected: %s\n", selected.ShortID)
-	}
-
-	return inspectMission(db, selected.MissionID)
+	return inspectMission(db, result.Items[0].MissionID)
 }
 
 func inspectMission(db *database.DB, missionID string) error {

@@ -6,15 +6,15 @@ Create a new mission and launch claude
 
 Create a new mission and launch claude.
 
-Positional arguments select a repo. They can be:
-  - A git reference (URL, shorthand like owner/repo, or local path)
-  - Search terms to match against your library ("my repo")
+Without arguments, opens an interactive fzf picker showing your repo library.
+With arguments, accepts a git reference (URL, shorthand like owner/repo, or
+local path).
 
 Use --clone <mission-uuid> to create a new mission with a full copy of an
 existing mission's agent directory.
 
 ```
-agenc mission new [search-terms...] [flags]
+agenc mission new [repo] [flags]
 ```
 
 ### Options

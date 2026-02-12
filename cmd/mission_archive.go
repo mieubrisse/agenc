@@ -11,13 +11,12 @@ import (
 )
 
 var missionArchiveCmd = &cobra.Command{
-	Use:   archiveCmdStr + " [mission-id|search-terms...]",
+	Use:   archiveCmdStr + " [mission-id...]",
 	Short: "Stop and archive one or more missions",
 	Long: `Stop and archive one or more missions.
 
 Without arguments, opens an interactive fzf picker showing active missions.
-With arguments, accepts a mission ID (short or full UUID) or search terms to
-filter the list. If exactly one mission matches search terms, it is auto-selected.`,
+With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionArchive,
 }
@@ -81,11 +80,6 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 
 	if result.WasCancelled || len(result.Items) == 0 {
 		return nil
-	}
-
-	// Print auto-select message only if search terms (not UUID) matched exactly one
-	if input != "" && !looksLikeMissionID(input) && len(result.Items) == 1 {
-		fmt.Printf("Auto-selected: %s\n", result.Items[0].ShortID)
 	}
 
 	for _, entry := range result.Items {
