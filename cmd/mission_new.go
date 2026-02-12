@@ -21,6 +21,7 @@ import (
 
 var cloneFlag string
 var promptFlag string
+var descriptionFlag string
 var blankFlag bool
 var assistantFlag bool
 var headlessFlag bool
@@ -46,6 +47,7 @@ existing mission's agent directory.`,
 
 func init() {
 	missionNewCmd.Flags().StringVar(&cloneFlag, cloneFlagName, "", "mission UUID to clone agent directory from")
+	missionNewCmd.Flags().StringVarP(&descriptionFlag, descriptionFlagName, "d", "", "human-readable description of what this mission is for")
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
 	missionNewCmd.Flags().BoolVar(&blankFlag, blankFlagName, false, "create a blank mission with no repo (skip picker)")
 	missionNewCmd.Flags().BoolVar(&assistantFlag, assistantFlagName, false, "create an AgenC assistant mission")
@@ -85,7 +87,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	if blankFlag {
-		return createAndLaunchMission(agencDirpath, "", "", promptFlag)
+		return createAndLaunchMission(agencDirpath, "", "", descriptionFlag, promptFlag)
 	}
 
 	return runMissionNewWithPicker(args)
@@ -185,17 +187,17 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 		if err != nil {
 			return err
 		}
-		return createAndLaunchMission(agencDirpath, result.RepoName, result.CloneDirpath, promptFlag)
+		return createAndLaunchMission(agencDirpath, result.RepoName, result.CloneDirpath, descriptionFlag, promptFlag)
 	}
 
 	if selection.RepoName == "" {
 		// NONE selected — blank mission
-		return createAndLaunchMission(agencDirpath, "", "", promptFlag)
+		return createAndLaunchMission(agencDirpath, "", "", descriptionFlag, promptFlag)
 	}
 
 	// Repo selected — clone into agent directory
 	gitCloneDirpath := config.GetRepoDirpath(agencDirpath, selection.RepoName)
-	return createAndLaunchMission(agencDirpath, selection.RepoName, gitCloneDirpath, promptFlag)
+	return createAndLaunchMission(agencDirpath, selection.RepoName, gitCloneDirpath, descriptionFlag, promptFlag)
 }
 
 // createAndLaunchAssistantMission creates an AgenC assistant mission. The
@@ -340,12 +342,14 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 // launches the wrapper process. gitRepoName is the canonical repo name
 // stored in the DB (e.g. "github.com/owner/repo"); gitCloneDirpath is
 // the filesystem path to the agenc-owned clone used for git operations. Both
-// are empty when no git repo is involved. initialPrompt is optional; if
+// are empty when no git repo is involved. description is an optional
+// human-readable label for the mission. initialPrompt is optional; if
 // non-empty, it will be sent to Claude when starting the conversation.
 func createAndLaunchMission(
 	agencDirpath string,
 	gitRepoName string,
 	gitCloneDirpath string,
+	description string,
 	initialPrompt string,
 ) error {
 	// Open database and create mission record
@@ -355,8 +359,10 @@ func createAndLaunchMission(
 	}
 	defer db.Close()
 
-	// Build creation params (cron + config commit)
-	createParams := &database.CreateMissionParams{}
+	// Build creation params (description + cron + config commit)
+	createParams := &database.CreateMissionParams{
+		Description: description,
+	}
 	if cronIDFlag != "" {
 		createParams.CronID = &cronIDFlag
 	}

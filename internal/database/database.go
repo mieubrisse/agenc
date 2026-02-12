@@ -35,6 +35,7 @@ const addCronIDColumnSQL = `ALTER TABLE missions ADD COLUMN cron_id TEXT;`
 const addCronNameColumnSQL = `ALTER TABLE missions ADD COLUMN cron_name TEXT;`
 const addConfigCommitColumnSQL = `ALTER TABLE missions ADD COLUMN config_commit TEXT;`
 const addTmuxPaneColumnSQL = `ALTER TABLE missions ADD COLUMN tmux_pane TEXT;`
+const addDescriptionColumnSQL = `ALTER TABLE missions ADD COLUMN description TEXT NOT NULL DEFAULT '';`
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
 // were stored with the $TMUX_PANE format (%42) rather than the canonical
@@ -44,9 +45,10 @@ const stripTmuxPanePercentSQL = `UPDATE missions SET tmux_pane = REPLACE(tmux_pa
 
 // Mission represents a row in the missions table.
 type Mission struct {
-	ID      string
-	ShortID string
-	Prompt  string
+	ID                   string
+	ShortID              string
+	Description          string
+	Prompt               string
 	Status               string
 	GitRepo              string
 	LastHeartbeat        *time.Time
@@ -124,6 +126,11 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := migrateAddTmuxPane(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to add tmux_pane column")
+	}
+
+	if err := migrateAddDescription(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add description column")
 	}
 
 	// Backfill: strip "%" prefix from tmux_pane values stored by older builds
@@ -307,6 +314,22 @@ func migrateAddTmuxPane(conn *sql.DB) error {
 	return err
 }
 
+// migrateAddDescription idempotently adds the description column for
+// user-editable mission descriptions.
+func migrateAddDescription(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["description"] {
+		return nil
+	}
+
+	_, err = conn.Exec(addDescriptionColumnSQL)
+	return err
+}
+
 // migrateDropAgentTemplate idempotently drops the agent_template column
 // from the missions table. Agent templates have been removed from AgenC.
 func migrateDropAgentTemplate(conn *sql.DB) error {
@@ -330,6 +353,7 @@ func (db *DB) Close() error {
 
 // CreateMissionParams holds optional parameters for creating a mission.
 type CreateMissionParams struct {
+	Description  string
 	CronID       *string
 	CronName     *string
 	ConfigCommit *string
@@ -341,16 +365,18 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	shortID := ShortID(id)
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	var description string
 	var cronID, cronName, configCommit *string
 	if params != nil {
+		description = params.Description
 		cronID = params.CronID
 		cronName = params.CronName
 		configCommit = params.ConfigCommit
 	}
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, cronID, cronName, configCommit, now, now,
+		"INSERT INTO missions (id, short_id, description, git_repo, status, cron_id, cron_name, config_commit, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+		id, shortID, description, gitRepo, cronID, cronName, configCommit, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -359,6 +385,7 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	return &Mission{
 		ID:           id,
 		ShortID:      shortID,
+		Description:  description,
 		GitRepo:      gitRepo,
 		Status:       "active",
 		CronID:       cronID,
@@ -381,7 +408,7 @@ type ListMissionsParams struct {
 // If params.IncludeArchived is true, all missions are returned; otherwise archived missions are excluded.
 // If params.CronID is set, only missions with that cron_id are returned.
 func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
-	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions"
+	query := "SELECT id, short_id, description, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions"
 
 	var conditions []string
 	var args []interface{}
@@ -411,7 +438,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, description, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -429,7 +456,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 // or nil if no mission exists for the cron.
 func (db *DB) GetMostRecentMissionForCron(cronID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE cron_id = ? ORDER BY created_at DESC LIMIT 1",
+		"SELECT id, short_id, description, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE cron_id = ? ORDER BY created_at DESC LIMIT 1",
 		cronID,
 	)
 
@@ -490,6 +517,27 @@ func (db *DB) DeleteMission(id string) error {
 	result, err := db.conn.Exec("DELETE FROM missions WHERE id = ?", id)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to delete mission '%s'", id)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check rows affected")
+	}
+	if rowsAffected == 0 {
+		return stacktrace.NewError("mission '%s' not found", id)
+	}
+	return nil
+}
+
+// UpdateMissionDescription sets the user-editable description for a mission.
+func (db *DB) UpdateMissionDescription(id string, description string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := db.conn.Exec(
+		"UPDATE missions SET description = ?, updated_at = ? WHERE id = ?",
+		description, now, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update description for mission '%s'", id)
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -585,7 +633,7 @@ func (db *DB) ClearTmuxPane(id string) error {
 // tmux pane ID, or nil if no active mission is running in that pane.
 func (db *DB) GetMissionByTmuxPane(paneID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
+		"SELECT id, short_id, description, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
 		paneID,
 	)
 
@@ -605,7 +653,7 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 		var m Mission
 		var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.Description, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
@@ -642,7 +690,7 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
 	var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.Description, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {

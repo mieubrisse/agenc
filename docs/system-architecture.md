@@ -504,6 +504,7 @@ Database Schema
 |--------|------|-------------|
 | `id` | TEXT (PK) | Full UUID |
 | `short_id` | TEXT (UNIQUE) | First 8 characters of UUID, for user-friendly display |
+| `description` | TEXT | User-editable human-readable label for the mission |
 | `git_repo` | TEXT | Canonical repo name (`github.com/owner/repo`), empty for blank missions |
 | `config_commit` | TEXT | Config source repo HEAD hash at mission creation (nullable) |
 | `status` | TEXT | `active` or `archived` |

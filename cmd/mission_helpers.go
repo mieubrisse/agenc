@@ -55,7 +55,7 @@ func allLookLikeMissionIDs(inputs []string) bool {
 func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
-		sessionName := resolveSessionName(db, m)
+		displayName := resolveMissionDisplayName(db, m)
 		status := getMissionStatus(m.ID, m.Status)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAssistant(agencDirpath, m.ID) {
@@ -66,7 +66,7 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 			LastActive: formatLastActive(m.LastHeartbeat),
 			ShortID:    m.ShortID,
 			Status:     colorizeStatus(status),
-			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
+			Session:    truncatePrompt(displayName, defaultPromptMaxLen),
 			Repo:       repo,
 		})
 	}
