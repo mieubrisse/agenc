@@ -26,6 +26,8 @@ AgenC:
 
 - 📦 Gives each Claude session its own repo copy
 - 🙋‍♂️ Shows when Claudes need attention
+
+![All of these are Claude sessions. Yellow ones need my attention, blue ones are bubbling still.](./readme-images/status-bar.png)
 - 🔐 Handles auth propagation automatically
 - 🚀 Makes it instant to spawn, stop, and resume missions
 - 🎮 Provides an access-anywhere command palette
