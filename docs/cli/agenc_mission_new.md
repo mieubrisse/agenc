@@ -20,14 +20,13 @@ agenc mission new [repo] [flags]
 ### Options
 
 ```
-      --assistant            create an AgenC assistant mission
-      --blank                create a blank mission with no repo (skip picker)
-      --clone string         mission UUID to clone agent directory from
-  -d, --description string   human-readable description of what this mission is for
-      --headless             run in headless mode (no terminal, outputs to log)
-  -h, --help                 help for new
-      --prompt string        initial prompt to start Claude with
-      --timeout string       max runtime for headless missions (e.g., '1h', '30m') (default "1h")
+      --assistant        create an AgenC assistant mission
+      --blank            create a blank mission with no repo (skip picker)
+      --clone string     mission UUID to clone agent directory from
+      --headless         run in headless mode (no terminal, outputs to log)
+  -h, --help             help for new
+      --prompt string    initial prompt to start Claude with
+      --timeout string   max runtime for headless missions (e.g., '1h', '30m') (default "1h")
 ```
 
 ### SEE ALSO

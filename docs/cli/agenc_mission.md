@@ -12,7 +12,6 @@ Manage agent missions
 
 * [agenc](agenc.md)	 - The AgenC — agent mission management CLI
 * [agenc mission archive](agenc_mission_archive.md)	 - Stop and archive one or more missions
-* [agenc mission describe](agenc_mission_describe.md)	 - Set or update a mission's description
 * [agenc mission inspect](agenc_mission_inspect.md)	 - Print information about a mission
 * [agenc mission ls](agenc_mission_ls.md)	 - List active missions
 * [agenc mission new](agenc_mission_new.md)	 - Create a new mission and launch claude

@@ -81,7 +81,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
-		displayName := resolveMissionDisplayName(db, m)
+		sessionName := resolveSessionName(db, m)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAssistant(agencDirpath, m.ID) {
 			repo = "💁‍♂️  AgenC Assistant"
@@ -97,7 +97,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				colorizeStatus(status),
 				pane,
 				formatConfigCommit(m.ConfigCommit, shadowHeadCommitHash),
-				truncatePrompt(displayName, defaultPromptMaxLen),
+				truncatePrompt(sessionName, defaultPromptMaxLen),
 				repo,
 			)
 		} else {
@@ -105,7 +105,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				formatLastActive(m.LastActive, m.LastHeartbeat),
 				m.ShortID,
 				colorizeStatus(status),
-				truncatePrompt(displayName, defaultPromptMaxLen),
+				truncatePrompt(sessionName, defaultPromptMaxLen),
 				repo,
 			)
 		}
@@ -162,15 +162,6 @@ func colorizeStatus(status string) string {
 }
 
 const defaultPromptMaxLen = 53
-
-// resolveMissionDisplayName returns the best human-readable name for a mission.
-// Priority: user-set description > session name > first user prompt.
-func resolveMissionDisplayName(db *database.DB, m *database.Mission) string {
-	if m.Description != "" {
-		return m.Description
-	}
-	return resolveSessionName(db, m)
-}
 
 // resolveSessionName returns the Claude Code session name for a mission.
 // It uses a cached value from the database when the cache is fresh (i.e. the
