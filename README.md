@@ -57,12 +57,12 @@ This is the primary interface — the command palette, window management, and ke
 
 Open the **command palette** with `prefix + a, k` and select **"New Mission"**. Pick **"Clone new repo"**, paste a GitHub URL or `owner/repo` shorthand, and AgenC clones the repo into an isolated sandbox and launches Claude ready to work.
 
-Each mission gets its own tmux window and its own copy of the repo, so multiple missions can run against the same repo without interfering.
+Each mission gets its own tmux window, its own copy of the repo, and a snapshot of your global Claude configuration (CLAUDE.md, settings.json, skills, MCP servers) at launch time. This means missions are reproducible and isolated from each other. If you update your global Claude config later, run `agenc mission update-config` to push the latest config into running missions.
 
 The default command palette keybinding requires two keystrokes after the prefix. You can set a global shortcut using `agenc config set paletteTmuxKeybinding` — the value is passed directly to `tmux bind-key`. For example, to make the palette always available via `Ctrl-y` (no prefix needed):
 
 ```
-agenc config set paletteTmuxKeybinding "-n C-y"
+agenc config set paletteTmuxKeybinding -- "-n C-y"
 ```
 
 Use Claude as you normally would. If your repo has a `.claude/secrets.env` file, AgenC automatically uses the [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) to resolve the secret references therein and inject them as environment variables into the Claude process — keeping your MCP server tokens and API keys in 1Password rather than on disk. See [docs/1password.md](docs/1password.md) for details.
@@ -79,13 +79,12 @@ When you need to deviate — fix a bug in another repo, try a different approach
 
 ### 5. Ask the assistant
 
-For housekeeping — cleaning up old missions, checking daemon status, configuring cron jobs — open the assistant from the command palette ("Assistant") or via:
+Open the assistant from the command palette ("Assistant") or via `agenc mission new --assistant`. The assistant knows the full AgenC CLI and can:
 
-```
-agenc mission new --assistant
-```
-
-The assistant knows the full AgenC CLI and can manage the system on your behalf.
+- Clean up old missions
+- Configure AgenC itself (settings, repos, keybindings)
+- Set up and manage cron jobs
+- Spawn new missions on your behalf
 
 How It Works
 ------------
