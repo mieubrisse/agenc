@@ -270,7 +270,7 @@ func createAndLaunchAssistantMission(agencDirpath string, initialPrompt string) 
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching AgenC assistant...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "💁‍♂️ AgenC Assistant", initialPrompt, db)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "💁‍♂️  AgenC Assistant", initialPrompt, db)
 	return w.Run(false)
 }
 
@@ -325,7 +325,7 @@ func formatLibraryFzfLine(entry repoLibraryEntry) string {
 func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibraryEntry, error) {
 	// First two data rows are special options; repos follow at index offset 2
 	var rows [][]string
-	rows = append(rows, []string{"💁‍♂️", "AgenC Assistant"})
+	rows = append(rows, []string{"💁‍♂️ ", "AgenC Assistant"})
 	rows = append(rows, []string{"🔗", "clone new repo"})
 	for _, entry := range entries {
 		rows = append(rows, []string{"📦", displayGitRepo(entry.RepoName)})
