@@ -158,9 +158,16 @@ Tips
 Authentication
 --------------
 
-AgenC handles Claude credentials automatically. Each mission gets its own isolated Keychain entry, cloned from your global credentials at launch. OAuth tokens (for MCP servers like Todoist) propagate across missions — you only authenticate once.
+Each mission gets a clone of your global Claude Code credentials token at launch. This token expires roughly once a day. With a single Claude Code instance, it refreshes seamlessly. The problem comes with multiple simultaneous instances: they all try to refresh the same token at once, invalidating each other in a thrashing loop that causes auth failures across all missions.
 
-Run `agenc login` for first-time setup or to refresh expired credentials. See [docs/authentication.md](docs/authentication.md) for the full details on credential flow and MCP OAuth tokens.
+When a token expires, AgenC shows the status in the tmux status line. To fix it:
+
+1. **Stop all missions** so only one Claude instance is running, then let it refresh naturally, **or**
+2. Run `agenc login` to get a fresh token before the current one expires
+
+That's it. The most common auth issue is the multi-instance refresh thrash — and the fix is just ensuring a single instance does the refresh.
+
+See [docs/authentication.md](docs/authentication.md) for the full details on credential flow and MCP OAuth tokens.
 
 1Password Secret Injection
 --------------------------
