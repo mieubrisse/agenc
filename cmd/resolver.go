@@ -16,17 +16,13 @@ type ResolveResult[T any] struct {
 type Resolver[T any] struct {
 	// TryCanonical attempts to interpret the input as a canonical reference.
 	// Returns (item, true, nil) if it's a valid canonical ref.
-	// Returns (zero, false, nil) if it doesn't look canonical (fall through to search).
+	// Returns (zero, false, nil) if it doesn't look canonical (fall through).
 	// Returns (zero, false, error) if it looks canonical but is invalid.
 	// Optional: if nil, canonical resolution is skipped.
 	TryCanonical func(input string) (T, bool, error)
 
-	// GetItems returns all available items for search and fzf display.
+	// GetItems returns all available items for fzf display.
 	GetItems func() ([]T, error)
-
-	// ExtractText returns the searchable text representation of an item.
-	// Used for sequential substring matching.
-	ExtractText func(T) string
 
 	// FormatRow formats an item as columns for fzf display.
 	FormatRow func(T) []string
@@ -39,13 +35,15 @@ type Resolver[T any] struct {
 
 	// MultiSelect enables TAB multi-select in fzf.
 	MultiSelect bool
+
+	// NotCanonicalError is the error message returned when input is non-empty
+	// but TryCanonical does not recognize it. If empty, a generic message is used.
+	NotCanonicalError string
 }
 
-// Resolve implements the 4-step resolution pattern:
+// Resolve implements the resolution pattern:
 //  1. Empty input → show fzf picker with all items
-//  2. Input that looks canonical → try TryCanonical
-//  3. Otherwise → all terms are search query for sequential substring matching
-//  4. Exactly 1 match → auto-select; 0 or 2+ matches → fzf with initial query
+//  2. Non-empty input → try TryCanonical; if not recognized, return an error
 //
 // Callers should join positional args before calling: Resolve(strings.Join(args, " "), ...)
 func Resolve[T any](input string, r Resolver[T]) (*ResolveResult[T], error) {
@@ -53,7 +51,7 @@ func Resolve[T any](input string, r Resolver[T]) (*ResolveResult[T], error) {
 
 	// Step 1: Empty input → show fzf picker
 	if input == "" {
-		return resolveWithFzf(r, "")
+		return resolveWithFzf(r)
 	}
 
 	// Step 2: Try canonical resolution (if configured)
@@ -67,45 +65,16 @@ func Resolve[T any](input string, r Resolver[T]) (*ResolveResult[T], error) {
 		}
 	}
 
-	// Step 3: Treat input as search terms
-	items, err := r.GetItems()
-	if err != nil {
-		return nil, err
+	// Input provided but not recognized as a canonical reference
+	errMsg := r.NotCanonicalError
+	if errMsg == "" {
+		errMsg = "not a valid reference"
 	}
-
-	if len(items) == 0 {
-		return &ResolveResult[T]{Items: nil}, nil
-	}
-
-	terms := strings.Fields(input)
-	matches := filterBySubstringMatch(items, terms, r.ExtractText)
-
-	// Step 4: Single match → auto-select; otherwise → fzf
-	if len(matches) == 1 {
-		return &ResolveResult[T]{Items: matches}, nil
-	}
-
-	return resolveWithFzf(r, input)
-}
-
-// filterBySubstringMatch filters items using sequential substring matching.
-func filterBySubstringMatch[T any](items []T, terms []string, extractText func(T) string) []T {
-	if len(terms) == 0 {
-		return items
-	}
-
-	var matches []T
-	for _, item := range items {
-		text := extractText(item)
-		if matchesSequentialSubstrings(text, terms) {
-			matches = append(matches, item)
-		}
-	}
-	return matches
+	return nil, stacktrace.NewError("%s: %s", errMsg, input)
 }
 
 // resolveWithFzf shows the fzf picker with all items.
-func resolveWithFzf[T any](r Resolver[T], initialQuery string) (*ResolveResult[T], error) {
+func resolveWithFzf[T any](r Resolver[T]) (*ResolveResult[T], error) {
 	items, err := r.GetItems()
 	if err != nil {
 		return nil, err
@@ -122,11 +91,10 @@ func resolveWithFzf[T any](r Resolver[T], initialQuery string) (*ResolveResult[T
 	}
 
 	indices, err := runFzfPicker(FzfPickerConfig{
-		Prompt:       r.FzfPrompt,
-		Headers:      r.FzfHeaders,
-		Rows:         rows,
-		MultiSelect:  r.MultiSelect,
-		InitialQuery: initialQuery,
+		Prompt:      r.FzfPrompt,
+		Headers:     r.FzfHeaders,
+		Rows:        rows,
+		MultiSelect: r.MultiSelect,
 	})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; pass arguments instead")
