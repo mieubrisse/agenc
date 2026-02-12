@@ -9,9 +9,16 @@ Update a palette command in config.yml.
 Works for both built-in and custom commands. For built-ins, creates or updates
 the config override entry. At least one flag must be provided.
 
+The keybinding value is passed through to tmux's bind-key command. By default,
+keybindings live in the AgenC key table (prefix + a, <key>). To make a global
+binding that works anywhere without the AgenC leader, prefix with "-n":
+
+  --keybinding="f"       → prefix + a, f  (AgenC table)
+  --keybinding="-n C-s"  → Ctrl-s globally (root table, no prefix needed)
+
 Example:
   agenc config paletteCommand update newMission --keybinding="C-n"
-  agenc config paletteCommand update dotfiles --title="📁 Dotfiles" --keybinding="f"
+  agenc config paletteCommand update stopMission --keybinding="-n C-s"
 
 
 ```
@@ -24,7 +31,7 @@ agenc config paletteCommand update <name> [flags]
       --command string       full command to execute
       --description string   description shown alongside the title
   -h, --help                 help for update
-      --keybinding string    tmux keybinding (e.g. "f" or "C-y")
+      --keybinding string    tmux keybinding (e.g. "f", "C-y", or "-n C-s" for global)
       --title string         title shown in the palette picker
 ```
 

@@ -43,12 +43,18 @@ paletteCommands:
   # Disable a builtin entirely (no palette entry, no keybinding)
   nukeMissions: {}
 
-  # Custom command with palette entry + tmux keybinding
+  # Custom command with keybinding (in agenc table: prefix + a, f)
   dotfiles:
     title: "Open dotfiles"
     description: "Start a dotfiles mission"
     command: "agenc tmux window new -- agenc mission new mieubrisse/dotfiles"
     tmuxKeybinding: "f"
+
+  # Global keybinding (root table, no prefix needed: Ctrl-s)
+  stopThisMission:
+    title: "Stop Mission"
+    command: "agenc mission stop $AGENC_CALLING_MISSION_UUID"
+    tmuxKeybinding: "-n C-s"
 
   # Custom command, palette only (no keybinding)
   logs:
@@ -119,7 +125,7 @@ Each entry supports four fields:
 - **title** — label shown in the palette picker (entries without a title are keybinding-only)
 - **description** — context shown alongside the title
 - **command** — full shell command to execute (e.g. `agenc tmux window new -- agenc mission new`)
-- **tmuxKeybinding** — tmux key bound in the agenc key table (e.g. `"f"`, `"C-n"`)
+- **tmuxKeybinding** — tmux keybinding. By default, a bare key like `"f"` or `"C-n"` is bound in the agenc key table (prefix + a, key). To make a global binding in the root table (no prefix needed), use `"-n C-s"` syntax — the value is passed through to tmux's `bind-key` command
 
 **Merge rules for builtins:**
 - Key absent from config: full defaults

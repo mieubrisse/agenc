@@ -20,16 +20,17 @@ Example config.yml:
     # Disable a builtin
     nukeMissions: {}
 
-    # Custom command with keybinding
+    # Custom command with keybinding (in AgenC table: prefix + a, f)
     dotfiles:
       title: "📁 Open dotfiles"
       command: "agenc tmux window new -- agenc mission new mieubrisse/dotfiles"
       tmuxKeybinding: "f"
 
-    # Mission-scoped command (only visible when a mission pane is focused)
+    # Global keybinding (root table, no prefix needed: Ctrl-s)
     stopThisMission:
       title: "🛑 Stop Mission"
       command: "agenc mission stop $AGENC_CALLING_MISSION_UUID"
+      tmuxKeybinding: "-n C-s"
 
 
 ### Options

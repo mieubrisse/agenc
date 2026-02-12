@@ -18,9 +18,16 @@ var configPaletteCommandUpdateCmd = &cobra.Command{
 Works for both built-in and custom commands. For built-ins, creates or updates
 the config override entry. At least one flag must be provided.
 
+The keybinding value is passed through to tmux's bind-key command. By default,
+keybindings live in the AgenC key table (prefix + a, <key>). To make a global
+binding that works anywhere without the AgenC leader, prefix with "-n":
+
+  --keybinding="f"       → prefix + a, f  (AgenC table)
+  --keybinding="-n C-s"  → Ctrl-s globally (root table, no prefix needed)
+
 Example:
   agenc config paletteCommand update newMission --keybinding="C-n"
-  agenc config paletteCommand update dotfiles --title="📁 Dotfiles" --keybinding="f"
+  agenc config paletteCommand update stopMission --keybinding="-n C-s"
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigPaletteCommandUpdate,
@@ -30,7 +37,7 @@ func init() {
 	configPaletteCommandCmd.AddCommand(configPaletteCommandUpdateCmd)
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandTitleFlagName, "", "title shown in the palette picker")
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandCommandFlagName, "", "full command to execute")
-	configPaletteCommandUpdateCmd.Flags().String(paletteCommandKeybindingFlagName, "", "tmux keybinding (e.g. \"f\" or \"C-y\")")
+	configPaletteCommandUpdateCmd.Flags().String(paletteCommandKeybindingFlagName, "", "tmux keybinding (e.g. \"f\", \"C-y\", or \"-n C-s\" for global)")
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandDescriptionFlagName, "", "description shown alongside the title")
 }
 

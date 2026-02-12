@@ -21,7 +21,7 @@ const agencBinary = "agenc"
 // CustomKeybinding represents a user/builtin keybinding to emit in the
 // generated tmux keybindings file.
 type CustomKeybinding struct {
-	Key             string // tmux key (e.g. "f", "C-y")
+	Key             string // tmux key or raw bind-key args (e.g. "f", "C-y", "-n C-s")
 	Command         string // full command string
 	Comment         string // human-readable comment for the generated file
 	IsMissionScoped bool   // true if the command requires a focused mission pane
@@ -74,15 +74,24 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		if kb.Comment != "" {
 			fmt.Fprintf(&sb, "# %s\n", kb.Comment)
 		}
+
+		// Determine the bind-key args. If the key starts with "-", it
+		// contains raw bind-key flags (e.g. "-n C-s" for root table) and
+		// is inserted verbatim. Otherwise, scope it to the agenc key table.
+		bindKeyArgs := fmt.Sprintf("-T %s %s", agencKeyTable, kb.Key)
+		if strings.HasPrefix(kb.Key, "-") {
+			bindKeyArgs = kb.Key
+		}
+
 		if kb.IsMissionScoped {
 			// Mission-scoped: resolve the pane's mission UUID first, skip if empty.
 			// #{pane_id} is expanded by tmux at key-press time.
-			fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '"+
+			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
-				"'\n", agencKeyTable, kb.Key, agencBinary, kb.Command)
+				"'\n", bindKeyArgs, agencBinary, kb.Command)
 		} else {
-			fmt.Fprintf(&sb, "bind-key -T %s %s run-shell '%s'\n", agencKeyTable, kb.Key, kb.Command)
+			fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, kb.Command)
 		}
 	}
 
@@ -111,10 +120,18 @@ func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []Cu
 		if cmd.TmuxKeybinding == "" {
 			continue
 		}
-		comment := fmt.Sprintf("%s (prefix + a, %s)", cmd.Name, cmd.TmuxKeybinding)
-		if cmd.Title != "" {
-			comment = fmt.Sprintf("%s — %s (prefix + a, %s)", cmd.Name, cmd.Title, cmd.TmuxKeybinding)
+
+		// Keys starting with "-" are raw bind-key args (e.g. "-n C-s")
+		// and bypass the agenc key table, so the comment should reflect that.
+		bindingDesc := fmt.Sprintf("prefix + a, %s", cmd.TmuxKeybinding)
+		if strings.HasPrefix(cmd.TmuxKeybinding, "-") {
+			bindingDesc = cmd.TmuxKeybinding
 		}
+		comment := fmt.Sprintf("%s (%s)", cmd.Name, bindingDesc)
+		if cmd.Title != "" {
+			comment = fmt.Sprintf("%s — %s (%s)", cmd.Name, cmd.Title, bindingDesc)
+		}
+
 		keybindings = append(keybindings, CustomKeybinding{
 			Key:             cmd.TmuxKeybinding,
 			Command:         cmd.Command,

@@ -22,6 +22,13 @@ Built-in names cannot be used — use 'update' to override builtins.
 Commands that reference $AGENC_CALLING_MISSION_UUID are "mission-scoped" —
 they only appear in the palette when the focused pane is running a mission.
 
+The keybinding value is passed through to tmux's bind-key command. By default,
+keybindings live in the AgenC key table (prefix + a, <key>). To make a global
+binding that works anywhere without the AgenC leader, prefix with "-n":
+
+  --keybinding="f"       → prefix + a, f  (AgenC table)
+  --keybinding="-n C-s"  → Ctrl-s globally (root table, no prefix needed)
+
 Examples:
   agenc config paletteCommand add dotfiles \
     --title="📁 Open dotfiles" \
@@ -30,7 +37,8 @@ Examples:
 
   agenc config paletteCommand add stopThisMission \
     --title="🛑 Stop Mission" \
-    --command="agenc mission stop \$AGENC_CALLING_MISSION_UUID"
+    --command="agenc mission stop \$AGENC_CALLING_MISSION_UUID" \
+    --keybinding="-n C-s"
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigPaletteCommandAdd,
@@ -40,7 +48,7 @@ func init() {
 	configPaletteCommandCmd.AddCommand(configPaletteCommandAddCmd)
 	configPaletteCommandAddCmd.Flags().String(paletteCommandTitleFlagName, "", "title shown in the palette picker (required)")
 	configPaletteCommandAddCmd.Flags().String(paletteCommandCommandFlagName, "", "full command to execute (required)")
-	configPaletteCommandAddCmd.Flags().String(paletteCommandKeybindingFlagName, "", "tmux keybinding (optional, e.g. \"f\" or \"C-y\")")
+	configPaletteCommandAddCmd.Flags().String(paletteCommandKeybindingFlagName, "", "tmux keybinding (e.g. \"f\", \"C-y\", or \"-n C-s\" for global)")
 	configPaletteCommandAddCmd.Flags().String(paletteCommandDescriptionFlagName, "", "description shown alongside the title (optional)")
 	_ = configPaletteCommandAddCmd.MarkFlagRequired(paletteCommandTitleFlagName)
 	_ = configPaletteCommandAddCmd.MarkFlagRequired(paletteCommandCommandFlagName)

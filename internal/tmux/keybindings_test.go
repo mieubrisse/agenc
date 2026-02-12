@@ -3,6 +3,8 @@ package tmux
 import (
 	"strings"
 	"testing"
+
+	"github.com/odyssey/agenc/internal/config"
 )
 
 func TestGenerateKeybindingsContent_MissionScopedKeybinding(t *testing.T) {
@@ -111,5 +113,86 @@ func TestGenerateKeybindingsContent_PaletteKeyOutsideAgencTable(t *testing.T) {
 	// Should NOT be in the agenc table
 	if strings.Contains(content, "bind-key -T agenc C-k") {
 		t.Error("expected palette keybinding NOT to be in the agenc table")
+	}
+}
+
+func TestGenerateKeybindingsContent_GlobalKeybinding(t *testing.T) {
+	// Keybinding with "-n" prefix should be inserted verbatim (root table),
+	// not wrapped with "-T agenc".
+	keybindings := []CustomKeybinding{
+		{
+			Key:     "-n C-s",
+			Command: "agenc mission stop $AGENC_CALLING_MISSION_UUID",
+			Comment: "stopMission — Stop Mission (-n C-s)",
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+
+	// Should emit "bind-key -n C-s" verbatim
+	if !strings.Contains(content, "bind-key -n C-s run-shell") {
+		t.Error("expected global keybinding to use '-n C-s' verbatim")
+	}
+
+	// Should NOT wrap with the agenc table
+	if strings.Contains(content, "bind-key -T agenc -n") {
+		t.Error("expected global keybinding NOT to be wrapped with '-T agenc'")
+	}
+}
+
+func TestGenerateKeybindingsContent_GlobalMissionScopedKeybinding(t *testing.T) {
+	// Mission-scoped keybinding with "-n" prefix should use root table
+	// but still include the resolve-mission preamble.
+	keybindings := []CustomKeybinding{
+		{
+			Key:             "-n C-s",
+			Command:         "agenc mission stop $AGENC_CALLING_MISSION_UUID",
+			Comment:         "stopMission — Stop Mission (-n C-s)",
+			IsMissionScoped: true,
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+
+	// Should emit "bind-key -n C-s" verbatim
+	if !strings.Contains(content, "bind-key -n C-s run-shell") {
+		t.Error("expected global mission-scoped keybinding to use '-n C-s' verbatim")
+	}
+
+	// Should still contain resolve-mission preamble
+	if !strings.Contains(content, "resolve-mission") {
+		t.Error("expected global mission-scoped keybinding to contain resolve-mission")
+	}
+
+	// Should NOT wrap with the agenc table
+	if strings.Contains(content, "bind-key -T agenc -n") {
+		t.Error("expected global keybinding NOT to be wrapped with '-T agenc'")
+	}
+}
+
+func TestBuildKeybindingsFromCommands_GlobalKeyComment(t *testing.T) {
+	// Verify that "-n" prefixed keybindings get appropriate comments
+	// (not "prefix + a, ...").
+	resolved := []config.ResolvedPaletteCommand{
+		{
+			Name:           "stopMission",
+			Title:          "Stop Mission",
+			Command:        "agenc mission stop $AGENC_CALLING_MISSION_UUID",
+			TmuxKeybinding: "-n C-s",
+		},
+	}
+
+	keybindings := BuildKeybindingsFromCommands(resolved)
+
+	if len(keybindings) != 1 {
+		t.Fatalf("expected 1 keybinding, got %d", len(keybindings))
+	}
+
+	kb := keybindings[0]
+	if strings.Contains(kb.Comment, "prefix + a") {
+		t.Errorf("expected global keybinding comment NOT to mention 'prefix + a', got: %s", kb.Comment)
+	}
+	if !strings.Contains(kb.Comment, "-n C-s") {
+		t.Errorf("expected global keybinding comment to contain '-n C-s', got: %s", kb.Comment)
 	}
 }

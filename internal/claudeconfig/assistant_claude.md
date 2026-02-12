@@ -10,6 +10,7 @@ AgenC Overview
 - **Repos** are git repositories in the repo library (`~/.agenc/repos/`). When a mission is created from a repo, the repo is copied into the mission's `agent/` directory.
 - **Tmux** is the primary interface. Each mission is a tmux window. **"Window title" means the tmux window name** — the text shown in the tmux status bar for that window. AgenC sets window titles from the repo name or a custom string.
 - **Palette commands** are quick-launch entries in the AgenC tmux command palette (opened via a keybinding). Each has a `name` (internal key), `title` (display text, often with an emoji), `command` (what it runs), and optional `tmuxKeybinding`. Stored in `config.yml` under `paletteCommands`. Manage with `agenc config paletteCommand`.
+  - **Keybinding syntax:** The `tmuxKeybinding` value is passed through to tmux's `bind-key` command. A bare key like `"f"` or `"C-n"` is bound in the agenc key table (prefix + a, key). To make a **global** binding in the root table (no prefix needed), use `"-n <key>"` — e.g. `--keybinding="-n C-s"` binds Ctrl-s globally. This works for both `paletteCommand add` and `paletteCommand update`.
 - **Cron jobs** are scheduled headless missions defined in `config.yml`.
 - **The daemon** is a background process that handles scheduled tasks, repo syncing, and credential management.
 
