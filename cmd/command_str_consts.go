@@ -54,7 +54,7 @@ const (
 	setCmdStr              = "set"
 	editCmdStr             = "edit"
 	paletteCommandCmdStr   = "paletteCommand"
-	repoConfigCmdStr       = "repo-config"
+	repoConfigCmdStr       = "repoConfig"
 
 	// Daemon subcommands
 	startCmdStr   = "start"
@@ -98,7 +98,7 @@ const (
 	paletteCommandDescriptionFlagName = "description"
 	paletteCommandKeybindingFlagName  = "keybinding"
 
-	// repo-config flags
+	// repoConfig flags
 	repoConfigAlwaysSyncedFlagName = "always-synced"
 	repoConfigWindowTitleFlagName  = "window-title"
 

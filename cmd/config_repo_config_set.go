@@ -18,9 +18,9 @@ The repo must be specified in canonical format (github.com/owner/repo).
 At least one flag must be provided.
 
 Examples:
-  agenc config repo-config set github.com/owner/repo --always-synced=true
-  agenc config repo-config set github.com/owner/repo --window-title="my-repo"
-  agenc config repo-config set github.com/owner/repo --always-synced=true --window-title="my-repo"
+  agenc config repoConfig set github.com/owner/repo --always-synced=true
+  agenc config repoConfig set github.com/owner/repo --window-title="my-repo"
+  agenc config repoConfig set github.com/owner/repo --always-synced=true --window-title="my-repo"
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigRepoConfigSet,
