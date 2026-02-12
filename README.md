@@ -57,13 +57,13 @@ This is the primary interface — the command palette, window management, and ke
 
 Open the **command palette** with `prefix + a, k` and select **"New Mission"**. Pick **"Clone new repo"**, paste a GitHub URL or `owner/repo` shorthand, and AgenC clones the repo into an isolated sandbox and launches Claude ready to work.
 
-Each mission gets its own tmux window, its own copy of the repo, and a snapshot of your global Claude configuration (CLAUDE.md, settings.json, skills, MCP servers) at launch time. This means missions are reproducible and isolated from each other. If you update your global Claude config later, run `agenc mission update-config` to push the latest config into running missions.
+Each mission gets its own tmux window, its own copy of the repo, and a snapshot of your global Claude configuration (CLAUDE.md, settings.json, skills, MCP servers) at launch time. This means missions are reproducible and isolated from each other. If you update your global Claude config later, run `agenc mission reconfig` to push the latest config into running missions.
 
-The default command palette keybinding requires two keystrokes after the prefix. You can set a global shortcut using `agenc config set paletteTmuxKeybinding` — the value is passed directly to `tmux bind-key`. For example, to make the palette always available via `Ctrl-y` (no prefix needed):
-
-```
-agenc config set paletteTmuxKeybinding -- "-n C-y"
-```
+> 💡 The default command palette keybinding requires two keystrokes after the prefix. You can set a global shortcut using `agenc config set paletteTmuxKeybinding -- "<tmux bind-key args>"` The args are passed directly to `tmux bind-key`. For example, to make the palette always available via `Ctrl-y` (no prefix needed):
+> 
+> ```
+> agenc config set paletteTmuxKeybinding -- "-n C-y"
+> ```
 
 Use Claude as you normally would. If your repo has a `.claude/secrets.env` file, AgenC automatically uses the [1Password CLI](https://developer.1password.com/docs/cli/) (`op`) to resolve the secret references therein and inject them as environment variables into the Claude process — keeping your MCP server tokens and API keys in 1Password rather than on disk. See [docs/1password.md](docs/1password.md) for details.
 
@@ -149,7 +149,7 @@ Tips
 - **Rename missions when you stop them.** When you run `agenc mission stop`, give the mission a descriptive name so you can find it later with `agenc mission resume`. A wall of unnamed missions is hard to navigate.
 - **Open a shell pane with prefix + %.** Inside the AgenC tmux session, the standard tmux split (`prefix + %`) opens a shell in the mission's workspace directory. Handy for running tests, checking git status, or poking around while Claude works.
 - **Cycle between missions with prefix + n / prefix + p.** Each mission is a tmux window. Use the standard tmux shortcuts — `prefix + n` (next window) and `prefix + p` (previous window) — to move between them. You can also jump directly to a window by number with `prefix + <number>`.
-- **Always commit and push.** Missions are ephemeral — their local filesystems don't persist. If your agent makes changes but doesn't push them, the work vanishes when the mission ends. Teach your agents (via CLAUDE.md) to commit and push after every meaningful change so that each mission's output is durable and independent.
+- **Teach your agents to always push.** Mission filesystems are ephemeral — unpushed work vanishes when the mission ends. Add instructions to your CLAUDE.md telling agents to `git push` after every commit. This is the single most important habit to instill: a mission that pushes its work is durable and independent; one that doesn't is a loss.
 - **Bind a friendlier hotkey for swap-pane.** When you split a pane with `prefix + %`, you'll often want to rearrange which side is which. The default tmux bindings (`prefix + {` / `prefix + }`) are awkward. Consider binding something like `C-;` in your `~/.tmux.conf` to swap to the other pane:
   ```
   bind -n 'C-;' select-pane -t :.+
