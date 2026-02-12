@@ -70,14 +70,14 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 			}
 			return missionPickerEntry{}, false, stacktrace.NewError("mission %s not found", input)
 		},
-		GetItems:    func() ([]missionPickerEntry, error) { return entries, nil },
-		ExtractText: formatMissionMatchLine,
+		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
 			return []string{e.LastActive, e.ShortID, e.Status, e.Session, e.Repo}
 		},
-		FzfPrompt:   "Select mission to inspect: ",
-		FzfHeaders:  []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
-		MultiSelect: false,
+		FzfPrompt:        "Select mission to inspect: ",
+		FzfHeaders:       []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
+		MultiSelect:      false,
+		NotCanonicalError: "not a valid mission ID",
 	})
 	if err != nil {
 		return err

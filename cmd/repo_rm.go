@@ -68,12 +68,12 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 			// The actual validation happens in removeSingleRepo
 			return name, true, nil
 		},
-		GetItems:    func() ([]string, error) { return repos, nil },
-		ExtractText: func(repo string) string { return repo },
-		FormatRow:   func(repo string) []string { return []string{displayGitRepo(repo)} },
-		FzfPrompt:   "Select repos to remove (TAB to multi-select): ",
-		FzfHeaders:  []string{"REPO"},
-		MultiSelect: true,
+		GetItems:          func() ([]string, error) { return repos, nil },
+		FormatRow:         func(repo string) []string { return []string{displayGitRepo(repo)} },
+		FzfPrompt:         "Select repos to remove (TAB to multi-select): ",
+		FzfHeaders:        []string{"REPO"},
+		MultiSelect:       true,
+		NotCanonicalError: "not a valid repo reference",
 	})
 	if err != nil {
 		return err

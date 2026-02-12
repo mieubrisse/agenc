@@ -165,14 +165,14 @@ func runMissionNewWithPicker(args []string) error {
 	// Sentinel is not included since we're searching, not browsing
 	result, err := Resolve(input, Resolver[repoLibraryEntry]{
 		TryCanonical: nil, // Already handled above
-		GetItems:     func() ([]repoLibraryEntry, error) { return entries, nil },
-		ExtractText:  formatLibraryFzfLine,
+		GetItems: func() ([]repoLibraryEntry, error) { return entries, nil },
 		FormatRow: func(e repoLibraryEntry) []string {
 			return []string{"📦", displayGitRepo(e.RepoName)}
 		},
-		FzfPrompt:   "Select repo: ",
-		FzfHeaders:  []string{"TYPE", "REPO"},
-		MultiSelect: false,
+		FzfPrompt:        "Select repo: ",
+		FzfHeaders:       []string{"TYPE", "REPO"},
+		MultiSelect:      false,
+		NotCanonicalError: "not a valid repo reference",
 	})
 	if err != nil {
 		return err
