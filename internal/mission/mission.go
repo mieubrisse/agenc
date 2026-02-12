@@ -88,7 +88,7 @@ func buildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(),
 		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
-		"AGENC_MISSION_UUID="+missionID,
+		config.MissionUUIDEnvVar+"="+missionID,
 	)
 
 	return cmd, nil

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -22,9 +23,12 @@ var assistantClaudeMdContent string
 // These are project-level files that Claude Code picks up from the working
 // directory, separate from the global config in claude-config/.
 func writeAssistantAgentConfig(agentDirpath string, agencDirpath string) error {
-	// Write assistant CLAUDE.md to agent/CLAUDE.md
+	// Write assistant CLAUDE.md to agent/CLAUDE.md, replacing placeholders
+	// with actual values so the env var name stays in sync with the constant.
+	claudeMdContent := strings.ReplaceAll(assistantClaudeMdContent,
+		"{{MISSION_UUID_ENV_VAR}}", config.MissionUUIDEnvVar)
 	claudeMdFilepath := filepath.Join(agentDirpath, "CLAUDE.md")
-	if err := os.WriteFile(claudeMdFilepath, []byte(assistantClaudeMdContent), 0644); err != nil {
+	if err := os.WriteFile(claudeMdFilepath, []byte(claudeMdContent), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write assistant CLAUDE.md to agent directory")
 	}
 

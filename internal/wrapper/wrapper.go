@@ -705,7 +705,7 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 	cmd.Dir = w.agentDirpath
 	cmd.Env = append(os.Environ(),
 		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
-		"AGENC_MISSION_UUID="+w.missionID,
+		config.MissionUUIDEnvVar+"="+w.missionID,
 	)
 
 	return cmd, nil

@@ -190,13 +190,35 @@ func TestAssistantClaudeMdContent(t *testing.T) {
 		expectedPhrases := []string{
 			"AgenC Assistant Mission",
 			"CLI quick reference",
-			"$AGENC_MISSION_UUID",
+			"{{MISSION_UUID_ENV_VAR}}",
 			"Do NOT modify other missions",
 		}
 		for _, phrase := range expectedPhrases {
 			if !strings.Contains(assistantClaudeMdContent, phrase) {
 				t.Errorf("assistant CLAUDE.md missing expected phrase: %q", phrase)
 			}
+		}
+	})
+
+	t.Run("written CLAUDE.md has env var placeholder replaced", func(t *testing.T) {
+		agentDirpath := t.TempDir()
+		agencDirpath := "/home/user/.agenc"
+
+		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(agentDirpath, "CLAUDE.md"))
+		if err != nil {
+			t.Fatalf("failed to read CLAUDE.md: %v", err)
+		}
+
+		content := string(data)
+		if strings.Contains(content, "{{MISSION_UUID_ENV_VAR}}") {
+			t.Error("written CLAUDE.md still contains unreplaced placeholder")
+		}
+		if !strings.Contains(content, "$"+config.MissionUUIDEnvVar) {
+			t.Errorf("written CLAUDE.md missing env var reference $%s", config.MissionUUIDEnvVar)
 		}
 	})
 }

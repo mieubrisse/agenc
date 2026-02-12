@@ -22,7 +22,7 @@ Operating Rules
 
 **The AgenC CLI quick reference is injected at session start** via a hook. Refer to it for command syntax, flags, and arguments whenever you are unsure. Use `--help` on any subcommand to see its full usage.
 
-**Your mission UUID** is available in `$AGENC_MISSION_UUID`.
+**Your mission UUID** is available in the `${{MISSION_UUID_ENV_VAR}}` environment variable.
 
 Launching and Resuming Missions
 -------------------------------
