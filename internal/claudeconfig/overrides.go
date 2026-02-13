@@ -1,6 +1,11 @@
 package claudeconfig
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // AgencHookEntries defines the hook entries that agenc appends to the user's
 // hooks. Keys are hook event names, values are JSON arrays of hook group objects.
@@ -37,11 +42,45 @@ func BuildRepoLibraryDenyEntries(agencDirpath string) []string {
 // agents from editing their own mission's claude-config directory. This stops
 // the agent from modifying the settings, hooks, CLAUDE.md, and other config
 // that AgenC injects to control agent behavior.
+//
+// Generates deny rules for three path formats (absolute, tilde, ${HOME}) to ensure
+// agents cannot bypass the deny rules by using different path representations.
 func BuildClaudeConfigDenyEntries(claudeConfigDirpath string) []string {
-	configPattern := claudeConfigDirpath + "/**"
-	entries := make([]string, 0, len(AgencDenyPermissionTools))
+	// Convert absolute path to all three variants
+	patterns := buildPathVariants(claudeConfigDirpath)
+
+	// Generate deny entries for each tool × each path variant
+	entries := make([]string, 0, len(AgencDenyPermissionTools)*len(patterns))
 	for _, tool := range AgencDenyPermissionTools {
-		entries = append(entries, tool+"("+configPattern+")")
+		for _, pattern := range patterns {
+			entries = append(entries, tool+"("+pattern+"/**)")
+		}
 	}
 	return entries
+}
+
+// buildPathVariants converts an absolute path to all three Claude Code path formats:
+// absolute, tilde-prefixed, and ${HOME}-prefixed. This ensures permission rules
+// work regardless of which path format the agent uses.
+func buildPathVariants(absolutePath string) []string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Can't determine home — only return absolute path
+		return []string{absolutePath}
+	}
+
+	variants := []string{absolutePath} // Always include absolute path
+
+	// Check if path is under home directory
+	if strings.HasPrefix(absolutePath, homeDir+string(filepath.Separator)) {
+		relPath, err := filepath.Rel(homeDir, absolutePath)
+		if err == nil {
+			// Add tilde variant: ~/.agenc/missions/...
+			variants = append(variants, filepath.Join("~", relPath))
+			// Add ${HOME} variant: ${HOME}/.agenc/missions/...
+			variants = append(variants, filepath.Join("${HOME}", relPath))
+		}
+	}
+
+	return variants
 }
