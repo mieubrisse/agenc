@@ -368,11 +368,32 @@ func WriteOAuthToken(agencDirpath string, token string) error {
 // oauthTokenPrefix is the expected prefix for valid Claude Code OAuth tokens.
 const oauthTokenPrefix = "sk-ant-"
 
+// cleanupOldAuthFiles removes files from the previous Keychain-based auth
+// system. This runs once per wrapper launch to ensure a clean migration to
+// token-file auth. Errors are ignored (non-fatal) to avoid blocking auth setup.
+func cleanupOldAuthFiles(agencDirpath string) {
+	// Remove the global-credentials-expiry file used for broadcasting Keychain
+	// credential changes across missions. No longer needed with token-file auth.
+	expiryFilepath := GetGlobalCredentialsExpiryFilepath(agencDirpath)
+	if err := os.Remove(expiryFilepath); err != nil && !os.IsNotExist(err) {
+		// Log suppressed: cleanup is best-effort and should not produce noise
+	}
+
+	// Note: Per-mission Keychain entries ("Claude Code-credentials-<hash>") are
+	// left in place. They're harmless and removing them requires per-mission
+	// iteration, which is expensive. Users can manually clean with:
+	//   security find-generic-password -s "Claude Code-credentials" -a | grep "Claude Code-credentials-"
+	//   security delete-generic-password -s "Claude Code-credentials-<hash>" -a <account>
+}
+
 // SetupOAuthToken walks the user through obtaining a long-lived Claude Code
 // OAuth token via `claude setup-token`. If a token file already exists, it
 // returns nil without overwriting. Requires a TTY on stdin — returns an error
 // with manual setup instructions if no TTY is available (e.g. headless mode).
 func SetupOAuthToken(agencDirpath string) error {
+	// Clean up old Keychain-based auth files from previous AgenC versions
+	cleanupOldAuthFiles(agencDirpath)
+
 	existing, err := ReadOAuthToken(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to check existing OAuth token")
