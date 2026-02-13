@@ -299,7 +299,7 @@ func printRepoFormatHelp() {
 
 	// Check if default GitHub user is available (from gh CLI)
 	if defaultUser := getDefaultGitHubUser(); defaultUser != "" {
-		fmt.Printf("  repo                               shorthand (expands to %s/repo via gh login)\n", defaultUser)
+		fmt.Printf("  repo                               shorthand (expands to %s/repo via your `gh login`)\n", defaultUser)
 	}
 
 	fmt.Println("  owner/repo                         shorthand")
