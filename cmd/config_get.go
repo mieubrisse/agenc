@@ -76,10 +76,16 @@ func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 		if cfg.TmuxWindowBusyColor == nil {
 			return "unset", nil
 		}
+		if *cfg.TmuxWindowBusyColor == "" {
+			return "disabled", nil
+		}
 		return *cfg.TmuxWindowBusyColor, nil
 	case "tmuxWindowAttentionColor":
 		if cfg.TmuxWindowAttentionColor == nil {
 			return "unset", nil
+		}
+		if *cfg.TmuxWindowAttentionColor == "" {
+			return "disabled", nil
 		}
 		return *cfg.TmuxWindowAttentionColor, nil
 	default:
