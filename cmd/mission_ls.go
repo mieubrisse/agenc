@@ -206,7 +206,7 @@ func isSessionNameCacheFresh(m *database.Mission) bool {
 // History data lives in the per-mission claude-config directory (for newer
 // missions) or the global claude directory (for older missions).
 func resolveMissionPrompt(db *database.DB, m *database.Mission) string {
-	if m.Prompt != "" && !history.IsCommandOnlyEntry(strings.TrimSpace(m.Prompt)) {
+	if m.Prompt != "" {
 		return m.Prompt
 	}
 
