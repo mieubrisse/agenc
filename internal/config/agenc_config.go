@@ -203,11 +203,17 @@ func (c ResolvedPaletteCommand) IsMissionScoped() bool {
 }
 
 // FormatKeybinding returns the human-readable keybinding string for this
-// command (e.g. "prefix → a → d"), or an empty string if no keybinding is set.
+// command (e.g. "prefix → a → d" for table-scoped keys, or "C-n" for root
+// table keys), or an empty string if no keybinding is set.
 func (c ResolvedPaletteCommand) FormatKeybinding() string {
 	if c.TmuxKeybinding == "" {
 		return ""
 	}
+	// Root table bindings (e.g. "-n C-p") should display without prefix
+	if strings.HasPrefix(c.TmuxKeybinding, "-n ") {
+		return strings.TrimPrefix(c.TmuxKeybinding, "-n ")
+	}
+	// Agenc table bindings (bare keys or "-T agenc x") use prefix
 	return fmt.Sprintf("prefix → a → %s", c.TmuxKeybinding)
 }
 
