@@ -129,10 +129,6 @@ func runMissionNewWithClone() error {
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
 		fmt.Println("Launching claude...")
 
-		if err := ensureOAuthToken(); err != nil {
-			return err
-		}
-
 		gitRepoName := sourceMission.GitRepo
 		windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
 		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, promptFlag, db)
@@ -245,10 +241,6 @@ func createAndLaunchAssistantMission(agencDirpath string, initialPrompt string) 
 
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching AgenC assistant...")
-
-	if err := ensureOAuthToken(); err != nil {
-		return err
-	}
 
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "💁‍♂️  AgenC Assistant", initialPrompt, db)
 	return w.Run(false)
@@ -390,10 +382,6 @@ func createAndLaunchMission(
 	}
 
 	fmt.Printf("Mission directory: %s\n", missionDirpath)
-
-	if err := ensureOAuthToken(); err != nil {
-		return err
-	}
 
 	windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
 	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt, db)

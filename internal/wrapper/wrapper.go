@@ -135,6 +135,12 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windo
 // For a resume, pass isResume=true. Run blocks until Claude exits naturally
 // or the wrapper shuts down.
 func (w *Wrapper) Run(isResume bool) error {
+	// Ensure OAuth token exists before installing signal handlers. This must
+	// happen first so Ctrl-C works naturally during the interactive setup flow.
+	if err := config.SetupOAuthToken(w.agencDirpath); err != nil {
+		return err
+	}
+
 	// Set up logger that writes to the log file
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -562,6 +568,11 @@ const (
 // If a previous conversation exists (isResume=true), it uses claude -c -p <prompt>
 // to continue the conversation.
 func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
+	// Ensure OAuth token exists before installing signal handlers.
+	if err := config.SetupOAuthToken(w.agencDirpath); err != nil {
+		return err
+	}
+
 	// Set up logger
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
