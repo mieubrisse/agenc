@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 )
 
@@ -365,9 +366,8 @@ func WriteOAuthToken(agencDirpath string, token string) error {
 
 // SetupOAuthToken runs `claude setup-token` to interactively obtain an OAuth
 // token and writes it to the token file. If a token file already exists, it
-// returns nil without overwriting. The command's stdin and stderr are connected
-// to the terminal so the user can complete the auth flow; stdout is captured
-// to read the resulting token.
+// returns nil without overwriting. Requires a TTY on stdin — returns an error
+// with manual setup instructions if no TTY is available (e.g. headless mode).
 func SetupOAuthToken(agencDirpath string) error {
 	existing, err := ReadOAuthToken(agencDirpath)
 	if err != nil {
@@ -375,6 +375,14 @@ func SetupOAuthToken(agencDirpath string) error {
 	}
 	if existing != "" {
 		return nil // Already have a token — don't overwrite
+	}
+
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return stacktrace.NewError(
+			"no OAuth token configured and no TTY available for interactive setup\n\n" +
+				"Run this in an interactive terminal to set up authentication:\n" +
+				"  agenc config set claudeCodeOAuthToken \"$(claude setup-token)\"",
+		)
 	}
 
 	claudeBinary, err := exec.LookPath("claude")
