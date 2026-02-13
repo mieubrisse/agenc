@@ -298,8 +298,10 @@ func printRepoFormatHelp() {
 	fmt.Println("Accepted formats:")
 
 	// Check if defaultGitHubUser is set to show the single-word shorthand option
-	if cfg, _, err := config.ReadAgencConfig(agencDirpath); err == nil && cfg.DefaultGitHubUser != "" {
-		fmt.Printf("  repo                               shorthand (expands to %s/repo)\n", cfg.DefaultGitHubUser)
+	if agencDir, err := getAgencContext(); err == nil {
+		if cfg, _, err := config.ReadAgencConfig(agencDir); err == nil && cfg.DefaultGitHubUser != "" {
+			fmt.Printf("  repo                               shorthand (expands to %s/repo)\n", cfg.DefaultGitHubUser)
+		}
 	}
 
 	fmt.Println("  owner/repo                         shorthand")
@@ -308,10 +310,12 @@ func printRepoFormatHelp() {
 	fmt.Println("  git@github.com:owner/repo.git      SSH URL")
 
 	// Hint about setting defaultGitHubUser if not set
-	if cfg, _, err := config.ReadAgencConfig(agencDirpath); err == nil && cfg.DefaultGitHubUser == "" {
-		fmt.Println()
-		fmt.Println("Tip: Set a default GitHub user to enable single-word shorthand:")
-		fmt.Println("  agenc config set defaultGitHubUser <username>")
+	if agencDir, err := getAgencContext(); err == nil {
+		if cfg, _, err := config.ReadAgencConfig(agencDir); err == nil && cfg.DefaultGitHubUser == "" {
+			fmt.Println()
+			fmt.Println("Tip: Set a default GitHub user to enable single-word shorthand:")
+			fmt.Println("  agenc config set defaultGitHubUser <username>")
+		}
 	}
 }
 
