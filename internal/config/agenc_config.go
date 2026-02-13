@@ -215,24 +215,55 @@ func (c ResolvedPaletteCommand) FormatKeybinding() string {
 // (e.g. "-T agenc k") or bind directly on the prefix table (e.g. "C-k").
 const DefaultPaletteTmuxKeybinding = "-T agenc k"
 
-// Default tmux window coloring configuration.
+// Default tmux window title coloring configuration.
 const (
-	// DefaultTmuxWindowBusyBackgroundColor is the background color shown when Claude is actively working.
-	// Set to empty string to disable busy background coloring.
-	DefaultTmuxWindowBusyBackgroundColor = "colour018"
-
-	// DefaultTmuxWindowBusyForegroundColor is the foreground color shown when Claude is actively working.
-	// Set to empty string to disable busy foreground coloring.
-	DefaultTmuxWindowBusyForegroundColor = ""
-
-	// DefaultTmuxWindowAttentionBackgroundColor is the background color shown when Claude needs attention
-	// (idle, waiting for permission, etc.). Set to empty string to disable attention background coloring.
-	DefaultTmuxWindowAttentionBackgroundColor = "colour136"
-
-	// DefaultTmuxWindowAttentionForegroundColor is the foreground color shown when Claude needs attention
-	// (idle, waiting for permission, etc.). Set to empty string to disable attention foreground coloring.
-	DefaultTmuxWindowAttentionForegroundColor = ""
+	DefaultTmuxWindowTitleBusyBg      = "colour018"
+	DefaultTmuxWindowTitleBusyFg      = ""
+	DefaultTmuxWindowTitleAttentionBg = "colour136"
+	DefaultTmuxWindowTitleAttentionFg = ""
 )
+
+// TmuxWindowTitleConfig holds foreground and background color settings for
+// the tmux window tab in busy and attention states. Empty strings disable
+// coloring for that component.
+type TmuxWindowTitleConfig struct {
+	BusyBackgroundColor      *string `yaml:"busyBackgroundColor,omitempty"`
+	BusyForegroundColor      *string `yaml:"busyForegroundColor,omitempty"`
+	AttentionBackgroundColor *string `yaml:"attentionBackgroundColor,omitempty"`
+	AttentionForegroundColor *string `yaml:"attentionForegroundColor,omitempty"`
+}
+
+// GetBusyBackgroundColor returns the busy background color, defaulting if not set.
+func (t *TmuxWindowTitleConfig) GetBusyBackgroundColor() string {
+	if t != nil && t.BusyBackgroundColor != nil {
+		return *t.BusyBackgroundColor
+	}
+	return DefaultTmuxWindowTitleBusyBg
+}
+
+// GetBusyForegroundColor returns the busy foreground color, defaulting if not set.
+func (t *TmuxWindowTitleConfig) GetBusyForegroundColor() string {
+	if t != nil && t.BusyForegroundColor != nil {
+		return *t.BusyForegroundColor
+	}
+	return DefaultTmuxWindowTitleBusyFg
+}
+
+// GetAttentionBackgroundColor returns the attention background color, defaulting if not set.
+func (t *TmuxWindowTitleConfig) GetAttentionBackgroundColor() string {
+	if t != nil && t.AttentionBackgroundColor != nil {
+		return *t.AttentionBackgroundColor
+	}
+	return DefaultTmuxWindowTitleAttentionBg
+}
+
+// GetAttentionForegroundColor returns the attention foreground color, defaulting if not set.
+func (t *TmuxWindowTitleConfig) GetAttentionForegroundColor() string {
+	if t != nil && t.AttentionForegroundColor != nil {
+		return *t.AttentionForegroundColor
+	}
+	return DefaultTmuxWindowTitleAttentionFg
+}
 
 // IsCanonicalRepoName reports whether the given string is in canonical format (github.com/owner/repo).
 func IsCanonicalRepoName(name string) bool {
@@ -249,17 +280,14 @@ type RepoConfig struct {
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	RepoConfigs                        map[string]RepoConfig            `yaml:"repoConfig,omitempty"`
-	Crons                              map[string]CronConfig            `yaml:"crons,omitempty"`
-	CronsMaxConcurrent                 int                              `yaml:"cronsMaxConcurrent,omitempty"`
-	PaletteCommands                    map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
-	PaletteTmuxKeybinding              string                           `yaml:"paletteTmuxKeybinding,omitempty"`
-	TmuxWindowBusyBackgroundColor      *string                          `yaml:"tmuxWindowBusyBackgroundColor,omitempty"`
-	TmuxWindowBusyForegroundColor      *string                          `yaml:"tmuxWindowBusyForegroundColor,omitempty"`
-	TmuxWindowAttentionBackgroundColor *string                          `yaml:"tmuxWindowAttentionBackgroundColor,omitempty"`
-	TmuxWindowAttentionForegroundColor *string                          `yaml:"tmuxWindowAttentionForegroundColor,omitempty"`
-	TmuxWindowBusyColor                *string                          `yaml:"tmuxWindowBusyColor,omitempty"`      // Deprecated: use TmuxWindowBusyBackgroundColor
-	TmuxWindowAttentionColor           *string                          `yaml:"tmuxWindowAttentionColor,omitempty"` // Deprecated: use TmuxWindowAttentionBackgroundColor
+	RepoConfigs           map[string]RepoConfig           `yaml:"repoConfig,omitempty"`
+	Crons                 map[string]CronConfig           `yaml:"crons,omitempty"`
+	CronsMaxConcurrent    int                             `yaml:"cronsMaxConcurrent,omitempty"`
+	PaletteCommands       map[string]PaletteCommandConfig `yaml:"paletteCommands,omitempty"`
+	PaletteTmuxKeybinding string                          `yaml:"paletteTmuxKeybinding,omitempty"`
+	TmuxWindowTitle       *TmuxWindowTitleConfig          `yaml:"tmuxWindowTitle,omitempty"`
+	TmuxWindowBusyColor   *string                         `yaml:"tmuxWindowBusyColor,omitempty"`      // Deprecated: use tmuxWindowTitle.busyBackgroundColor
+	TmuxWindowAttentionColor *string                      `yaml:"tmuxWindowAttentionColor,omitempty"` // Deprecated: use tmuxWindowTitle.attentionBackgroundColor
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -271,50 +299,22 @@ func (c *AgencConfig) GetPaletteTmuxKeybinding() string {
 	return c.PaletteTmuxKeybinding
 }
 
-// GetTmuxWindowBusyBackgroundColor returns the busy window background color, using the default if not set.
-// Returns empty string to disable busy background coloring if explicitly set to empty.
-// Falls back to deprecated TmuxWindowBusyColor if the new key is not set.
-func (c *AgencConfig) GetTmuxWindowBusyBackgroundColor() string {
-	if c.TmuxWindowBusyBackgroundColor != nil {
-		return *c.TmuxWindowBusyBackgroundColor
+// GetTmuxWindowTitleConfig returns the TmuxWindowTitleConfig, merging in
+// deprecated flat keys as fallbacks. If the new nested key is set, it wins;
+// otherwise the deprecated flat key is used; otherwise the default applies.
+func (c *AgencConfig) GetTmuxWindowTitleConfig() *TmuxWindowTitleConfig {
+	t := c.TmuxWindowTitle
+	if t == nil {
+		t = &TmuxWindowTitleConfig{}
 	}
-	// Fall back to deprecated field
-	if c.TmuxWindowBusyColor != nil {
-		return *c.TmuxWindowBusyColor
+	// Merge deprecated flat keys as fallbacks
+	if t.BusyBackgroundColor == nil && c.TmuxWindowBusyColor != nil {
+		t.BusyBackgroundColor = c.TmuxWindowBusyColor
 	}
-	return DefaultTmuxWindowBusyBackgroundColor
-}
-
-// GetTmuxWindowBusyForegroundColor returns the busy window foreground color, using the default if not set.
-// Returns empty string to disable busy foreground coloring if explicitly set to empty.
-func (c *AgencConfig) GetTmuxWindowBusyForegroundColor() string {
-	if c.TmuxWindowBusyForegroundColor == nil {
-		return DefaultTmuxWindowBusyForegroundColor
+	if t.AttentionBackgroundColor == nil && c.TmuxWindowAttentionColor != nil {
+		t.AttentionBackgroundColor = c.TmuxWindowAttentionColor
 	}
-	return *c.TmuxWindowBusyForegroundColor
-}
-
-// GetTmuxWindowAttentionBackgroundColor returns the attention window background color, using the default if not set.
-// Returns empty string to disable attention background coloring if explicitly set to empty.
-// Falls back to deprecated TmuxWindowAttentionColor if the new key is not set.
-func (c *AgencConfig) GetTmuxWindowAttentionBackgroundColor() string {
-	if c.TmuxWindowAttentionBackgroundColor != nil {
-		return *c.TmuxWindowAttentionBackgroundColor
-	}
-	// Fall back to deprecated field
-	if c.TmuxWindowAttentionColor != nil {
-		return *c.TmuxWindowAttentionColor
-	}
-	return DefaultTmuxWindowAttentionBackgroundColor
-}
-
-// GetTmuxWindowAttentionForegroundColor returns the attention window foreground color, using the default if not set.
-// Returns empty string to disable attention foreground coloring if explicitly set to empty.
-func (c *AgencConfig) GetTmuxWindowAttentionForegroundColor() string {
-	if c.TmuxWindowAttentionForegroundColor == nil {
-		return DefaultTmuxWindowAttentionForegroundColor
-	}
-	return *c.TmuxWindowAttentionForegroundColor
+	return t
 }
 
 // GetCronsMaxConcurrent returns the max concurrent cron missions, using the default if not set.

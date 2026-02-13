@@ -16,11 +16,11 @@ var configSetCmd = &cobra.Command{
 	Long: `Set a configuration key in config.yml.
 
 Supported keys:
-  paletteTmuxKeybinding                Raw bind-key args for the command palette (default: "-T agenc k")
-  tmuxWindowBusyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
-  tmuxWindowBusyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
-  tmuxWindowAttentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
-  tmuxWindowAttentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)
+  paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
+  tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
+  tmuxWindowTitle.attentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
+  tmuxWindowTitle.attentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)
 
 The paletteTmuxKeybinding value is inserted verbatim after "bind-key" in the
 tmux config. By default ("-T agenc k") it lives in the agenc key table, reached
@@ -34,19 +34,19 @@ This binds Ctrl-y globally so the palette opens with a single keystroke.
 Window coloring examples:
 
   # Set background to red when Claude is busy
-  agenc config set tmuxWindowBusyBackgroundColor red
+  agenc config set tmuxWindowTitle.busyBackgroundColor red
 
   # Set foreground to white when Claude is busy
-  agenc config set tmuxWindowBusyForegroundColor white
+  agenc config set tmuxWindowTitle.busyForegroundColor white
 
   # Use tmux color numbers (see 'tmux list-colors')
-  agenc config set tmuxWindowAttentionBackgroundColor colour220
+  agenc config set tmuxWindowTitle.attentionBackgroundColor colour220
 
   # Disable busy background coloring
-  agenc config set tmuxWindowBusyBackgroundColor ""
+  agenc config set tmuxWindowTitle.busyBackgroundColor ""
 
   # Disable attention foreground coloring
-  agenc config set tmuxWindowAttentionForegroundColor ""`,
+  agenc config set tmuxWindowTitle.attentionForegroundColor ""`,
 	Args: cobra.ExactArgs(2),
 	RunE: runConfigSet,
 }
@@ -101,22 +101,34 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value
 		return nil
-	case "tmuxWindowBusyBackgroundColor":
-		cfg.TmuxWindowBusyBackgroundColor = &value
-		return nil
-	case "tmuxWindowBusyForegroundColor":
-		cfg.TmuxWindowBusyForegroundColor = &value
-		return nil
-	case "tmuxWindowAttentionBackgroundColor":
-		cfg.TmuxWindowAttentionBackgroundColor = &value
-		return nil
-	case "tmuxWindowAttentionForegroundColor":
-		cfg.TmuxWindowAttentionForegroundColor = &value
+	case "tmuxWindowTitle.busyBackgroundColor",
+		"tmuxWindowTitle.busyForegroundColor",
+		"tmuxWindowTitle.attentionBackgroundColor",
+		"tmuxWindowTitle.attentionForegroundColor":
+		setTmuxWindowTitleField(cfg, key, &value)
 		return nil
 	default:
 		return stacktrace.NewError(
 			"unknown config key '%s'; supported keys: %s",
 			key, formatSupportedKeys(),
 		)
+	}
+}
+
+// setTmuxWindowTitleField sets a field on the TmuxWindowTitle config,
+// initializing the struct if needed.
+func setTmuxWindowTitleField(cfg *config.AgencConfig, key string, value *string) {
+	if cfg.TmuxWindowTitle == nil {
+		cfg.TmuxWindowTitle = &config.TmuxWindowTitleConfig{}
+	}
+	switch key {
+	case "tmuxWindowTitle.busyBackgroundColor":
+		cfg.TmuxWindowTitle.BusyBackgroundColor = value
+	case "tmuxWindowTitle.busyForegroundColor":
+		cfg.TmuxWindowTitle.BusyForegroundColor = value
+	case "tmuxWindowTitle.attentionBackgroundColor":
+		cfg.TmuxWindowTitle.AttentionBackgroundColor = value
+	case "tmuxWindowTitle.attentionForegroundColor":
+		cfg.TmuxWindowTitle.AttentionForegroundColor = value
 	}
 }

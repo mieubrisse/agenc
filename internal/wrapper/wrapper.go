@@ -104,18 +104,11 @@ type Wrapper struct {
 func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windowTitle string, initialPrompt string, db *database.DB) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	var windowBusyBgColor, windowBusyFgColor, windowAttentionBgColor, windowAttentionFgColor string
+	var titleCfg *config.TmuxWindowTitleConfig
 	if err == nil {
-		windowBusyBgColor = cfg.GetTmuxWindowBusyBackgroundColor()
-		windowBusyFgColor = cfg.GetTmuxWindowBusyForegroundColor()
-		windowAttentionBgColor = cfg.GetTmuxWindowAttentionBackgroundColor()
-		windowAttentionFgColor = cfg.GetTmuxWindowAttentionForegroundColor()
+		titleCfg = cfg.GetTmuxWindowTitleConfig()
 	} else {
-		// Fallback to defaults if config read fails
-		windowBusyBgColor = config.DefaultTmuxWindowBusyBackgroundColor
-		windowBusyFgColor = config.DefaultTmuxWindowBusyForegroundColor
-		windowAttentionBgColor = config.DefaultTmuxWindowAttentionBackgroundColor
-		windowAttentionFgColor = config.DefaultTmuxWindowAttentionForegroundColor
+		titleCfg = &config.TmuxWindowTitleConfig{}
 	}
 
 	return &Wrapper{
@@ -131,10 +124,10 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windo
 		commandCh:                      make(chan commandWithResponse, 1),
 		claudeIdle:                     true,
 		state:                          stateRunning,
-		windowBusyBackgroundColor:      windowBusyBgColor,
-		windowBusyForegroundColor:      windowBusyFgColor,
-		windowAttentionBackgroundColor: windowAttentionBgColor,
-		windowAttentionForegroundColor: windowAttentionFgColor,
+		windowBusyBackgroundColor:      titleCfg.GetBusyBackgroundColor(),
+		windowBusyForegroundColor:      titleCfg.GetBusyForegroundColor(),
+		windowAttentionBackgroundColor: titleCfg.GetAttentionBackgroundColor(),
+		windowAttentionForegroundColor: titleCfg.GetAttentionForegroundColor(),
 	}
 }
 

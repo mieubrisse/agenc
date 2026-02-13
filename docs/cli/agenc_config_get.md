@@ -9,11 +9,11 @@ Get the current value of a configuration key.
 Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
-  paletteTmuxKeybinding                Raw bind-key args for the command palette (default: "-T agenc k")
-  tmuxWindowBusyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
-  tmuxWindowBusyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
-  tmuxWindowAttentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
-  tmuxWindowAttentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)
+  paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
+  tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
+  tmuxWindowTitle.attentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
+  tmuxWindowTitle.attentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)
 
 ```
 agenc config get <key> [flags]

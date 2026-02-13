@@ -67,8 +67,11 @@ paletteCommands:
 # paletteTmuxKeybinding: "C-k"           # bind directly on prefix
 
 # Tmux window tab coloring — visual feedback for Claude state
-# tmuxWindowBusyColor: "colour018"       # color when Claude is working (default: colour018, dark blue; empty = disable)
-# tmuxWindowAttentionColor: "colour136"  # color when Claude needs attention (default: colour136, orange; empty = disable)
+# tmuxWindowTitle:
+#   busyBackgroundColor: "colour018"        # background when Claude is working (default: colour018; empty = disable)
+#   busyForegroundColor: ""                 # foreground when Claude is working (default: ""; empty = disable)
+#   attentionBackgroundColor: "colour136"   # background when Claude needs attention (default: colour136; empty = disable)
+#   attentionForegroundColor: ""            # foreground when Claude needs attention (default: ""; empty = disable)
 
 ```
 
@@ -158,30 +161,44 @@ agenc config paletteCommand rm newMission                         # restore buil
 Tmux Window Coloring
 --------------------
 
-When running missions inside the AgenC tmux session, window tabs change color to provide visual feedback about Claude's state:
+When running missions inside the AgenC tmux session, window tabs change color to provide visual feedback about Claude's state. Each state supports independent foreground and background colors:
 
-- **Busy color** (default: `colour018`, dark blue) — displayed when Claude is actively processing
-- **Attention color** (default: `colour136`, orange) — displayed when Claude is idle, waiting for user input, or needs permission
+- **Busy** — displayed when Claude is actively processing
+  - Background (default: `colour018`, dark blue)
+  - Foreground (default: none)
+- **Attention** — displayed when Claude is idle, waiting for user input, or needs permission
+  - Background (default: `colour136`, orange)
+  - Foreground (default: none)
 
-You can customize these colors or disable coloring for each state independently:
+Setting any color to empty string disables that color component. If both foreground and background are empty for a state, no color override is applied.
 
 ```
-# Use different colors (any tmux color name or number)
-agenc config set tmuxWindowBusyColor red
-agenc config set tmuxWindowAttentionColor colour220
+# Set background and foreground for busy state
+agenc config set tmuxWindowTitle.busyBackgroundColor red
+agenc config set tmuxWindowTitle.busyForegroundColor white
 
-# Disable busy coloring (tab won't change when Claude is working)
-agenc config set tmuxWindowBusyColor ""
+# Use tmux color numbers (see 'tmux list-colors')
+agenc config set tmuxWindowTitle.attentionBackgroundColor colour220
 
-# Disable attention coloring (tab won't change when Claude is idle)
-agenc config set tmuxWindowAttentionColor ""
-
-# See available colors
-tmux list-colors
+# Disable busy background coloring
+agenc config set tmuxWindowTitle.busyBackgroundColor ""
 
 # Check current settings
-agenc config get tmuxWindowBusyColor
-agenc config get tmuxWindowAttentionColor
+agenc config get tmuxWindowTitle.busyBackgroundColor
+agenc config get tmuxWindowTitle.attentionForegroundColor
+
+# Revert to defaults
+agenc config unset tmuxWindowTitle.busyBackgroundColor
+```
+
+In `config.yml`, these live under the `tmuxWindowTitle` key:
+
+```yaml
+tmuxWindowTitle:
+  busyBackgroundColor: "colour018"
+  busyForegroundColor: "white"
+  attentionBackgroundColor: "colour136"
+  attentionForegroundColor: ""
 ```
 
 **Note:** Color changes take effect for new missions. Existing missions retain the colors they started with until they're stopped and resumed.

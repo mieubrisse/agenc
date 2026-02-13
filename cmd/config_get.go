@@ -12,10 +12,10 @@ import (
 // supportedConfigKeys lists all keys accepted by 'config get' and 'config set'.
 var supportedConfigKeys = []string{
 	"paletteTmuxKeybinding",
-	"tmuxWindowBusyBackgroundColor",
-	"tmuxWindowBusyForegroundColor",
-	"tmuxWindowAttentionBackgroundColor",
-	"tmuxWindowAttentionForegroundColor",
+	"tmuxWindowTitle.busyBackgroundColor",
+	"tmuxWindowTitle.busyForegroundColor",
+	"tmuxWindowTitle.attentionBackgroundColor",
+	"tmuxWindowTitle.attentionForegroundColor",
 }
 
 var configGetCmd = &cobra.Command{
@@ -26,11 +26,11 @@ var configGetCmd = &cobra.Command{
 Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
-  paletteTmuxKeybinding                Raw bind-key args for the command palette (default: "-T agenc k")
-  tmuxWindowBusyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
-  tmuxWindowBusyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
-  tmuxWindowAttentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
-  tmuxWindowAttentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)`,
+  paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
+  tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
+  tmuxWindowTitle.attentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
+  tmuxWindowTitle.attentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigGet,
 }
@@ -69,44 +69,52 @@ func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 			return "unset", nil
 		}
 		return cfg.PaletteTmuxKeybinding, nil
-	case "tmuxWindowBusyBackgroundColor":
-		if cfg.TmuxWindowBusyBackgroundColor == nil {
-			return "unset", nil
-		}
-		if *cfg.TmuxWindowBusyBackgroundColor == "" {
-			return "disabled", nil
-		}
-		return *cfg.TmuxWindowBusyBackgroundColor, nil
-	case "tmuxWindowBusyForegroundColor":
-		if cfg.TmuxWindowBusyForegroundColor == nil {
-			return "unset", nil
-		}
-		if *cfg.TmuxWindowBusyForegroundColor == "" {
-			return "disabled", nil
-		}
-		return *cfg.TmuxWindowBusyForegroundColor, nil
-	case "tmuxWindowAttentionBackgroundColor":
-		if cfg.TmuxWindowAttentionBackgroundColor == nil {
-			return "unset", nil
-		}
-		if *cfg.TmuxWindowAttentionBackgroundColor == "" {
-			return "disabled", nil
-		}
-		return *cfg.TmuxWindowAttentionBackgroundColor, nil
-	case "tmuxWindowAttentionForegroundColor":
-		if cfg.TmuxWindowAttentionForegroundColor == nil {
-			return "unset", nil
-		}
-		if *cfg.TmuxWindowAttentionForegroundColor == "" {
-			return "disabled", nil
-		}
-		return *cfg.TmuxWindowAttentionForegroundColor, nil
+	case "tmuxWindowTitle.busyBackgroundColor":
+		return formatOptionalColor(getTmuxWindowTitleField(cfg, key)), nil
+	case "tmuxWindowTitle.busyForegroundColor":
+		return formatOptionalColor(getTmuxWindowTitleField(cfg, key)), nil
+	case "tmuxWindowTitle.attentionBackgroundColor":
+		return formatOptionalColor(getTmuxWindowTitleField(cfg, key)), nil
+	case "tmuxWindowTitle.attentionForegroundColor":
+		return formatOptionalColor(getTmuxWindowTitleField(cfg, key)), nil
 	default:
 		return "", stacktrace.NewError(
 			"unknown config key '%s'; supported keys: %s",
 			key, formatSupportedKeys(),
 		)
 	}
+}
+
+// getTmuxWindowTitleField returns the raw *string pointer for a tmuxWindowTitle sub-key.
+func getTmuxWindowTitleField(cfg *config.AgencConfig, key string) *string {
+	t := cfg.TmuxWindowTitle
+	if t == nil {
+		return nil
+	}
+	switch key {
+	case "tmuxWindowTitle.busyBackgroundColor":
+		return t.BusyBackgroundColor
+	case "tmuxWindowTitle.busyForegroundColor":
+		return t.BusyForegroundColor
+	case "tmuxWindowTitle.attentionBackgroundColor":
+		return t.AttentionBackgroundColor
+	case "tmuxWindowTitle.attentionForegroundColor":
+		return t.AttentionForegroundColor
+	default:
+		return nil
+	}
+}
+
+// formatOptionalColor formats a *string color value for display:
+// nil → "unset", empty → "disabled", otherwise the value itself.
+func formatOptionalColor(v *string) string {
+	if v == nil {
+		return "unset"
+	}
+	if *v == "" {
+		return "disabled"
+	}
+	return *v
 }
 
 // formatSupportedKeys returns a comma-separated list of supported config keys.
