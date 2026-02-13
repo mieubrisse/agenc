@@ -48,9 +48,6 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get default GitHub user (from gh CLI or config)
-	defaultGitHubUser := getDefaultGitHubUser(agencDirpath)
-
 	// Read config for potential updates
 	var cfg *config.AgencConfig
 	var cm yaml.CommentMap
@@ -61,13 +58,16 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 
 	// Validate all args are repo references (not search terms)
 	for _, arg := range args {
-		if !looksLikeRepoReference(arg, defaultGitHubUser) {
+		if !looksLikeRepoReference(agencDirpath, arg) {
 			return stacktrace.NewError("'%s' is not a valid repo reference; expected owner/repo, a URL, or a local path", arg)
 		}
 	}
 
 	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
 	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
+
+	// Get default GitHub user now that we've validated we have repo references to resolve
+	defaultGitHubUser := getDefaultGitHubUser()
 
 	for _, arg := range args {
 		result, err := resolveAsRepoReference(agencDirpath, arg, defaultGitHubUser)

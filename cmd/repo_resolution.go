@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/mieubrisse/stacktrace"
+	"gopkg.in/yaml.v3"
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/mission"
@@ -41,11 +41,11 @@ func ResolveRepoInput(agencDirpath string, input string, fzfPrompt string) (*Rep
 		return nil, stacktrace.NewError("empty input")
 	}
 
-	// Get default GitHub user (from gh CLI or config)
-	defaultGitHubUser := getDefaultGitHubUser(agencDirpath)
-
 	// Check if input looks like a repo reference (vs search terms)
-	if looksLikeRepoReference(input, defaultGitHubUser) {
+	// looksLikeRepoReference will lazily fetch defaultGitHubUser only if needed
+	if looksLikeRepoReference(agencDirpath, input) {
+		// Get default GitHub user now that we know we need it
+		defaultGitHubUser := getDefaultGitHubUser()
 		return resolveAsRepoReference(agencDirpath, input, defaultGitHubUser)
 	}
 
@@ -60,9 +60,6 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 		return nil, nil
 	}
 
-	// Get default GitHub user (from gh CLI or config)
-	defaultGitHubUser := getDefaultGitHubUser(agencDirpath)
-
 	// If there's only one input, resolve it directly
 	if len(inputs) == 1 {
 		result, err := ResolveRepoInput(agencDirpath, inputs[0], fzfPrompt)
@@ -74,7 +71,7 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 
 	// Multiple inputs: first check if they should be joined as search terms
 	// If the first input doesn't look like a repo reference, join all as search terms
-	if !looksLikeRepoReference(inputs[0], defaultGitHubUser) {
+	if !looksLikeRepoReference(agencDirpath, inputs[0]) {
 		joined := strings.Join(inputs, " ")
 		result, err := ResolveRepoInput(agencDirpath, joined, fzfPrompt)
 		if err != nil {
@@ -106,7 +103,10 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 // Search terms are characterized by:
 //   - Multiple space-separated words (e.g., "my repo")
 //   - A single word when defaultGitHubUser is not set
-func looksLikeRepoReference(input string, defaultGitHubUser string) bool {
+//
+// This function calls getDefaultGitHubUser lazily - only when needed for
+// single-word input detection, avoiding unnecessary gh CLI calls.
+func looksLikeRepoReference(agencDirpath string, input string) bool {
 	// Contains spaces = search terms
 	if strings.Contains(input, " ") {
 		return false
@@ -143,6 +143,8 @@ func looksLikeRepoReference(input string, defaultGitHubUser string) bool {
 	switch len(parts) {
 	case 1:
 		// Single word with no slashes - only a repo reference if defaultGitHubUser is set
+		// LAZY: only call getDefaultGitHubUser when we actually need it
+		defaultGitHubUser := getDefaultGitHubUser()
 		return defaultGitHubUser != "" && input != ""
 	case 2:
 		// owner/repo format - both parts must be non-empty
@@ -312,76 +314,92 @@ func getProtocolPreference(agencDirpath string) (bool, error) {
 	return promptForProtocolPreference()
 }
 
+// ghHostsConfig represents the structure of ~/.config/gh/hosts.yml
+type ghHostsConfig struct {
+	Hosts map[string]ghHostConfig `yaml:",inline"`
+}
+
+type ghHostConfig struct {
+	User        string `yaml:"user"`
+	GitProtocol string `yaml:"git_protocol"`
+}
+
+var (
+	ghConfigOnce  sync.Once
+	ghConfigCache *ghHostsConfig
+)
+
+// getGhConfig reads and parses ~/.config/gh/hosts.yml
+// Returns nil if the file doesn't exist or can't be parsed.
+// Uses a singleton pattern to only read the file once per process.
+func getGhConfig() *ghHostsConfig {
+	ghConfigOnce.Do(func() {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			ghConfigCache = nil
+			return
+		}
+
+		hostsPath := filepath.Join(homeDir, ".config", "gh", "hosts.yml")
+		data, err := os.ReadFile(hostsPath)
+		if err != nil {
+			ghConfigCache = nil
+			return
+		}
+
+		var config ghHostsConfig
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			ghConfigCache = nil
+			return
+		}
+
+		ghConfigCache = &config
+	})
+
+	return ghConfigCache
+}
+
 // getGhConfigProtocol reads the git_protocol setting from gh config.
 // Returns (preferSSH, hasConfig) where hasConfig is false if gh is not installed
 // or git_protocol is not set.
 func getGhConfigProtocol() (bool, bool) {
-	cmd := exec.Command("gh", "config", "get", "git_protocol")
-	output, err := cmd.Output()
-	if err != nil {
+	config := getGhConfig()
+	if config == nil {
 		return false, false
 	}
 
-	protocol := strings.TrimSpace(string(output))
-	if protocol == "" {
+	host, ok := config.Hosts["github.com"]
+	if !ok {
 		return false, false
 	}
 
-	return protocol == "ssh", true
-}
+	if host.GitProtocol == "" {
+		return false, false
+	}
 
-// ghAuthStatus represents the structure of `gh auth status --json hosts` output.
-type ghAuthStatus struct {
-	Hosts map[string][]struct {
-		State  string `json:"state"`
-		Active bool   `json:"active"`
-		Host   string `json:"host"`
-		Login  string `json:"login"`
-	} `json:"hosts"`
+	return host.GitProtocol == "ssh", true
 }
-
-var (
-	ghLoggedInUserOnce  sync.Once
-	ghLoggedInUserCache string
-)
 
 // getGhLoggedInUser returns the GitHub username of the logged-in gh CLI user.
 // Returns empty string if gh is not installed, not logged in, or the check fails.
-// Uses a singleton pattern to only query gh once per process.
+// Uses a singleton pattern to only read the config file once per process.
 func getGhLoggedInUser() string {
-	ghLoggedInUserOnce.Do(func() {
-		cmd := exec.Command("gh", "auth", "status", "--json", "hosts")
-		output, err := cmd.Output()
-		if err != nil {
-			ghLoggedInUserCache = ""
-			return
-		}
+	config := getGhConfig()
+	if config == nil {
+		return ""
+	}
 
-		var status ghAuthStatus
-		if err := json.Unmarshal(output, &status); err != nil {
-			ghLoggedInUserCache = ""
-			return
-		}
+	host, ok := config.Hosts["github.com"]
+	if !ok {
+		return ""
+	}
 
-		// Look for an active github.com host
-		if hosts, ok := status.Hosts["github.com"]; ok {
-			for _, host := range hosts {
-				if host.Active && host.State == "success" {
-					ghLoggedInUserCache = host.Login
-					return
-				}
-			}
-		}
-
-		ghLoggedInUserCache = ""
-	})
-
-	return ghLoggedInUserCache
+	return host.User
 }
 
 // getDefaultGitHubUser returns the default GitHub username to use for shorthand expansion.
-// Returns the gh CLI logged-in user (gh api user --jq '.login'), or empty string if not logged in.
-func getDefaultGitHubUser(agencDirpath string) string {
+// Returns the gh CLI logged-in user (from ~/.config/gh/hosts.yml), or empty string if not logged in.
+func getDefaultGitHubUser() string {
 	return getGhLoggedInUser()
 }
 

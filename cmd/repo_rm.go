@@ -54,12 +54,9 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get default GitHub user (from gh CLI or config)
-	defaultGitHubUser := getDefaultGitHubUser(agencDirpath)
-
 	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
 		TryCanonical: func(input string) (string, bool, error) {
-			if !looksLikeRepoReference(input, defaultGitHubUser) {
+			if !looksLikeRepoReference(agencDirpath, input) {
 				return "", false, nil
 			}
 			name, _, err := mission.ParseRepoReference(input, false)
