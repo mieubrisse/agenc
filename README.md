@@ -29,7 +29,7 @@ Example: this was my terminal today - 16 Claudes each working on different featu
 
 It's like going from Minecraft to Starcraft.
 
-![AgenC demo](https://github.com/user-attachments/assets/d12c5b06-c5db-420a-aaa3-7b8ca5d69ab6)
+[AgenC demo](https://github.com/user-attachments/assets/d12c5b06-c5db-420a-aaa3-7b8ca5d69ab6)
 
 > ⚠️ **ADDICTION WARNING** ⚠️
 > AgenC **will** increase your output. But you should know it has a videogame-like addictive quality.
