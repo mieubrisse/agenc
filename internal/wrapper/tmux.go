@@ -65,9 +65,9 @@ func (w *Wrapper) clearTmuxPane() {
 }
 
 // setWindowBusy sets the tmux window tab to the busy color, indicating
-// Claude is actively working. No-op when TMUX_PANE is empty or coloring is disabled.
+// Claude is actively working. No-op when TMUX_PANE is empty or busy color is empty.
 func (w *Wrapper) setWindowBusy() {
-	if !w.windowColoringEnabled {
+	if w.windowBusyColor == "" {
 		return
 	}
 	w.setWindowTabColor(w.windowBusyColor)
@@ -75,9 +75,9 @@ func (w *Wrapper) setWindowBusy() {
 
 // setWindowNeedsAttention sets the tmux window tab to the attention color,
 // signaling that the mission needs user interaction (e.g., Claude is idle or
-// waiting for permission). No-op when TMUX_PANE is empty or coloring is disabled.
+// waiting for permission). No-op when TMUX_PANE is empty or attention color is empty.
 func (w *Wrapper) setWindowNeedsAttention() {
-	if !w.windowColoringEnabled {
+	if w.windowAttentionColor == "" {
 		return
 	}
 	w.setWindowTabColor(w.windowAttentionColor)

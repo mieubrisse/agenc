@@ -71,9 +71,8 @@ paletteCommands:
 # defaultGitHubUser: "username"
 
 # Tmux window tab coloring — visual feedback for Claude state
-# tmuxWindowColoringEnabled: true        # enable/disable tab coloring (default: true)
-# tmuxWindowBusyColor: "colour018"       # color when Claude is working (default: colour018, dark blue)
-# tmuxWindowAttentionColor: "colour136"  # color when Claude needs attention (default: colour136, orange)
+# tmuxWindowBusyColor: "colour018"       # color when Claude is working (default: colour018, dark blue; empty = disable)
+# tmuxWindowAttentionColor: "colour136"  # color when Claude needs attention (default: colour136, orange; empty = disable)
 
 ```
 
@@ -177,15 +176,18 @@ When running missions inside the AgenC tmux session, window tabs change color to
 - **Busy color** (default: `colour018`, dark blue) — displayed when Claude is actively processing
 - **Attention color** (default: `colour136`, orange) — displayed when Claude is idle, waiting for user input, or needs permission
 
-You can customize these colors or disable the feature entirely:
+You can customize these colors or disable coloring for each state independently:
 
 ```
-# Disable window tab coloring
-agenc config set tmuxWindowColoringEnabled false
-
 # Use different colors (any tmux color name or number)
 agenc config set tmuxWindowBusyColor red
 agenc config set tmuxWindowAttentionColor colour220
+
+# Disable busy coloring (tab won't change when Claude is working)
+agenc config set tmuxWindowBusyColor ""
+
+# Disable attention coloring (tab won't change when Claude is idle)
+agenc config set tmuxWindowAttentionColor ""
 
 # See available colors
 tmux list-colors
@@ -193,7 +195,6 @@ tmux list-colors
 # Check current settings
 agenc config get tmuxWindowBusyColor
 agenc config get tmuxWindowAttentionColor
-agenc config get tmuxWindowColoringEnabled
 ```
 
 **Note:** Color changes take effect for new missions. Existing missions retain the colors they started with until they're stopped and resumed.

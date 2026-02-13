@@ -88,12 +88,9 @@ type Wrapper struct {
 	perMissionCredentialHash string
 	credentialHashMu         sync.Mutex
 
-	// windowColoringEnabled controls whether tmux window coloring is active.
-	// Read from config.yml at startup.
-	windowColoringEnabled bool
-
 	// windowBusyColor and windowAttentionColor store the configured tmux colors
-	// for window state feedback. Read from config.yml at startup.
+	// for window state feedback. Read from config.yml at startup. Empty string
+	// means that state's coloring is disabled.
 	windowBusyColor      string
 	windowAttentionColor string
 }
@@ -106,35 +103,31 @@ type Wrapper struct {
 func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windowTitle string, initialPrompt string, db *database.DB) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	var windowColoringEnabled bool
 	var windowBusyColor, windowAttentionColor string
 	if err == nil {
-		windowColoringEnabled = cfg.IsTmuxWindowColoringEnabled()
 		windowBusyColor = cfg.GetTmuxWindowBusyColor()
 		windowAttentionColor = cfg.GetTmuxWindowAttentionColor()
 	} else {
 		// Fallback to defaults if config read fails
-		windowColoringEnabled = config.DefaultTmuxWindowColoringEnabled
 		windowBusyColor = config.DefaultTmuxWindowBusyColor
 		windowAttentionColor = config.DefaultTmuxWindowAttentionColor
 	}
 
 	return &Wrapper{
-		agencDirpath:          agencDirpath,
-		missionID:             missionID,
-		gitRepoName:           gitRepoName,
-		windowTitle:           windowTitle,
-		initialPrompt:         initialPrompt,
-		missionDirpath:        config.GetMissionDirpath(agencDirpath, missionID),
-		agentDirpath:          config.GetMissionAgentDirpath(agencDirpath, missionID),
-		db:                    db,
-		claudeExited:          make(chan error, 1),
-		commandCh:             make(chan commandWithResponse, 1),
-		claudeIdle:            true,
-		state:                 stateRunning,
-		windowColoringEnabled: windowColoringEnabled,
-		windowBusyColor:       windowBusyColor,
-		windowAttentionColor:  windowAttentionColor,
+		agencDirpath:     agencDirpath,
+		missionID:        missionID,
+		gitRepoName:      gitRepoName,
+		windowTitle:      windowTitle,
+		initialPrompt:    initialPrompt,
+		missionDirpath:   config.GetMissionDirpath(agencDirpath, missionID),
+		agentDirpath:     config.GetMissionAgentDirpath(agencDirpath, missionID),
+		db:               db,
+		claudeExited:     make(chan error, 1),
+		commandCh:        make(chan commandWithResponse, 1),
+		claudeIdle:       true,
+		state:            stateRunning,
+		windowBusyColor:  windowBusyColor,
+		windowAttentionColor: windowAttentionColor,
 	}
 }
 

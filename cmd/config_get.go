@@ -15,7 +15,6 @@ var supportedConfigKeys = []string{
 	"paletteTmuxKeybinding",
 	"tmuxWindowAttentionColor",
 	"tmuxWindowBusyColor",
-	"tmuxWindowColoringEnabled",
 }
 
 var configGetCmd = &cobra.Command{
@@ -28,9 +27,8 @@ Prints "unset" if the key has not been explicitly set in config.yml.
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
   defaultGitHubUser            Default GitHub username for shorthand repo references (e.g., "repo" → "username/repo")
-  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
-  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
-  tmuxWindowColoringEnabled    Enable/disable window tab coloring (default: true)`,
+  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigGet,
 }
@@ -75,23 +73,15 @@ func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 		}
 		return cfg.DefaultGitHubUser, nil
 	case "tmuxWindowBusyColor":
-		if cfg.TmuxWindowBusyColor == "" {
+		if cfg.TmuxWindowBusyColor == nil {
 			return "unset", nil
 		}
-		return cfg.TmuxWindowBusyColor, nil
+		return *cfg.TmuxWindowBusyColor, nil
 	case "tmuxWindowAttentionColor":
-		if cfg.TmuxWindowAttentionColor == "" {
+		if cfg.TmuxWindowAttentionColor == nil {
 			return "unset", nil
 		}
-		return cfg.TmuxWindowAttentionColor, nil
-	case "tmuxWindowColoringEnabled":
-		if cfg.TmuxWindowColoringEnabled == nil {
-			return "unset", nil
-		}
-		if *cfg.TmuxWindowColoringEnabled {
-			return "true", nil
-		}
-		return "false", nil
+		return *cfg.TmuxWindowAttentionColor, nil
 	default:
 		return "", stacktrace.NewError(
 			"unknown config key '%s'; supported keys: %s",

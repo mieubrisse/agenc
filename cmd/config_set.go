@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -19,9 +18,8 @@ var configSetCmd = &cobra.Command{
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
   defaultGitHubUser            Default GitHub username for shorthand repo references
-  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
-  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
-  tmuxWindowColoringEnabled    Enable/disable window tab coloring (default: true)
+  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)
 
 The paletteTmuxKeybinding value is inserted verbatim after "bind-key" in the
 tmux config. By default ("-T agenc k") it lives in the agenc key table, reached
@@ -39,14 +37,17 @@ if set to "mieubrisse", then "my-repo" expands to "mieubrisse/my-repo":
 
 Window coloring examples:
 
-  # Disable window tab coloring entirely
-  agenc config set tmuxWindowColoringEnabled false
-
   # Use red when Claude is busy
   agenc config set tmuxWindowBusyColor red
 
   # Use tmux color numbers (see 'tmux list-colors')
-  agenc config set tmuxWindowAttentionColor colour220`,
+  agenc config set tmuxWindowAttentionColor colour220
+
+  # Disable busy coloring (won't change color when Claude is working)
+  agenc config set tmuxWindowBusyColor ""
+
+  # Disable attention coloring (won't change color when Claude is idle)
+  agenc config set tmuxWindowAttentionColor ""`,
 	Args: cobra.ExactArgs(2),
 	RunE: runConfigSet,
 }
@@ -105,17 +106,10 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 		cfg.DefaultGitHubUser = value
 		return nil
 	case "tmuxWindowBusyColor":
-		cfg.TmuxWindowBusyColor = value
+		cfg.TmuxWindowBusyColor = &value
 		return nil
 	case "tmuxWindowAttentionColor":
-		cfg.TmuxWindowAttentionColor = value
-		return nil
-	case "tmuxWindowColoringEnabled":
-		b, err := strconv.ParseBool(value)
-		if err != nil {
-			return stacktrace.NewError("invalid value '%s' for %s; must be true or false", value, key)
-		}
-		cfg.TmuxWindowColoringEnabled = &b
+		cfg.TmuxWindowAttentionColor = &value
 		return nil
 	default:
 		return stacktrace.NewError(

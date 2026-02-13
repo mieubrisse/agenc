@@ -218,14 +218,12 @@ const DefaultPaletteTmuxKeybinding = "-T agenc k"
 // Default tmux window coloring configuration.
 const (
 	// DefaultTmuxWindowBusyColor is the color shown when Claude is actively working.
+	// Set to empty string to disable busy coloring.
 	DefaultTmuxWindowBusyColor = "colour018"
 
 	// DefaultTmuxWindowAttentionColor is the color shown when Claude needs attention
-	// (idle, waiting for permission, etc.).
+	// (idle, waiting for permission, etc.). Set to empty string to disable attention coloring.
 	DefaultTmuxWindowAttentionColor = "colour136"
-
-	// DefaultTmuxWindowColoringEnabled controls whether window coloring is active by default.
-	DefaultTmuxWindowColoringEnabled = true
 )
 
 // IsCanonicalRepoName reports whether the given string is in canonical format (github.com/owner/repo).
@@ -243,15 +241,14 @@ type RepoConfig struct {
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	RepoConfigs               map[string]RepoConfig            `yaml:"repoConfig,omitempty"`
-	Crons                     map[string]CronConfig            `yaml:"crons,omitempty"`
-	CronsMaxConcurrent        int                              `yaml:"cronsMaxConcurrent,omitempty"`
-	PaletteCommands           map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
-	PaletteTmuxKeybinding     string                           `yaml:"paletteTmuxKeybinding,omitempty"`
-	DefaultGitHubUser         string                           `yaml:"defaultGitHubUser,omitempty"`
-	TmuxWindowBusyColor       string                           `yaml:"tmuxWindowBusyColor,omitempty"`
-	TmuxWindowAttentionColor  string                           `yaml:"tmuxWindowAttentionColor,omitempty"`
-	TmuxWindowColoringEnabled *bool                            `yaml:"tmuxWindowColoringEnabled,omitempty"`
+	RepoConfigs              map[string]RepoConfig            `yaml:"repoConfig,omitempty"`
+	Crons                    map[string]CronConfig            `yaml:"crons,omitempty"`
+	CronsMaxConcurrent       int                              `yaml:"cronsMaxConcurrent,omitempty"`
+	PaletteCommands          map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
+	PaletteTmuxKeybinding    string                           `yaml:"paletteTmuxKeybinding,omitempty"`
+	DefaultGitHubUser        string                           `yaml:"defaultGitHubUser,omitempty"`
+	TmuxWindowBusyColor      *string                          `yaml:"tmuxWindowBusyColor,omitempty"`
+	TmuxWindowAttentionColor *string                          `yaml:"tmuxWindowAttentionColor,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -264,28 +261,21 @@ func (c *AgencConfig) GetPaletteTmuxKeybinding() string {
 }
 
 // GetTmuxWindowBusyColor returns the busy window color, using the default if not set.
+// Returns empty string to disable busy coloring if explicitly set to empty.
 func (c *AgencConfig) GetTmuxWindowBusyColor() string {
-	if c.TmuxWindowBusyColor == "" {
+	if c.TmuxWindowBusyColor == nil {
 		return DefaultTmuxWindowBusyColor
 	}
-	return c.TmuxWindowBusyColor
+	return *c.TmuxWindowBusyColor
 }
 
 // GetTmuxWindowAttentionColor returns the attention window color, using the default if not set.
+// Returns empty string to disable attention coloring if explicitly set to empty.
 func (c *AgencConfig) GetTmuxWindowAttentionColor() string {
-	if c.TmuxWindowAttentionColor == "" {
+	if c.TmuxWindowAttentionColor == nil {
 		return DefaultTmuxWindowAttentionColor
 	}
-	return c.TmuxWindowAttentionColor
-}
-
-// IsTmuxWindowColoringEnabled returns whether window coloring is enabled.
-// Defaults to true if not explicitly set.
-func (c *AgencConfig) IsTmuxWindowColoringEnabled() bool {
-	if c.TmuxWindowColoringEnabled == nil {
-		return DefaultTmuxWindowColoringEnabled
-	}
-	return *c.TmuxWindowColoringEnabled
+	return *c.TmuxWindowAttentionColor
 }
 
 // GetCronsMaxConcurrent returns the max concurrent cron missions, using the default if not set.
