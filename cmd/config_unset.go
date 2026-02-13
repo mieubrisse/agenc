@@ -18,9 +18,8 @@ var configUnsetCmd = &cobra.Command{
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
   defaultGitHubUser            Default GitHub username for shorthand repo references
-  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
-  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
-  tmuxWindowColoringEnabled    Enable/disable window tab coloring (default: true)`,
+  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigUnset,
 }
@@ -71,13 +70,10 @@ func unsetConfigValue(cfg *config.AgencConfig, key string) error {
 		cfg.DefaultGitHubUser = ""
 		return nil
 	case "tmuxWindowBusyColor":
-		cfg.TmuxWindowBusyColor = ""
+		cfg.TmuxWindowBusyColor = nil
 		return nil
 	case "tmuxWindowAttentionColor":
-		cfg.TmuxWindowAttentionColor = ""
-		return nil
-	case "tmuxWindowColoringEnabled":
-		cfg.TmuxWindowColoringEnabled = nil
+		cfg.TmuxWindowAttentionColor = nil
 		return nil
 	default:
 		return stacktrace.NewError(
