@@ -93,23 +93,18 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 		config.MissionUUIDEnvVar+"="+missionID,
 	)
 
-	// Read the OAuth token, running interactive setup if missing.
+	// Read the OAuth token — callers must ensure it exists (via
+	// config.SetupOAuthToken) before entering the wrapper.
 	oauthToken, err := config.ReadOAuthToken(agencDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to read OAuth token")
 	}
 	if oauthToken == "" {
-		// Attempt interactive setup via `claude setup-token`
-		if setupErr := config.SetupOAuthToken(agencDirpath); setupErr != nil {
-			return nil, stacktrace.Propagate(setupErr, "failed to set up OAuth token")
-		}
-		oauthToken, err = config.ReadOAuthToken(agencDirpath)
-		if err != nil {
-			return nil, stacktrace.Propagate(err, "failed to read OAuth token after setup")
-		}
-		if oauthToken == "" {
-			return nil, stacktrace.NewError("OAuth token setup completed but no token was saved")
-		}
+		return nil, stacktrace.NewError(
+			"no OAuth token configured\n\n" +
+				"Run this in an interactive terminal to set up authentication:\n" +
+				"  agenc config set claudeCodeOAuthToken \"$(claude setup-token)\"",
+		)
 	}
 	cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 

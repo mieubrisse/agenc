@@ -137,6 +137,10 @@ func resumeMission(db *database.DB, missionID string) error {
 	if config.IsMissionAssistant(agencDirpath, missionID) {
 		windowTitle = "AgenC"
 	}
+	if err := ensureOAuthToken(); err != nil {
+		return err
+	}
+
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", db)
 	return w.Run(hasConversation)
 }
