@@ -372,13 +372,14 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	}
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, cronID, cronName, configCommit, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, last_active, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, cronID, cronName, configCommit, now, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
 	}
 
+	nowTime := time.Now().UTC()
 	return &Mission{
 		ID:           id,
 		ShortID:      shortID,
@@ -387,8 +388,9 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		CronID:       cronID,
 		CronName:     cronName,
 		ConfigCommit: configCommit,
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		LastActive:   &nowTime,
+		CreatedAt:    nowTime,
+		UpdatedAt:    nowTime,
 	}, nil
 }
 

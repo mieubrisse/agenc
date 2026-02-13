@@ -150,3 +150,39 @@ func TestGetMissionByTmuxPane_OnlyActiveReturned(t *testing.T) {
 		t.Errorf("expected nil for archived mission pane, got mission '%s'", got.ID)
 	}
 }
+
+func TestCreateMission_InitializesLastActive(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	// last_active should be set to creation time
+	if mission.LastActive == nil {
+		t.Fatal("expected LastActive to be set at creation, got nil")
+	}
+
+	// Verify it's close to the creation time (within 1 second)
+	if mission.LastActive.Sub(mission.CreatedAt).Abs().Seconds() > 1.0 {
+		t.Errorf("LastActive (%v) differs from CreatedAt (%v) by more than 1 second",
+			mission.LastActive, mission.CreatedAt)
+	}
+
+	// Retrieve from database and verify persistence
+	retrieved, err := db.GetMission(mission.ID)
+	if err != nil {
+		t.Fatalf("failed to retrieve mission: %v", err)
+	}
+
+	if retrieved.LastActive == nil {
+		t.Fatal("expected persisted LastActive, got nil")
+	}
+
+	// RFC3339 timestamps lose microsecond precision, so compare rounded to seconds
+	if retrieved.LastActive.Truncate(1).Unix() != mission.LastActive.Truncate(1).Unix() {
+		t.Errorf("persisted LastActive (%v) differs from created LastActive (%v)",
+			retrieved.LastActive, mission.LastActive)
+	}
+}
