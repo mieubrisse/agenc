@@ -17,7 +17,6 @@ var configSetCmd = &cobra.Command{
 
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
-  defaultGitHubUser            Default GitHub username for shorthand repo references
   tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)
 
@@ -29,11 +28,6 @@ use "-n BINDING". For example:
   agenc config set paletteTmuxKeybinding "-n C-y"
 
 This binds Ctrl-y globally so the palette opens with a single keystroke.
-
-The defaultGitHubUser value enables shorthand repo references. For example,
-if set to "mieubrisse", then "my-repo" expands to "mieubrisse/my-repo":
-
-  agenc config set defaultGitHubUser mieubrisse
 
 Window coloring examples:
 
@@ -101,9 +95,6 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 	switch key {
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value
-		return nil
-	case "defaultGitHubUser":
-		cfg.DefaultGitHubUser = value
 		return nil
 	case "tmuxWindowBusyColor":
 		cfg.TmuxWindowBusyColor = &value

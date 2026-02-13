@@ -8,9 +8,8 @@ Unset a configuration key in config.yml, reverting it to the default value.
 
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
-  defaultGitHubUser            Default GitHub username for shorthand repo references
-  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
-  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
+  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)
 
 ```
 agenc config unset <key> [flags]

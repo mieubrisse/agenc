@@ -246,7 +246,6 @@ type AgencConfig struct {
 	CronsMaxConcurrent       int                              `yaml:"cronsMaxConcurrent,omitempty"`
 	PaletteCommands          map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
 	PaletteTmuxKeybinding    string                           `yaml:"paletteTmuxKeybinding,omitempty"`
-	DefaultGitHubUser        string                           `yaml:"defaultGitHubUser,omitempty"`
 	TmuxWindowBusyColor      *string                          `yaml:"tmuxWindowBusyColor,omitempty"`
 	TmuxWindowAttentionColor *string                          `yaml:"tmuxWindowAttentionColor,omitempty"`
 }

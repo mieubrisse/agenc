@@ -17,7 +17,6 @@ var configUnsetCmd = &cobra.Command{
 
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
-  defaultGitHubUser            Default GitHub username for shorthand repo references
   tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)`,
 	Args: cobra.ExactArgs(1),
@@ -65,9 +64,6 @@ func unsetConfigValue(cfg *config.AgencConfig, key string) error {
 	switch key {
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = ""
-		return nil
-	case "defaultGitHubUser":
-		cfg.DefaultGitHubUser = ""
 		return nil
 	case "tmuxWindowBusyColor":
 		cfg.TmuxWindowBusyColor = nil

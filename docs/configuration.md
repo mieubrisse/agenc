@@ -66,11 +66,6 @@ paletteCommands:
 # paletteTmuxKeybinding: "-T agenc p"    # still in agenc table, different key
 # paletteTmuxKeybinding: "C-k"           # bind directly on prefix
 
-# Default GitHub username for shorthand repo references (optional)
-# Auto-detected from gh CLI login; set this to override
-# When set, "my-repo" expands to "username/my-repo"
-# defaultGitHubUser: "username"
-
 # Tmux window tab coloring — visual feedback for Claude state
 # tmuxWindowBusyColor: "colour018"       # color when Claude is working (default: colour018, dark blue; empty = disable)
 # tmuxWindowAttentionColor: "colour136"  # color when Claude needs attention (default: colour136, orange; empty = disable)
@@ -149,19 +144,6 @@ agenc config set paletteTmuxKeybinding "C-k"         # bind directly on prefix (
 agenc config get paletteTmuxKeybinding               # check current value
 agenc config unset paletteTmuxKeybinding             # revert to default
 ```
-
-**defaultGitHubUser** — enables shorthand repo references. Single-word repo names expand to `username/repo` format.
-
-The default GitHub username is automatically detected from `gh` CLI login (`gh api user --jq '.login'`). Set this config value to override the auto-detection or if `gh` is not installed:
-
-```
-agenc config set defaultGitHubUser mieubrisse       # override auto-detection
-agenc mission new my-repo                           # expands to mieubrisse/my-repo (or your gh login)
-agenc config get defaultGitHubUser                  # check configured value (not gh auto-detection)
-agenc config unset defaultGitHubUser                # revert to gh auto-detection
-```
-
-If you're logged into `gh`, single-word shorthand works automatically without any configuration.
 
 Manage palette commands via the CLI:
 

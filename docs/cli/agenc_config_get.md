@@ -10,7 +10,6 @@ Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
-  defaultGitHubUser            Default GitHub username for shorthand repo references (e.g., "repo" → "username/repo")
   tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)
 

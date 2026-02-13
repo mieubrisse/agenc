@@ -314,14 +314,12 @@ func printRepoFormatHelp() {
 	fmt.Println("  https://github.com/owner/repo      HTTPS URL")
 	fmt.Println("  git@github.com:owner/repo.git      SSH URL")
 
-	// Hint about logging into gh or setting config if no default user
+	// Hint about logging into gh if no default user
 	if agencDir, err := getAgencContext(); err == nil {
 		if getDefaultGitHubUser(agencDir) == "" {
 			fmt.Println()
 			fmt.Println("Tip: Single-word shorthand works automatically if you're logged into gh:")
 			fmt.Println("  gh auth login")
-			fmt.Println("Or set a default GitHub user manually:")
-			fmt.Println("  agenc config set defaultGitHubUser <username>")
 		}
 	}
 }

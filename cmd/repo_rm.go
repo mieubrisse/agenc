@@ -25,13 +25,12 @@ repoConfig in config.yml if present.
 When called without arguments, opens an interactive fzf picker.
 
 Accepts any of these formats:
-  repo                                 - shorthand (auto-detects from gh login or defaultGitHubUser config)
+  repo                                 - shorthand (requires gh auth login)
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)
   github.com/owner/repo                - canonical name
   https://github.com/owner/repo        - URL
 
-Tip: Single-word shorthand works automatically if you're logged into gh (gh auth login)
-or you can set a default GitHub user: agenc config set defaultGitHubUser <username>`,
+Tip: Single-word shorthand works automatically if you're logged into gh (gh auth login)`,
 	RunE: runRepoRm,
 }
 

@@ -340,22 +340,9 @@ func getGhLoggedInUser() string {
 }
 
 // getDefaultGitHubUser returns the default GitHub username to use for shorthand expansion.
-// Priority order:
-//  1. gh CLI logged-in user (gh api user --jq '.login')
-//  2. defaultGitHubUser from config
-//  3. Empty string (no default)
+// Returns the gh CLI logged-in user (gh api user --jq '.login'), or empty string if not logged in.
 func getDefaultGitHubUser(agencDirpath string) string {
-	// First try gh CLI
-	if ghUser := getGhLoggedInUser(); ghUser != "" {
-		return ghUser
-	}
-
-	// Fall back to config
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return ""
-	}
-	return cfg.DefaultGitHubUser
+	return getGhLoggedInUser()
 }
 
 // promptForProtocolPreference asks the user to choose SSH or HTTPS for cloning.
