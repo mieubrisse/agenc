@@ -82,10 +82,10 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		},
 		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.LastActive, e.ShortID, e.Session, e.Repo}
+			return []string{e.LastActive, e.ShortID, e.TmuxTitle, e.Session, e.Repo}
 		},
 		FzfPrompt:         "Switch to mission: ",
-		FzfHeaders:        []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
+		FzfHeaders:        []string{"LAST ACTIVE", "ID", "TITLE", "SESSION", "REPO"},
 		MultiSelect:       false,
 		NotCanonicalError: "not a valid mission ID",
 	})

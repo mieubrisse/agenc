@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/goccy/go-yaml"
@@ -25,6 +27,7 @@ type missionPickerEntry struct {
 	Status     string // colorized status (RUNNING/STOPPED/ARCHIVED)
 	Session    string // session name (truncated)
 	Repo       string // display-formatted (may contain ANSI)
+	TmuxTitle  string // tmux window title (empty if no tmux pane)
 }
 
 // shortIDPattern matches 8 hex characters (mission short ID).
@@ -50,6 +53,19 @@ func allLookLikeMissionIDs(inputs []string) bool {
 	return len(inputs) > 0
 }
 
+// getTmuxWindowTitle queries tmux for the window name associated with the given
+// pane ID. The pane ID should be the numeric form without the "%" prefix (as
+// stored in the database). Returns an empty string if the query fails or the
+// pane no longer exists.
+func getTmuxWindowTitle(paneID string) string {
+	targetPane := "%" + paneID
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", targetPane, "#{window_name}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // buildMissionPickerEntries converts database missions to picker entries using
 // the same formatting infrastructure as mission ls.
 func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
@@ -61,6 +77,10 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 		if config.IsMissionAssistant(agencDirpath, m.ID) {
 			repo = "💁‍♂️  AgenC Assistant"
 		}
+		tmuxTitle := ""
+		if m.TmuxPane != nil {
+			tmuxTitle = getTmuxWindowTitle(*m.TmuxPane)
+		}
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,
 			LastActive: formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
@@ -68,6 +88,7 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 			Status:     colorizeStatus(status),
 			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
 			Repo:       repo,
+			TmuxTitle:  tmuxTitle,
 		})
 	}
 	return entries, nil
