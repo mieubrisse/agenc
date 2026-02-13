@@ -46,11 +46,16 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 	return missionDirpath, nil
 }
 
-// buildClaudeCmd constructs an exec.Cmd for running Claude in the given agent
+// BuildClaudeCmd constructs an exec.Cmd for running Claude in the given agent
 // directory. If a secrets.env file exists at .claude/secrets.env within the
 // agent directory, the command is wrapped with `op run` to inject 1Password
 // secrets. Otherwise, Claude is invoked directly.
-func buildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, claudeArgs []string) (*exec.Cmd, error) {
+//
+// The returned command has its working directory, environment variables
+// (CLAUDE_CONFIG_DIR, AGENC_MISSION_UUID, CLAUDE_CODE_OAUTH_TOKEN), set but
+// does NOT set stdin/stdout/stderr — callers should wire those as needed
+// (e.g. interactive mode connects to the terminal, headless mode uses pipes).
+func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, claudeArgs []string) (*exec.Cmd, error) {
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
@@ -83,9 +88,6 @@ func buildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	}
 
 	cmd.Dir = agentDirpath
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	cmd.Env = append(os.Environ(),
 		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
 		config.MissionUUIDEnvVar+"="+missionID,
@@ -130,10 +132,14 @@ func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath s
 		args = []string{initialPrompt}
 	}
 
-	cmd, err := buildClaudeCmd(agencDirpath, missionID, agentDirpath, args)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, args)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude command")
 	}
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to start claude")
@@ -146,10 +152,14 @@ func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath s
 // directory. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
 func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
-	cmd, err := buildClaudeCmd(agencDirpath, missionID, agentDirpath, []string{"-c"})
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, []string{"-c"})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
 	}
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to start claude -c")

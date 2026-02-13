@@ -686,13 +686,6 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 // Uses claude --print -p <prompt> for new missions, or claude -c -p <prompt>
 // for resuming existing conversations.
 func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
-	claudeBinary, err := exec.LookPath("claude")
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
-	}
-
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
-
 	var args []string
 	if isResume {
 		// Resume with continuation flag and print mode
@@ -702,54 +695,7 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 		args = []string{"--print", "-p", w.initialPrompt}
 	}
 
-	secretsEnvFilepath := filepath.Join(w.agentDirpath, config.UserClaudeDirname, config.SecretsEnvFilename)
-
-	var cmd *exec.Cmd
-	if _, statErr := os.Stat(secretsEnvFilepath); statErr == nil {
-		// secrets.env exists — wrap with op run
-		opBinary, err := exec.LookPath("op")
-		if err != nil {
-			return nil, stacktrace.Propagate(err, "'op' (1Password CLI) not found in PATH; required because '%s' exists", secretsEnvFilepath)
-		}
-
-		opArgs := []string{
-			"run",
-			"--env-file", secretsEnvFilepath,
-			"--no-masking",
-			"--",
-			claudeBinary,
-		}
-		opArgs = append(opArgs, args...)
-		cmd = exec.Command(opBinary, opArgs...)
-	} else {
-		cmd = exec.Command(claudeBinary, args...)
-	}
-
-	cmd.Dir = w.agentDirpath
-	cmd.Env = append(os.Environ(),
-		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
-		config.MissionUUIDEnvVar+"="+w.missionID,
-	)
-
-	// Read the OAuth token and pass it as CLAUDE_CODE_OAUTH_TOKEN so Claude
-	// Code authenticates via env var instead of the Keychain.
-	oauthToken, err := config.ReadOAuthToken(w.agencDirpath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to read OAuth token")
-	}
-	if oauthToken == "" {
-		return nil, stacktrace.NewError(
-			"no OAuth token configured; set one with: agenc config set claudeCodeOAuthToken <token>\n\n" +
-				"To get a token:\n" +
-				"  1. Run 'claude' in a terminal\n" +
-				"  2. Type '/login' inside the Claude shell\n" +
-				"  3. Authorize in the browser\n" +
-				"  4. Copy the CLAUDE_CODE_OAUTH_TOKEN value from your shell environment",
-		)
-	}
-	cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
-
-	return cmd, nil
+	return mission.BuildClaudeCmd(w.agencDirpath, w.missionID, w.agentDirpath, args)
 }
 
 // gracefulShutdownClaude attempts to gracefully shut down a Claude process.
