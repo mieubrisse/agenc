@@ -33,6 +33,17 @@ Check the `$AGENC_TMUX` environment variable to determine whether you are runnin
 - **`AGENC_TMUX` is set** — you are inside tmux. You can launch and resume missions directly by running `agenc tmux window new -- agenc mission new <args>` or `agenc tmux window new -- agenc mission resume <args>`. This opens a new tmux window for the mission.
 - **`AGENC_TMUX` is not set** — you are outside tmux. You cannot launch missions yourself because there is no tmux session to create windows in. Instead, give the user the command they need to run (e.g., `agenc mission new <args>` or `agenc mission resume <args>`) and let them execute it.
 
+Tmux Configuration Changes
+--------------------------
+
+When you change tmux keybindings in `~/.tmux.conf`, always offer to reload the config so the changes take effect immediately:
+
+```bash
+tmux source-file ~/.tmux.conf
+```
+
+This applies the changes to any running tmux sessions without requiring a restart.
+
 Sandbox Rules
 -------------
 
