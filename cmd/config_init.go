@@ -190,15 +190,9 @@ func offerCreateConfigRepo(reader *bufio.Reader, configDirpath string) (bool, er
 // createAndCloneConfigRepo creates a new private GitHub repo using the gh CLI,
 // then clones it into the config directory.
 func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
-	// Expand shorthand if it's a single word and defaultGitHubUser is set
-	defaultGitHubUser := getDefaultGitHubUser()
-	if defaultGitHubUser != "" && !strings.Contains(repoRef, "/") {
-		repoRef = defaultGitHubUser + "/" + repoRef
-		fmt.Printf("Expanded shorthand to: %s\n", repoRef)
-	}
-
 	// Validate the repo reference parses correctly
-	_, _, err := mission.ParseRepoReference(repoRef, false)
+	defaultOwner := getDefaultGitHubUser()
+	_, _, err := mission.ParseRepoReference(repoRef, false, defaultOwner)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo name")
 	}
@@ -225,16 +219,10 @@ func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
 // cloneIntoConfigDir clones the given repo reference into the config directory,
 // backing up any existing seed files first and re-seeding missing files after.
 func cloneIntoConfigDir(configDirpath string, repoRef string) error {
-	// Expand shorthand if it's a single word and defaultGitHubUser is set
-	defaultGitHubUser := getDefaultGitHubUser()
-	if defaultGitHubUser != "" && !strings.Contains(repoRef, "/") {
-		repoRef = defaultGitHubUser + "/" + repoRef
-		fmt.Printf("Expanded shorthand to: %s\n", repoRef)
-	}
-
 	// Parse the repo reference. On first setup there may be no existing repos
 	// to detect protocol from, so shorthand defaults to HTTPS.
-	_, cloneURL, err := mission.ParseRepoReference(repoRef, false)
+	defaultOwner := getDefaultGitHubUser()
+	_, cloneURL, err := mission.ParseRepoReference(repoRef, false, defaultOwner)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo reference")
 	}

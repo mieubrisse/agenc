@@ -171,14 +171,9 @@ func resolveAsRepoReference(agencDirpath string, input string, defaultGitHubUser
 		return resolveLocalPathRepo(agencDirpath, input)
 	}
 
-	// Expand shorthand if it's a single word and defaultGitHubUser is set
-	if defaultGitHubUser != "" && !strings.Contains(input, "/") {
-		input = defaultGitHubUser + "/" + input
-		fmt.Printf("Expanded '%s' using defaultGitHubUser: %s\n", strings.Split(input, "/")[1], input)
-	}
-
 	// Repo reference (URL or shorthand)
-	return resolveRemoteRepoReference(agencDirpath, input)
+	// Pass defaultGitHubUser for bare name expansion
+	return resolveRemoteRepoReference(agencDirpath, input, defaultGitHubUser)
 }
 
 // resolveLocalPathRepo handles input that's a local filesystem path to a git repo.
@@ -232,7 +227,7 @@ func resolveLocalPathRepo(agencDirpath string, localPath string) (*RepoResolutio
 }
 
 // resolveRemoteRepoReference handles input that's a URL or shorthand repo reference.
-func resolveRemoteRepoReference(agencDirpath string, ref string) (*RepoResolutionResult, error) {
+func resolveRemoteRepoReference(agencDirpath string, ref string, defaultOwner string) (*RepoResolutionResult, error) {
 	// Determine protocol preference for shorthand references
 	preferSSH, err := getProtocolPreference(agencDirpath)
 	if err != nil {
@@ -240,7 +235,7 @@ func resolveRemoteRepoReference(agencDirpath string, ref string) (*RepoResolutio
 	}
 
 	// Parse the reference
-	repoName, cloneURL, err := mission.ParseRepoReference(ref, preferSSH)
+	repoName, cloneURL, err := mission.ParseRepoReference(ref, preferSSH, defaultOwner)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "invalid repo reference '%s'", ref)
 	}

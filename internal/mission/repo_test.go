@@ -126,7 +126,7 @@ func TestParseRepoReference(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repoName, cloneURL, err := ParseRepoReference(tt.ref, tt.preferSSH)
+			repoName, cloneURL, err := ParseRepoReference(tt.ref, tt.preferSSH, "")
 
 			if tt.wantErr {
 				if err == nil {
@@ -146,6 +146,77 @@ func TestParseRepoReference(t *testing.T) {
 
 			if cloneURL != tt.wantCloneURL {
 				t.Errorf("ParseRepoReference(%q, %v) cloneURL = %q, want %q", tt.ref, tt.preferSSH, cloneURL, tt.wantCloneURL)
+			}
+		})
+	}
+}
+
+func TestParseRepoReferenceWithDefaultOwner(t *testing.T) {
+	tests := []struct {
+		name         string
+		ref          string
+		preferSSH    bool
+		defaultOwner string
+		wantRepoName string
+		wantCloneURL string
+	}{
+		{
+			name:         "bare repo name with defaultOwner",
+			ref:          "my-repo",
+			preferSSH:    false,
+			defaultOwner: "testuser",
+			wantRepoName: "github.com/testuser/my-repo",
+			wantCloneURL: "https://github.com/testuser/my-repo.git",
+		},
+		{
+			name:         "bare repo name with defaultOwner and SSH",
+			ref:          "my-repo",
+			preferSSH:    true,
+			defaultOwner: "testuser",
+			wantRepoName: "github.com/testuser/my-repo",
+			wantCloneURL: "git@github.com:testuser/my-repo.git",
+		},
+		{
+			name:         "owner/repo ignores defaultOwner",
+			ref:          "otheruser/repo",
+			preferSSH:    false,
+			defaultOwner: "testuser",
+			wantRepoName: "github.com/otheruser/repo",
+			wantCloneURL: "https://github.com/otheruser/repo.git",
+		},
+		{
+			name:         "bare repo name without defaultOwner fails",
+			ref:          "my-repo",
+			preferSSH:    false,
+			defaultOwner: "",
+			wantRepoName: "",
+			wantCloneURL: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoName, cloneURL, err := ParseRepoReference(tt.ref, tt.preferSSH, tt.defaultOwner)
+
+			// Last test case should error (bare name without defaultOwner)
+			if tt.wantRepoName == "" {
+				if err == nil {
+					t.Errorf("ParseRepoReference(%q, %v, %q) expected error, got nil", tt.ref, tt.preferSSH, tt.defaultOwner)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("ParseRepoReference(%q, %v, %q) unexpected error: %v", tt.ref, tt.preferSSH, tt.defaultOwner, err)
+				return
+			}
+
+			if repoName != tt.wantRepoName {
+				t.Errorf("ParseRepoReference(%q, %v, %q) repoName = %q, want %q", tt.ref, tt.preferSSH, tt.defaultOwner, repoName, tt.wantRepoName)
+			}
+
+			if cloneURL != tt.wantCloneURL {
+				t.Errorf("ParseRepoReference(%q, %v, %q) cloneURL = %q, want %q", tt.ref, tt.preferSSH, tt.defaultOwner, cloneURL, tt.wantCloneURL)
 			}
 		})
 	}

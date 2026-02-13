@@ -85,7 +85,7 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 			return
 		}
 
-		repoName, cloneURL, err := mission.ParseRepoReference(repo, preferSSH)
+		repoName, cloneURL, err := mission.ParseRepoReference(repo, preferSSH, "")
 		if err != nil {
 			d.logger.Printf("Repo update: invalid repo '%s': %v", repo, err)
 			continue

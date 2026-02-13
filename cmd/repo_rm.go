@@ -59,13 +59,8 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 			if !looksLikeRepoReference(agencDirpath, input) {
 				return "", false, nil
 			}
-			// Expand shorthand if it's a single word and defaultGitHubUser is set
-			ref := input
-			defaultGitHubUser := getDefaultGitHubUser()
-			if defaultGitHubUser != "" && !strings.Contains(ref, "/") {
-				ref = defaultGitHubUser + "/" + ref
-			}
-			name, _, err := mission.ParseRepoReference(ref, false)
+			defaultOwner := getDefaultGitHubUser()
+			name, _, err := mission.ParseRepoReference(input, false, defaultOwner)
 			if err != nil {
 				return "", false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)
 			}

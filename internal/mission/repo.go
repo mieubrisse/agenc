@@ -194,11 +194,18 @@ func EnsureRepoClone(agencDirpath string, repoName string, cloneURL string) (str
 // canonical repo name and a clone URL. If the host is omitted, github.com is
 // assumed. Extra path segments after owner/repo in a URL are ignored.
 //
+// If defaultOwner is non-empty and ref is a bare repo name (no slashes),
+// it expands "repo" to "defaultOwner/repo" before parsing.
+//
 // The clone URL protocol is determined as follows:
 //   - If an SSH URL is provided (git@github.com:... or ssh://...), returns SSH clone URL
 //   - If an HTTPS URL is provided, returns HTTPS clone URL
 //   - If just "owner/repo" is provided, uses preferSSH to decide (true = SSH, false = HTTPS)
-func ParseRepoReference(ref string, preferSSH bool) (repoName string, cloneURL string, err error) {
+func ParseRepoReference(ref string, preferSSH bool, defaultOwner string) (repoName string, cloneURL string, err error) {
+	// Expand shorthand if it's a single word and defaultOwner is set
+	if defaultOwner != "" && !strings.Contains(ref, "/") {
+		ref = defaultOwner + "/" + ref
+	}
 	// Check for SSH URL formats first
 	if m := githubSSHRegex.FindStringSubmatch(ref); m != nil {
 		owner, repo := m[1], m[2]
