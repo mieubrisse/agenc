@@ -20,6 +20,7 @@ const (
 	cronCmdStr    = "cron"
 	doctorCmdStr  = "doctor"
 	primeCmdStr   = "prime"
+	summaryCmdStr = "summary"
 
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
@@ -110,4 +111,5 @@ const (
 	cronNameFlagName = "cron-name"
 	followFlagName   = "follow"
 	cronFlagName     = "cron"
+	dateFlagName     = "date"
 )
