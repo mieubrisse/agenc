@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/mieubrisse/stacktrace"
 	"gopkg.in/yaml.v3"
@@ -324,39 +323,26 @@ type ghHostConfig struct {
 	GitProtocol string `yaml:"git_protocol"`
 }
 
-var (
-	ghConfigOnce  sync.Once
-	ghConfigCache *ghHostsConfig
-)
-
 // getGhConfig reads and parses ~/.config/gh/hosts.yml
 // Returns nil if the file doesn't exist or can't be parsed.
-// Uses a singleton pattern to only read the file once per process.
 func getGhConfig() *ghHostsConfig {
-	ghConfigOnce.Do(func() {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			ghConfigCache = nil
-			return
-		}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
 
-		hostsPath := filepath.Join(homeDir, ".config", "gh", "hosts.yml")
-		data, err := os.ReadFile(hostsPath)
-		if err != nil {
-			ghConfigCache = nil
-			return
-		}
+	hostsPath := filepath.Join(homeDir, ".config", "gh", "hosts.yml")
+	data, err := os.ReadFile(hostsPath)
+	if err != nil {
+		return nil
+	}
 
-		var config ghHostsConfig
-		if err := yaml.Unmarshal(data, &config); err != nil {
-			ghConfigCache = nil
-			return
-		}
+	var config ghHostsConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil
+	}
 
-		ghConfigCache = &config
-	})
-
-	return ghConfigCache
+	return &config
 }
 
 // getGhConfigProtocol reads the git_protocol setting from gh config.
