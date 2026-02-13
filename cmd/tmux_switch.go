@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var tmuxSwitchCmd = &cobra.Command{
@@ -33,6 +35,21 @@ func init() {
 func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 	if !isInsideAgencTmux() {
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
+	}
+
+	// If we're not running in a TTY (e.g., invoked via tmux run-shell from a
+	// keybinding), re-exec ourselves in a display-popup so fzf can render properly.
+	// When invoked from the palette or directly from a shell, stdin is already a TTY.
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		// Build the command to re-exec in a popup
+		cmdArgs := []string{"agenc", "tmux", "switch"}
+		cmdArgs = append(cmdArgs, args...)
+		cmdStr := strings.Join(cmdArgs, " ")
+
+		popupCmd := exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", cmdStr)
+		popupCmd.Stdout = os.Stdout
+		popupCmd.Stderr = os.Stderr
+		return popupCmd.Run()
 	}
 
 	db, err := openDB()
