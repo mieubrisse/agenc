@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -364,8 +365,11 @@ func WriteOAuthToken(agencDirpath string, token string) error {
 	return nil
 }
 
-// SetupOAuthToken runs `claude setup-token` to interactively obtain an OAuth
-// token and writes it to the token file. If a token file already exists, it
+// oauthTokenPrefix is the expected prefix for valid Claude Code OAuth tokens.
+const oauthTokenPrefix = "sk-ant-"
+
+// SetupOAuthToken walks the user through obtaining a long-lived Claude Code
+// OAuth token via `claude setup-token`. If a token file already exists, it
 // returns nil without overwriting. Requires a TTY on stdin — returns an error
 // with manual setup instructions if no TTY is available (e.g. headless mode).
 func SetupOAuthToken(agencDirpath string) error {
@@ -390,25 +394,64 @@ func SetupOAuthToken(agencDirpath string) error {
 		return stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
 
-	fmt.Println("Setting up Claude Code authentication...")
+	reader := bufio.NewReader(os.Stdin)
+
+	// Step 1: Explain why and get confirmation
+	fmt.Println()
+	fmt.Println("Claude Code Token Setup")
+	fmt.Println("-----------------------")
+	fmt.Println("AgenC needs a long-lived Claude Code token. Standard OAuth tokens")
+	fmt.Println("don't work well with multiple concurrent sessions:")
+	fmt.Println("  https://github.com/anthropics/claude-code/issues/24317")
+	fmt.Println()
+	fmt.Print("Press ENTER to continue (or Ctrl-C to abort)...")
+	if _, err := reader.ReadString('\n'); err != nil {
+		return stacktrace.Propagate(err, "failed to read input")
+	}
+
+	// Step 2: Run `claude setup-token` with full terminal I/O
+	fmt.Println()
+	fmt.Println("Running 'claude setup-token'. This will open your browser.")
+	fmt.Println("After authorizing, copy the token that gets printed (starts with sk-ant-).")
+	fmt.Println()
+
 	cmd := exec.Command(claudeBinary, "setup-token")
 	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
-	output, err := cmd.Output()
-	if err != nil {
+	if err := cmd.Run(); err != nil {
 		return stacktrace.Propagate(err, "'claude setup-token' failed")
 	}
 
-	token := strings.TrimSpace(string(output))
-	if token == "" {
-		return stacktrace.NewError("'claude setup-token' produced no output")
-	}
+	// Step 3: Ask for the token in a validation loop
+	fmt.Println()
+	for {
+		fmt.Print("Paste the token here (starts with sk-ant-): ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read input")
+		}
+		token := strings.TrimSpace(input)
 
-	if err := WriteOAuthToken(agencDirpath, token); err != nil {
-		return stacktrace.Propagate(err, "failed to save OAuth token")
-	}
+		if token == "" {
+			fmt.Println("No token entered. Please try again.")
+			continue
+		}
+		if !strings.HasPrefix(token, oauthTokenPrefix) {
+			fmt.Printf("That doesn't look right — expected a token starting with %q. Please try again.\n", oauthTokenPrefix)
+			continue
+		}
 
-	fmt.Println("OAuth token saved.")
-	return nil
+		if err := WriteOAuthToken(agencDirpath, token); err != nil {
+			return stacktrace.Propagate(err, "failed to save OAuth token")
+		}
+
+		// Step 4: Confirm and show how to update later
+		fmt.Println()
+		fmt.Println("Token saved successfully.")
+		fmt.Println()
+		fmt.Println("To update this token later:")
+		fmt.Println("  agenc config set claudeCodeOAuthToken <new-token>")
+		return nil
+	}
 }
