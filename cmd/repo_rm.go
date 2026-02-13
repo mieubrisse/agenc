@@ -53,7 +53,7 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
 		TryCanonical: func(input string) (string, bool, error) {
-			if !looksLikeRepoReference(input) {
+			if !looksLikeRepoReference(input, cfg.DefaultGitHubUser) {
 				return "", false, nil
 			}
 			name, _, err := mission.ParseRepoReference(input, false)

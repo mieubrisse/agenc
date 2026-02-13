@@ -40,12 +40,22 @@ func init() {
 }
 
 func runRepoAdd(cmd *cobra.Command, args []string) error {
-	if _, err := getAgencContext(); err != nil {
+	agencDirpath, err := getAgencContext()
+	if err != nil {
 		return err
 	}
+
+	// Read config to check for defaultGitHubUser
+	var cfg *config.AgencConfig
+	var cm yaml.CommentMap
+	cfg, cm, err = readConfigWithComments()
+	if err != nil {
+		return err
+	}
+
 	// Validate all args are repo references (not search terms)
 	for _, arg := range args {
-		if !looksLikeRepoReference(arg) {
+		if !looksLikeRepoReference(arg, cfg.DefaultGitHubUser) {
 			return stacktrace.NewError("'%s' is not a valid repo reference; expected owner/repo, a URL, or a local path", arg)
 		}
 	}
@@ -53,18 +63,8 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
 	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
 
-	var cfg *config.AgencConfig
-	var cm yaml.CommentMap
-	if alwaysSyncedChanged || windowTitleChanged {
-		var err error
-		cfg, cm, err = readConfigWithComments()
-		if err != nil {
-			return err
-		}
-	}
-
 	for _, arg := range args {
-		result, err := resolveAsRepoReference(agencDirpath, arg)
+		result, err := resolveAsRepoReference(agencDirpath, arg, cfg.DefaultGitHubUser)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve repo '%s'", arg)
 		}

@@ -11,6 +11,7 @@ import (
 
 // supportedConfigKeys lists all keys accepted by 'config get' and 'config set'.
 var supportedConfigKeys = []string{
+	"defaultGitHubUser",
 	"paletteTmuxKeybinding",
 	"tmuxWindowAttentionColor",
 	"tmuxWindowBusyColor",
@@ -26,6 +27,7 @@ Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
   paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
+  defaultGitHubUser            Default GitHub username for shorthand repo references (e.g., "repo" → "username/repo")
   tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
   tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
   tmuxWindowColoringEnabled    Enable/disable window tab coloring (default: true)`,
@@ -67,6 +69,11 @@ func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 			return "unset", nil
 		}
 		return cfg.PaletteTmuxKeybinding, nil
+	case "defaultGitHubUser":
+		if cfg.DefaultGitHubUser == "" {
+			return "unset", nil
+		}
+		return cfg.DefaultGitHubUser, nil
 	case "tmuxWindowBusyColor":
 		if cfg.TmuxWindowBusyColor == "" {
 			return "unset", nil

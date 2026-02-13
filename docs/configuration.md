@@ -66,6 +66,10 @@ paletteCommands:
 # paletteTmuxKeybinding: "-T agenc p"    # still in agenc table, different key
 # paletteTmuxKeybinding: "C-k"           # bind directly on prefix
 
+# Default GitHub username for shorthand repo references (optional)
+# When set, "my-repo" expands to "username/my-repo"
+# defaultGitHubUser: "username"
+
 # Tmux window tab coloring — visual feedback for Claude state
 # tmuxWindowColoringEnabled: true        # enable/disable tab coloring (default: true)
 # tmuxWindowBusyColor: "colour018"       # color when Claude is working (default: colour018, dark blue)
@@ -143,6 +147,16 @@ The palette keybinding defaults to `-T agenc k` (prefix + a, k). The value is in
 agenc config set paletteTmuxKeybinding "-T agenc p"  # still in agenc table, different key
 agenc config set paletteTmuxKeybinding "C-k"         # bind directly on prefix (no agenc table)
 agenc config get paletteTmuxKeybinding               # check current value
+agenc config unset paletteTmuxKeybinding             # revert to default
+```
+
+**defaultGitHubUser** — enables shorthand repo references. When set to a GitHub username, single-word repo names expand to `username/repo` format:
+
+```
+agenc config set defaultGitHubUser mieubrisse       # set default username
+agenc mission new my-repo                           # expands to mieubrisse/my-repo
+agenc config get defaultGitHubUser                  # check current value
+agenc config unset defaultGitHubUser                # clear default
 ```
 
 Manage palette commands via the CLI:
@@ -184,6 +198,23 @@ agenc config get tmuxWindowColoringEnabled
 
 **Note:** Color changes take effect for new missions. Existing missions retain the colors they started with until they're stopped and resumed.
 
+Git Protocol Preference
+-----------------------
+
+When cloning repos, AgenC determines the protocol (SSH vs HTTPS) using this priority order:
+
+1. **gh config get git_protocol** — if the GitHub CLI is installed and `git_protocol` is set, AgenC uses that setting
+2. **Existing repos** — if you have repos in your library, AgenC infers the protocol from their remotes
+3. **User prompt** — if neither applies, AgenC asks you to choose
+
+To set a persistent default:
+
+```
+gh config set git_protocol ssh     # use SSH (git@github.com:...)
+gh config set git_protocol https   # use HTTPS (https://github.com/...)
+```
+
+This affects all future `agenc repo add` and `agenc mission new` operations.
 Config Auto-Sync
 ----------------
 

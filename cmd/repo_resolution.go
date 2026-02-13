@@ -24,6 +24,7 @@ type RepoResolutionResult struct {
 // ResolveRepoInput intelligently resolves user input to a canonical repo.
 // The input can be:
 //   - A repo reference: owner/repo, github.com/owner/repo, https://..., git@..., ssh://..., or local path
+//   - A shorthand repo name (e.g., "my-repo") if defaultGitHubUser is configured
 //   - Search terms: one or more space-separated words to match against the repo library
 //
 // For repo references, the repo is cloned into $AGENC_DIRPATH/repos/ if not already present.
@@ -38,9 +39,15 @@ func ResolveRepoInput(agencDirpath string, input string, fzfPrompt string) (*Rep
 		return nil, stacktrace.NewError("empty input")
 	}
 
+	// Read config to check for defaultGitHubUser
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read config")
+	}
+
 	// Check if input looks like a repo reference (vs search terms)
-	if looksLikeRepoReference(input) {
-		return resolveAsRepoReference(agencDirpath, input)
+	if looksLikeRepoReference(input, cfg.DefaultGitHubUser) {
+		return resolveAsRepoReference(agencDirpath, input, cfg.DefaultGitHubUser)
 	}
 
 	// Treat input as search terms
@@ -54,6 +61,12 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 		return nil, nil
 	}
 
+	// Read config to check for defaultGitHubUser
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read config")
+	}
+
 	// If there's only one input, resolve it directly
 	if len(inputs) == 1 {
 		result, err := ResolveRepoInput(agencDirpath, inputs[0], fzfPrompt)
@@ -65,7 +78,7 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 
 	// Multiple inputs: first check if they should be joined as search terms
 	// If the first input doesn't look like a repo reference, join all as search terms
-	if !looksLikeRepoReference(inputs[0]) {
+	if !looksLikeRepoReference(inputs[0], cfg.DefaultGitHubUser) {
 		joined := strings.Join(inputs, " ")
 		result, err := ResolveRepoInput(agencDirpath, joined, fzfPrompt)
 		if err != nil {
@@ -92,11 +105,12 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 //   - A Git SSH URL (starts with git@ or ssh://)
 //   - An HTTPS URL (starts with https://)
 //   - A shorthand reference (owner/repo or github.com/owner/repo)
+//   - A single word (repo name) if defaultGitHubUser is set
 //
 // Search terms are characterized by:
 //   - Multiple space-separated words (e.g., "my repo")
-//   - A single word that doesn't match repo reference patterns
-func looksLikeRepoReference(input string) bool {
+//   - A single word when defaultGitHubUser is not set
+func looksLikeRepoReference(input string, defaultGitHubUser string) bool {
 	// Contains spaces = search terms
 	if strings.Contains(input, " ") {
 		return false
@@ -131,6 +145,9 @@ func looksLikeRepoReference(input string) bool {
 	// Must have exactly 1 or 2 slashes, no spaces
 	parts := strings.Split(input, "/")
 	switch len(parts) {
+	case 1:
+		// Single word with no slashes - only a repo reference if defaultGitHubUser is set
+		return defaultGitHubUser != "" && input != ""
 	case 2:
 		// owner/repo format - both parts must be non-empty
 		return parts[0] != "" && parts[1] != ""
@@ -150,10 +167,17 @@ func isLocalPath(s string) bool {
 
 // resolveAsRepoReference resolves input that looks like a repo reference.
 // Clones the repo into $AGENC_DIRPATH/repos/ if not already present.
-func resolveAsRepoReference(agencDirpath string, input string) (*RepoResolutionResult, error) {
+// If defaultGitHubUser is set and input is a single word, expands to "defaultGitHubUser/input".
+func resolveAsRepoReference(agencDirpath string, input string, defaultGitHubUser string) (*RepoResolutionResult, error) {
 	// Local filesystem path
 	if isLocalPath(input) {
 		return resolveLocalPathRepo(agencDirpath, input)
+	}
+
+	// Expand shorthand if it's a single word and defaultGitHubUser is set
+	if defaultGitHubUser != "" && !strings.Contains(input, "/") {
+		input = defaultGitHubUser + "/" + input
+		fmt.Printf("Expanded '%s' using defaultGitHubUser: %s\n", strings.Split(input, "/")[1], input)
 	}
 
 	// Repo reference (URL or shorthand)
@@ -242,8 +266,16 @@ func resolveRemoteRepoReference(agencDirpath string, ref string) (*RepoResolutio
 }
 
 // getProtocolPreference determines the user's preferred clone protocol (SSH vs HTTPS).
-// If no repos exist in the library, prompts the user to choose.
+// Priority order:
+//  1. gh config get git_protocol (if gh CLI is available and configured)
+//  2. Infer from existing repos in the library
+//  3. Prompt the user to choose
 func getProtocolPreference(agencDirpath string) (bool, error) {
+	// First check gh config
+	if preferSSH, hasGhConfig := getGhConfigProtocol(); hasGhConfig {
+		return preferSSH, nil
+	}
+
 	reposDirpath := config.GetReposDirpath(agencDirpath)
 
 	// Check if any repos exist
@@ -284,12 +316,32 @@ func getProtocolPreference(agencDirpath string) (bool, error) {
 	return promptForProtocolPreference()
 }
 
+// getGhConfigProtocol reads the git_protocol setting from gh config.
+// Returns (preferSSH, hasConfig) where hasConfig is false if gh is not installed
+// or git_protocol is not set.
+func getGhConfigProtocol() (bool, bool) {
+	cmd := exec.Command("gh", "config", "get", "git_protocol")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, false
+	}
+
+	protocol := strings.TrimSpace(string(output))
+	if protocol == "" {
+		return false, false
+	}
+
+	return protocol == "ssh", true
+}
+
 // promptForProtocolPreference asks the user to choose SSH or HTTPS for cloning.
 func promptForProtocolPreference() (bool, error) {
 	fmt.Println("No repos in your library yet. How would you like to clone repos?")
 	fmt.Println("  1) SSH (git@github.com:...) - requires SSH key setup")
 	fmt.Println("  2) HTTPS (https://github.com/...) - uses GitHub credentials")
-	fmt.Print("Choice [1/2]: ")
+	fmt.Println()
+	fmt.Println("Tip: Set a persistent default with: gh config set git_protocol <ssh|https>")
+	fmt.Print("\nChoice [1/2]: ")
 
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
@@ -300,11 +352,14 @@ func promptForProtocolPreference() (bool, error) {
 	input = strings.TrimSpace(input)
 	switch input {
 	case "1", "ssh", "SSH":
+		fmt.Println("Using SSH. To make this permanent: gh config set git_protocol ssh")
 		return true, nil
 	case "2", "https", "HTTPS", "":
+		fmt.Println("Using HTTPS. To make this permanent: gh config set git_protocol https")
 		return false, nil
 	default:
 		fmt.Println("Invalid choice, defaulting to HTTPS")
+		fmt.Println("To set a default: gh config set git_protocol https")
 		return false, nil
 	}
 }

@@ -141,6 +141,12 @@ func runMissionNewWithClone() error {
 func runMissionNewWithPicker(args []string) error {
 	entries := listRepoLibrary(agencDirpath)
 
+	// Read config to check for defaultGitHubUser
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read config")
+	}
+
 	input := strings.Join(args, " ")
 
 	// No args: show fzf picker with sentinel (blank mission option)
@@ -153,7 +159,7 @@ func runMissionNewWithPicker(args []string) error {
 	}
 
 	// Try to resolve as a git reference (URL, path, shorthand)
-	if looksLikeRepoReference(input) {
+	if looksLikeRepoReference(input, cfg.DefaultGitHubUser) {
 		result, err := ResolveRepoInput(agencDirpath, input, "Select repo: ")
 		if err != nil {
 			return err
@@ -412,6 +418,12 @@ func createAndLaunchMission(
 // printing the accepted formats and looping on invalid input. Returns the
 // resolved repo result ready for mission creation.
 func promptForRepoLocator(agencDirpath string) (*RepoResolutionResult, error) {
+	// Read config to check for defaultGitHubUser
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read config")
+	}
+
 	fmt.Println()
 	printRepoFormatHelp()
 
@@ -429,12 +441,12 @@ func promptForRepoLocator(agencDirpath string) (*RepoResolutionResult, error) {
 			continue
 		}
 
-		if !looksLikeRepoReference(input) {
+		if !looksLikeRepoReference(input, cfg.DefaultGitHubUser) {
 			fmt.Println("Not a valid repo reference. Please try again.")
 			continue
 		}
 
-		result, err := resolveAsRepoReference(agencDirpath, input)
+		result, err := resolveAsRepoReference(agencDirpath, input, cfg.DefaultGitHubUser)
 		if err != nil {
 			fmt.Printf("Invalid repo: %v\n", err)
 			fmt.Println("Please try again.")
