@@ -16,11 +16,15 @@ var repoAddCmd = &cobra.Command{
 	Long: fmt.Sprintf(`Add a repository to the repo library by cloning it into $AGENC_DIRPATH/repos/.
 
 Accepts any of these formats:
+  repo                                 - shorthand (requires defaultGitHubUser config)
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)
   github.com/owner/repo                - canonical name
   https://github.com/owner/repo        - HTTPS URL
   git@github.com:owner/repo.git        - SSH URL
   /path/to/local/clone                 - local filesystem path
+
+Tip: Set a default GitHub user to enable single-word shorthand:
+  agenc config set defaultGitHubUser <username>
 
 For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted

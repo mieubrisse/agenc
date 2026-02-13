@@ -7,8 +7,11 @@ Set a config value
 Set a configuration key in config.yml.
 
 Supported keys:
-  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
-  defaultGitHubUser      Default GitHub username for shorthand repo references
+  paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
+  defaultGitHubUser            Default GitHub username for shorthand repo references
+  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
+  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
+  tmuxWindowColoringEnabled    Enable/disable window tab coloring (default: true)
 
 The paletteTmuxKeybinding value is inserted verbatim after "bind-key" in the
 tmux config. By default ("-T agenc k") it lives in the agenc key table, reached
@@ -23,6 +26,17 @@ The defaultGitHubUser value enables shorthand repo references. For example,
 if set to "mieubrisse", then "my-repo" expands to "mieubrisse/my-repo":
 
   agenc config set defaultGitHubUser mieubrisse
+
+Window coloring examples:
+
+  # Disable window tab coloring entirely
+  agenc config set tmuxWindowColoringEnabled false
+
+  # Use red when Claude is busy
+  agenc config set tmuxWindowBusyColor red
+
+  # Use tmux color numbers (see 'tmux list-colors')
+  agenc config set tmuxWindowAttentionColor colour220
 
 ```
 agenc config set <key> <value> [flags]

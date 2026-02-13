@@ -296,10 +296,23 @@ func promptYesNo(reader *bufio.Reader, prompt string) (bool, error) {
 // consistent.
 func printRepoFormatHelp() {
 	fmt.Println("Accepted formats:")
-	fmt.Println("  owner/repo                         shorthand (uses HTTPS)")
+
+	// Check if defaultGitHubUser is set to show the single-word shorthand option
+	if cfg, _, err := config.ReadAgencConfig(agencDirpath); err == nil && cfg.DefaultGitHubUser != "" {
+		fmt.Printf("  repo                               shorthand (expands to %s/repo)\n", cfg.DefaultGitHubUser)
+	}
+
+	fmt.Println("  owner/repo                         shorthand")
 	fmt.Println("  github.com/owner/repo              canonical name")
 	fmt.Println("  https://github.com/owner/repo      HTTPS URL")
 	fmt.Println("  git@github.com:owner/repo.git      SSH URL")
+
+	// Hint about setting defaultGitHubUser if not set
+	if cfg, _, err := config.ReadAgencConfig(agencDirpath); err == nil && cfg.DefaultGitHubUser == "" {
+		fmt.Println()
+		fmt.Println("Tip: Set a default GitHub user to enable single-word shorthand:")
+		fmt.Println("  agenc config set defaultGitHubUser <username>")
+	}
 }
 
 // printConfigSummary prints the current configuration state.

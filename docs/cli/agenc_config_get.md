@@ -9,8 +9,11 @@ Get the current value of a configuration key.
 Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
-  paletteTmuxKeybinding  Raw bind-key args for the command palette (default: "-T agenc k")
-  defaultGitHubUser      Default GitHub username for shorthand repo references (e.g., "repo" → "username/repo")
+  paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
+  defaultGitHubUser            Default GitHub username for shorthand repo references (e.g., "repo" → "username/repo")
+  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
+  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
+  tmuxWindowColoringEnabled    Enable/disable window tab coloring (default: true)
 
 ```
 agenc config get <key> [flags]
