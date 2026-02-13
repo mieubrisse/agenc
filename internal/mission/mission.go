@@ -93,21 +93,23 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 		config.MissionUUIDEnvVar+"="+missionID,
 	)
 
-	// Read the OAuth token and pass it as CLAUDE_CODE_OAUTH_TOKEN so Claude
-	// Code authenticates via env var instead of the Keychain.
+	// Read the OAuth token, running interactive setup if missing.
 	oauthToken, err := config.ReadOAuthToken(agencDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to read OAuth token")
 	}
 	if oauthToken == "" {
-		return nil, stacktrace.NewError(
-			"no OAuth token configured; set one with: agenc config set claudeCodeOAuthToken <token>\n\n" +
-				"To get a token:\n" +
-				"  1. Run 'claude' in a terminal\n" +
-				"  2. Type '/login' inside the Claude shell\n" +
-				"  3. Authorize in the browser\n" +
-				"  4. Copy the CLAUDE_CODE_OAUTH_TOKEN value from your shell environment",
-		)
+		// Attempt interactive setup via `claude setup-token`
+		if setupErr := config.SetupOAuthToken(agencDirpath); setupErr != nil {
+			return nil, stacktrace.Propagate(setupErr, "failed to set up OAuth token")
+		}
+		oauthToken, err = config.ReadOAuthToken(agencDirpath)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to read OAuth token after setup")
+		}
+		if oauthToken == "" {
+			return nil, stacktrace.NewError("OAuth token setup completed but no token was saved")
+		}
 	}
 	cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 

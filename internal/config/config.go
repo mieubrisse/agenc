@@ -1,7 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -358,5 +360,47 @@ func WriteOAuthToken(agencDirpath string, token string) error {
 		return stacktrace.Propagate(err, "failed to write OAuth token file '%s'", tokenFilepath)
 	}
 
+	return nil
+}
+
+// SetupOAuthToken runs `claude setup-token` to interactively obtain an OAuth
+// token and writes it to the token file. If a token file already exists, it
+// returns nil without overwriting. The command's stdin and stderr are connected
+// to the terminal so the user can complete the auth flow; stdout is captured
+// to read the resulting token.
+func SetupOAuthToken(agencDirpath string) error {
+	existing, err := ReadOAuthToken(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check existing OAuth token")
+	}
+	if existing != "" {
+		return nil // Already have a token — don't overwrite
+	}
+
+	claudeBinary, err := exec.LookPath("claude")
+	if err != nil {
+		return stacktrace.Propagate(err, "'claude' binary not found in PATH")
+	}
+
+	fmt.Println("Setting up Claude Code authentication...")
+	cmd := exec.Command(claudeBinary, "setup-token")
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+
+	output, err := cmd.Output()
+	if err != nil {
+		return stacktrace.Propagate(err, "'claude setup-token' failed")
+	}
+
+	token := strings.TrimSpace(string(output))
+	if token == "" {
+		return stacktrace.NewError("'claude setup-token' produced no output")
+	}
+
+	if err := WriteOAuthToken(agencDirpath, token); err != nil {
+		return stacktrace.Propagate(err, "failed to save OAuth token")
+	}
+
+	fmt.Println("OAuth token saved.")
 	return nil
 }

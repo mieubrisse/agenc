@@ -6,31 +6,15 @@ AgenC authenticates Claude Code missions using an OAuth token stored in a secure
 Setting your token
 ------------------
 
-During first-time setup (`agenc config init`), you'll be prompted to paste your token. You can also set or update it at any time:
+AgenC automatically obtains a token when needed. If no token is configured, AgenC runs `claude setup-token` to walk you through the authentication flow interactively. This happens during first-time setup (`agenc config init`) and whenever you create or resume a mission without a token.
+
+You can also manage the token manually:
 
 ```
 agenc config set claudeCodeOAuthToken <your-token>
-```
-
-To check the current token:
-
-```
 agenc config get claudeCodeOAuthToken
-```
-
-To clear the token:
-
-```
 agenc config set claudeCodeOAuthToken ""
 ```
-
-Where to get your token
------------------------
-
-1. Run `claude` in a terminal
-2. Type `/login` inside the Claude shell
-3. Authorize in the browser
-4. Copy the `CLAUDE_CODE_OAUTH_TOKEN` value from your shell environment or from Claude's credential output
 
 How it works
 ------------

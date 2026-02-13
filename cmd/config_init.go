@@ -96,8 +96,8 @@ func ensureConfigured() (string, error) {
 		configIsGitRepo = true
 	}
 
-	// Prompt for OAuth token if not already set
-	if err := setupOAuthToken(reader, dirpath); err != nil {
+	// Set up OAuth token if not already configured
+	if err := config.SetupOAuthToken(dirpath); err != nil {
 		return "", stacktrace.Propagate(err, "OAuth token setup failed")
 	}
 
@@ -318,46 +318,6 @@ func printRepoFormatHelp() {
 		fmt.Println("Tip: Single-word shorthand works automatically if you're logged into gh:")
 		fmt.Println("  gh auth login")
 	}
-}
-
-// setupOAuthToken prompts the user for their Claude Code OAuth token if one
-// is not already configured. Skips silently if a token file already exists.
-func setupOAuthToken(reader *bufio.Reader, agencDirpath string) error {
-	existingToken, err := config.ReadOAuthToken(agencDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to check existing OAuth token")
-	}
-	if existingToken != "" {
-		return nil // Already configured
-	}
-
-	fmt.Println()
-	fmt.Println("Claude Code OAuth Token")
-	fmt.Println("-----------------------")
-	fmt.Println("AgenC needs a Claude Code OAuth token to authenticate missions.")
-	fmt.Println("You can get one by running 'claude' and then '/login' in the Claude shell,")
-	fmt.Println("or from your Anthropic account settings.")
-	fmt.Println()
-	fmt.Print("Paste your CLAUDE_CODE_OAUTH_TOKEN (or press ENTER to skip): ")
-
-	token, err := reader.ReadString('\n')
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
-	}
-	token = strings.TrimSpace(token)
-
-	if token == "" {
-		fmt.Println("Skipping token setup. You can set it later with:")
-		fmt.Println("  agenc config set claudeCodeOAuthToken <token>")
-		return nil
-	}
-
-	if err := config.WriteOAuthToken(agencDirpath, token); err != nil {
-		return stacktrace.Propagate(err, "failed to write OAuth token")
-	}
-
-	fmt.Println("OAuth token saved.")
-	return nil
 }
 
 // printConfigSummary prints the current configuration state.
