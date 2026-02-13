@@ -285,9 +285,7 @@ type AgencConfig struct {
 	CronsMaxConcurrent    int                             `yaml:"cronsMaxConcurrent,omitempty"`
 	PaletteCommands       map[string]PaletteCommandConfig `yaml:"paletteCommands,omitempty"`
 	PaletteTmuxKeybinding string                          `yaml:"paletteTmuxKeybinding,omitempty"`
-	TmuxWindowTitle       *TmuxWindowTitleConfig          `yaml:"tmuxWindowTitle,omitempty"`
-	TmuxWindowBusyColor   *string                         `yaml:"tmuxWindowBusyColor,omitempty"`      // Deprecated: use tmuxWindowTitle.busyBackgroundColor
-	TmuxWindowAttentionColor *string                      `yaml:"tmuxWindowAttentionColor,omitempty"` // Deprecated: use tmuxWindowTitle.attentionBackgroundColor
+	TmuxWindowTitle *TmuxWindowTitleConfig `yaml:"tmuxWindowTitle,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -299,22 +297,13 @@ func (c *AgencConfig) GetPaletteTmuxKeybinding() string {
 	return c.PaletteTmuxKeybinding
 }
 
-// GetTmuxWindowTitleConfig returns the TmuxWindowTitleConfig, merging in
-// deprecated flat keys as fallbacks. If the new nested key is set, it wins;
-// otherwise the deprecated flat key is used; otherwise the default applies.
+// GetTmuxWindowTitleConfig returns the TmuxWindowTitleConfig, returning an
+// empty config (which will use defaults) if the key is not set.
 func (c *AgencConfig) GetTmuxWindowTitleConfig() *TmuxWindowTitleConfig {
-	t := c.TmuxWindowTitle
-	if t == nil {
-		t = &TmuxWindowTitleConfig{}
+	if c.TmuxWindowTitle != nil {
+		return c.TmuxWindowTitle
 	}
-	// Merge deprecated flat keys as fallbacks
-	if t.BusyBackgroundColor == nil && c.TmuxWindowBusyColor != nil {
-		t.BusyBackgroundColor = c.TmuxWindowBusyColor
-	}
-	if t.AttentionBackgroundColor == nil && c.TmuxWindowAttentionColor != nil {
-		t.AttentionBackgroundColor = c.TmuxWindowAttentionColor
-	}
-	return t
+	return &TmuxWindowTitleConfig{}
 }
 
 // GetCronsMaxConcurrent returns the max concurrent cron missions, using the default if not set.
