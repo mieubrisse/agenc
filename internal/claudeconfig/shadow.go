@@ -231,10 +231,8 @@ func ingestFile(srcFilepath string, dstFilepath string) (bool, error) {
 	return true, nil
 }
 
-// ingestDir replaces the destination directory with a fresh copy from the
-// source. This ensures files deleted from the source are also removed from
-// the shadow repo. Returns true to signal a potential change — the caller
-// relies on git diff to determine whether anything actually changed.
+// ingestDir copies a directory from src to dst as-is (no path transformation).
+// Returns true if any files were changed or removed.
 // If the source doesn't exist, removes the destination if it exists.
 func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 	// Resolve the source in case it's a symlink
@@ -260,11 +258,10 @@ func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 		return false, stacktrace.NewError("'%s' resolves to a non-directory", srcDirpath)
 	}
 
-	// Remove destination entirely so files deleted from source are also
-	// removed from the shadow repo, then re-copy everything from source.
-	os.RemoveAll(dstDirpath)
+	changed := false
 
-	err = filepath.Walk(resolvedSrc, func(path string, fileInfo os.FileInfo, walkErr error) error {
+	// Copy new/changed files from source to destination
+	err = filepath.Walk(resolvedSrc, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -276,25 +273,72 @@ func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 
 		dstPath := filepath.Join(dstDirpath, relPath)
 
-		if fileInfo.IsDir() {
-			return os.MkdirAll(dstPath, fileInfo.Mode())
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
 		}
 
-		data, err := os.ReadFile(path)
+		origFilepath := filepath.Join(srcDirpath, relPath)
+		didChange, err := ingestFile(path, dstPath)
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to read '%s'", filepath.Join(srcDirpath, relPath))
+			return stacktrace.Propagate(err, "failed to ingest '%s'", origFilepath)
 		}
-
-		return os.WriteFile(dstPath, data, fileInfo.Mode())
+		if didChange {
+			changed = true
+		}
+		return nil
 	})
 
 	if err != nil {
 		return false, stacktrace.Propagate(err, "failed to walk directory '%s'", resolvedSrc)
 	}
 
-	// Always signal potential change — commitShadowChanges uses git diff
-	// to determine whether anything actually changed before creating a commit.
-	return true, nil
+	// Remove stale entries from destination that no longer exist in source
+	if err := removeStaleEntries(dstDirpath, resolvedSrc, &changed); err != nil {
+		return false, stacktrace.Propagate(err, "failed to remove stale entries from '%s'", dstDirpath)
+	}
+
+	return changed, nil
+}
+
+// removeStaleEntries walks the destination directory and removes any files or
+// directories that don't have a corresponding entry in the source directory.
+// Sets *changed to true if anything was removed.
+func removeStaleEntries(dstDirpath string, srcDirpath string, changed *bool) error {
+	if _, err := os.Stat(dstDirpath); os.IsNotExist(err) {
+		return nil
+	}
+
+	// Collect stale paths first to avoid modifying the tree during the walk
+	var stalePaths []string
+	err := filepath.Walk(dstDirpath, func(dstPath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(dstDirpath, dstPath)
+		if err != nil || relPath == "." {
+			return nil
+		}
+
+		srcPath := filepath.Join(srcDirpath, relPath)
+		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+			stalePaths = append(stalePaths, dstPath)
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to walk destination for stale entries")
+	}
+
+	for _, stalePath := range stalePaths {
+		os.RemoveAll(stalePath)
+		*changed = true
+	}
+
+	return nil
 }
 
 // resolveSymlink resolves a path through any symlinks. Returns the resolved
