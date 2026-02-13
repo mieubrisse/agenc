@@ -62,6 +62,12 @@ func (d *Daemon) Run(ctx context.Context) {
 		d.runKeybindingsWriterLoop(ctx)
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.runMissionSummarizerLoop(ctx)
+	}()
+
 	wg.Wait()
 	d.logger.Println("Daemon stopping")
 }

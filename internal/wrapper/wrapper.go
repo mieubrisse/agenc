@@ -425,6 +425,9 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 		if err := w.db.UpdateLastActive(w.missionID); err != nil {
 			w.logger.Warn("Failed to update last_active", "error", err)
 		}
+		if err := w.db.IncrementPromptCount(w.missionID); err != nil {
+			w.logger.Warn("Failed to increment prompt count", "error", err)
+		}
 
 	case "Notification":
 		// Color the pane for notification types that need user attention

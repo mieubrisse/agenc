@@ -155,12 +155,15 @@ func extractRepoName(gitRepoName string) string {
 	return parts[len(parts)-1]
 }
 
-// updateWindowTitleFromSession checks for a session name (set by Claude via
-// /rename or auto-generated summaries) and updates the tmux window title to
-// match. Only runs inside the AgenC tmux session (AGENC_TMUX == 1). If a
-// custom windowTitle was set via config.yml, it takes priority and this is a
-// no-op. Called on each Stop event so the title stays in sync as the session
-// name evolves.
+// updateWindowTitleFromSession updates the tmux window title based on the best
+// available name for this mission. Priority order (highest to lowest):
+//  1. AGENC_WINDOW_NAME env var (explicit --name flag — never overridden)
+//  2. Custom title from Claude's /rename command
+//  3. AI-generated summary from daemon (updated every ~10 user prompts)
+//  4. Auto-generated session name from Claude's session metadata
+//
+// Only runs inside the AgenC tmux session (AGENC_TMUX == 1). Called on each
+// Stop event so the title stays in sync as the session evolves.
 func (w *Wrapper) updateWindowTitleFromSession() {
 	if os.Getenv(agencTmuxEnvVar) != "1" {
 		return
@@ -171,23 +174,40 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 		return
 	}
 
-	// Custom windowTitle from config.yml takes priority — don't override it
-	if w.windowTitle != "" {
+	// Explicit --name from tmux window new takes absolute priority
+	if os.Getenv("AGENC_WINDOW_NAME") != "" {
 		return
 	}
 
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
+
+	// Custom title from /rename takes highest dynamic priority
+	if customTitle := session.FindCustomTitle(claudeConfigDirpath, w.missionID); customTitle != "" {
+		_ = w.db.UpdateMissionSessionName(w.missionID, customTitle)
+		title := truncateWindowTitle(customTitle, maxWindowTitleLen)
+		//nolint:errcheck // best-effort; failure is not critical
+		exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
+		return
+	}
+
+	// AI-generated summary from the daemon (periodically updated based on
+	// user activity). Preferred over auto-generated session summaries because
+	// it reflects what the user is currently working on.
+	if aiSummary, err := w.db.GetMissionAISummary(w.missionID); err == nil && aiSummary != "" {
+		title := truncateWindowTitle(aiSummary, maxWindowTitleLen)
+		//nolint:errcheck // best-effort; failure is not critical
+		exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
+		return
+	}
+
+	// Fall back to auto-generated session name from Claude's session metadata
 	sessionName := session.FindSessionName(claudeConfigDirpath, w.missionID)
 	if sessionName == "" {
 		return
 	}
 
-	// Cache the session name in the database for mission listings
 	_ = w.db.UpdateMissionSessionName(w.missionID, sessionName)
-
-	// Truncate for tmux tab display
 	title := truncateWindowTitle(sessionName, maxWindowTitleLen)
-
 	//nolint:errcheck // best-effort; failure is not critical
 	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
 }

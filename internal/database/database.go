@@ -36,6 +36,9 @@ const addCronNameColumnSQL = `ALTER TABLE missions ADD COLUMN cron_name TEXT;`
 const addConfigCommitColumnSQL = `ALTER TABLE missions ADD COLUMN config_commit TEXT;`
 const addTmuxPaneColumnSQL = `ALTER TABLE missions ADD COLUMN tmux_pane TEXT;`
 const addLastActiveColumnSQL = `ALTER TABLE missions ADD COLUMN last_active TEXT;`
+const addPromptCountColumnSQL = `ALTER TABLE missions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0;`
+const addLastSummaryPromptCountColumnSQL = `ALTER TABLE missions ADD COLUMN last_summary_prompt_count INTEGER NOT NULL DEFAULT 0;`
+const addAISummaryColumnSQL = `ALTER TABLE missions ADD COLUMN ai_summary TEXT NOT NULL DEFAULT '';`
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
 // were stored with the $TMUX_PANE format (%42) rather than the canonical
@@ -57,9 +60,12 @@ type Mission struct {
 	CronID               *string
 	CronName             *string
 	ConfigCommit         *string
-	TmuxPane             *string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	TmuxPane               *string
+	PromptCount            int
+	LastSummaryPromptCount int
+	AISummary              string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // DB wraps a sql.DB connection to the agenc SQLite database.
@@ -131,6 +137,11 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := migrateAddLastActive(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to add last_active column")
+	}
+
+	if err := migrateAddAISummary(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add AI summary columns")
 	}
 
 	// Backfill: strip "%" prefix from tmux_pane values stored by older builds
@@ -330,6 +341,36 @@ func migrateAddLastActive(conn *sql.DB) error {
 	return err
 }
 
+// migrateAddAISummary idempotently adds the prompt_count,
+// last_summary_prompt_count, and ai_summary columns for daemon-driven
+// AI mission summarization.
+func migrateAddAISummary(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if !columns["prompt_count"] {
+		if _, err := conn.Exec(addPromptCountColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add prompt_count column")
+		}
+	}
+
+	if !columns["last_summary_prompt_count"] {
+		if _, err := conn.Exec(addLastSummaryPromptCountColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add last_summary_prompt_count column")
+		}
+	}
+
+	if !columns["ai_summary"] {
+		if _, err := conn.Exec(addAISummaryColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add ai_summary column")
+		}
+	}
+
+	return nil
+}
+
 // migrateDropAgentTemplate idempotently drops the agent_template column
 // from the missions table. Agent templates have been removed from AgenC.
 func migrateDropAgentTemplate(conn *sql.DB) error {
@@ -403,7 +444,7 @@ type ListMissionsParams struct {
 // If params.IncludeArchived is true, all missions are returned; otherwise archived missions are excluded.
 // If params.CronID is set, only missions with that cron_id are returned.
 func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
-	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions"
+	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions"
 
 	var conditions []string
 	var args []interface{}
@@ -433,7 +474,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 // GetMission returns a single mission by ID.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -451,7 +492,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 // or nil if no mission exists for the cron.
 func (db *DB) GetMostRecentMissionForCron(cronID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE cron_id = ? ORDER BY created_at DESC LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE cron_id = ? ORDER BY created_at DESC LIMIT 1",
 		cronID,
 	)
 
@@ -621,7 +662,7 @@ func (db *DB) ClearTmuxPane(id string) error {
 // tmux pane ID, or nil if no active mission is running in that pane.
 func (db *DB) GetMissionByTmuxPane(paneID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
 		paneID,
 	)
 
@@ -641,7 +682,7 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 		var m Mission
 		var lastHeartbeat, lastActive, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastActive, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastActive, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &m.LastSummaryPromptCount, &m.AISummary, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
@@ -682,7 +723,7 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
 	var lastHeartbeat, lastActive, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastActive, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastActive, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &m.LastSummaryPromptCount, &m.AISummary, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
@@ -775,4 +816,56 @@ func (db *DB) ResolveMissionID(userInput string) (string, error) {
 			userInput, len(matches), strings.Join(lines, "\n"),
 		)
 	}
+}
+
+// IncrementPromptCount atomically increments the prompt_count for a mission.
+// Called by the wrapper on each UserPromptSubmit hook event.
+func (db *DB) IncrementPromptCount(id string) error {
+	_, err := db.conn.Exec(
+		"UPDATE missions SET prompt_count = prompt_count + 1 WHERE id = ?",
+		id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to increment prompt count for mission '%s'", id)
+	}
+	return nil
+}
+
+// UpdateAISummary updates the AI-generated summary and sets
+// last_summary_prompt_count to the current prompt_count so the mission won't
+// be re-summarized until enough new prompts accumulate.
+func (db *DB) UpdateAISummary(id string, summary string) error {
+	_, err := db.conn.Exec(
+		"UPDATE missions SET ai_summary = ?, last_summary_prompt_count = prompt_count WHERE id = ?",
+		summary, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update AI summary for mission '%s'", id)
+	}
+	return nil
+}
+
+// GetMissionAISummary returns the AI-generated summary for a mission.
+func (db *DB) GetMissionAISummary(id string) (string, error) {
+	var summary string
+	err := db.conn.QueryRow("SELECT ai_summary FROM missions WHERE id = ?", id).Scan(&summary)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to get AI summary for mission '%s'", id)
+	}
+	return summary, nil
+}
+
+// ListMissionsNeedingSummary returns active missions where the number of new
+// prompts since the last summarization meets or exceeds the given threshold.
+func (db *DB) ListMissionsNeedingSummary(threshold int) ([]*Mission, error) {
+	query := `SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active,
+		session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane,
+		prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at
+		FROM missions WHERE status = 'active' AND (prompt_count - last_summary_prompt_count) >= ?`
+	rows, err := db.conn.Query(query, threshold)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to query missions needing summary")
+	}
+	defer rows.Close()
+	return scanMissions(rows)
 }

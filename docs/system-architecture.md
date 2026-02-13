@@ -77,7 +77,7 @@ The daemon is a long-running background process that performs periodic maintenan
 - PID file: `$AGENC_DIRPATH/daemon/daemon.pid`
 - Log file: `$AGENC_DIRPATH/daemon/daemon.log`
 
-The daemon runs five concurrent goroutines:
+The daemon runs six concurrent goroutines:
 
 **1. Repo update loop** (`internal/daemon/template_updater.go`)
 - Runs every 60 seconds
@@ -104,6 +104,13 @@ The daemon runs five concurrent goroutines:
 - Writes the tmux keybindings file on startup and every 5 minutes
 - Sources the keybindings into any running tmux server after writing
 - Ensures keybindings stay current after binary upgrades (daemon auto-restarts on version bump)
+
+**6. Mission summarizer loop** (`internal/daemon/mission_summarizer.go`)
+- Runs every 2 minutes
+- Queries the database for active missions where `prompt_count - last_summary_prompt_count >= 10`
+- For each eligible mission: extracts recent user messages from session JSONL, calls Claude Haiku via `claude --print --model claude-haiku-4-5-20251001` to generate a 3-8 word description, stores the result in the `ai_summary` database column
+- Skips missions that already have a custom title from `/rename` (resets the counter without generating a new summary)
+- Uses the Claude CLI subprocess rather than a direct API call to avoid requiring users to configure an API key (see code comment for performance tradeoff note)
 
 ### Wrapper
 
@@ -289,7 +296,7 @@ SQLite mission tracking with auto-migration.
 
 ### `internal/daemon/`
 
-Background daemon with five concurrent loops.
+Background daemon with six concurrent loops.
 
 - `daemon.go` — `Daemon` struct, `Run` method that starts and coordinates all goroutines
 - `process.go` — daemon lifecycle: `ForkDaemon` (re-executes binary as detached process via setsid), `ReadPID`, `IsProcessRunning`, `StopDaemon` (SIGTERM then SIGKILL)
@@ -298,6 +305,7 @@ Background daemon with five concurrent loops.
 - `cron_scheduler.go` — cron scheduler loop (60-second interval, spawns headless missions, overlap policies, orphan adoption)
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude`, 500ms debounce, ingests into shadow repo)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
+- `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
 
 ### `internal/tmux/`
 
@@ -315,13 +323,13 @@ Per-mission Claude child process management.
 - `credential_sync.go` — (disabled) credential upward/downward sync goroutines, previously synchronized Keychain credentials between missions; disabled as part of the token file auth migration
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
-- `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (uses custom `windowTitle` from config.yml if set, otherwise falls back to repo short name; dynamically updates to the session name on each Claude Stop event), pane color management (`setPaneNeedsAttention`, `resetPaneStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
+- `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from daemon > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
 
 ### Utility packages
 
 - `internal/version/` — single `Version` string set via ldflags at build time (`version.go`)
 - `internal/history/` — `FindFirstPrompt` extracts the first user prompt from Claude's `history.jsonl` for a given mission UUID (`history.go`)
-- `internal/session/` — `FindSessionName` resolves a mission's session name from Claude metadata (priority: custom-title > sessions-index.json summary > JSONL summary) (`session.go`)
+- `internal/session/` — `FindSessionName` resolves a mission's session name from Claude metadata (priority: custom-title > sessions-index.json summary > JSONL summary) (`session.go`), `FindCustomTitle` returns only the /rename custom title (`session.go`), `ExtractRecentUserMessages` extracts user message contents from session JSONL for AI summarization (`conversation.go`)
 - `internal/tableprinter/` — ANSI-aware table formatting using `rodaine/table` with `runewidth` for wide character support (`tableprinter.go`)
 
 
@@ -379,8 +387,8 @@ The config merge injects three hooks into each mission's `settings.json` (`inter
 The `agenc mission send claude-update` command reads hook JSON from stdin (to extract `notification_type` for Notification events), then sends a `claude_update` command to the wrapper's unix socket with a 1-second timeout. It always exits 0 to avoid blocking Claude.
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
-- **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending, updates tmux window title to the session name (if available and no custom windowTitle is configured)
-- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, updates `last_active` in the database
+- **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending, updates tmux window title (priority: custom title from /rename > AI summary from daemon > auto-generated session name)
+- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, updates `last_active` in the database, increments `prompt_count` (used by the daemon's mission summarizer to determine summarization eligibility)
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
 
 ### Statusline wrapper
@@ -511,6 +519,9 @@ Database Schema
 | `cron_id` | TEXT | UUID of the cron that spawned this mission (nullable) |
 | `cron_name` | TEXT | Name of the cron job (nullable, used for orphan tracking) |
 | `tmux_pane` | TEXT | Tmux pane ID where the mission wrapper is running (nullable, cleared on exit) |
+| `prompt_count` | INTEGER | Total number of user prompt submissions, incremented by `UserPromptSubmit` hook |
+| `last_summary_prompt_count` | INTEGER | Value of `prompt_count` when the AI summary was last generated. The daemon re-summarizes when `prompt_count - last_summary_prompt_count >= 10` |
+| `ai_summary` | TEXT | AI-generated short description of what the user is working on, produced by the daemon's mission summarizer via Claude Haiku |
 | `created_at` | TEXT | Mission creation timestamp (RFC3339) |
 | `updated_at` | TEXT | Last update timestamp (RFC3339) |
 

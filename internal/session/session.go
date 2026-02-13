@@ -38,22 +38,7 @@ type jsonlMetadataLine struct {
 //
 // Returns "" if no session name is found.
 func FindSessionName(claudeConfigDirpath string, missionID string) string {
-	projectsDirpath := filepath.Join(claudeConfigDirpath, "projects")
-	entries, err := os.ReadDir(projectsDirpath)
-	if err != nil {
-		return ""
-	}
-
-	var projectDirpath string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if strings.Contains(entry.Name(), missionID) {
-			projectDirpath = filepath.Join(projectsDirpath, entry.Name())
-			break
-		}
-	}
+	projectDirpath := findProjectDirpath(claudeConfigDirpath, missionID)
 	if projectDirpath == "" {
 		return ""
 	}
@@ -72,6 +57,36 @@ func FindSessionName(claudeConfigDirpath string, missionID string) string {
 
 	// Fall back to the auto-generated summary found in JSONL
 	return jsonlSummary
+}
+
+// FindCustomTitle returns the custom title set via Claude's /rename command,
+// or "" if no custom title exists.
+func FindCustomTitle(claudeConfigDirpath string, missionID string) string {
+	projectDirpath := findProjectDirpath(claudeConfigDirpath, missionID)
+	if projectDirpath == "" {
+		return ""
+	}
+	customTitle, _ := findNamesFromJSONL(projectDirpath)
+	return customTitle
+}
+
+// findProjectDirpath locates the Claude Code project directory for the given
+// mission within the claude config directory. Returns "" if not found.
+func findProjectDirpath(claudeConfigDirpath string, missionID string) string {
+	projectsDirpath := filepath.Join(claudeConfigDirpath, "projects")
+	entries, err := os.ReadDir(projectsDirpath)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if strings.Contains(entry.Name(), missionID) {
+			return filepath.Join(projectsDirpath, entry.Name())
+		}
+	}
+	return ""
 }
 
 // findSummaryFromIndex reads sessions-index.json and returns the summary from
@@ -105,21 +120,28 @@ func findSummaryFromIndex(projectDirpath string) string {
 	return index.Entries[latestIdx].Summary
 }
 
-// findNamesFromJSONL scans .jsonl files in the project directory for custom-title
-// and summary entries. It examines the most recently modified JSONL file and
-// returns (customTitle, summary). Either or both may be empty.
+// findNamesFromJSONL scans the most recently modified .jsonl file in the
+// project directory for custom-title and summary entries. Returns
+// (customTitle, summary). Either or both may be empty.
 func findNamesFromJSONL(projectDirpath string) (customTitle string, summary string) {
-	entries, err := os.ReadDir(projectDirpath)
-	if err != nil {
+	jsonlFilepath := findMostRecentJSONL(projectDirpath)
+	if jsonlFilepath == "" {
 		return "", ""
 	}
+	return findNamesInJSONL(jsonlFilepath)
+}
 
-	type jsonlCandidate struct {
-		filepath string
-		modTime  int64
+// findMostRecentJSONL returns the path of the most recently modified .jsonl
+// file in the given directory, or "" if none exist.
+func findMostRecentJSONL(projectDirpath string) string {
+	entries, err := os.ReadDir(projectDirpath)
+	if err != nil {
+		return ""
 	}
 
-	var candidates []jsonlCandidate
+	var latestFilepath string
+	var latestModTime int64
+
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
 			continue
@@ -128,25 +150,13 @@ func findNamesFromJSONL(projectDirpath string) (customTitle string, summary stri
 		if err != nil {
 			continue
 		}
-		candidates = append(candidates, jsonlCandidate{
-			filepath: filepath.Join(projectDirpath, entry.Name()),
-			modTime:  info.ModTime().UnixMilli(),
-		})
-	}
-
-	if len(candidates) == 0 {
-		return "", ""
-	}
-
-	// Find the most recently modified JSONL file
-	latestIdx := 0
-	for i := 1; i < len(candidates); i++ {
-		if candidates[i].modTime > candidates[latestIdx].modTime {
-			latestIdx = i
+		if info.ModTime().UnixMilli() > latestModTime {
+			latestModTime = info.ModTime().UnixMilli()
+			latestFilepath = filepath.Join(projectDirpath, entry.Name())
 		}
 	}
 
-	return findNamesInJSONL(candidates[latestIdx].filepath)
+	return latestFilepath
 }
 
 // findNamesInJSONL scans a JSONL file for custom-title and summary entries.
