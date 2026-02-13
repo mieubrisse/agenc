@@ -151,38 +151,99 @@ func TestGetMissionByTmuxPane_OnlyActiveReturned(t *testing.T) {
 	}
 }
 
-func TestCreateMission_InitializesLastActive(t *testing.T) {
+func TestListMissions_SortsByNewestActivity(t *testing.T) {
 	db := openTestDB(t)
 
-	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	// Create three missions with different activity patterns
+	m1, err := db.CreateMission("github.com/owner/repo1", nil)
 	if err != nil {
-		t.Fatalf("failed to create mission: %v", err)
+		t.Fatalf("failed to create mission 1: %v", err)
 	}
 
-	// last_active should be set to creation time
-	if mission.LastActive == nil {
-		t.Fatal("expected LastActive to be set at creation, got nil")
-	}
-
-	// Verify it's close to the creation time (within 1 second)
-	if mission.LastActive.Sub(mission.CreatedAt).Abs().Seconds() > 1.0 {
-		t.Errorf("LastActive (%v) differs from CreatedAt (%v) by more than 1 second",
-			mission.LastActive, mission.CreatedAt)
-	}
-
-	// Retrieve from database and verify persistence
-	retrieved, err := db.GetMission(mission.ID)
+	m2, err := db.CreateMission("github.com/owner/repo2", nil)
 	if err != nil {
-		t.Fatalf("failed to retrieve mission: %v", err)
+		t.Fatalf("failed to create mission 2: %v", err)
 	}
 
-	if retrieved.LastActive == nil {
-		t.Fatal("expected persisted LastActive, got nil")
+	m3, err := db.CreateMission("github.com/owner/repo3", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission 3: %v", err)
 	}
 
-	// RFC3339 timestamps lose microsecond precision, so compare rounded to seconds
-	if retrieved.LastActive.Truncate(1).Unix() != mission.LastActive.Truncate(1).Unix() {
-		t.Errorf("persisted LastActive (%v) differs from created LastActive (%v)",
-			retrieved.LastActive, mission.LastActive)
+	// m1: has only last_active (most recent)
+	if err := db.UpdateLastActive(m1.ID); err != nil {
+		t.Fatalf("failed to update last_active for m1: %v", err)
+	}
+
+	// m2: has only last_heartbeat (older than m1, newer than m3)
+	if err := db.UpdateHeartbeat(m2.ID); err != nil {
+		t.Fatalf("failed to update heartbeat for m2: %v", err)
+	}
+
+	// m3: has neither (only created_at, oldest)
+	// No updates needed - it keeps NULL for both timestamps
+
+	// List missions
+	missions, err := db.ListMissions(ListMissionsParams{IncludeArchived: false})
+	if err != nil {
+		t.Fatalf("failed to list missions: %v", err)
+	}
+
+	if len(missions) != 3 {
+		t.Fatalf("expected 3 missions, got %d", len(missions))
+	}
+
+	// Verify sort order: m1 (last_active), m2 (last_heartbeat), m3 (created_at only)
+	if missions[0].ID != m1.ID {
+		t.Errorf("expected first mission to be m1 (has last_active), got %s", missions[0].ID)
+	}
+	if missions[1].ID != m2.ID {
+		t.Errorf("expected second mission to be m2 (has last_heartbeat), got %s", missions[1].ID)
+	}
+	if missions[2].ID != m3.ID {
+		t.Errorf("expected third mission to be m3 (has only created_at), got %s", missions[2].ID)
+	}
+}
+
+func TestListMissions_BrandNewMissionAppearsFirst(t *testing.T) {
+	db := openTestDB(t)
+
+	// Create an older mission and update its created_at to be in the past
+	older, err := db.CreateMission("github.com/owner/old-repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create older mission: %v", err)
+	}
+
+	// Manually set created_at to 1 hour ago to simulate an old mission
+	oneHourAgo := "2026-01-01T12:00:00Z"
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", oneHourAgo, older.ID); err != nil {
+		t.Fatalf("failed to backdate older mission: %v", err)
+	}
+
+	// Give it a heartbeat that's also in the past
+	oldHeartbeat := "2026-01-01T12:05:00Z"
+	if _, err := db.conn.Exec("UPDATE missions SET last_heartbeat = ? WHERE id = ?", oldHeartbeat, older.ID); err != nil {
+		t.Fatalf("failed to set old heartbeat: %v", err)
+	}
+
+	// Create a brand new mission (no heartbeat, no last_active)
+	newer, err := db.CreateMission("github.com/owner/new-repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create newer mission: %v", err)
+	}
+
+	// List missions - the newer one should appear first because its created_at
+	// is more recent than the older mission's last_heartbeat
+	missions, err := db.ListMissions(ListMissionsParams{IncludeArchived: false})
+	if err != nil {
+		t.Fatalf("failed to list missions: %v", err)
+	}
+
+	if len(missions) != 2 {
+		t.Fatalf("expected 2 missions, got %d", len(missions))
+	}
+
+	if missions[0].ID != newer.ID {
+		t.Errorf("expected brand new mission to appear first, got %s", missions[0].ID)
 	}
 }

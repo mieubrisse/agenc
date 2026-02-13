@@ -372,14 +372,13 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	}
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, last_active, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, cronID, cronName, configCommit, now, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, cronID, cronName, configCommit, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
 	}
 
-	nowTime := time.Now().UTC()
 	return &Mission{
 		ID:           id,
 		ShortID:      shortID,
@@ -388,9 +387,8 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		CronID:       cronID,
 		CronName:     cronName,
 		ConfigCommit: configCommit,
-		LastActive:   &nowTime,
-		CreatedAt:    nowTime,
-		UpdatedAt:    nowTime,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	}, nil
 }
 
@@ -400,9 +398,8 @@ type ListMissionsParams struct {
 	CronID          *string // If set, filter to missions with this cron_id
 }
 
-// ListMissions returns missions ordered by last_heartbeat DESC (most recently
-// active first), with missions that have never sent a heartbeat sorted to the
-// end by created_at DESC.
+// ListMissions returns missions ordered by the most recent activity timestamp
+// (newest of last_active, last_heartbeat, or created_at) descending.
 // If params.IncludeArchived is true, all missions are returned; otherwise archived missions are excluded.
 // If params.CronID is set, only missions with that cron_id are returned.
 func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
@@ -422,7 +419,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY last_active IS NULL, last_active DESC, last_heartbeat IS NULL, last_heartbeat DESC, created_at DESC"
+	query += " ORDER BY COALESCE(last_active, last_heartbeat, created_at) DESC"
 
 	rows, err := db.conn.Query(query, args...)
 	if err != nil {
