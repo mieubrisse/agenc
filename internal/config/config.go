@@ -380,10 +380,8 @@ func cleanupOldAuthFiles(agencDirpath string) {
 	}
 
 	// Note: Per-mission Keychain entries ("Claude Code-credentials-<hash>") are
-	// left in place. They're harmless and removing them requires per-mission
-	// iteration, which is expensive. Users can manually clean with:
-	//   security find-generic-password -s "Claude Code-credentials" -a | grep "Claude Code-credentials-"
-	//   security delete-generic-password -s "Claude Code-credentials-<hash>" -a <account>
+	// cleaned up automatically when missions are removed via `agenc mission rm`.
+	// Old entries from before this cleanup was added are harmless and left in place.
 }
 
 // SetupOAuthToken walks the user through obtaining a long-lived Claude Code
