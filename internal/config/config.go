@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 )
@@ -40,6 +41,8 @@ const (
 	MissionUUIDEnvVar                   = "AGENC_MISSION_UUID"
 	AssistantMarkerFilename             = ".assistant"
 	GlobalCredentialsExpiryFilename     = "global-credentials-expiry"
+	CacheDirname                        = "cache"
+	OAuthTokenFilename                  = "oauth-token"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -66,6 +69,7 @@ func EnsureDirStructure(agencDirpath string) error {
 		filepath.Join(agencDirpath, ClaudeDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, DaemonDirname),
+		filepath.Join(agencDirpath, CacheDirname),
 	}
 	for _, dirpath := range dirs {
 		if err := os.MkdirAll(dirpath, 0755); err != nil {
@@ -302,6 +306,56 @@ func EnsureClaudeModificationsFiles(agencDirpath string) error {
 		if err := os.WriteFile(settingsFilepath, []byte("{}\n"), 0644); err != nil {
 			return stacktrace.Propagate(err, "failed to create '%s'", settingsFilepath)
 		}
+	}
+
+	return nil
+}
+
+// GetCacheDirpath returns the path to the cache directory ($AGENC_DIRPATH/cache/).
+func GetCacheDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, CacheDirname)
+}
+
+// GetOAuthTokenFilepath returns the path to the cached OAuth token file.
+func GetOAuthTokenFilepath(agencDirpath string) string {
+	return filepath.Join(GetCacheDirpath(agencDirpath), OAuthTokenFilename)
+}
+
+// ReadOAuthToken reads the OAuth token from the cache file. Returns an empty
+// string if the file does not exist. Returns an error only for unexpected
+// read failures.
+func ReadOAuthToken(agencDirpath string) (string, error) {
+	tokenFilepath := GetOAuthTokenFilepath(agencDirpath)
+	data, err := os.ReadFile(tokenFilepath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", stacktrace.Propagate(err, "failed to read OAuth token file '%s'", tokenFilepath)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// WriteOAuthToken writes the OAuth token to the cache file with 600 permissions.
+// If the token is empty, the file is deleted instead.
+func WriteOAuthToken(agencDirpath string, token string) error {
+	tokenFilepath := GetOAuthTokenFilepath(agencDirpath)
+
+	if token == "" {
+		if err := os.Remove(tokenFilepath); err != nil && !os.IsNotExist(err) {
+			return stacktrace.Propagate(err, "failed to remove OAuth token file '%s'", tokenFilepath)
+		}
+		return nil
+	}
+
+	// Ensure cache directory exists
+	cacheDirpath := GetCacheDirpath(agencDirpath)
+	if err := os.MkdirAll(cacheDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create cache directory '%s'", cacheDirpath)
+	}
+
+	if err := os.WriteFile(tokenFilepath, []byte(token+"\n"), 0600); err != nil {
+		return stacktrace.Propagate(err, "failed to write OAuth token file '%s'", tokenFilepath)
 	}
 
 	return nil

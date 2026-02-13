@@ -1,3 +1,8 @@
+// NOTE: The goroutines in this file (watchCredentialUpwardSync,
+// watchCredentialDownwardSync, initCredentialHash) are currently disabled.
+// Token file auth via CLAUDE_CODE_OAUTH_TOKEN replaces Keychain-based
+// credential syncing. The code is preserved for potential future re-enablement.
+
 package wrapper
 
 import (

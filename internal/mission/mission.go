@@ -91,6 +91,13 @@ func buildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 		config.MissionUUIDEnvVar+"="+missionID,
 	)
 
+	// If an OAuth token file exists, pass it as CLAUDE_CODE_OAUTH_TOKEN so
+	// Claude Code authenticates via env var instead of the Keychain.
+	oauthToken, err := config.ReadOAuthToken(agencDirpath)
+	if err == nil && oauthToken != "" {
+		cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
+	}
+
 	return cmd, nil
 }
 

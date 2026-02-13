@@ -1,6 +1,6 @@
 ## agenc login
 
-Log in to Claude and update credentials for all missions
+Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
 
 ```
 agenc login [flags]

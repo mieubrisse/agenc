@@ -52,7 +52,7 @@ graph TB
 |-----------|--------|--------|---------|
 | `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats, pane tracking |
 | `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
-| `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI (`login`), hooks (`mission send claude-update`) | Restart commands, Claude state updates |
+| `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI, hooks (`mission send claude-update`) | Restart commands, Claude state updates |
 | `daemon/daemon.pid` | Daemon | CLI (`daemon stop/status`) | Process coordination |
 | `.git/refs/remotes/origin/<branch>` | Git (after push) | Wrapper (via fsnotify) | Trigger repo library update |
 
@@ -116,17 +116,14 @@ The wrapper:
 
 1. Writes the wrapper PID to `$AGENC_DIRPATH/missions/<uuid>/pid`
 2. Records the tmux pane ID in the database (cleared on exit) for pane→mission resolution
-3. Clones fresh credentials from the global Keychain into the per-mission entry
+3. Reads the OAuth token from the token file and sets `CLAUDE_CODE_OAUTH_TOKEN` in the child environment
 4. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
 5. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 6. Sets `AGENC_MISSION_UUID` for the child process
-7. Starts six background goroutines:
+7. Starts three background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` in the database every 30 seconds
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (restart, claude_update)
-   - **Token expiry watcher** (interactive mode only) — checks the stored OAuth token expiry timestamp every 60 seconds; when within 1 hour of expiry, writes a warning to the per-mission `statusline-message` file; when fresh credentials are cloned (after restart), clears the warning. Suppresses warnings when a credential-triggered restart is pending.
-   - **Credential upward sync** (interactive mode only) — polls the per-mission Keychain entry every 60 seconds. When the credential hash changes (e.g. after `/login`), merges per-mission credentials into the global Keychain and writes the new expiry to `$AGENC_DIRPATH/global-credentials-expiry` to notify other wrappers.
-   - **Credential downward sync** (interactive mode only) — watches `$AGENC_DIRPATH/global-credentials-expiry` via fsnotify. When the file's expiry is newer than the wrapper's cached `tokenExpiresAt`, pulls fresh credentials from the global Keychain, merges into per-mission, and schedules a graceful restart. The originating wrapper short-circuits naturally (its cached expiry already matches the file).
 8. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Supports restart commands via unix socket.
@@ -147,7 +144,7 @@ The wrapper:
 ```
 
 - **Running** + Claude exits → natural exit, wrapper exits
-- **Restarting** + Claude exits → wrapper-initiated restart, write back creds, clone fresh creds, respawn Claude
+- **Restarting** + Claude exits → wrapper-initiated restart, respawn Claude
 - **RestartPending** + Claude becomes idle → transition to Restarting, SIGINT Claude
 - Restarts are idempotent: duplicate requests return ok. A hard restart overrides a pending graceful.
 
@@ -155,9 +152,7 @@ The wrapper:
 - `restart` — mode `graceful` (wait for idle, SIGINT, resume with `claude -c`) or `hard` (SIGKILL immediately, fresh session)
 - `claude_update` — sent by Claude hooks to report state changes (event types: `Stop`, `UserPromptSubmit`, `Notification`). The wrapper uses these to track idle state, conversation existence, trigger deferred restarts, and set tmux pane colors for visual feedback.
 
-**Credential cloning at spawn time**: credentials are cloned from the global Keychain into the per-mission entry immediately before each Claude spawn (both initial and restart). This ensures credentials are always fresh and stopped missions don't accumulate stale Keychain entries.
-
-**Credential propagation across sessions**: when a user runs `/login` in one session, the upward sync goroutine detects the per-mission Keychain change within 60 seconds, merges to global, and writes the new expiry to `$AGENC_DIRPATH/global-credentials-expiry`. Other wrappers' downward sync goroutines detect the file change via fsnotify, compare the expiry to their cached value, and schedule a graceful restart if the file's expiry is newer. After restart, fresh credentials are cloned from the updated global Keychain. Statusline shows "🔄 New authentication token detected; restarting upon next idle" while waiting for idle.
+**Token passthrough at spawn time**: the wrapper reads the OAuth token from `$AGENC_DIRPATH/cache/oauth-token` and passes it to Claude via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable. All missions share the same token file. When the user updates the token (`agenc config set claudeCodeOAuthToken <new-token>`), new missions pick it up immediately; running missions get the new token on their next restart.
 
 
 Directory Structure
@@ -201,7 +196,9 @@ $AGENC_DIRPATH/
 ├── database.sqlite                        # SQLite: missions table
 ├── statusline-wrapper.sh                  # Shared statusline wrapper script
 ├── statusline-original-cmd                # User's original statusLine.command (saved on first build)
-├── global-credentials-expiry              # Broadcast file: global Keychain credential expiry (Unix timestamp)
+│
+├── cache/                                 # Cached runtime data (not committed to Git)
+│   └── oauth-token                        # Claude Code OAuth token (mode 600)
 │
 ├── config/                                # User configuration (optionally a git repo)
 │   ├── config.yml                         # Synced repos, Claude config source, cron jobs
@@ -261,7 +258,7 @@ Core Packages
 
 Path management and YAML configuration. All path construction flows from `GetAgencDirpath()`, which reads `$AGENC_DIRPATH` and falls back to `~/.agenc`.
 
-- `config.go` — path helper functions (`GetMissionDirpath`, `GetRepoDirpath`, `GetDatabaseFilepath`, etc.), directory structure initialization (`EnsureDirStructure`), constant definitions for filenames and directory names, assistant mission detection (`IsMissionAssistant` checks for `.assistant` marker file)
+- `config.go` — path helper functions (`GetMissionDirpath`, `GetRepoDirpath`, `GetDatabaseFilepath`, `GetCacheDirpath`, `GetOAuthTokenFilepath`, etc.), directory structure initialization (`EnsureDirStructure`), constant definitions for filenames and directory names, assistant mission detection (`IsMissionAssistant` checks for `.assistant` marker file), OAuth token file read/write (`ReadOAuthToken`, `WriteOAuthToken`)
 - `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation), `RepoConfig` struct (per-repo settings: `alwaysSynced`, `windowTitle`), `CronConfig` struct, `PaletteCommandConfig` struct (user-defined and builtin palette entries with optional tmux keybindings), `PaletteTmuxKeybinding` (configurable key for the command palette, defaults to `k`), `BuiltinPaletteCommands` defaults map, `GetResolvedPaletteCommands` merge logic, validation functions for repo format, cron names, palette command names, schedules, timeouts, and overlap policies. Cron expression evaluation via the `gronx` library.
 - `first_run.go` — `IsFirstRun()` detection
 
@@ -276,7 +273,7 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 Per-mission Claude configuration building, merging, and shadow repo management.
 
-- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `CloneKeychainCredentials`/`DeleteKeychainCredentials` (per-mission Keychain entry management, called by wrapper at spawn time), `ComputeCredentialServiceName`, `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`
+- `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `ResolveConfigCommitHash`, `EnsureShadowRepo`. Note: Keychain credential functions (`CloneKeychainCredentials`, `DeleteKeychainCredentials`) still exist but are unused — authentication now uses the token file approach (see `internal/config/`)
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
 - `prime_content.go` — embeds the CLI quick reference generated at build time by `cmd/genskill/` from the Cobra command tree. Content is printed by `agenc prime` and injected into assistant missions via a `SessionStart` hook.
@@ -313,8 +310,9 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 
 Per-mission Claude child process management.
 
-- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener, token expiry watcher), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, credential cloning at spawn time
-- `token_expiry.go` — `watchTokenExpiry` goroutine that checks stored OAuth token expiry against the clock every 60 seconds, writes/removes the per-mission statusline message file
+- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable
+- `token_expiry.go` — (disabled) `watchTokenExpiry` goroutine, previously checked Keychain token expiry; disabled as part of the token file auth migration
+- `credential_sync.go` — (disabled) credential upward/downward sync goroutines, previously synchronized Keychain credentials between missions; disabled as part of the token file auth migration
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
 - `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (uses custom `windowTitle` from config.yml if set, otherwise falls back to repo short name; dynamically updates to the session name on each Claude Stop event), pane color management (`setPaneNeedsAttention`, `resetPaneStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
@@ -352,7 +350,7 @@ Merging logic (`internal/claudeconfig/merge.go`):
 - settings.json: recursive deep merge (user as base, modifications as overlay), then append operational overrides (hooks and deny entries)
 - Deep merge rules: objects merge recursively, arrays concatenate, scalars from the overlay win
 
-Credentials are handled separately: `.claude.json` is copied from the user's account identity file and patched with a trust entry for the mission's agent directory. Auth credentials are cloned as a per-mission macOS Keychain entry named `Claude Code-credentials-<hash>` (where `<hash>` is the first 8 hex chars of the SHA-256 of the mission's CLAUDE_CONFIG_DIR path). Claude Code looks up credentials by this naming convention when CLAUDE_CONFIG_DIR is set to a non-default path. Credential cloning happens at Claude spawn time (in the wrapper, not during config building), ensuring credentials are always fresh. On mission deletion, the cloned Keychain entry is cleaned up.
+Credentials are handled separately: `.claude.json` is copied from the user's account identity file and patched with a trust entry for the mission's agent directory. Authentication uses a token file at `$AGENC_DIRPATH/cache/oauth-token` — the wrapper reads this file at spawn time and passes the value as `CLAUDE_CODE_OAUTH_TOKEN` in the child environment. No per-mission Keychain entries are created.
 
 ### Shadow repo
 
@@ -385,15 +383,11 @@ The wrapper processes these updates in its main event loop (`handleClaudeUpdate`
 - **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, updates `last_active` in the database
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
 
-### Statusline wrapper and token expiry warning
+### Statusline wrapper
 
 The statusline wrapper (`$AGENC_DIRPATH/statusline-wrapper.sh`) intercepts Claude Code's `statusLine` feature to display per-mission messages. During config building, the user's original `statusLine.command` is saved to `$AGENC_DIRPATH/statusline-original-cmd`, and the merged `settings.json` is patched to invoke the wrapper script with the mission's message file path as an argument.
 
 The wrapper script reads stdin (the JSON payload from Claude Code), checks whether the per-mission `statusline-message` file exists and is non-empty, and either displays its contents or delegates to the user's original command.
-
-The token expiry watcher (`internal/wrapper/token_expiry.go`) is a background goroutine started by the wrapper in interactive mode. At credential clone time, the wrapper reads `claudeAiOauth.expiresAt` from the global Keychain and stores it in memory. The goroutine ticks every 60 seconds, comparing `time.Now()` against the stored timestamp. When the token is within 1 hour of expiry, it writes a warning message to the per-mission `statusline-message` file. When the wrapper restarts and clones fresh credentials, the stored timestamp is updated and the goroutine clears the file on its next tick. No repeated Keychain reads are needed — the goroutine only performs a time comparison. The watcher suppresses its warnings when a credential-triggered restart is pending (`stateRestartPending` or `stateRestarting`), since the restart will deliver fresh credentials.
-
-Two systems write to the per-mission `statusline-message` file: the token expiry watcher (expiry warnings) and the credential downward sync (restart notification). The credential sync message takes priority — when it writes a restart message, it overwrites any expiry warning. On restart, the file is cleared; the token expiry watcher re-evaluates on its next tick.
 
 ### Tmux pane coloring
 
@@ -464,7 +458,7 @@ Data Flow: Mission Lifecycle
 ### Running
 
 1. Wrapper writes PID file, starts socket listener
-2. Wrapper spawns Claude (with 1Password wrapping if `secrets.env` exists), setting `CLAUDE_CONFIG_DIR` and `AGENC_MISSION_UUID`
+2. Wrapper reads OAuth token from token file, spawns Claude (with 1Password wrapping if `secrets.env` exists), setting `CLAUDE_CONFIG_DIR`, `AGENC_MISSION_UUID`, and `CLAUDE_CODE_OAUTH_TOKEN`
 3. Background goroutines start: heartbeat writer, remote refs watcher
 4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, and tmux pane coloring
 5. Main event loop blocks until Claude exits or a signal arrives

@@ -208,18 +208,16 @@ func (w *Wrapper) Run(isResume bool) error {
 	// AgenC tmux session.
 	w.renameWindowForTmux()
 
-	// Clone fresh credentials from global Keychain before initial spawn
-	w.cloneCredentials()
-	w.initCredentialHash()
-
-	// Start token expiry watcher to warn when credentials are about to expire
-	go w.watchTokenExpiry(ctx)
-
-	// Start credential sync watchers:
-	// - Upward sync: polls per-mission Keychain every 60s, merges to global on change
-	// - Downward sync: watches global-credentials-expiry file for changes from other sessions
-	go w.watchCredentialUpwardSync(ctx)
-	go w.watchCredentialDownwardSync(ctx)
+	// Keychain auth disabled: using token file auth via CLAUDE_CODE_OAUTH_TOKEN.
+	// The token is read from $AGENC_DIRPATH/cache/oauth-token and passed as an
+	// env var by buildClaudeCmd/buildHeadlessClaudeCmd. All Keychain cloning,
+	// syncing, writeback, and expiry watching are no longer needed.
+	//
+	// w.cloneCredentials()
+	// w.initCredentialHash()
+	// go w.watchTokenExpiry(ctx)
+	// go w.watchCredentialUpwardSync(ctx)
+	// go w.watchCredentialDownwardSync(ctx)
 
 	// Spawn initial Claude process
 	if isResume {
@@ -249,7 +247,7 @@ func (w *Wrapper) Run(isResume bool) error {
 				_ = w.claudeCmd.Process.Signal(sig)
 			}
 			<-w.claudeExited
-			w.writeBackCredentials()
+			// w.writeBackCredentials() // Keychain auth disabled
 			return nil
 
 		case cmdResp := <-w.commandCh:
@@ -258,11 +256,12 @@ func (w *Wrapper) Run(isResume bool) error {
 
 		case <-w.claudeExited:
 			if w.state == stateRestarting {
-				// Wrapper-initiated restart: write back creds, clone fresh, respawn
+				// Wrapper-initiated restart: respawn Claude
 				w.logger.Info("Claude exited for restart, respawning")
-				w.writeBackCredentials()
-				w.cloneCredentials()
-				w.initCredentialHash()
+				// Keychain auth disabled:
+				// w.writeBackCredentials()
+				// w.cloneCredentials()
+				// w.initCredentialHash()
 				w.clearStatuslineMessage()
 
 				// Respawn Claude: use -c if we have a conversation (graceful),
@@ -287,7 +286,7 @@ func (w *Wrapper) Run(isResume bool) error {
 				w.logger.Info("Claude respawned successfully", "pid", w.claudeCmd.Process.Pid)
 			} else {
 				// Natural exit — wrapper exits
-				w.writeBackCredentials()
+				// w.writeBackCredentials() // Keychain auth disabled
 				return nil
 			}
 		}
@@ -616,8 +615,8 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 	}
 	go w.writeHeartbeat(ctx)
 
-	// Clone fresh credentials from global Keychain before spawning Claude
-	w.cloneCredentials()
+	// Keychain auth disabled: using token file auth via CLAUDE_CODE_OAUTH_TOKEN
+	// w.cloneCredentials()
 
 	// Rotate log file if needed
 	claudeOutputLogFilepath := config.GetMissionClaudeOutputLogFilepath(w.agencDirpath, w.missionID)
@@ -659,7 +658,7 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		if err := w.gracefulShutdownClaude(cmd); err != nil {
 			w.logger.Warn("Graceful shutdown failed", "error", err)
 		}
-		w.writeBackCredentials()
+		// w.writeBackCredentials() // Keychain auth disabled
 		return nil
 
 	case <-ctx.Done():
@@ -668,17 +667,17 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		if err := w.gracefulShutdownClaude(cmd); err != nil {
 			w.logger.Warn("Graceful shutdown failed", "error", err)
 		}
-		w.writeBackCredentials()
+		// w.writeBackCredentials() // Keychain auth disabled
 		return stacktrace.NewError("headless mission timed out after %v", cfg.Timeout)
 
 	case err := <-claudeExited:
 		if err != nil {
 			w.logger.Info("Claude process exited with error", "error", err)
-			w.writeBackCredentials()
+			// w.writeBackCredentials() // Keychain auth disabled
 			return stacktrace.Propagate(err, "claude exited with error")
 		}
 		w.logger.Info("Claude process completed successfully")
-		w.writeBackCredentials()
+		// w.writeBackCredentials() // Keychain auth disabled
 		return nil
 	}
 }
@@ -731,6 +730,13 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
 		config.MissionUUIDEnvVar+"="+w.missionID,
 	)
+
+	// If an OAuth token file exists, pass it as CLAUDE_CODE_OAUTH_TOKEN so
+	// Claude Code authenticates via env var instead of the Keychain.
+	oauthToken, err := config.ReadOAuthToken(w.agencDirpath)
+	if err == nil && oauthToken != "" {
+		cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
+	}
 
 	return cmd, nil
 }

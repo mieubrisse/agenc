@@ -13,9 +13,10 @@ import (
 var configSetCmd = &cobra.Command{
 	Use:   setCmdStr + " <key> <value>",
 	Short: "Set a config value",
-	Long: `Set a configuration key in config.yml.
+	Long: `Set a configuration key.
 
 Supported keys:
+  claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
@@ -61,13 +62,26 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	key := args[0]
+	value := args[1]
+
+	// claudeCodeOAuthToken is stored in a dedicated token file, not config.yml.
+	if key == "claudeCodeOAuthToken" {
+		if err := config.WriteOAuthToken(agencDirpath, value); err != nil {
+			return stacktrace.Propagate(err, "failed to write OAuth token")
+		}
+		if value == "" {
+			fmt.Println("claudeCodeOAuthToken cleared (token file removed)")
+		} else {
+			fmt.Println("claudeCodeOAuthToken = (set)")
+		}
+		return nil
+	}
+
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")
 	}
-
-	key := args[0]
-	value := args[1]
 
 	if err := setConfigValue(cfg, key, value); err != nil {
 		return err

@@ -4,9 +4,10 @@ Set a config value
 
 ### Synopsis
 
-Set a configuration key in config.yml.
+Set a configuration key.
 
 Supported keys:
+  claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)

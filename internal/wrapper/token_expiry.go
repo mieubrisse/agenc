@@ -1,3 +1,7 @@
+// NOTE: The watchTokenExpiry goroutine in this file is currently disabled.
+// Token file auth via CLAUDE_CODE_OAUTH_TOKEN replaces Keychain-based token
+// expiry monitoring. The code is preserved for potential future re-enablement.
+
 package wrapper
 
 import (

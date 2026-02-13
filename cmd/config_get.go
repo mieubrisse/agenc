@@ -11,6 +11,7 @@ import (
 
 // supportedConfigKeys lists all keys accepted by 'config get' and 'config set'.
 var supportedConfigKeys = []string{
+	"claudeCodeOAuthToken",
 	"paletteTmuxKeybinding",
 	"tmuxWindowTitle.busyBackgroundColor",
 	"tmuxWindowTitle.busyForegroundColor",
@@ -23,9 +24,10 @@ var configGetCmd = &cobra.Command{
 	Short: "Get a config value",
 	Long: `Get the current value of a configuration key.
 
-Prints "unset" if the key has not been explicitly set in config.yml.
+Prints "unset" if the key has not been explicitly set.
 
 Supported keys:
+  claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
@@ -61,9 +63,18 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 }
 
 // getConfigValue returns the string representation of a config key's current
-// value, or "unset" if the key has not been explicitly set in the config file.
+// value, or "unset" if the key has not been explicitly set.
 func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 	switch key {
+	case "claudeCodeOAuthToken":
+		token, err := config.ReadOAuthToken(agencDirpath)
+		if err != nil {
+			return "", stacktrace.Propagate(err, "failed to read OAuth token")
+		}
+		if token == "" {
+			return "unset", nil
+		}
+		return token, nil
 	case "paletteTmuxKeybinding":
 		if cfg.PaletteTmuxKeybinding == "" {
 			return "unset", nil

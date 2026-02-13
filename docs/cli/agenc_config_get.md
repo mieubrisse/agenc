@@ -6,9 +6,10 @@ Get a config value
 
 Get the current value of a configuration key.
 
-Prints "unset" if the key has not been explicitly set in config.yml.
+Prints "unset" if the key has not been explicitly set.
 
 Supported keys:
+  claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
