@@ -384,8 +384,10 @@ func SetupOAuthToken(agencDirpath string) error {
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
 		return stacktrace.NewError(
 			"no OAuth token configured and no TTY available for interactive setup\n\n" +
-				"Run this in an interactive terminal to set up authentication:\n" +
-				"  agenc config set claudeCodeOAuthToken \"$(claude setup-token)\"",
+				"To set up authentication:\n" +
+				"  1. Run: claude setup-token\n" +
+				"  2. Copy the token (starts with sk-ant-)\n" +
+				"  3. Run: agenc config set claudeCodeOAuthToken <token>",
 		)
 	}
 
@@ -412,8 +414,10 @@ func SetupOAuthToken(agencDirpath string) error {
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	if answer == "n" || answer == "no" {
 		return stacktrace.NewError(
-			"OAuth token setup skipped; set one manually with:\n" +
-				"  agenc config set claudeCodeOAuthToken \"$(claude setup-token)\"",
+			"OAuth token setup skipped; to set one manually:\n" +
+				"  1. Run: claude setup-token\n" +
+				"  2. Copy the token (starts with sk-ant-)\n" +
+				"  3. Run: agenc config set claudeCodeOAuthToken <token>",
 		)
 	}
 

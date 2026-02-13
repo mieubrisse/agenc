@@ -102,8 +102,10 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	if oauthToken == "" {
 		return nil, stacktrace.NewError(
 			"no OAuth token configured\n\n" +
-				"Run this in an interactive terminal to set up authentication:\n" +
-				"  agenc config set claudeCodeOAuthToken \"$(claude setup-token)\"",
+				"To set up authentication:\n" +
+				"  1. Run: claude setup-token\n" +
+				"  2. Copy the token (starts with sk-ant-)\n" +
+				"  3. Run: agenc config set claudeCodeOAuthToken <token>",
 		)
 	}
 	cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
