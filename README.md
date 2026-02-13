@@ -2,7 +2,9 @@
 
 AgenC: From Minecraft to Starcraft
 ==================================
-AgenC (pronounced "agency") is a self-upgrading AI work factory that will make you absurdly productive.
+AgenC (pronounced "agency") is a self-upgrading AI work factory.
+
+It establishes you as Director of your own personal organization of Claudes, and switches your work product from code/writing/completed tasks/whatever to building the org (factory) itself.
 
 ### Wait what?
 If you're like most people, you use Claude like this:
@@ -27,6 +29,16 @@ Example: this was my terminal today - 16 Claudes each working on different featu
 
 It's like going from Minecraft to Starcraft.
 
+> ⚠️ **ADDICTION WARNING** ⚠️
+> AgenC **will** increase your output. But you should know it has a videogame-like addictive quality.
+>
+> Because it's so easy to launch work, you end up with tons of parallel threads. Like Starcraft, you enter this restless wired ADD state where you're managing dozens of things at once.
+> 
+> In building AgenC, I noticed it was really hard to switch off. My brain would be buzzing with new threads to launch, and I'd wake up in the middle of the night full of ideas.
+>
+> And it's not just AgenC - [we're seeing that these powerful AI tools have effects on our brains that we don't yet understand](https://steve-yegge.medium.com/the-ai-vampire-eda6e4f07163).
+>
+> Please remember to take breaks, and leave sufficient wind-down time before sleep!
 
 Quick Start
 -----------
