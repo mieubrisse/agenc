@@ -421,10 +421,15 @@ func SetupOAuthToken(agencDirpath string) error {
 		)
 	}
 
-	// Step 2: Run `claude setup-token` with full terminal I/O
+	// Step 2: Explain what's about to happen and wait for confirmation
 	fmt.Println()
-	fmt.Println("Running 'claude setup-token'. This will open your browser.")
+	fmt.Println("We're going to run 'claude setup-token'. This will open your browser.")
 	fmt.Println("After authorizing, copy the token that gets printed (starts with sk-ant-).")
+	fmt.Println()
+	fmt.Print("Press ENTER when ready...")
+	if _, err := reader.ReadString('\n'); err != nil {
+		return stacktrace.Propagate(err, "failed to read input")
+	}
 	fmt.Println()
 
 	cmd := exec.Command(claudeBinary, "setup-token")
