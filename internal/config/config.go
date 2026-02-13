@@ -404,9 +404,17 @@ func SetupOAuthToken(agencDirpath string) error {
 	fmt.Println("don't work well with multiple concurrent sessions:")
 	fmt.Println("  https://github.com/anthropics/claude-code/issues/24317")
 	fmt.Println()
-	fmt.Print("Press ENTER to continue (or Ctrl-C to abort)...")
-	if _, err := reader.ReadString('\n'); err != nil {
+	fmt.Print("Set up token now? [Y/n] ")
+	answer, err := reader.ReadString('\n')
+	if err != nil {
 		return stacktrace.Propagate(err, "failed to read input")
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer == "n" || answer == "no" {
+		return stacktrace.NewError(
+			"OAuth token setup skipped; set one manually with:\n" +
+				"  agenc config set claudeCodeOAuthToken \"$(claude setup-token)\"",
+		)
 	}
 
 	// Step 2: Run `claude setup-token` with full terminal I/O
