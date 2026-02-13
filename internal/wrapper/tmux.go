@@ -14,10 +14,12 @@ const (
 )
 
 // renameWindowForTmux renames the current tmux window when running inside the
-// AgenC tmux session (AGENC_TMUX == 1). Uses the custom windowTitle from
-// config.yml if set, otherwise falls back to the repo's short name, and
-// finally to the mission ID. In regular tmux sessions or outside tmux, this
-// is a no-op.
+// AgenC tmux session (AGENC_TMUX == 1). Priority order (highest to lowest):
+// 1. AGENC_WINDOW_NAME env var (from `agenc tmux window new --name`)
+// 2. windowTitle from config.yml
+// 3. repo short name
+// 4. mission ID
+// In regular tmux sessions or outside tmux, this is a no-op.
 func (w *Wrapper) renameWindowForTmux() {
 	if os.Getenv(agencTmuxEnvVar) != "1" {
 		return
@@ -37,6 +39,10 @@ func (w *Wrapper) renameWindowForTmux() {
 	}
 	if w.windowTitle != "" {
 		title = w.windowTitle
+	}
+	// Explicit --name from tmux window new takes highest priority
+	if explicitName := os.Getenv("AGENC_WINDOW_NAME"); explicitName != "" {
+		title = explicitName
 	}
 
 	//nolint:errcheck // best-effort; failure is not critical

@@ -13,12 +13,15 @@ When the command exits, the pane closes and tmux auto-selects an adjacent window
 Use --detach (-d) to create the window in the background without switching
 focus to it.
 
+Use --name (-n) to set a custom window title (default: inferred from command).
+
 Must be run from inside the AgenC tmux session. Use -- to separate the
 command from agenc flags.
 
 Example:
   agenc tmux window new -- agenc mission new mieubrisse/agenc
   agenc tmux window new -a -d -- agenc mission new mieubrisse/agenc
+  agenc tmux window new --name "🦀 Quick Claude" -- agenc mission new --blank
 
 ```
 agenc tmux window new -- <command> [args...] [flags]
@@ -27,9 +30,10 @@ agenc tmux window new -- <command> [args...] [flags]
 ### Options
 
 ```
-  -a, --adjacent   Insert the new window adjacent to the current window instead of at the end
-  -d, --detach     Create the window without switching focus to it
-  -h, --help       help for new
+  -a, --adjacent      Insert the new window adjacent to the current window instead of at the end
+  -d, --detach        Create the window without switching focus to it
+  -h, --help          help for new
+  -n, --name string   Set a custom window title
 ```
 
 ### SEE ALSO
