@@ -297,10 +297,15 @@ func promptYesNo(reader *bufio.Reader, prompt string) (bool, error) {
 func printRepoFormatHelp() {
 	fmt.Println("Accepted formats:")
 
-	// Check if defaultGitHubUser is set to show the single-word shorthand option
+	// Check if default GitHub user is available (from gh or config)
 	if agencDir, err := getAgencContext(); err == nil {
-		if cfg, _, err := config.ReadAgencConfig(agencDir); err == nil && cfg.DefaultGitHubUser != "" {
-			fmt.Printf("  repo                               shorthand (expands to %s/repo)\n", cfg.DefaultGitHubUser)
+		if defaultUser := getDefaultGitHubUser(agencDir); defaultUser != "" {
+			// Check if it's from gh CLI
+			if ghUser := getGhLoggedInUser(); ghUser != "" {
+				fmt.Printf("  repo                               shorthand (expands to %s/repo via gh login)\n", ghUser)
+			} else {
+				fmt.Printf("  repo                               shorthand (expands to %s/repo)\n", defaultUser)
+			}
 		}
 	}
 
@@ -309,11 +314,13 @@ func printRepoFormatHelp() {
 	fmt.Println("  https://github.com/owner/repo      HTTPS URL")
 	fmt.Println("  git@github.com:owner/repo.git      SSH URL")
 
-	// Hint about setting defaultGitHubUser if not set
+	// Hint about logging into gh or setting config if no default user
 	if agencDir, err := getAgencContext(); err == nil {
-		if cfg, _, err := config.ReadAgencConfig(agencDir); err == nil && cfg.DefaultGitHubUser == "" {
+		if getDefaultGitHubUser(agencDir) == "" {
 			fmt.Println()
-			fmt.Println("Tip: Set a default GitHub user to enable single-word shorthand:")
+			fmt.Println("Tip: Single-word shorthand works automatically if you're logged into gh:")
+			fmt.Println("  gh auth login")
+			fmt.Println("Or set a default GitHub user manually:")
 			fmt.Println("  agenc config set defaultGitHubUser <username>")
 		}
 	}

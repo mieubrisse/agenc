@@ -7,15 +7,15 @@ Add a repository to the repo library
 Add a repository to the repo library by cloning it into $AGENC_DIRPATH/repos/.
 
 Accepts any of these formats:
-  repo                                 - shorthand (requires defaultGitHubUser config)
+  repo                                 - shorthand (auto-detects from gh login or defaultGitHubUser config)
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)
   github.com/owner/repo                - canonical name
   https://github.com/owner/repo        - HTTPS URL
   git@github.com:owner/repo.git        - SSH URL
   /path/to/local/clone                 - local filesystem path
 
-Tip: Set a default GitHub user to enable single-word shorthand:
-  agenc config set defaultGitHubUser <username>
+Tip: Single-word shorthand works automatically if you're logged into gh (gh auth login)
+or you can set a default GitHub user: agenc config set defaultGitHubUser <username>
 
 For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted

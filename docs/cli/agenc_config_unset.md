@@ -11,7 +11,6 @@ Supported keys:
   defaultGitHubUser            Default GitHub username for shorthand repo references
   tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018")
   tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136")
-  tmuxWindowColoringEnabled    Enable/disable window tab coloring (default: true)
 
 ```
 agenc config unset <key> [flags]

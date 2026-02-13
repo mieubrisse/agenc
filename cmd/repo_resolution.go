@@ -24,7 +24,7 @@ type RepoResolutionResult struct {
 // ResolveRepoInput intelligently resolves user input to a canonical repo.
 // The input can be:
 //   - A repo reference: owner/repo, github.com/owner/repo, https://..., git@..., ssh://..., or local path
-//   - A shorthand repo name (e.g., "my-repo") if defaultGitHubUser is configured
+//   - A shorthand repo name (e.g., "my-repo") if logged into gh CLI or defaultGitHubUser is configured
 //   - Search terms: one or more space-separated words to match against the repo library
 //
 // For repo references, the repo is cloned into $AGENC_DIRPATH/repos/ if not already present.
@@ -39,15 +39,12 @@ func ResolveRepoInput(agencDirpath string, input string, fzfPrompt string) (*Rep
 		return nil, stacktrace.NewError("empty input")
 	}
 
-	// Read config to check for defaultGitHubUser
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to read config")
-	}
+	// Get default GitHub user (from gh CLI or config)
+	defaultGitHubUser := getDefaultGitHubUser(agencDirpath)
 
 	// Check if input looks like a repo reference (vs search terms)
-	if looksLikeRepoReference(input, cfg.DefaultGitHubUser) {
-		return resolveAsRepoReference(agencDirpath, input, cfg.DefaultGitHubUser)
+	if looksLikeRepoReference(input, defaultGitHubUser) {
+		return resolveAsRepoReference(agencDirpath, input, defaultGitHubUser)
 	}
 
 	// Treat input as search terms
@@ -61,11 +58,8 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 		return nil, nil
 	}
 
-	// Read config to check for defaultGitHubUser
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to read config")
-	}
+	// Get default GitHub user (from gh CLI or config)
+	defaultGitHubUser := getDefaultGitHubUser(agencDirpath)
 
 	// If there's only one input, resolve it directly
 	if len(inputs) == 1 {
@@ -78,7 +72,7 @@ func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) (
 
 	// Multiple inputs: first check if they should be joined as search terms
 	// If the first input doesn't look like a repo reference, join all as search terms
-	if !looksLikeRepoReference(inputs[0], cfg.DefaultGitHubUser) {
+	if !looksLikeRepoReference(inputs[0], defaultGitHubUser) {
 		joined := strings.Join(inputs, " ")
 		result, err := ResolveRepoInput(agencDirpath, joined, fzfPrompt)
 		if err != nil {
@@ -332,6 +326,36 @@ func getGhConfigProtocol() (bool, bool) {
 	}
 
 	return protocol == "ssh", true
+}
+
+// getGhLoggedInUser returns the GitHub username of the logged-in gh CLI user.
+// Returns empty string if gh is not installed, not logged in, or the API call fails.
+func getGhLoggedInUser() string {
+	cmd := exec.Command("gh", "api", "user", "--jq", ".login")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// getDefaultGitHubUser returns the default GitHub username to use for shorthand expansion.
+// Priority order:
+//  1. gh CLI logged-in user (gh api user --jq '.login')
+//  2. defaultGitHubUser from config
+//  3. Empty string (no default)
+func getDefaultGitHubUser(agencDirpath string) string {
+	// First try gh CLI
+	if ghUser := getGhLoggedInUser(); ghUser != "" {
+		return ghUser
+	}
+
+	// Fall back to config
+	cfg, _, err := config.ReadAgencConfig(agencDirpath)
+	if err != nil {
+		return ""
+	}
+	return cfg.DefaultGitHubUser
 }
 
 // promptForProtocolPreference asks the user to choose SSH or HTTPS for cloning.

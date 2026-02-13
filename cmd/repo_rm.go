@@ -25,13 +25,13 @@ repoConfig in config.yml if present.
 When called without arguments, opens an interactive fzf picker.
 
 Accepts any of these formats:
-  repo                                 - shorthand (requires defaultGitHubUser config)
+  repo                                 - shorthand (auto-detects from gh login or defaultGitHubUser config)
   owner/repo                           - shorthand (e.g., mieubrisse/agenc)
   github.com/owner/repo                - canonical name
   https://github.com/owner/repo        - URL
 
-Tip: Set a default GitHub user to enable single-word shorthand:
-  agenc config set defaultGitHubUser <username>`,
+Tip: Single-word shorthand works automatically if you're logged into gh (gh auth login)
+or you can set a default GitHub user: agenc config set defaultGitHubUser <username>`,
 	RunE: runRepoRm,
 }
 
@@ -55,9 +55,12 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Get default GitHub user (from gh CLI or config)
+	defaultGitHubUser := getDefaultGitHubUser(agencDirpath)
+
 	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
 		TryCanonical: func(input string) (string, bool, error) {
-			if !looksLikeRepoReference(input, cfg.DefaultGitHubUser) {
+			if !looksLikeRepoReference(input, defaultGitHubUser) {
 				return "", false, nil
 			}
 			name, _, err := mission.ParseRepoReference(input, false)

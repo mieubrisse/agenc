@@ -67,6 +67,7 @@ paletteCommands:
 # paletteTmuxKeybinding: "C-k"           # bind directly on prefix
 
 # Default GitHub username for shorthand repo references (optional)
+# Auto-detected from gh CLI login; set this to override
 # When set, "my-repo" expands to "username/my-repo"
 # defaultGitHubUser: "username"
 
@@ -149,14 +150,18 @@ agenc config get paletteTmuxKeybinding               # check current value
 agenc config unset paletteTmuxKeybinding             # revert to default
 ```
 
-**defaultGitHubUser** — enables shorthand repo references. When set to a GitHub username, single-word repo names expand to `username/repo` format:
+**defaultGitHubUser** — enables shorthand repo references. Single-word repo names expand to `username/repo` format.
+
+The default GitHub username is automatically detected from `gh` CLI login (`gh api user --jq '.login'`). Set this config value to override the auto-detection or if `gh` is not installed:
 
 ```
-agenc config set defaultGitHubUser mieubrisse       # set default username
-agenc mission new my-repo                           # expands to mieubrisse/my-repo
-agenc config get defaultGitHubUser                  # check current value
-agenc config unset defaultGitHubUser                # clear default
+agenc config set defaultGitHubUser mieubrisse       # override auto-detection
+agenc mission new my-repo                           # expands to mieubrisse/my-repo (or your gh login)
+agenc config get defaultGitHubUser                  # check configured value (not gh auto-detection)
+agenc config unset defaultGitHubUser                # revert to gh auto-detection
 ```
+
+If you're logged into `gh`, single-word shorthand works automatically without any configuration.
 
 Manage palette commands via the CLI:
 
