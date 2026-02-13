@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -328,15 +330,53 @@ func getGhConfigProtocol() (bool, bool) {
 	return protocol == "ssh", true
 }
 
+// ghAuthStatus represents the structure of `gh auth status --json hosts` output.
+type ghAuthStatus struct {
+	Hosts map[string][]struct {
+		State  string `json:"state"`
+		Active bool   `json:"active"`
+		Host   string `json:"host"`
+		Login  string `json:"login"`
+	} `json:"hosts"`
+}
+
+var (
+	ghLoggedInUserOnce  sync.Once
+	ghLoggedInUserCache string
+)
+
 // getGhLoggedInUser returns the GitHub username of the logged-in gh CLI user.
-// Returns empty string if gh is not installed, not logged in, or the API call fails.
+// Returns empty string if gh is not installed, not logged in, or the check fails.
+// Uses a singleton pattern to only query gh once per process.
 func getGhLoggedInUser() string {
-	cmd := exec.Command("gh", "api", "user", "--jq", ".login")
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
+	ghLoggedInUserOnce.Do(func() {
+		cmd := exec.Command("gh", "auth", "status", "--json", "hosts")
+		output, err := cmd.Output()
+		if err != nil {
+			ghLoggedInUserCache = ""
+			return
+		}
+
+		var status ghAuthStatus
+		if err := json.Unmarshal(output, &status); err != nil {
+			ghLoggedInUserCache = ""
+			return
+		}
+
+		// Look for an active github.com host
+		if hosts, ok := status.Hosts["github.com"]; ok {
+			for _, host := range hosts {
+				if host.Active && host.State == "success" {
+					ghLoggedInUserCache = host.Login
+					return
+				}
+			}
+		}
+
+		ghLoggedInUserCache = ""
+	})
+
+	return ghLoggedInUserCache
 }
 
 // getDefaultGitHubUser returns the default GitHub username to use for shorthand expansion.
