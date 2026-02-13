@@ -16,9 +16,11 @@ var configUnsetCmd = &cobra.Command{
 	Long: `Unset a configuration key in config.yml, reverting it to the default value.
 
 Supported keys:
-  paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
-  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
-  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)`,
+  paletteTmuxKeybinding                Raw bind-key args for the command palette (default: "-T agenc k")
+  tmuxWindowBusyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowBusyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
+  tmuxWindowAttentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
+  tmuxWindowAttentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigUnset,
 }
@@ -65,11 +67,17 @@ func unsetConfigValue(cfg *config.AgencConfig, key string) error {
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = ""
 		return nil
-	case "tmuxWindowBusyColor":
-		cfg.TmuxWindowBusyColor = nil
+	case "tmuxWindowBusyBackgroundColor":
+		cfg.TmuxWindowBusyBackgroundColor = nil
 		return nil
-	case "tmuxWindowAttentionColor":
-		cfg.TmuxWindowAttentionColor = nil
+	case "tmuxWindowBusyForegroundColor":
+		cfg.TmuxWindowBusyForegroundColor = nil
+		return nil
+	case "tmuxWindowAttentionBackgroundColor":
+		cfg.TmuxWindowAttentionBackgroundColor = nil
+		return nil
+	case "tmuxWindowAttentionForegroundColor":
+		cfg.TmuxWindowAttentionForegroundColor = nil
 		return nil
 	default:
 		return stacktrace.NewError(

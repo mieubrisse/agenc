@@ -16,9 +16,11 @@ var configSetCmd = &cobra.Command{
 	Long: `Set a configuration key in config.yml.
 
 Supported keys:
-  paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
-  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
-  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)
+  paletteTmuxKeybinding                Raw bind-key args for the command palette (default: "-T agenc k")
+  tmuxWindowBusyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowBusyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
+  tmuxWindowAttentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
+  tmuxWindowAttentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)
 
 The paletteTmuxKeybinding value is inserted verbatim after "bind-key" in the
 tmux config. By default ("-T agenc k") it lives in the agenc key table, reached
@@ -31,17 +33,20 @@ This binds Ctrl-y globally so the palette opens with a single keystroke.
 
 Window coloring examples:
 
-  # Use red when Claude is busy
-  agenc config set tmuxWindowBusyColor red
+  # Set background to red when Claude is busy
+  agenc config set tmuxWindowBusyBackgroundColor red
+
+  # Set foreground to white when Claude is busy
+  agenc config set tmuxWindowBusyForegroundColor white
 
   # Use tmux color numbers (see 'tmux list-colors')
-  agenc config set tmuxWindowAttentionColor colour220
+  agenc config set tmuxWindowAttentionBackgroundColor colour220
 
-  # Disable busy coloring (won't change color when Claude is working)
-  agenc config set tmuxWindowBusyColor ""
+  # Disable busy background coloring
+  agenc config set tmuxWindowBusyBackgroundColor ""
 
-  # Disable attention coloring (won't change color when Claude is idle)
-  agenc config set tmuxWindowAttentionColor ""`,
+  # Disable attention foreground coloring
+  agenc config set tmuxWindowAttentionForegroundColor ""`,
 	Args: cobra.ExactArgs(2),
 	RunE: runConfigSet,
 }
@@ -96,11 +101,17 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value
 		return nil
-	case "tmuxWindowBusyColor":
-		cfg.TmuxWindowBusyColor = &value
+	case "tmuxWindowBusyBackgroundColor":
+		cfg.TmuxWindowBusyBackgroundColor = &value
 		return nil
-	case "tmuxWindowAttentionColor":
-		cfg.TmuxWindowAttentionColor = &value
+	case "tmuxWindowBusyForegroundColor":
+		cfg.TmuxWindowBusyForegroundColor = &value
+		return nil
+	case "tmuxWindowAttentionBackgroundColor":
+		cfg.TmuxWindowAttentionBackgroundColor = &value
+		return nil
+	case "tmuxWindowAttentionForegroundColor":
+		cfg.TmuxWindowAttentionForegroundColor = &value
 		return nil
 	default:
 		return stacktrace.NewError(

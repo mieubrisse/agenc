@@ -12,8 +12,10 @@ import (
 // supportedConfigKeys lists all keys accepted by 'config get' and 'config set'.
 var supportedConfigKeys = []string{
 	"paletteTmuxKeybinding",
-	"tmuxWindowAttentionColor",
-	"tmuxWindowBusyColor",
+	"tmuxWindowBusyBackgroundColor",
+	"tmuxWindowBusyForegroundColor",
+	"tmuxWindowAttentionBackgroundColor",
+	"tmuxWindowAttentionForegroundColor",
 }
 
 var configGetCmd = &cobra.Command{
@@ -24,9 +26,11 @@ var configGetCmd = &cobra.Command{
 Prints "unset" if the key has not been explicitly set in config.yml.
 
 Supported keys:
-  paletteTmuxKeybinding        Raw bind-key args for the command palette (default: "-T agenc k")
-  tmuxWindowBusyColor          Tmux color for window tab when Claude is working (default: "colour018", empty = disable)
-  tmuxWindowAttentionColor     Tmux color for window tab when Claude needs attention (default: "colour136", empty = disable)`,
+  paletteTmuxKeybinding                Raw bind-key args for the command palette (default: "-T agenc k")
+  tmuxWindowBusyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
+  tmuxWindowBusyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
+  tmuxWindowAttentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
+  tmuxWindowAttentionForegroundColor   Foreground color for window tab when Claude needs attention (default: "", empty = disable)`,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigGet,
 }
@@ -65,22 +69,38 @@ func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 			return "unset", nil
 		}
 		return cfg.PaletteTmuxKeybinding, nil
-	case "tmuxWindowBusyColor":
-		if cfg.TmuxWindowBusyColor == nil {
+	case "tmuxWindowBusyBackgroundColor":
+		if cfg.TmuxWindowBusyBackgroundColor == nil {
 			return "unset", nil
 		}
-		if *cfg.TmuxWindowBusyColor == "" {
+		if *cfg.TmuxWindowBusyBackgroundColor == "" {
 			return "disabled", nil
 		}
-		return *cfg.TmuxWindowBusyColor, nil
-	case "tmuxWindowAttentionColor":
-		if cfg.TmuxWindowAttentionColor == nil {
+		return *cfg.TmuxWindowBusyBackgroundColor, nil
+	case "tmuxWindowBusyForegroundColor":
+		if cfg.TmuxWindowBusyForegroundColor == nil {
 			return "unset", nil
 		}
-		if *cfg.TmuxWindowAttentionColor == "" {
+		if *cfg.TmuxWindowBusyForegroundColor == "" {
 			return "disabled", nil
 		}
-		return *cfg.TmuxWindowAttentionColor, nil
+		return *cfg.TmuxWindowBusyForegroundColor, nil
+	case "tmuxWindowAttentionBackgroundColor":
+		if cfg.TmuxWindowAttentionBackgroundColor == nil {
+			return "unset", nil
+		}
+		if *cfg.TmuxWindowAttentionBackgroundColor == "" {
+			return "disabled", nil
+		}
+		return *cfg.TmuxWindowAttentionBackgroundColor, nil
+	case "tmuxWindowAttentionForegroundColor":
+		if cfg.TmuxWindowAttentionForegroundColor == nil {
+			return "unset", nil
+		}
+		if *cfg.TmuxWindowAttentionForegroundColor == "" {
+			return "disabled", nil
+		}
+		return *cfg.TmuxWindowAttentionForegroundColor, nil
 	default:
 		return "", stacktrace.NewError(
 			"unknown config key '%s'; supported keys: %s",

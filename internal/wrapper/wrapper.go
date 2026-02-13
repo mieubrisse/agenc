@@ -88,11 +88,12 @@ type Wrapper struct {
 	perMissionCredentialHash string
 	credentialHashMu         sync.Mutex
 
-	// windowBusyColor and windowAttentionColor store the configured tmux colors
-	// for window state feedback. Read from config.yml at startup. Empty string
-	// means that state's coloring is disabled.
-	windowBusyColor      string
-	windowAttentionColor string
+	// Window coloring configuration for tmux state feedback. Read from config.yml at startup.
+	// Empty strings mean that specific color setting is disabled.
+	windowBusyBackgroundColor      string
+	windowBusyForegroundColor      string
+	windowAttentionBackgroundColor string
+	windowAttentionForegroundColor string
 }
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
@@ -103,31 +104,37 @@ type Wrapper struct {
 func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windowTitle string, initialPrompt string, db *database.DB) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	var windowBusyColor, windowAttentionColor string
+	var windowBusyBgColor, windowBusyFgColor, windowAttentionBgColor, windowAttentionFgColor string
 	if err == nil {
-		windowBusyColor = cfg.GetTmuxWindowBusyColor()
-		windowAttentionColor = cfg.GetTmuxWindowAttentionColor()
+		windowBusyBgColor = cfg.GetTmuxWindowBusyBackgroundColor()
+		windowBusyFgColor = cfg.GetTmuxWindowBusyForegroundColor()
+		windowAttentionBgColor = cfg.GetTmuxWindowAttentionBackgroundColor()
+		windowAttentionFgColor = cfg.GetTmuxWindowAttentionForegroundColor()
 	} else {
 		// Fallback to defaults if config read fails
-		windowBusyColor = config.DefaultTmuxWindowBusyColor
-		windowAttentionColor = config.DefaultTmuxWindowAttentionColor
+		windowBusyBgColor = config.DefaultTmuxWindowBusyBackgroundColor
+		windowBusyFgColor = config.DefaultTmuxWindowBusyForegroundColor
+		windowAttentionBgColor = config.DefaultTmuxWindowAttentionBackgroundColor
+		windowAttentionFgColor = config.DefaultTmuxWindowAttentionForegroundColor
 	}
 
 	return &Wrapper{
-		agencDirpath:     agencDirpath,
-		missionID:        missionID,
-		gitRepoName:      gitRepoName,
-		windowTitle:      windowTitle,
-		initialPrompt:    initialPrompt,
-		missionDirpath:   config.GetMissionDirpath(agencDirpath, missionID),
-		agentDirpath:     config.GetMissionAgentDirpath(agencDirpath, missionID),
-		db:               db,
-		claudeExited:     make(chan error, 1),
-		commandCh:        make(chan commandWithResponse, 1),
-		claudeIdle:       true,
-		state:            stateRunning,
-		windowBusyColor:  windowBusyColor,
-		windowAttentionColor: windowAttentionColor,
+		agencDirpath:                   agencDirpath,
+		missionID:                      missionID,
+		gitRepoName:                    gitRepoName,
+		windowTitle:                    windowTitle,
+		initialPrompt:                  initialPrompt,
+		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
+		agentDirpath:                   config.GetMissionAgentDirpath(agencDirpath, missionID),
+		db:                             db,
+		claudeExited:                   make(chan error, 1),
+		commandCh:                      make(chan commandWithResponse, 1),
+		claudeIdle:                     true,
+		state:                          stateRunning,
+		windowBusyBackgroundColor:      windowBusyBgColor,
+		windowBusyForegroundColor:      windowBusyFgColor,
+		windowAttentionBackgroundColor: windowAttentionBgColor,
+		windowAttentionForegroundColor: windowAttentionFgColor,
 	}
 }
 
