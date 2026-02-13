@@ -65,16 +65,22 @@ func (w *Wrapper) clearTmuxPane() {
 }
 
 // setWindowBusy sets the tmux window tab to the busy color, indicating
-// Claude is actively working. No-op when TMUX_PANE is empty.
+// Claude is actively working. No-op when TMUX_PANE is empty or coloring is disabled.
 func (w *Wrapper) setWindowBusy() {
-	w.setWindowTabColor(windowBusyColor)
+	if !w.windowColoringEnabled {
+		return
+	}
+	w.setWindowTabColor(w.windowBusyColor)
 }
 
 // setWindowNeedsAttention sets the tmux window tab to the attention color,
 // signaling that the mission needs user interaction (e.g., Claude is idle or
-// waiting for permission). No-op when TMUX_PANE is empty.
+// waiting for permission). No-op when TMUX_PANE is empty or coloring is disabled.
 func (w *Wrapper) setWindowNeedsAttention() {
-	w.setWindowTabColor(windowAttentionColor)
+	if !w.windowColoringEnabled {
+		return
+	}
+	w.setWindowTabColor(w.windowAttentionColor)
 }
 
 // resetWindowTabStyle unsets the window-level window-status-style override,
@@ -178,13 +184,3 @@ func truncateWindowTitle(title string, maxLen int) string {
 // maxWindowTitleLen is the maximum character length for tmux window titles
 // derived from session names. Keeps tabs readable without excessive truncation.
 const maxWindowTitleLen = 30
-
-// Window tab color constants for tmux visual feedback.
-const (
-	// windowBusyColor is displayed when Claude is actively working.
-	windowBusyColor = "colour018"
-
-	// windowAttentionColor is displayed when the mission needs user attention
-	// (Claude is idle, waiting for permission, etc.).
-	windowAttentionColor = "colour136"
-)

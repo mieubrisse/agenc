@@ -215,6 +215,19 @@ func (c ResolvedPaletteCommand) FormatKeybinding() string {
 // (e.g. "-T agenc k") or bind directly on the prefix table (e.g. "C-k").
 const DefaultPaletteTmuxKeybinding = "-T agenc k"
 
+// Default tmux window coloring configuration.
+const (
+	// DefaultTmuxWindowBusyColor is the color shown when Claude is actively working.
+	DefaultTmuxWindowBusyColor = "colour018"
+
+	// DefaultTmuxWindowAttentionColor is the color shown when Claude needs attention
+	// (idle, waiting for permission, etc.).
+	DefaultTmuxWindowAttentionColor = "colour136"
+
+	// DefaultTmuxWindowColoringEnabled controls whether window coloring is active by default.
+	DefaultTmuxWindowColoringEnabled = true
+)
+
 // IsCanonicalRepoName reports whether the given string is in canonical format (github.com/owner/repo).
 func IsCanonicalRepoName(name string) bool {
 	return canonicalRepoRegex.MatchString(name)
@@ -230,11 +243,14 @@ type RepoConfig struct {
 
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
-	RepoConfigs            map[string]RepoConfig            `yaml:"repoConfig,omitempty"`
-	Crons                  map[string]CronConfig            `yaml:"crons,omitempty"`
-	CronsMaxConcurrent     int                              `yaml:"cronsMaxConcurrent,omitempty"`
-	PaletteCommands        map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
-	PaletteTmuxKeybinding  string                           `yaml:"paletteTmuxKeybinding,omitempty"`
+	RepoConfigs               map[string]RepoConfig            `yaml:"repoConfig,omitempty"`
+	Crons                     map[string]CronConfig            `yaml:"crons,omitempty"`
+	CronsMaxConcurrent        int                              `yaml:"cronsMaxConcurrent,omitempty"`
+	PaletteCommands           map[string]PaletteCommandConfig  `yaml:"paletteCommands,omitempty"`
+	PaletteTmuxKeybinding     string                           `yaml:"paletteTmuxKeybinding,omitempty"`
+	TmuxWindowBusyColor       string                           `yaml:"tmuxWindowBusyColor,omitempty"`
+	TmuxWindowAttentionColor  string                           `yaml:"tmuxWindowAttentionColor,omitempty"`
+	TmuxWindowColoringEnabled *bool                            `yaml:"tmuxWindowColoringEnabled,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -244,6 +260,31 @@ func (c *AgencConfig) GetPaletteTmuxKeybinding() string {
 		return DefaultPaletteTmuxKeybinding
 	}
 	return c.PaletteTmuxKeybinding
+}
+
+// GetTmuxWindowBusyColor returns the busy window color, using the default if not set.
+func (c *AgencConfig) GetTmuxWindowBusyColor() string {
+	if c.TmuxWindowBusyColor == "" {
+		return DefaultTmuxWindowBusyColor
+	}
+	return c.TmuxWindowBusyColor
+}
+
+// GetTmuxWindowAttentionColor returns the attention window color, using the default if not set.
+func (c *AgencConfig) GetTmuxWindowAttentionColor() string {
+	if c.TmuxWindowAttentionColor == "" {
+		return DefaultTmuxWindowAttentionColor
+	}
+	return c.TmuxWindowAttentionColor
+}
+
+// IsTmuxWindowColoringEnabled returns whether window coloring is enabled.
+// Defaults to true if not explicitly set.
+func (c *AgencConfig) IsTmuxWindowColoringEnabled() bool {
+	if c.TmuxWindowColoringEnabled == nil {
+		return DefaultTmuxWindowColoringEnabled
+	}
+	return *c.TmuxWindowColoringEnabled
 }
 
 // GetCronsMaxConcurrent returns the max concurrent cron missions, using the default if not set.

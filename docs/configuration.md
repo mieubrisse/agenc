@@ -66,6 +66,11 @@ paletteCommands:
 # paletteTmuxKeybinding: "-T agenc p"    # still in agenc table, different key
 # paletteTmuxKeybinding: "C-k"           # bind directly on prefix
 
+# Tmux window tab coloring — visual feedback for Claude state
+# tmuxWindowColoringEnabled: true        # enable/disable tab coloring (default: true)
+# tmuxWindowBusyColor: "colour018"       # color when Claude is working (default: colour018, dark blue)
+# tmuxWindowAttentionColor: "colour136"  # color when Claude needs attention (default: colour136, orange)
+
 ```
 
 repoConfig
@@ -149,6 +154,35 @@ agenc config paletteCommand update newMission --keybinding="C-n"  # override bui
 agenc config paletteCommand rm myCmd                              # remove custom
 agenc config paletteCommand rm newMission                         # restore builtin defaults
 ```
+
+Tmux Window Coloring
+--------------------
+
+When running missions inside the AgenC tmux session, window tabs change color to provide visual feedback about Claude's state:
+
+- **Busy color** (default: `colour018`, dark blue) — displayed when Claude is actively processing
+- **Attention color** (default: `colour136`, orange) — displayed when Claude is idle, waiting for user input, or needs permission
+
+You can customize these colors or disable the feature entirely:
+
+```
+# Disable window tab coloring
+agenc config set tmuxWindowColoringEnabled false
+
+# Use different colors (any tmux color name or number)
+agenc config set tmuxWindowBusyColor red
+agenc config set tmuxWindowAttentionColor colour220
+
+# See available colors
+tmux list-colors
+
+# Check current settings
+agenc config get tmuxWindowBusyColor
+agenc config get tmuxWindowAttentionColor
+agenc config get tmuxWindowColoringEnabled
+```
+
+**Note:** Color changes take effect for new missions. Existing missions retain the colors they started with until they're stopped and resumed.
 
 Config Auto-Sync
 ----------------
