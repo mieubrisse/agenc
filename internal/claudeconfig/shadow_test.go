@@ -351,6 +351,125 @@ func TestIngestFromClaudeDir_Idempotent(t *testing.T) {
 	}
 }
 
+func TestIngestFromClaudeDir_DeletedFileInTrackedDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Set up a fake ~/.claude with a tracked directory containing two files
+	claudeDirpath := filepath.Join(tmpDir, ".claude")
+	skillsDirpath := filepath.Join(claudeDirpath, "skills", "my-skill")
+	if err := os.MkdirAll(skillsDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDirpath, "SKILL.md"), []byte("# My Skill\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDirpath, "helper.sh"), []byte("#!/bin/bash\necho hi\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Initialize shadow repo and ingest
+	shadowDirpath, err := InitShadowRepo(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := IngestFromClaudeDir(claudeDirpath, shadowDirpath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify both files exist in shadow repo
+	for _, name := range []string{"SKILL.md", "helper.sh"} {
+		shadowFilepath := filepath.Join(shadowDirpath, "skills", "my-skill", name)
+		if _, err := os.Stat(shadowFilepath); os.IsNotExist(err) {
+			t.Fatalf("expected %s to exist in shadow repo after first ingest", name)
+		}
+	}
+
+	// Now delete helper.sh from source and re-ingest
+	if err := os.Remove(filepath.Join(skillsDirpath, "helper.sh")); err != nil {
+		t.Fatal(err)
+	}
+	if err := IngestFromClaudeDir(claudeDirpath, shadowDirpath); err != nil {
+		t.Fatal(err)
+	}
+
+	// SKILL.md should still exist
+	if _, err := os.Stat(filepath.Join(shadowDirpath, "skills", "my-skill", "SKILL.md")); os.IsNotExist(err) {
+		t.Error("SKILL.md should still exist in shadow repo after re-ingest")
+	}
+
+	// helper.sh should be gone
+	if _, err := os.Stat(filepath.Join(shadowDirpath, "skills", "my-skill", "helper.sh")); !os.IsNotExist(err) {
+		t.Error("helper.sh should be removed from shadow repo after deletion from source")
+	}
+
+	// Verify a commit was created for the deletion
+	cmd := exec.Command("git", "log", "--oneline")
+	cmd.Dir = shadowDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitLines := 0
+	for _, line := range splitLines(string(output)) {
+		if line != "" {
+			commitLines++
+		}
+	}
+	if commitLines != 2 {
+		t.Errorf("expected 2 commits (initial + deletion), got %d:\n%s", commitLines, string(output))
+	}
+}
+
+func TestIngestFromClaudeDir_DeletedSubdirInTrackedDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Set up ~/.claude with two skill subdirectories
+	claudeDirpath := filepath.Join(tmpDir, ".claude")
+	for _, skillName := range []string{"skill-a", "skill-b"} {
+		dirpath := filepath.Join(claudeDirpath, "skills", skillName)
+		if err := os.MkdirAll(dirpath, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dirpath, "SKILL.md"), []byte("# "+skillName+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	shadowDirpath, err := InitShadowRepo(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := IngestFromClaudeDir(claudeDirpath, shadowDirpath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify both skills exist
+	for _, skillName := range []string{"skill-a", "skill-b"} {
+		shadowFilepath := filepath.Join(shadowDirpath, "skills", skillName, "SKILL.md")
+		if _, err := os.Stat(shadowFilepath); os.IsNotExist(err) {
+			t.Fatalf("expected %s to exist in shadow repo", skillName)
+		}
+	}
+
+	// Delete skill-b entirely from source
+	if err := os.RemoveAll(filepath.Join(claudeDirpath, "skills", "skill-b")); err != nil {
+		t.Fatal(err)
+	}
+	if err := IngestFromClaudeDir(claudeDirpath, shadowDirpath); err != nil {
+		t.Fatal(err)
+	}
+
+	// skill-a should still exist
+	if _, err := os.Stat(filepath.Join(shadowDirpath, "skills", "skill-a", "SKILL.md")); os.IsNotExist(err) {
+		t.Error("skill-a should still exist after re-ingest")
+	}
+
+	// skill-b should be gone
+	if _, err := os.Stat(filepath.Join(shadowDirpath, "skills", "skill-b")); !os.IsNotExist(err) {
+		t.Error("skill-b directory should be removed from shadow repo after deletion from source")
+	}
+}
+
 func TestGetShadowRepoDirpath(t *testing.T) {
 	result := GetShadowRepoDirpath("/home/user/.agenc")
 	expected := "/home/user/.agenc/claude-config-shadow"

@@ -231,8 +231,10 @@ func ingestFile(srcFilepath string, dstFilepath string) (bool, error) {
 	return true, nil
 }
 
-// ingestDir copies a directory from src to dst as-is (no path transformation).
-// Returns true if any files were changed.
+// ingestDir replaces the destination directory with a fresh copy from the
+// source. This ensures files deleted from the source are also removed from
+// the shadow repo. Returns true to signal a potential change — the caller
+// relies on git diff to determine whether anything actually changed.
 // If the source doesn't exist, removes the destination if it exists.
 func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 	// Resolve the source in case it's a symlink
@@ -258,9 +260,11 @@ func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 		return false, stacktrace.NewError("'%s' resolves to a non-directory", srcDirpath)
 	}
 
-	changed := false
+	// Remove destination entirely so files deleted from source are also
+	// removed from the shadow repo, then re-copy everything from source.
+	os.RemoveAll(dstDirpath)
 
-	err = filepath.Walk(resolvedSrc, func(path string, info os.FileInfo, walkErr error) error {
+	err = filepath.Walk(resolvedSrc, func(path string, fileInfo os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -272,26 +276,25 @@ func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 
 		dstPath := filepath.Join(dstDirpath, relPath)
 
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
+		if fileInfo.IsDir() {
+			return os.MkdirAll(dstPath, fileInfo.Mode())
 		}
 
-		origFilepath := filepath.Join(srcDirpath, relPath)
-		didChange, err := ingestFile(path, dstPath)
+		data, err := os.ReadFile(path)
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to ingest '%s'", origFilepath)
+			return stacktrace.Propagate(err, "failed to read '%s'", filepath.Join(srcDirpath, relPath))
 		}
-		if didChange {
-			changed = true
-		}
-		return nil
+
+		return os.WriteFile(dstPath, data, fileInfo.Mode())
 	})
 
 	if err != nil {
 		return false, stacktrace.Propagate(err, "failed to walk directory '%s'", resolvedSrc)
 	}
 
-	return changed, nil
+	// Always signal potential change — commitShadowChanges uses git diff
+	// to determine whether anything actually changed before creating a commit.
+	return true, nil
 }
 
 // resolveSymlink resolves a path through any symlinks. Returns the resolved
