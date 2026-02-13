@@ -32,9 +32,9 @@ func TestIsCommandOnlyEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := isCommandOnlyEntry(tt.input)
+			got := IsCommandOnlyEntry(tt.input)
 			if got != tt.want {
-				t.Errorf("isCommandOnlyEntry(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("IsCommandOnlyEntry(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
