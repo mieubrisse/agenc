@@ -22,7 +22,10 @@ import (
 
 const (
 	repoRefDebouncePeriod = 5 * time.Second
-	heartbeatInterval     = 30 * time.Second
+	// Heartbeat interval: 60s reduces database write frequency while maintaining
+	// adequate liveness detection. With 50 missions, this reduces writes from
+	// 100/min to 50/min, decreasing SQLite contention.
+	heartbeatInterval = 60 * time.Second
 )
 
 // wrapperState tracks the wrapper's position in the restart state machine.
