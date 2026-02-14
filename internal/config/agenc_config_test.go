@@ -768,3 +768,412 @@ func TestPaletteCommandConfig_IsEmpty(t *testing.T) {
 		t.Error("expected config with title to not be empty")
 	}
 }
+
+// --- Validation tests ---
+
+func TestValidateGitRepoURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{
+			name:    "valid HTTPS GitHub URL",
+			url:     "https://github.com/owner/repo",
+			wantErr: false,
+		},
+		{
+			name:    "valid HTTPS GitHub URL with .git",
+			url:     "https://github.com/owner/repo.git",
+			wantErr: false,
+		},
+		{
+			name:    "valid SSH GitHub URL",
+			url:     "git@github.com:owner/repo",
+			wantErr: false,
+		},
+		{
+			name:    "valid SSH GitHub URL with .git",
+			url:     "git@github.com:owner/repo.git",
+			wantErr: false,
+		},
+		{
+			name:    "empty URL",
+			url:     "",
+			wantErr: true,
+		},
+		{
+			name:    "invalid HTTPS URL - no path",
+			url:     "https://github.com",
+			wantErr: true,
+		},
+		{
+			name:    "invalid HTTPS URL - only slash",
+			url:     "https://github.com/",
+			wantErr: true,
+		},
+		{
+			name:    "invalid HTTPS URL - single component",
+			url:     "https://github.com/owner",
+			wantErr: true,
+		},
+		{
+			name:    "invalid SSH URL - missing colon",
+			url:     "git@github.com/owner/repo",
+			wantErr: true,
+		},
+		{
+			name:    "invalid SSH URL - no path",
+			url:     "git@github.com:",
+			wantErr: true,
+		},
+		{
+			name:    "invalid scheme",
+			url:     "ftp://github.com/owner/repo",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateGitRepoURL(tt.url)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateGitRepoURL() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidatePathNoTraversal(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{
+			name:    "empty path",
+			path:    "",
+			wantErr: false,
+		},
+		{
+			name:    "valid absolute path",
+			path:    "/home/user/project",
+			wantErr: false,
+		},
+		{
+			name:    "valid relative path",
+			path:    "src/main.go",
+			wantErr: false,
+		},
+		{
+			name:    "path with parent traversal",
+			path:    "../../../etc/passwd",
+			wantErr: true,
+		},
+		{
+			name:    "path with relative in middle",
+			path:    "/home/../etc/passwd",
+			wantErr: true,
+		},
+		{
+			name:    "path ending with ..",
+			path:    "/home/user/..",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePathNoTraversal(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidatePathNoTraversal() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateMaxConcurrent(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   int
+		wantErr bool
+	}{
+		{
+			name:    "valid value 1",
+			value:   1,
+			wantErr: false,
+		},
+		{
+			name:    "valid value 10",
+			value:   10,
+			wantErr: false,
+		},
+		{
+			name:    "valid value 100",
+			value:   100,
+			wantErr: false,
+		},
+		{
+			name:    "zero",
+			value:   0,
+			wantErr: true,
+		},
+		{
+			name:    "negative",
+			value:   -1,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMaxConcurrent(tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateMaxConcurrent() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSanitizePrompt(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		wantOutput   string
+		wantModified bool
+	}{
+		{
+			name:         "clean string",
+			input:        "Hello world!",
+			wantOutput:   "Hello world!",
+			wantModified: false,
+		},
+		{
+			name:         "string with newlines",
+			input:        "Line 1\nLine 2",
+			wantOutput:   "Line 1\nLine 2",
+			wantModified: false,
+		},
+		{
+			name:         "string with tabs",
+			input:        "Column1\tColumn2",
+			wantOutput:   "Column1\tColumn2",
+			wantModified: false,
+		},
+		{
+			name:         "string with bell character",
+			input:        "Alert\a!",
+			wantOutput:   "Alert!",
+			wantModified: true,
+		},
+		{
+			name:         "string with null character",
+			input:        "Test\x00value",
+			wantOutput:   "Testvalue",
+			wantModified: true,
+		},
+		{
+			name:         "string with ANSI escape",
+			input:        "\x1b[31mRed text\x1b[0m",
+			wantOutput:   "[31mRed text[0m",
+			wantModified: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, modified := SanitizePrompt(tt.input)
+			if output != tt.wantOutput {
+				t.Errorf("SanitizePrompt() output = %q, want %q", output, tt.wantOutput)
+			}
+			if modified != tt.wantModified {
+				t.Errorf("SanitizePrompt() modified = %v, want %v", modified, tt.wantModified)
+			}
+		})
+	}
+}
+
+func TestValidateCronTimeout_Bounds(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout string
+		wantErr bool
+	}{
+		{
+			name:    "empty is valid (uses default)",
+			timeout: "",
+			wantErr: false,
+		},
+		{
+			name:    "valid timeout 1h",
+			timeout: "1h",
+			wantErr: false,
+		},
+		{
+			name:    "valid timeout 30m",
+			timeout: "30m",
+			wantErr: false,
+		},
+		{
+			name:    "valid timeout 24h (max)",
+			timeout: "24h",
+			wantErr: false,
+		},
+		{
+			name:    "invalid timeout - exceeds max",
+			timeout: "25h",
+			wantErr: true,
+		},
+		{
+			name:    "invalid timeout - negative",
+			timeout: "-1h",
+			wantErr: true,
+		},
+		{
+			name:    "invalid timeout - zero",
+			timeout: "0s",
+			wantErr: true,
+		},
+		{
+			name:    "invalid timeout format",
+			timeout: "not-a-duration",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCronTimeout(tt.timeout)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCronTimeout() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateAndPopulateDefaults(t *testing.T) {
+	t.Run("sanitizes cron prompt with control characters", func(t *testing.T) {
+		cfg := &AgencConfig{
+			Crons: map[string]CronConfig{
+				"test": {
+					Schedule: "0 9 * * *",
+					Prompt:   "Test\x00prompt\awith\x1bcontrols",
+				},
+			},
+		}
+
+		err := ValidateAndPopulateDefaults(cfg)
+		if err != nil {
+			t.Fatalf("ValidateAndPopulateDefaults() failed: %v", err)
+		}
+
+		got := cfg.Crons["test"].Prompt
+		want := "Testpromptwithcontrols"
+		if got != want {
+			t.Errorf("prompt not sanitized: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("validates timeout bounds", func(t *testing.T) {
+		cfg := &AgencConfig{
+			Crons: map[string]CronConfig{
+				"test": {
+					Schedule: "0 9 * * *",
+					Prompt:   "Test",
+					Timeout:  "25h",
+				},
+			},
+		}
+
+		err := ValidateAndPopulateDefaults(cfg)
+		if err == nil {
+			t.Fatal("expected error for timeout exceeding max, got nil")
+		}
+		if !strings.Contains(err.Error(), "exceeds maximum") {
+			t.Errorf("expected error about exceeding maximum, got: %v", err)
+		}
+	})
+
+	t.Run("validates max concurrent >= 1", func(t *testing.T) {
+		cfg := &AgencConfig{
+			CronsMaxConcurrent: -5,
+		}
+
+		err := ValidateAndPopulateDefaults(cfg)
+		if err == nil {
+			t.Fatal("expected error for negative max concurrent, got nil")
+		}
+		if !strings.Contains(err.Error(), "must be >= 1") {
+			t.Errorf("expected error about >= 1, got: %v", err)
+		}
+	})
+
+	t.Run("allows max concurrent = 0 (uses default)", func(t *testing.T) {
+		cfg := &AgencConfig{
+			CronsMaxConcurrent: 0,
+		}
+
+		err := ValidateAndPopulateDefaults(cfg)
+		if err != nil {
+			t.Fatalf("ValidateAndPopulateDefaults() should allow 0: %v", err)
+		}
+	})
+
+	t.Run("sanitizes palette command strings", func(t *testing.T) {
+		cfg := &AgencConfig{
+			PaletteCommands: map[string]PaletteCommandConfig{
+				"test": {
+					Title:   "Test",
+					Command: "echo 'test'\x00\x1b",
+				},
+			},
+		}
+
+		err := ValidateAndPopulateDefaults(cfg)
+		if err != nil {
+			t.Fatalf("ValidateAndPopulateDefaults() failed: %v", err)
+		}
+
+		got := cfg.PaletteCommands["test"].Command
+		want := "echo 'test'"
+		if got != want {
+			t.Errorf("command not sanitized: got %q, want %q", got, want)
+		}
+	})
+}
+
+func TestReadAgencConfig_CallsValidation(t *testing.T) {
+	t.Run("rejects cron with invalid timeout", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writeConfigYAML(t, tmpDir, `
+crons:
+  test:
+    schedule: "0 9 * * *"
+    prompt: "Test"
+    timeout: "48h"
+`)
+
+		_, _, err := ReadAgencConfig(tmpDir)
+		if err == nil {
+			t.Fatal("expected error for timeout exceeding max, got nil")
+		}
+		if !strings.Contains(err.Error(), "exceeds maximum") {
+			t.Errorf("expected validation error about exceeding maximum, got: %v", err)
+		}
+	})
+
+	t.Run("rejects invalid max concurrent", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		writeConfigYAML(t, tmpDir, `
+cronsMaxConcurrent: -5
+`)
+
+		_, _, err := ReadAgencConfig(tmpDir)
+		if err == nil {
+			t.Fatal("expected error for negative max concurrent, got nil")
+		}
+		if !strings.Contains(err.Error(), "must be >= 1") {
+			t.Errorf("expected validation error about >= 1, got: %v", err)
+		}
+	})
+}

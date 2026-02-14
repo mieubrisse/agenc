@@ -2,12 +2,14 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/adhocore/gronx"
 	"github.com/goccy/go-yaml"
@@ -489,6 +491,11 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		return nil, nil, err
 	}
 
+	// Validate and populate defaults
+	if err := ValidateAndPopulateDefaults(&cfg); err != nil {
+		return nil, nil, stacktrace.Propagate(err, "validation failed for %s", configFilepath)
+	}
+
 	return &cfg, cm, nil
 }
 
@@ -725,15 +732,179 @@ func ValidateCronOverlapPolicy(policy CronOverlapPolicy) error {
 	return stacktrace.NewError("invalid overlap policy '%s'; must be 'skip' or 'allow'", policy)
 }
 
+// MaxTimeoutDuration is the maximum allowed timeout duration (24 hours).
+const MaxTimeoutDuration = 24 * time.Hour
+
 // ValidateCronTimeout checks whether a timeout string is valid.
 func ValidateCronTimeout(timeout string) error {
 	if timeout == "" {
 		return nil
 	}
-	_, err := time.ParseDuration(timeout)
+	d, err := time.ParseDuration(timeout)
 	if err != nil {
 		return stacktrace.NewError("invalid timeout '%s'; use Go duration format (e.g., '1h', '30m', '2h30m')", timeout)
 	}
+	if d <= 0 {
+		return stacktrace.NewError("timeout '%s' must be positive", timeout)
+	}
+	if d > MaxTimeoutDuration {
+		return stacktrace.NewError("timeout '%s' exceeds maximum allowed duration of 24 hours", timeout)
+	}
+	return nil
+}
+
+// ValidateGitRepoURL validates a git repository URL using full URL parsing.
+// Accepts both HTTPS (https://github.com/owner/repo) and SSH (git@github.com:owner/repo) formats.
+func ValidateGitRepoURL(repoURL string) error {
+	if repoURL == "" {
+		return stacktrace.NewError("git repo URL cannot be empty")
+	}
+
+	// Handle SSH format (git@github.com:owner/repo)
+	if strings.HasPrefix(repoURL, "git@") {
+		parts := strings.SplitN(repoURL, ":", 2)
+		if len(parts) != 2 {
+			return stacktrace.NewError("invalid SSH git URL '%s'; expected format 'git@host:owner/repo'", repoURL)
+		}
+		hostPart := parts[0]
+		pathPart := parts[1]
+
+		if !strings.Contains(hostPart, "@") || !strings.Contains(hostPart, ".") {
+			return stacktrace.NewError("invalid SSH git URL host '%s'", hostPart)
+		}
+
+		if !strings.Contains(pathPart, "/") {
+			return stacktrace.NewError("invalid SSH git URL path '%s'; expected 'owner/repo'", pathPart)
+		}
+
+		return nil
+	}
+
+	// Handle HTTPS format
+	parsedURL, err := url.Parse(repoURL)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to parse git repo URL '%s'", repoURL)
+	}
+
+	if parsedURL.Scheme != "https" && parsedURL.Scheme != "http" {
+		return stacktrace.NewError("git repo URL '%s' must use https:// or ssh (git@) scheme", repoURL)
+	}
+
+	if parsedURL.Host == "" {
+		return stacktrace.NewError("git repo URL '%s' has no host", repoURL)
+	}
+
+	if parsedURL.Path == "" || parsedURL.Path == "/" {
+		return stacktrace.NewError("git repo URL '%s' has no repository path", repoURL)
+	}
+
+	// Validate path structure for GitHub URLs
+	if strings.Contains(parsedURL.Host, "github.com") {
+		pathParts := strings.Split(strings.Trim(parsedURL.Path, "/"), "/")
+		if len(pathParts) < 2 {
+			return stacktrace.NewError("GitHub URL '%s' must have format 'https://github.com/owner/repo'", repoURL)
+		}
+	}
+
+	return nil
+}
+
+// ValidatePathNoTraversal validates that a path does not contain traversal patterns.
+// Rejects paths containing "../" or ".." as a path component.
+func ValidatePathNoTraversal(path string) error {
+	if path == "" {
+		return nil
+	}
+
+	if strings.Contains(path, "..") {
+		return stacktrace.NewError("path '%s' contains path traversal pattern '..'", path)
+	}
+
+	return nil
+}
+
+// ValidateMaxConcurrent validates that a max concurrent value is >= 1.
+func ValidateMaxConcurrent(value int) error {
+	if value < 1 {
+		return stacktrace.NewError("max concurrent value %d must be >= 1", value)
+	}
+	return nil
+}
+
+// SanitizePrompt removes control characters from user prompts.
+// Returns the sanitized string and true if any characters were removed.
+func SanitizePrompt(prompt string) (string, bool) {
+	var sanitized strings.Builder
+	modified := false
+
+	for _, r := range prompt {
+		// Allow printable characters, spaces, tabs, and newlines
+		if unicode.IsPrint(r) || r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			sanitized.WriteRune(r)
+		} else {
+			modified = true
+		}
+	}
+
+	return sanitized.String(), modified
+}
+
+// ValidateAndPopulateDefaults validates all configuration values and applies defaults.
+// This function should be called after reading config.yml to ensure all values are valid.
+func ValidateAndPopulateDefaults(cfg *AgencConfig) error {
+	// Validate cron configurations
+	for name, cronCfg := range cfg.Crons {
+		// Schedule and name are already validated by ReadAgencConfig
+
+		// Validate and sanitize prompt
+		if cronCfg.Prompt == "" {
+			return stacktrace.NewError("cron '%s' prompt cannot be empty", name)
+		}
+		sanitized, modified := SanitizePrompt(cronCfg.Prompt)
+		if modified {
+			cronCfg.Prompt = sanitized
+			cfg.Crons[name] = cronCfg
+		}
+
+		// Validate git repo URL if provided
+		if cronCfg.Git != "" {
+			// Canonical format already validated, but also support full URLs
+			if !canonicalRepoRegex.MatchString(cronCfg.Git) {
+				if err := ValidateGitRepoURL(cronCfg.Git); err != nil {
+					return stacktrace.Propagate(err, "invalid git URL for cron '%s'", name)
+				}
+			}
+		}
+
+		// Validate timeout with bounds
+		if cronCfg.Timeout != "" {
+			if err := ValidateCronTimeout(cronCfg.Timeout); err != nil {
+				return stacktrace.Propagate(err, "invalid timeout for cron '%s'", name)
+			}
+		}
+	}
+
+	// Validate max concurrent value (skip if 0, which means use default)
+	if cfg.CronsMaxConcurrent != 0 {
+		if err := ValidateMaxConcurrent(cfg.CronsMaxConcurrent); err != nil {
+			return stacktrace.Propagate(err, "invalid cronsMaxConcurrent")
+		}
+	}
+
+	// Validate palette commands
+	for name, cmdCfg := range cfg.PaletteCommands {
+		// Name validation already done by ReadAgencConfig
+
+		// Sanitize command string
+		if cmdCfg.Command != "" {
+			sanitized, modified := SanitizePrompt(cmdCfg.Command)
+			if modified {
+				cmdCfg.Command = sanitized
+				cfg.PaletteCommands[name] = cmdCfg
+			}
+		}
+	}
+
 	return nil
 }
 
