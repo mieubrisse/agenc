@@ -18,7 +18,11 @@
             "Bash(make:*)",
             "Bash(find:*)",
             "Bash(gofmt:*)",
-            "Bash(golangci-lint:*)"
+            "Bash(golangci-lint:*)",
+            "Bash(sqlite3:*)",
+            "Bash(rm:*)",
+            "Bash(cp:*)",
+            "Bash(mv:*)"
         ],
         "deny": [
             "Read(./.env)",
