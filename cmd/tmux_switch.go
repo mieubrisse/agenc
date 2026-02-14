@@ -37,36 +37,27 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
-	// Auto-wrap in a larger popup when running the interactive picker. This handles
-	// three invocation contexts:
+	// Auto-wrap in a popup if we're running without a TTY. This handles three
+	// invocation contexts:
 	//
-	// 1. From the palette: The palette runs in a 60%×50% popup. We detect we're
-	//    showing an interactive picker (no mission ID provided) and re-exec in
-	//    an 80%×70% popup, giving the mission list more room to display.
+	// 1. From the palette: The palette itself runs in a tmux display-popup, so
+	//    stdin is already a TTY. We detect this and run normally (no nested popup).
 	//
 	// 2. From a keybinding: Tmux keybindings use `run-shell`, which doesn't
 	//    provide a TTY. Without this check, fzf would fail with "Inappropriate
 	//    ioctl for device". We detect the missing TTY and re-exec in a popup.
 	//
-	// 3. From a shell: When a mission ID is provided, we skip the popup and
-	//    switch directly. When no ID is provided (interactive mode), we wrap
-	//    in a popup for consistency.
+	// 3. From a shell: The shell has a TTY, so we run normally.
 	//
-	// To prevent infinite recursion, we set AGENC_IN_POPUP=1 before wrapping.
-	// The larger 80%×70% size gives more room for the mission list compared to
-	// the standard 60%×50% palette popup.
-	alreadyInPopup := os.Getenv("AGENC_IN_POPUP") == "1"
-	needsInteractivePicker := len(args) == 0
-	hasTTY := term.IsTerminal(int(os.Stdin.Fd()))
-
-	if !alreadyInPopup && (!hasTTY || needsInteractivePicker) {
+	// This ensures the fzf picker works in all three contexts without requiring
+	// different command strings in the config or keybinding generation logic.
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		// Build the command to re-exec in a popup
 		cmdArgs := []string{"agenc", "tmux", "switch"}
 		cmdArgs = append(cmdArgs, args...)
 		cmdStr := strings.Join(cmdArgs, " ")
 
-		popupCmd := exec.Command("tmux", "display-popup", "-E", "-w", "80%", "-h", "70%", cmdStr)
-		popupCmd.Env = append(os.Environ(), "AGENC_IN_POPUP=1")
+		popupCmd := exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", cmdStr)
 		popupCmd.Stdout = os.Stdout
 		popupCmd.Stderr = os.Stderr
 		return popupCmd.Run()
