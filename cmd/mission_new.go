@@ -143,7 +143,7 @@ func runMissionNewWithPicker(args []string) error {
 
 	input := strings.Join(args, " ")
 
-	// No args: show fzf picker with sentinel (blank mission option)
+	// No args: show fzf picker with sentinel (Blank Mission option)
 	if input == "" {
 		picked, err := selectFromRepoLibrary(entries, "")
 		if err != nil {
@@ -171,7 +171,7 @@ func runMissionNewWithPicker(args []string) error {
 const assistantSentinelRepoName = "__assistant__"
 
 // cloneNewRepoSentinelRepoName is the sentinel value used in fzf picker entries
-// to represent the "clone new repo" option.
+// to represent the "Github Repo" option.
 const cloneNewRepoSentinelRepoName = "__clone_new__"
 
 // launchFromLibrarySelection creates and launches a mission based on the
@@ -190,7 +190,7 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 	}
 
 	if selection.RepoName == "" {
-		// NONE selected — blank mission
+		// NONE selected — Blank Mission
 		return createAndLaunchMission(agencDirpath, "", "", promptFlag)
 	}
 
@@ -287,7 +287,7 @@ func listRepoLibrary(agencDirpath string) []repoLibraryEntry {
 
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
 // An "AgenC assistant" option is prepended as the first data row, followed by
-// repo entries. A NONE sentinel (blank mission) is appended at the bottom.
+// repo entries. A NONE sentinel (Blank Mission) is appended at the bottom.
 func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibraryEntry, error) {
 	// First two data rows are special options; repos follow at index offset 2
 	var rows [][]string
@@ -329,7 +329,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		return &repoLibraryEntry{RepoName: assistantSentinelRepoName}, nil
 	}
 	if idx == 1 {
-		// Clone new repo row selected
+		// Github Repo row selected
 		return &repoLibraryEntry{RepoName: cloneNewRepoSentinelRepoName}, nil
 	}
 
