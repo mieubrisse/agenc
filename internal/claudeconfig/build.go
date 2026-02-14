@@ -775,8 +775,9 @@ func GetLastSessionID(agencDirpath string, missionID string) string {
 
 // projectDirectoryExists checks whether Claude Code has created a project
 // directory for the given agent directory path. Claude Code transforms
-// absolute paths into project directory names by converting slashes to hyphens.
-// For example: /Users/name/path -> -Users-name-path
+// absolute paths into project directory names by converting both slashes
+// and dots to hyphens.
+// For example: /Users/name/.config/path -> -Users-name--config-path
 func projectDirectoryExists(agentDirpath string) bool {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -784,8 +785,9 @@ func projectDirectoryExists(agentDirpath string) bool {
 	}
 
 	// Transform the agent dirpath into a project directory name
-	// Claude Code converts "/" to "-", so "/Users/name/path" becomes "-Users-name-path"
-	projectDirName := strings.ReplaceAll(agentDirpath, "/", "-")
+	// Claude Code converts both "/" and "." to "-"
+	// So "/Users/odyssey/.agenc" becomes "-Users-odyssey--agenc"
+	projectDirName := strings.ReplaceAll(strings.ReplaceAll(agentDirpath, "/", "-"), ".", "-")
 	projectDirpath := filepath.Join(homeDir, ".claude", "projects", projectDirName)
 
 	_, err = os.Stat(projectDirpath)
