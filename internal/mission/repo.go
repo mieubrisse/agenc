@@ -1,23 +1,34 @@
 package mission
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
 )
 
+const (
+	// gitOperationTimeout defines the maximum duration for any single git operation.
+	// This prevents indefinite hangs on network failures.
+	gitOperationTimeout = 30 * time.Second
+)
+
 // ForceUpdateRepo fetches from origin and resets the local default branch to
 // match the remote. This ensures the repo library clone is up-to-date before
 // copying into a mission's agent directory.
 func ForceUpdateRepo(repoDirpath string) error {
-	fetchCmd := exec.Command("git", "fetch", "origin", "--tags")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin", "--tags")
 	fetchCmd.Dir = repoDirpath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "git fetch failed: %s", strings.TrimSpace(string(output)))
@@ -29,7 +40,7 @@ func ForceUpdateRepo(repoDirpath string) error {
 	}
 
 	remoteRef := "origin/" + defaultBranch
-	resetCmd := exec.Command("git", "reset", "--hard", remoteRef)
+	resetCmd := exec.CommandContext(ctx, "git", "reset", "--hard", remoteRef)
 	resetCmd.Dir = repoDirpath
 	if output, err := resetCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "git reset failed: %s", strings.TrimSpace(string(output)))
@@ -41,7 +52,10 @@ func ForceUpdateRepo(repoDirpath string) error {
 // GetDefaultBranch returns the default branch name for a repository by reading
 // origin/HEAD. Returns just the branch name (e.g. "main", "master").
 func GetDefaultBranch(repoDirpath string) (string, error) {
-	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	cmd.Dir = repoDirpath
 	output, err := cmd.Output()
 	if err != nil {
@@ -54,8 +68,11 @@ func GetDefaultBranch(repoDirpath string) (string, error) {
 // ValidateGitRepo checks that the given directory is a Git repository
 // whose default branch (per origin/HEAD) exists locally.
 func ValidateGitRepo(repoDirpath string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
 	// Check it's a git repo
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--git-dir")
 	cmd.Dir = repoDirpath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return stacktrace.NewError("'%s' is not a git repository: %s", repoDirpath, strings.TrimSpace(string(output)))
@@ -68,7 +85,7 @@ func ValidateGitRepo(repoDirpath string) error {
 	}
 
 	// Check that the default branch exists locally
-	cmd = exec.Command("git", "rev-parse", "--verify", defaultBranch)
+	cmd = exec.CommandContext(ctx, "git", "rev-parse", "--verify", defaultBranch)
 	cmd.Dir = repoDirpath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return stacktrace.NewError("repository '%s' has no '%s' branch: %s", repoDirpath, defaultBranch, strings.TrimSpace(string(output)))
@@ -150,7 +167,10 @@ func ParseGitHubRemoteURL(remoteURL string) (string, error) {
 // and parses it into "github.com/owner/repo" format.
 // Errors if origin is not a GitHub URL.
 func ExtractGitHubRepoName(repoDirpath string) (string, error) {
-	cmd := exec.Command("git", "remote", "get-url", "origin")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
 	cmd.Dir = repoDirpath
 	output, err := cmd.Output()
 	if err != nil {
@@ -179,7 +199,10 @@ func EnsureRepoClone(agencDirpath string, repoName string, cloneURL string) (str
 		return "", stacktrace.Propagate(err, "failed to remove placeholder directory '%s'", cloneDirpath)
 	}
 
-	gitCmd := exec.Command("git", "clone", cloneURL, cloneDirpath)
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	gitCmd := exec.CommandContext(ctx, "git", "clone", cloneURL, cloneDirpath)
 	gitCmd.Stdout = os.Stdout
 	gitCmd.Stderr = os.Stderr
 	if err := gitCmd.Run(); err != nil {
@@ -327,7 +350,10 @@ func DetectPreferredProtocol(agencDirpath string) bool {
 // detectRepoProtocol reads the origin remote URL from a git repo and returns
 // "ssh", "https", or "" if it cannot be determined.
 func detectRepoProtocol(repoDirpath string) string {
-	cmd := exec.Command("git", "remote", "get-url", "origin")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
 	cmd.Dir = repoDirpath
 	output, err := cmd.Output()
 	if err != nil {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -328,7 +329,10 @@ func getMissionGitStatus(missionID string) string {
 // a formatted status indicator. Returns "clean" for no changes, "modified" for
 // uncommitted changes (staged or unstaged), or "--" for non-git directories.
 func checkGitStatus(dirpath string) string {
-	cmd := exec.Command("git", "status", "--porcelain")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	cmd.Dir = dirpath
 	output, err := cmd.Output()
 	if err != nil {

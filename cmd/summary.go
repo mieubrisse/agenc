@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -373,11 +374,14 @@ func gatherCommitStats(dayStart, dayEnd time.Time) (*CommitStats, error) {
 
 // countCommitsInRange counts commits in a git repo within the given time range.
 func countCommitsInRange(repoPath string, dayStart, dayEnd time.Time) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
 	// Use git log with --since and --until to count commits
 	sinceStr := dayStart.Format("2006-01-02T15:04:05")
 	untilStr := dayEnd.Format("2006-01-02T15:04:05")
 
-	cmd := exec.Command("git", "log", "--all", "--oneline",
+	cmd := exec.CommandContext(ctx, "git", "log", "--all", "--oneline",
 		"--since="+sinceStr, "--until="+untilStr)
 	cmd.Dir = repoPath
 

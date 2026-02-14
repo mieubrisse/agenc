@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -474,7 +475,10 @@ func resolveAsSearchTerms(agencDirpath string, input string, fzfPrompt string) (
 
 // getOriginRemoteURL reads the origin remote URL from a local git repo.
 func getOriginRemoteURL(repoDirpath string) (string, error) {
-	cmd := exec.Command("git", "remote", "get-url", "origin")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
 	cmd.Dir = repoDirpath
 	output, err := cmd.Output()
 	if err != nil {

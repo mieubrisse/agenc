@@ -2,12 +2,20 @@ package claudeconfig
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
+)
+
+const (
+	// gitOperationTimeout defines the maximum duration for any single git operation.
+	// This prevents indefinite hangs on network failures.
+	gitOperationTimeout = 30 * time.Second
 )
 
 // userClaudeDirname is the standard name for the user's Claude config directory.
@@ -58,7 +66,10 @@ func InitShadowRepo(agencDirpath string) (string, error) {
 		return "", stacktrace.Propagate(err, "failed to create shadow repo directory")
 	}
 
-	cmd := exec.Command("git", "init")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "init")
 	cmd.Dir = shadowDirpath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", stacktrace.NewError("git init failed in '%s': %s (error: %v)", shadowDirpath, string(output), err)
@@ -355,21 +366,24 @@ func resolveSymlink(path string) (string, error) {
 // commitShadowChanges stages all changes in the shadow repo and creates a
 // commit with the given message.
 func commitShadowChanges(shadowDirpath string, message string) error {
-	addCmd := exec.Command("git", "add", "-A")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	addCmd := exec.CommandContext(ctx, "git", "add", "-A")
 	addCmd.Dir = shadowDirpath
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		return stacktrace.NewError("git add failed: %s (error: %v)", string(output), err)
 	}
 
 	// Check if there are actually staged changes
-	diffCmd := exec.Command("git", "diff", "--cached", "--quiet")
+	diffCmd := exec.CommandContext(ctx, "git", "diff", "--cached", "--quiet")
 	diffCmd.Dir = shadowDirpath
 	if err := diffCmd.Run(); err == nil {
 		// No staged changes — nothing to commit
 		return nil
 	}
 
-	commitCmd := exec.Command("git", "commit", "-m", message)
+	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", message)
 	commitCmd.Dir = shadowDirpath
 	commitCmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=AgenC",

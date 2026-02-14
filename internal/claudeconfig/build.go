@@ -1,6 +1,7 @@
 package claudeconfig
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -570,8 +571,11 @@ func CountCommitsBehind(agencDirpath string, missionCommitHash string, headCommi
 		return 0
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
 	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
-	cmd := exec.Command("git", "rev-list", "--count", missionCommitHash+".."+headCommitHash)
+	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", missionCommitHash+".."+headCommitHash)
 	cmd.Dir = shadowDirpath
 	output, err := cmd.Output()
 	if err != nil {
@@ -597,7 +601,10 @@ func ResolveConfigCommitHash(configSourceDirpath string) string {
 		return ""
 	}
 
-	cmd := exec.Command("git", "rev-parse", "HEAD")
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
 	cmd.Dir = repoRootDirpath
 	output, err := cmd.Output()
 	if err != nil {

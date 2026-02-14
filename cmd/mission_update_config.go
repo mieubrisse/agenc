@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -199,9 +200,12 @@ func updateMissionConfig(db *database.DB, missionID string, newCommitHash string
 
 // showShadowRepoDiff displays a git diff between two commits in the shadow repo.
 func showShadowRepoDiff(oldCommit string, newCommit string) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
 	shadowDirpath := claudeconfig.GetShadowRepoDirpath(agencDirpath)
 
-	diffCmd := exec.Command("git", "diff", "--stat", oldCommit, newCommit)
+	diffCmd := exec.CommandContext(ctx, "git", "diff", "--stat", oldCommit, newCommit)
 	diffCmd.Dir = shadowDirpath
 	diffCmd.Stdout = os.Stdout
 	diffCmd.Stderr = os.Stderr

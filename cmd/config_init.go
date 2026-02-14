@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
@@ -15,6 +17,8 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/mission"
 )
+
+const gitOperationTimeout = 30 * time.Second
 
 var configInitCmd = &cobra.Command{
 	Use:   initCmdStr,
@@ -240,7 +244,10 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 
 	fmt.Printf("Cloning %s into config directory...\n", cloneURL)
 
-	gitCmd := exec.Command("git", "clone", cloneURL, configDirpath)
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	gitCmd := exec.CommandContext(ctx, "git", "clone", cloneURL, configDirpath)
 	gitCmd.Stdout = os.Stdout
 	gitCmd.Stderr = os.Stderr
 	if err := gitCmd.Run(); err != nil {
