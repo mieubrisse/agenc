@@ -23,7 +23,24 @@ LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 .PHONY: build clean docs genskill
 
 build: genskill docs
-	go build -ldflags "$(LDFLAGS)" -o agenc .
+	@echo "Checking code formatting..."
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then \
+		echo "❌ Files need formatting:"; \
+		echo "$$unformatted"; \
+		echo ""; \
+		echo "Run: gofmt -w ."; \
+		exit 1; \
+	fi
+	@echo "✓ Formatting OK"
+
+	@echo "Running go vet..."
+	@go vet ./...
+	@echo "✓ Static analysis OK"
+
+	@echo "Building agenc..."
+	@go build -ldflags "$(LDFLAGS)" -o agenc .
+	@echo "✓ Build complete"
 
 docs: genskill
 	go run ./cmd/gendocs
