@@ -124,7 +124,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Title:          "🔀  Switch Mission",
 		Description:    "Switch to a running mission's tmux window",
 		Command:        "agenc tmux switch",
-		TmuxKeybinding: "m",
+		TmuxKeybinding: "-n C-m",
 	},
 	"resumeMission": {
 		Title:       "🟢  Resume Mission",
@@ -135,7 +135,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Title:          "🐚  Open Shell",
 		Description:    "Split pane and open a shell in the current directory",
 		Command:        "agenc tmux pane new -- $SHELL",
-		TmuxKeybinding: "p",
+		TmuxKeybinding: "-n C-p",
 	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
@@ -237,7 +237,7 @@ func (c ResolvedPaletteCommand) FormatKeybinding() string {
 // command palette keybinding. The value is inserted verbatim after "bind-key"
 // in the generated tmux keybindings file, so it can include table specifiers
 // (e.g. "-T agenc k") or bind directly on the prefix table (e.g. "C-k").
-const DefaultPaletteTmuxKeybinding = "-T agenc k"
+const DefaultPaletteTmuxKeybinding = "-n C-y"
 
 // Default tmux window title coloring configuration.
 const (
