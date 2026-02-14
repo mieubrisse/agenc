@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ const defaultMissionLsLimit = 20
 
 var lsAllFlag bool
 var lsCronFlag string
+var lsGitStatusFlag bool
 
 var missionLsCmd = &cobra.Command{
 	Use:   lsCmdStr,
@@ -33,6 +35,7 @@ var missionLsCmd = &cobra.Command{
 func init() {
 	missionLsCmd.Flags().BoolVarP(&lsAllFlag, allFlagName, "a", false, "include archived missions")
 	missionLsCmd.Flags().StringVar(&lsCronFlag, cronFlagName, "", "filter to missions from a specific cron job")
+	missionLsCmd.Flags().BoolVar(&lsGitStatusFlag, "git-status", false, "show uncommitted changes in mission directories")
 	missionCmd.AddCommand(missionLsCmd)
 }
 
@@ -75,9 +78,17 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	var tbl table.Table
 	if lsAllFlag {
-		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "CONFIG", "SESSION", "REPO")
+		if lsGitStatusFlag {
+			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "CONFIG", "GIT", "SESSION", "REPO")
+		} else {
+			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "CONFIG", "SESSION", "REPO")
+		}
 	} else {
-		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
+		if lsGitStatusFlag {
+			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "GIT", "SESSION", "REPO")
+		} else {
+			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
+		}
 	}
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
@@ -86,28 +97,58 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		if config.IsMissionAssistant(agencDirpath, m.ID) {
 			repo = "💁‍♂️  AgenC Assistant"
 		}
+
+		var gitStatus string
+		if lsGitStatusFlag {
+			gitStatus = getMissionGitStatus(m.ID)
+		}
+
 		if lsAllFlag {
 			pane := "--"
 			if m.TmuxPane != nil {
 				pane = *m.TmuxPane
 			}
-			tbl.AddRow(
-				formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
-				m.ShortID,
-				colorizeStatus(status),
-				pane,
-				formatConfigCommit(m.ConfigCommit, shadowHeadCommitHash),
-				truncatePrompt(sessionName, defaultPromptMaxLen),
-				repo,
-			)
+			if lsGitStatusFlag {
+				tbl.AddRow(
+					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					m.ShortID,
+					colorizeStatus(status),
+					pane,
+					formatConfigCommit(m.ConfigCommit, shadowHeadCommitHash),
+					gitStatus,
+					truncatePrompt(sessionName, defaultPromptMaxLen),
+					repo,
+				)
+			} else {
+				tbl.AddRow(
+					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					m.ShortID,
+					colorizeStatus(status),
+					pane,
+					formatConfigCommit(m.ConfigCommit, shadowHeadCommitHash),
+					truncatePrompt(sessionName, defaultPromptMaxLen),
+					repo,
+				)
+			}
 		} else {
-			tbl.AddRow(
-				formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
-				m.ShortID,
-				colorizeStatus(status),
-				truncatePrompt(sessionName, defaultPromptMaxLen),
-				repo,
-			)
+			if lsGitStatusFlag {
+				tbl.AddRow(
+					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					m.ShortID,
+					colorizeStatus(status),
+					gitStatus,
+					truncatePrompt(sessionName, defaultPromptMaxLen),
+					repo,
+				)
+			} else {
+				tbl.AddRow(
+					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					m.ShortID,
+					colorizeStatus(status),
+					truncatePrompt(sessionName, defaultPromptMaxLen),
+					repo,
+				)
+			}
 		}
 	}
 	tbl.Print()
@@ -273,4 +314,30 @@ func getMissionStatus(missionID string, dbStatus string) string {
 		return "RUNNING"
 	}
 	return "STOPPED"
+}
+
+// getMissionGitStatus checks for uncommitted changes in a mission's agent
+// directory. Returns a status string: "clean" (no changes), "modified"
+// (unstaged or staged changes), or "--" (not a git repo or error).
+func getMissionGitStatus(missionID string) string {
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+	return checkGitStatus(agentDirpath)
+}
+
+// checkGitStatus runs git status --porcelain in the given directory and returns
+// a formatted status indicator. Returns "clean" for no changes, "modified" for
+// uncommitted changes (staged or unstaged), or "--" for non-git directories.
+func checkGitStatus(dirpath string) string {
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = dirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return "--"
+	}
+
+	trimmed := strings.TrimSpace(string(output))
+	if trimmed == "" {
+		return ansiGreen + "clean" + ansiReset
+	}
+	return ansiYellow + "modified" + ansiReset
 }
