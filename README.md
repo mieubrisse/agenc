@@ -6,7 +6,7 @@
 
 </h1>
   <p align="center">
-    AgenC is an AI work factory focused on self-upgrading.</br>
+    AgenC is a self-upgrading AI work factory.</br>
     </br>
     <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat</br>
     </br>
