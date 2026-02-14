@@ -137,9 +137,10 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		TmuxKeybinding: "p",
 	},
 	"stopMission": {
-		Title:       "🛑  Stop Mission",
-		Description: "Stop the mission in the focused pane",
-		Command:     "agenc mission stop $AGENC_CALLING_MISSION_UUID",
+		Title:          "🛑  Stop Mission",
+		Description:    "Stop the mission in the focused pane",
+		Command:        "agenc mission stop $AGENC_CALLING_MISSION_UUID",
+		TmuxKeybinding: "-n C-s",
 	},
 	"reconfigMission": {
 		Title:       "🔧  Reconfig Mission",
