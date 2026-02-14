@@ -34,11 +34,17 @@ Much better is John Rush's philosophy of [Inputs, Not Outputs](https://www.john-
 
 Each iteration makes all future outputs better.
 
-Unfortunately, it's hard to scale up.
+Unfortunately, this doesn't scale.
 
-The Claudes start to step on each other, each lesson requires forking a new window, juggling all the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
+The Claudes start to step on each other, each lesson rollback requires forking a new window, juggling all the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
 
-AgenC fixes this bottleneck:
+AgenC tames this chaos. It provides:
+
+- 📦 Claude session isolation in fully independent sandboxes (no Git worktrees, and no merge queue - each agent is completely independent!)
+- 🎨 Window management and command palette w/hotkeys so launching new sessions, switching windows, and rolling lessons back into your Claude config is a thought away
+- 🔧 Palette customization, so your most-used operations are easy
+- 🔐 1Password secrets injection
+- 🤖 An AI assistant that knows how to configure & drive AgenC, so you never have to use CLI commands
 
 ![](readme-images/agenc-scale-up.png)
 
@@ -52,7 +58,7 @@ It's like going from Minecraft to Starcraft.
 
 > ### ⚠️ **ADDICTION WARNING** ⚠️
 >
-> AgenC **will** increase your output. But you should know it has a videogame-like addictive quality.
+> AgenC **WILL** force-multiply you. But you should know it has a videogame-like addictive quality.
 >
 > Because it's so easy to launch work, you end up with tons of parallel threads. Like Starcraft, you enter this restless wired ADD state where you're managing dozens of things at once.
 > 
@@ -178,7 +184,6 @@ SUBSTACK_USER_ID="op://Private/Substack Session Token/username"
 ```
 
 ### 8. Send feedback
-
 Use "Send Feedback" in the command palette, ask the Adjutant, or [join the Discord](https://discord.gg/x9Y8Se4XF3).
 
 Tips
