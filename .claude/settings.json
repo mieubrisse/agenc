@@ -17,7 +17,8 @@
             "Bash(tree:*)",
             "Bash(make:*)",
             "Bash(find:*)",
-            "Bash(gofmt:*)"
+            "Bash(gofmt:*)",
+            "Bash(golangci-lint:*)"
         ],
         "deny": [
             "Read(./.env)",
