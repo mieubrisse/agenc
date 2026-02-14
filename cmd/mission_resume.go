@@ -104,6 +104,11 @@ func resumeMission(db *database.DB, missionID string) error {
 		fmt.Printf("Unarchived mission: %s\n", database.ShortID(missionID))
 	}
 
+	// Migrate old .assistant marker if present
+	if err := config.MigrateAssistantMarkerIfNeeded(agencDirpath, missionID); err != nil {
+		return stacktrace.Propagate(err, "failed to migrate assistant marker")
+	}
+
 	// Check if the wrapper is already running for this mission
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := daemon.ReadPID(pidFilepath)

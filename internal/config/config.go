@@ -280,11 +280,55 @@ func GetMissionAssistantMarkerFilepath(agencDirpath string, missionID string) st
 }
 
 // IsMissionAssistant reports whether a mission is an AgenC assistant mission
-// by checking for the presence of the .assistant marker file.
+// by checking for the presence of assistant/adjutant marker files.
+//
+// Backward compatibility: Checks both new .adjutant and legacy .assistant markers.
+// The legacy .assistant check will be removed in v2.0.0.
 func IsMissionAssistant(agencDirpath string, missionID string) bool {
-	markerFilepath := GetMissionAssistantMarkerFilepath(agencDirpath, missionID)
-	_, err := os.Stat(markerFilepath)
-	return err == nil
+	missionDirpath := GetMissionDirpath(agencDirpath, missionID)
+
+	// Check new .adjutant marker first (preferred)
+	newMarkerFilepath := filepath.Join(missionDirpath, ".adjutant")
+	if _, err := os.Stat(newMarkerFilepath); err == nil {
+		return true
+	}
+
+	// Backward compatibility: check old .assistant marker
+	// DEPRECATED: Remove in v2.0.0
+	oldMarkerFilepath := filepath.Join(missionDirpath, ".assistant")
+	if _, err := os.Stat(oldMarkerFilepath); err == nil {
+		return true
+	}
+
+	return false
+}
+
+// MigrateAssistantMarkerIfNeeded checks if a mission has the old .assistant
+// marker file and migrates it to the new .adjutant marker.
+//
+// This provides automatic migration for missions created before the rename.
+// DEPRECATED: Remove in v2.0.0 when backward compatibility is dropped.
+func MigrateAssistantMarkerIfNeeded(agencDirpath string, missionID string) error {
+	missionDirpath := GetMissionDirpath(agencDirpath, missionID)
+	oldMarker := filepath.Join(missionDirpath, ".assistant")
+
+	// Check if old marker exists
+	if _, err := os.Stat(oldMarker); err != nil {
+		return nil // No old marker, nothing to migrate
+	}
+
+	// Create new marker
+	newMarker := filepath.Join(missionDirpath, ".adjutant")
+	if err := os.WriteFile(newMarker, []byte{}, 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to create new adjutant marker file")
+	}
+
+	// Remove old marker
+	if err := os.Remove(oldMarker); err != nil {
+		return stacktrace.Propagate(err, "failed to remove old assistant marker file")
+	}
+
+	return nil
 }
 
 // EnsureClaudeModificationsFiles creates seed files inside the
