@@ -204,7 +204,7 @@ func colorizeStatus(status string) string {
 	}
 }
 
-const defaultPromptMaxLen = 106
+const defaultPromptMaxLen = 121
 
 // resolveSessionName returns the Claude Code session name for a mission.
 // It uses a cached value from the database when the cache is fresh (i.e. the
