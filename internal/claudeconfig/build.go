@@ -101,6 +101,12 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		return stacktrace.Propagate(err, "failed to symlink projects")
 	}
 
+	// Symlink shell-snapshots to ~/.claude/shell-snapshots so Claude's shell
+	// snapshot functionality can write files without permission issues
+	if err := symlinkShellSnapshots(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to symlink shell-snapshots")
+	}
+
 	return nil
 }
 
@@ -275,6 +281,31 @@ func symlinkProjects(claudeConfigDirpath string) error {
 	os.RemoveAll(projectsLinkPath)
 
 	return os.Symlink(projectsTargetDirpath, projectsLinkPath)
+}
+
+// symlinkShellSnapshots creates a symlink from the mission config's
+// shell-snapshots/ directory to ~/.claude/shell-snapshots/. This allows
+// Claude Code's internal shell snapshot functionality to write files without
+// hitting permission issues in the mission's claude-config directory.
+// The target directory is created if it doesn't already exist.
+func symlinkShellSnapshots(claudeConfigDirpath string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine home directory")
+	}
+
+	snapshotsTargetDirpath := filepath.Join(homeDir, ".claude", "shell-snapshots")
+	snapshotsLinkPath := filepath.Join(claudeConfigDirpath, "shell-snapshots")
+
+	// Ensure the target directory exists so Claude Code can write into it
+	if err := os.MkdirAll(snapshotsTargetDirpath, 0700); err != nil {
+		return stacktrace.Propagate(err, "failed to create '%s'", snapshotsTargetDirpath)
+	}
+
+	// Remove existing shell-snapshots directory/symlink if it exists
+	os.RemoveAll(snapshotsLinkPath)
+
+	return os.Symlink(snapshotsTargetDirpath, snapshotsLinkPath)
 }
 
 // copyDirWithRewriting recursively copies a directory tree from src to dst,
