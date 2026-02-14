@@ -525,4 +525,13 @@ Database Schema
 | `created_at` | TEXT | Mission creation timestamp (RFC3339) |
 | `updated_at` | TEXT | Last update timestamp (RFC3339) |
 
+**Indices:**
+
+| Index | Columns | Description |
+|-------|---------|-------------|
+| `idx_missions_short_id` | `short_id` | Enables O(1) mission resolution by short ID |
+| `idx_missions_activity` | `last_active DESC, last_heartbeat DESC` | Optimizes activity-based sorting for mission listings |
+| `idx_missions_tmux_pane` | `tmux_pane` (partial, WHERE tmux_pane IS NOT NULL) | Speeds up pane-to-mission resolution for tmux keybindings |
+| `idx_missions_summary` | `status, prompt_count, last_summary_prompt_count` | Improves performance of daemon's summary eligibility query |
+
 SQLite is opened with max connections = 1 (`SetMaxOpenConns(1)`) due to its single-writer limitation. Migrations are idempotent and run on every database open.
