@@ -67,6 +67,8 @@ AgenC has two types of tmux keybindings:
 - Bare key like `"f"` or `"C-n"` — bound in agenc key table (requires prefix + a, then key)
 - Global binding like `"-n C-s"` — bound in root table (no prefix needed, works globally)
 
+**When the user requests a keybinding:** Default to suggesting a **global keybinding** using `-n` syntax (e.g., `"-n C-s"`), which works immediately without requiring the prefix. However, also offer the alternative of a **local keybinding** in the agenc table (e.g., `"-T agenc s"`), which requires the prefix (prefix + a, key) but avoids potential conflicts with other tmux or system keybindings. Let the user choose based on their preference for convenience vs. avoiding conflicts.
+
 After changing keybindings, AgenC automatically regenerates the tmux configuration. Run `agenc tmux inject` to apply changes to the current tmux session without restarting.
 
 Sandbox Rules
