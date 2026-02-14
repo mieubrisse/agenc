@@ -206,3 +206,69 @@ func extractMcpOAuthToken(t *testing.T, merged []byte, serverKey string) string 
 
 	return token
 }
+
+func TestConfigCaching(t *testing.T) {
+	t.Run("cache hit returns same config", func(t *testing.T) {
+		// Clear cache before test
+		InvalidateMergedConfigCache()
+
+		cacheKey := "test-commit-hash:test-mods-hash"
+
+		// Create a config to cache
+		config := &cachedMergedConfig{
+			MergedSettings: []byte(`{"test":"value"}`),
+			MergedClaudeMd: []byte("Test content"),
+		}
+
+		// Store in cache
+		setCachedMergedConfig(cacheKey, config)
+
+		// Retrieve from cache
+		cached := getCachedMergedConfig(cacheKey)
+		if cached == nil {
+			t.Fatal("expected cache hit, got nil")
+		}
+
+		if string(cached.MergedSettings) != string(config.MergedSettings) {
+			t.Errorf("cached settings mismatch: got %s, want %s", cached.MergedSettings, config.MergedSettings)
+		}
+
+		if string(cached.MergedClaudeMd) != string(config.MergedClaudeMd) {
+			t.Errorf("cached CLAUDE.md mismatch: got %s, want %s", cached.MergedClaudeMd, config.MergedClaudeMd)
+		}
+	})
+
+	t.Run("cache miss returns nil", func(t *testing.T) {
+		InvalidateMergedConfigCache()
+
+		cached := getCachedMergedConfig("nonexistent-key")
+		if cached != nil {
+			t.Fatal("expected cache miss, got non-nil")
+		}
+	})
+
+	t.Run("invalidate clears cache", func(t *testing.T) {
+		InvalidateMergedConfigCache()
+
+		cacheKey := "test-key"
+		config := &cachedMergedConfig{
+			MergedSettings: []byte(`{}`),
+			MergedClaudeMd: []byte(""),
+		}
+
+		setCachedMergedConfig(cacheKey, config)
+
+		// Verify it's cached
+		if getCachedMergedConfig(cacheKey) == nil {
+			t.Fatal("config should be cached before invalidation")
+		}
+
+		// Invalidate
+		InvalidateMergedConfigCache()
+
+		// Verify it's gone
+		if getCachedMergedConfig(cacheKey) != nil {
+			t.Fatal("config should be cleared after invalidation")
+		}
+	})
+}

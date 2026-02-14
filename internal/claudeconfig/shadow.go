@@ -119,6 +119,8 @@ func IngestFromClaudeDir(userClaudeDirpath string, shadowDirpath string) error {
 		if err := commitShadowChanges(shadowDirpath, "Sync from ~/.claude"); err != nil {
 			return stacktrace.Propagate(err, "failed to commit shadow repo changes")
 		}
+		// Invalidate merged config cache when shadow repo is updated
+		InvalidateMergedConfigCache()
 	}
 
 	return nil
