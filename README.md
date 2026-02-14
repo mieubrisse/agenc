@@ -1,12 +1,27 @@
 ![AgenC — AI work factory](./readme-images/cover.png)
 
-AgenC: From Minecraft to Starcraft
-==================================
-AgenC (pronounced "agency") is a self-upgrading AI work factory.
+<div align="center">
+    <h1>AgenC: From Minecraft to Starcraft</h1>
+</div>
 
-It establishes you as Director of your own personal organization of Claudes, and switches your work product from code/writing/completed tasks/whatever to building the org (factory) itself.
+</h1>
+  <p align="center">
+    AgenC makes you Director of a self-improving org of Claudes.</br>
+    You no longer code/write/whatever, but guide the factory's development.</br>
+    The factory does the rest.</br>
+    </br>
+    <a href="#why-agenc">Why AgenC</a>
+    |
+    <a href="#quickstart">Quickstart</a>
+    |
+    <a href="#how-it-works">How It Works</a>
+    |
+    <a href="https://discord.gg/x9Y8Se4XF3">Discord</a>
+  </p>
+</p>
 
-### Wait what?
+Why AgenC
+----------
 If you're like most people, you use Claude like this:
 
 ![](readme-images/common-ai-workflow.png)
@@ -15,11 +30,13 @@ Much better is John Rush's philosophy of [Inputs, Not Outputs](https://www.john-
 
 ![](readme-images/inputs-not-outputs.png)
 
-Each iteration of the loop makes all future outputs better.
+Each iteration makes all future outputs better.
 
-Unfortunately, it's hard to scale this up. The Claudes start to step on each other, each lesson requires forking a new window, juggling all the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
+Unfortunately, it's hard to scale up.
 
-That's where AgenC comes in:
+The Claudes start to step on each other, each lesson requires forking a new window, juggling all the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
+
+AgenC fixes this bottleneck:
 
 ![](readme-images/agenc-scale-up.png)
 
@@ -31,18 +48,19 @@ It's like going from Minecraft to Starcraft.
 
 [AgenC demo](https://github.com/user-attachments/assets/d12c5b06-c5db-420a-aaa3-7b8ca5d69ab6)
 
-> ⚠️ **ADDICTION WARNING** ⚠️
+> ### ⚠️ **ADDICTION WARNING** ⚠️
+>
 > AgenC **will** increase your output. But you should know it has a videogame-like addictive quality.
 >
 > Because it's so easy to launch work, you end up with tons of parallel threads. Like Starcraft, you enter this restless wired ADD state where you're managing dozens of things at once.
 > 
-> In building AgenC, I noticed it was really hard to switch off. My brain would be buzzing with new threads to launch, and I'd wake up in the middle of the night full of ideas.
+> In building AgenC, I noticed it was hard to switch off and go to sleep. My brain would be buzzing with ideas, and I'd wake up in the middle of the night wanting to launch new threads.
 >
-> And it's not just AgenC - [we're seeing that these powerful AI tools have effects on our brains that we don't yet understand](https://steve-yegge.medium.com/the-ai-vampire-eda6e4f07163).
+> And it's not just AgenC - here's [Steve Yegge calling it the "AI Vampire"](https://steve-yegge.medium.com/the-ai-vampire-eda6e4f07163).
 >
 > Please remember to take breaks, and leave sufficient wind-down time before sleep!
 
-Quick Start
+Quickstart
 -----------
 
 ### Prerequisites
@@ -155,9 +173,6 @@ Tips
   After editing `~/.tmux.conf`, reload with: `tmux source-file ~/.tmux.conf`
 
 
-How It Works
-
-
 ### Authentication
 Each mission gets a clone of your global Claude Code credentials token at launch. This token expires roughly once a day. With a single Claude Code instance, it refreshes seamlessly. The problem comes with multiple simultaneous instances: they all try to refresh the same token at once, invalidating each other in a thrashing loop that causes auth failures across all missions.
 
@@ -214,10 +229,12 @@ Uninstall
 ---------
 
 ```
+agenc mission nuke -f
+agenc daemon stop
 brew uninstall agenc
 ```
 
-This removes the `agenc` binary. To also remove AgenC's data directory:
+This stops the agenc daemon and removes all mission assets. To remove the AgenC data directory itself:
 
 ```
 rm -rf ~/.agenc
