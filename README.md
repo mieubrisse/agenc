@@ -225,6 +225,33 @@ rm -rf ~/.agenc
 
 If you customized `AGENC_DIRPATH`, remove that directory instead.
 
+Development
+-----------
+
+### Running the linter
+
+AgenC uses `golangci-lint` to enforce code quality standards. To run the linter locally:
+
+**Install golangci-lint:**
+
+```bash
+brew install golangci-lint
+```
+
+**Run the linter:**
+
+```bash
+golangci-lint run
+```
+
+The linter configuration is defined in `.golangci.yml` and includes checks for:
+- Unchecked errors (`errcheck`)
+- Security issues (`gosec`)
+- Go vet checks (`govet`)
+- Advanced static analysis (`staticcheck`)
+- Unused code (`unused`)
+- Cyclomatic complexity (`gocyclo`, max 15)
+
 CLI Reference
 -------------
 

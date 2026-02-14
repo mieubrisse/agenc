@@ -1,0 +1,21 @@
+linters:
+  enable:
+    - errcheck      # Checks for unchecked errors
+    - gosec         # Inspects source code for security problems
+    - govet         # Reports suspicious constructs
+    - staticcheck   # Advanced static analysis
+    - unused        # Checks for unused constants, variables, functions and types
+    - gocyclo       # Computes and checks the cyclomatic complexity of functions
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15  # Maximum allowed cyclomatic complexity per function
+
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
