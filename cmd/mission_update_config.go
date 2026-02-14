@@ -153,6 +153,9 @@ func updateMissionConfig(db *database.DB, missionID string, newCommitHash string
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
+	if missionRecord == nil {
+		return stacktrace.NewError("mission '%s' not found", missionID)
+	}
 
 	// Read current pinned commit from DB
 	var currentCommitHash string

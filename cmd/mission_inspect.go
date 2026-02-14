@@ -94,6 +94,9 @@ func inspectMission(db *database.DB, missionID string) error {
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
+	if mission == nil {
+		return stacktrace.NewError("mission '%s' not found", missionID)
+	}
 
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 

@@ -132,6 +132,9 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
+	if mission == nil {
+		return stacktrace.NewError("mission '%s' not found", selected.MissionID)
+	}
 	if mission.TmuxPane == nil {
 		return stacktrace.NewError("mission %s no longer has a tmux pane", selected.ShortID)
 	}

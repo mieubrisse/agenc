@@ -183,6 +183,9 @@ func prepareMissionForAction(db *database.DB, missionID string) (*database.Missi
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to get mission")
 	}
+	if mission == nil {
+		return nil, stacktrace.NewError("mission '%s' not found", missionID)
+	}
 
 	if err := stopMissionWrapper(missionID); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)

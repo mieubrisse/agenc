@@ -496,6 +496,8 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 }
 
 // GetMission returns a single mission by ID.
+// Returns (nil, nil) if the mission is not found.
+// Returns (nil, error) only for actual database failures.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
 		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE id = ?",
@@ -504,7 +506,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 
 	mission, err := scanMission(row)
 	if err == sql.ErrNoRows {
-		return nil, stacktrace.NewError("mission '%s' not found", id)
+		return nil, nil
 	}
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to get mission '%s'", id)

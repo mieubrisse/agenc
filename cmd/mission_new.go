@@ -100,6 +100,9 @@ func runMissionNewWithClone() error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to get source mission")
 		}
+		if sourceMission == nil {
+			return stacktrace.NewError("source mission '%s' not found", sourceMissionID)
+		}
 
 		createParams := &database.CreateMissionParams{}
 		if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {

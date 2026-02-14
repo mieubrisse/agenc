@@ -111,6 +111,9 @@ func reloadMission(db *database.DB, missionID string) error {
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
+	if missionRecord == nil {
+		return stacktrace.NewError("mission '%s' not found", missionID)
+	}
 
 	if missionRecord.Status == "archived" {
 		return stacktrace.NewError("cannot reload archived mission '%s'", database.ShortID(missionID))
