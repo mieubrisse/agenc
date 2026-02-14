@@ -174,7 +174,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     "agenc discord",
 	},
 	"starAgenc": {
-		Title:       "⭐  Star AgenC",
+		Title:       "⭐ Star AgenC on Github",
 		Description: "Open the AgenC GitHub repo in your browser",
 		Command:     "agenc star",
 	},
