@@ -168,6 +168,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Send feedback about AgenC",
 		Command:     "agenc tmux window new -a -- agenc mission new --adjutant --prompt \"I'd like to send feedback about AgenC\"",
 	},
+	"joinDiscord": {
+		Title:       "👾  Join the Discord",
+		Description: "Join the AgenC Discord community",
+		Command:     "agenc discord",
+	},
 }
 
 // builtinPaletteCommandOrder controls the display order of builtin commands
@@ -187,6 +192,7 @@ var builtinPaletteCommandOrder = []string{
 	"removeMission",
 	"nukeMissions",
 	"sendFeedback",
+	"joinDiscord",
 }
 
 // BuiltinPaletteCommandOrder returns the display order of builtin commands.
