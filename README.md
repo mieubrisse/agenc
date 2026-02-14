@@ -1,14 +1,14 @@
 ![AgenC — AI work factory](./readme-images/cover.png)
 
 <div align="center">
-    <h1>AgenC: From Minecraft to Starcraft</h1>
+    <h1>AgenC: Minecraft → Starcraft</h1>
 </div>
 
 </h1>
   <p align="center">
-    AgenC makes you Director of a self-improving org of Claudes.</br>
-    You no longer code/write/whatever, but guide the factory's development.</br>
-    The factory does the rest.</br>
+    AgenC makes you CEO of a self-improving agency of Claudes.</br>
+    You no longer code/write/whatever, but guide the org's growth.</br>
+    The Claudes do the rest.</br>
     </br>
     <a href="#why-agenc">Why AgenC</a>
     |
@@ -19,6 +19,7 @@
     <a href="https://discord.gg/x9Y8Se4XF3">Discord</a>
   </p>
 </p>
+
 
 Why AgenC
 ----------
