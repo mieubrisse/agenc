@@ -15,6 +15,7 @@ The AgenC — agent mission management CLI
 * [agenc cron](agenc_cron.md)	 - Manage scheduled cron jobs
 * [agenc daemon](agenc_daemon.md)	 - Manage the background daemon
 * [agenc detach](agenc_detach.md)	 - Detach from the AgenC tmux session (alias for 'agenc tmux detach')
+* [agenc discord](agenc_discord.md)	 - Open the AgenC Discord community in your browser
 * [agenc doctor](agenc_doctor.md)	 - Check for common configuration issues
 * [agenc login](agenc_login.md)	 - Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
 * [agenc mission](agenc_mission.md)	 - Manage agent missions
