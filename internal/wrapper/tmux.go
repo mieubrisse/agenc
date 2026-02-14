@@ -13,6 +13,17 @@ const (
 	agencTmuxEnvVar = "AGENC_TMUX"
 )
 
+// isSolePaneInWindow returns true if the given pane is the only pane in its window.
+// Returns false if the window has multiple panes or if detection fails.
+func isSolePaneInWindow(paneID string) bool {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "#{window_panes}").Output()
+	if err != nil {
+		return false
+	}
+	paneCount := strings.TrimSpace(string(out))
+	return paneCount == "1"
+}
+
 // renameWindowForTmux renames the current tmux window when running inside the
 // AgenC tmux session (AGENC_TMUX == 1). Priority order (highest to lowest):
 // 1. AGENC_WINDOW_NAME env var (from `agenc tmux window new --name`)
@@ -20,6 +31,7 @@ const (
 // 3. repo short name
 // 4. mission ID
 // In regular tmux sessions or outside tmux, this is a no-op.
+// Only renames the window if this pane is the sole pane in the window.
 func (w *Wrapper) renameWindowForTmux() {
 	if os.Getenv(agencTmuxEnvVar) != "1" {
 		return
@@ -27,6 +39,13 @@ func (w *Wrapper) renameWindowForTmux() {
 
 	paneID := os.Getenv("TMUX_PANE")
 	if paneID == "" {
+		return
+	}
+
+	// Only rename the window if this is the sole pane in the window.
+	// When multiple panes exist (e.g., from "Side Claude" or "Side Adjutant"),
+	// renaming the window would affect all panes, which is undesirable.
+	if !isSolePaneInWindow(paneID) {
 		return
 	}
 
