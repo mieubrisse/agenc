@@ -6,9 +6,11 @@
 
 </h1>
   <p align="center">
-    AgenC makes you CEO of a self-improving agency of Claudes.</br>
-    You no longer code/write/whatever, but guide the org's growth.</br>
-    The Claudes do the rest.</br>
+    AgenC is an AI work factory focused on self-upgrading.</br>
+    </br>
+    <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat</br>
+    </br>
+    You spend your time building the factory; the Claudes do the rest.</br>
     </br>
     <a href="#why-agenc">Why AgenC</a>
     |
@@ -48,23 +50,19 @@ AgenC tames this chaos. It provides:
 
 ![](readme-images/agenc-scale-up.png)
 
-Example: this was my terminal today - 16 Claudes each working on different features, bugs, and housekeeping.
-
-![](./readme-images/status-bar.png)
-
-It's like going from Minecraft to Starcraft.
+Here's it in action:
 
 [AgenC demo](https://github.com/user-attachments/assets/d12c5b06-c5db-420a-aaa3-7b8ca5d69ab6)
+
+And of course, AgenC is built with AgenC.
 
 > ### ⚠️ **ADDICTION WARNING** ⚠️
 >
 > AgenC **WILL** force-multiply you. But you should know it has a videogame-like addictive quality.
 >
-> Because it's so easy to launch work, you end up with tons of parallel threads. Like Starcraft, you enter this restless wired ADD state where you're managing dozens of things at once.
+> Because it's so easy to launch & manage work, you get this "just one more mission" feeling.
 > 
 > In building AgenC, I noticed it was hard to switch off and go to sleep. My brain would be buzzing with ideas, and I'd wake up in the middle of the night wanting to launch new threads.
->
-> And it's not just AgenC - here's [Steve Yegge calling it the "AI Vampire"](https://steve-yegge.medium.com/the-ai-vampire-eda6e4f07163).
 >
 > Please remember to take breaks, and leave sufficient wind-down time before sleep!
 
@@ -223,23 +221,66 @@ How It Works
 
 ![](readme-images/architecture.png)
 
+AgenC runs three cooperating processes that work together to give you a factory of Claudes:
+
 ### Missions
-- Mission as the core primitive of AgenC
-- Each mission has its own independent directory at `$AGENC_DIRPATH/missions` (no Git worktrees)
-    - This is to emulate human behaviour and enable future federation: humans don't have Git worktrees; they have their own repo copy
-- Each mission has its own copy of the global Claude Config, to make mission-forking easy (not yet implemented) which will enable
-- Wrapper tends the Claude process, tracks when it's busy and idle, and can bounce it if needed
-    - Wrapper will also trigger a pull in the repo library
+
+A **mission** is AgenC's core primitive — a fully isolated workspace where one Claude works on one task.
+
+When you create a mission, AgenC:
+
+1. **Clones a full copy of your Git repo** into `$AGENC_DIRPATH/missions/<uuid>/agent/`. This is NOT a Git worktree — it's a complete independent clone. This means no merge queue, no conflicts with other missions, and no shared state. Each Claude has its own sandbox.
+
+2. **Builds a custom Claude config** by merging your global `~/.claude` config with AgenC-specific settings. This gives the Claude access to the mission's workspace, hooks that track when it's busy or idle, and permissions tailored for its work.
+
+3. **Spawns a wrapper process** that supervises the Claude session. The wrapper handles authentication, tracks mission health, and can restart Claude if needed.
+
+Missions are disposable. You can stop them, resume them, or archive them. Work persists because each mission is a real Git repo — commit and push like normal.
+
+### Wrapper
+
+The **wrapper** is a supervisor process — one per active mission — that tends the Claude child process.
+
+The wrapper:
+
+- **Passes authentication** to Claude via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable (more below)
+- **Tracks idle state** by listening to hooks that fire when Claude starts and stops responding
+- **Writes heartbeats** to the database every 30 seconds so the daemon knows which missions are alive
+- **Restarts Claude** on command (via unix socket) — useful after upgrading Claude or when something breaks
+- **Updates the repo library** immediately when you push, so other missions get your changes without waiting
+
+When Claude exits (naturally or via `/exit`), the wrapper cleans up and stops. The mission directory stays intact, so you can resume later.
 
 ### Daemon
-- Keep repo library up-to-date with main 
+
+The **daemon** is a background process that keeps the factory running smoothly. It runs six concurrent loops:
+
+1. **Repo sync** (every 60 seconds) — Fetches and fast-forwards repos in the shared library so new missions clone from fresh code
+2. **Config auto-commit** (every 10 minutes) — If your `$AGENC_DIRPATH/config/` is a Git repo, the daemon auto-commits and pushes changes so your config stays version-controlled
+3. **Cron scheduler** (every 60 seconds) — Spawns headless missions on schedule for recurring tasks
+4. **Config watcher** (on file change) — Watches `~/.claude` and mirrors changes to a shadow repo so missions can inherit your latest config
+5. **Keybindings writer** (every 5 minutes) — Regenerates tmux keybindings to pick up any palette command changes
+6. **Mission summarizer** (every 2 minutes) — Uses Claude Haiku to generate short descriptions of active missions for tmux window titles
+
+The daemon starts automatically when you run `agenc attach`. If it crashes, just restart it with `agenc daemon restart` — running missions are unaffected.
+
+### Repo Library
+
+AgenC maintains a **shared library** of Git repos at `$AGENC_DIRPATH/repos/`. When you create a mission, AgenC copies from this library instead of cloning from GitHub every time.
+
+The daemon keeps the library fresh by fetching every 60 seconds. The wrapper contributes by watching for pushes — when you `git push` from a mission, the wrapper immediately updates the library copy so other missions get your changes.
+
+Missions cannot read or modify the repo library directly (enforced via permissions). They only see their own workspace.
 
 ### Authentication
-AgenC has you create a long-lived Claude token and passes that through to all your Claude sessions.`CLAUDE_CODE_OAUTH_TOKEN` and uses that 
 
-- explain problem about using the regular token, and the auth thrashing
-    - explain with similar text like we have in `config init` (and also link the Claude Code Github issue)
-- TODO maybe remove docs/authentication.md???
+Standard Claude Code authentication doesn't work well with multiple concurrent sessions — the tokens refresh and invalidate each other in a loop ([GitHub issue](https://github.com/anthropics/claude-code/issues/24317)).
+
+AgenC solves this by using a **long-lived OAuth token** that you provide once during setup. The token is stored at `$AGENC_DIRPATH/cache/oauth-token` (mode 600, never committed to Git). When the wrapper spawns Claude, it reads this file and passes the token via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable.
+
+All missions share the same token, so there's no refresh thrashing. When the token expires, update it once with `agenc config set claudeCodeOAuthToken <new-token>`, and all new missions (plus running missions after restart) pick it up automatically.
+
+See [docs/authentication.md](docs/authentication.md) for details.
 
 Configuration
 -------------
