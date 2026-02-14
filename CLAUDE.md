@@ -23,6 +23,13 @@ Adjutant
 
 When the user mentions "Adjutant" or you see references to it in code, understand that this is the built-in assistant component that provides guidance and helps users navigate AgenC functionality.
 
+Tmux Keybindings and Command Palette
+-------------------------------------
+
+When the user refers to "tmux keybindings," they are talking about the tmux keybindings and command palette commands implemented in this codebase — not the general tmux application itself.
+
+This refers to the command palette feature within AgenC that provides tmux-style keyboard shortcuts for executing commands and navigating the interface. All related code, configuration, and functionality exists within this repository.
+
 Building the Binary
 -------------------
 
