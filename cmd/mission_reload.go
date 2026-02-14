@@ -176,7 +176,7 @@ func reloadMissionInTmux(mission *database.Mission, paneID string) error {
 		return stacktrace.Propagate(err, "failed to resolve agenc binary path")
 	}
 
-	resumeCommand := fmt.Sprintf("%s %s %s %s", agencBinpath, missionCmdStr, resumeCmdStr, mission.ID)
+	resumeCommand := fmt.Sprintf("'%s' %s %s %s", agencBinpath, missionCmdStr, resumeCmdStr, mission.ID)
 	if err := tmuxRespawnPane(paneID, resumeCommand); err != nil {
 		return stacktrace.Propagate(err, "failed to respawn pane")
 	}
