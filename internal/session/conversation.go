@@ -5,7 +5,16 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
 )
+
+// scannerBufPool is a pool of 1MB buffers for reuse across JSONL scans.
+var scannerBufPool = sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 1024*1024)
+		return &buf
+	},
+}
 
 // jsonlUserEntry represents a user message entry in a session JSONL file.
 type jsonlUserEntry struct {
@@ -45,9 +54,13 @@ func extractUserMessagesFromJSONL(jsonlFilepath string, maxMessages int) []strin
 	}
 	defer file.Close()
 
+	// Get a buffer from the pool
+	bufPtr := scannerBufPool.Get().(*[]byte)
+	defer scannerBufPool.Put(bufPtr)
+
 	var messages []string
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	scanner.Buffer(*bufPtr, 1024*1024)
 
 	for scanner.Scan() {
 		line := scanner.Text()
