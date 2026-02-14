@@ -138,8 +138,8 @@ func resumeMission(db *database.DB, missionID string) error {
 	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 
 	windowTitle := lookupWindowTitle(agencDirpath, missionRecord.GitRepo)
-	if config.IsMissionAssistant(agencDirpath, missionID) {
-		windowTitle = "AgenC"
+	if config.IsMissionAdjutant(agencDirpath, missionID) {
+		windowTitle = "🤖  Adjutant"
 	}
 	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", db)
 	return w.Run(hasConversation)

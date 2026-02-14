@@ -43,7 +43,7 @@ const (
 	StatuslineOriginalCmdFilename   = "statusline-original-cmd"
 	StatuslineWrapperFilename       = "statusline-wrapper.sh"
 	MissionUUIDEnvVar               = "AGENC_MISSION_UUID"
-	AssistantMarkerFilename         = ".assistant"
+	AdjutantMarkerFilename          = ".adjutant"
 	GlobalCredentialsExpiryFilename = "global-credentials-expiry"
 	CacheDirname                    = "cache"
 	OAuthTokenFilename              = "oauth-token"
@@ -272,19 +272,19 @@ func EnsureStatuslineWrapper(agencDirpath string) error {
 	return nil
 }
 
-// GetMissionAssistantMarkerFilepath returns the path to the assistant marker
+// GetMissionAdjutantMarkerFilepath returns the path to the adjutant marker
 // file for a mission. The presence of this file indicates the mission is an
-// AgenC assistant (not a regular code mission).
-func GetMissionAssistantMarkerFilepath(agencDirpath string, missionID string) string {
-	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), AssistantMarkerFilename)
+// adjutant mission (not a regular code mission).
+func GetMissionAdjutantMarkerFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), AdjutantMarkerFilename)
 }
 
-// IsMissionAssistant reports whether a mission is an AgenC assistant mission
-// by checking for the presence of assistant/adjutant marker files.
+// IsMissionAdjutant reports whether a mission is an adjutant mission
+// by checking for the presence of the adjutant marker file.
 //
 // Backward compatibility: Checks both new .adjutant and legacy .assistant markers.
 // The legacy .assistant check will be removed in v2.0.0.
-func IsMissionAssistant(agencDirpath string, missionID string) bool {
+func IsMissionAdjutant(agencDirpath string, missionID string) bool {
 	missionDirpath := GetMissionDirpath(agencDirpath, missionID)
 
 	// Check new .adjutant marker first (preferred)

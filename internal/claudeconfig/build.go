@@ -41,7 +41,7 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
 	missionAgentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
-	isAssistant := config.IsMissionAssistant(agencDirpath, missionID)
+	isAdjutant := config.IsMissionAdjutant(agencDirpath, missionID)
 
 	if err := os.MkdirAll(claudeConfigDirpath, 0755); err != nil {
 		return stacktrace.Propagate(err, "failed to create claude-config directory")
@@ -77,11 +77,11 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 		return stacktrace.Propagate(err, "failed to build merged settings.json")
 	}
 
-	// Assistant missions: write assistant-specific CLAUDE.md and settings to the
+	// Adjutant missions: write adjutant-specific CLAUDE.md and settings to the
 	// agent directory (project-level config), separate from claude-config (global).
-	if isAssistant {
-		if err := writeAssistantAgentConfig(missionAgentDirpath, agencDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to write assistant agent config")
+	if isAdjutant {
+		if err := writeAdjutantAgentConfig(missionAgentDirpath, agencDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to write adjutant agent config")
 		}
 	}
 

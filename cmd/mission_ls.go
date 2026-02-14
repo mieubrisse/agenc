@@ -94,8 +94,8 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		status := getMissionStatus(m.ID, m.Status)
 		sessionName := resolveSessionName(db, m)
 		repo := displayGitRepo(m.GitRepo)
-		if config.IsMissionAssistant(agencDirpath, m.ID) {
-			repo = "💁‍♂️  AgenC Assistant"
+		if config.IsMissionAdjutant(agencDirpath, m.ID) {
+			repo = "🤖  Adjutant"
 		}
 
 		var gitStatus string

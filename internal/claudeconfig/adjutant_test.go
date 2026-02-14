@@ -10,9 +10,9 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 )
 
-func TestBuildAssistantAllowEntries(t *testing.T) {
+func TestBuildAdjutantAllowEntries(t *testing.T) {
 	agencDirpath := "/home/user/.agenc"
-	entries := BuildAssistantAllowEntries(agencDirpath)
+	entries := BuildAdjutantAllowEntries(agencDirpath)
 
 	expectedTools := []string{"Read", "Write", "Edit", "Glob", "Grep"}
 	expectedPattern := agencDirpath + "/**"
@@ -41,9 +41,9 @@ func TestBuildAssistantAllowEntries(t *testing.T) {
 	}
 }
 
-func TestBuildAssistantDenyEntries(t *testing.T) {
+func TestBuildAdjutantDenyEntries(t *testing.T) {
 	agencDirpath := "/home/user/.agenc"
-	entries := BuildAssistantDenyEntries(agencDirpath)
+	entries := BuildAdjutantDenyEntries(agencDirpath)
 
 	expectedPattern := agencDirpath + "/" + config.MissionsDirname + "/*/" + config.AgentDirname + "/**"
 
@@ -63,13 +63,13 @@ func TestBuildAssistantDenyEntries(t *testing.T) {
 	}
 }
 
-func TestWriteAssistantAgentConfig(t *testing.T) {
+func TestWriteAdjutantAgentConfig(t *testing.T) {
 	agencDirpath := "/home/user/.agenc"
 
 	t.Run("writes CLAUDE.md to agent directory", func(t *testing.T) {
 		agentDirpath := t.TempDir()
 
-		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -79,8 +79,8 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 		}
 
 		content := string(data)
-		if !strings.Contains(content, "AgenC Assistant Mission") {
-			t.Error("expected assistant content in agent/CLAUDE.md")
+		if !strings.Contains(content, "Adjutant Mission") {
+			t.Error("expected adjutant content in agent/CLAUDE.md")
 		}
 		if !strings.Contains(content, "CLI quick reference") {
 			t.Error("expected CLI quick reference mention in agent/CLAUDE.md")
@@ -90,7 +90,7 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 	t.Run("writes settings.json to agent/.claude directory", func(t *testing.T) {
 		agentDirpath := t.TempDir()
 
-		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -115,8 +115,8 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 			t.Fatalf("failed to parse allow array: %v", err)
 		}
 
-		if len(allow) != len(BuildAssistantAllowEntries(agencDirpath)) {
-			t.Errorf("expected %d allow entries, got %d", len(BuildAssistantAllowEntries(agencDirpath)), len(allow))
+		if len(allow) != len(BuildAdjutantAllowEntries(agencDirpath)) {
+			t.Errorf("expected %d allow entries, got %d", len(BuildAdjutantAllowEntries(agencDirpath)), len(allow))
 		}
 
 		var deny []string
@@ -124,15 +124,15 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 			t.Fatalf("failed to parse deny array: %v", err)
 		}
 
-		if len(deny) != len(BuildAssistantDenyEntries(agencDirpath)) {
-			t.Errorf("expected %d deny entries, got %d", len(BuildAssistantDenyEntries(agencDirpath)), len(deny))
+		if len(deny) != len(BuildAdjutantDenyEntries(agencDirpath)) {
+			t.Errorf("expected %d deny entries, got %d", len(BuildAdjutantDenyEntries(agencDirpath)), len(deny))
 		}
 	})
 
 	t.Run("settings contains permissions and hooks", func(t *testing.T) {
 		agentDirpath := t.TempDir()
 
-		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -163,7 +163,7 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 	t.Run("settings has SessionStart hook running agenc prime", func(t *testing.T) {
 		agentDirpath := t.TempDir()
 
-		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -184,23 +184,23 @@ func TestWriteAssistantAgentConfig(t *testing.T) {
 	})
 }
 
-func TestAssistantClaudeMdContent(t *testing.T) {
+func TestAdjutantClaudeMdContent(t *testing.T) {
 	t.Run("embedded content is non-empty", func(t *testing.T) {
-		if assistantClaudeMdContent == "" {
-			t.Fatal("assistantClaudeMdContent is empty")
+		if adjutantClaudeMdContent == "" {
+			t.Fatal("adjutantClaudeMdContent is empty")
 		}
 	})
 
 	t.Run("contains expected sections", func(t *testing.T) {
 		expectedPhrases := []string{
-			"AgenC Assistant Mission",
+			"Adjutant Mission",
 			"CLI quick reference",
 			"{{MISSION_UUID_ENV_VAR}}",
 			"Do NOT modify other missions",
 		}
 		for _, phrase := range expectedPhrases {
-			if !strings.Contains(assistantClaudeMdContent, phrase) {
-				t.Errorf("assistant CLAUDE.md missing expected phrase: %q", phrase)
+			if !strings.Contains(adjutantClaudeMdContent, phrase) {
+				t.Errorf("adjutant CLAUDE.md missing expected phrase: %q", phrase)
 			}
 		}
 	})
@@ -209,7 +209,7 @@ func TestAssistantClaudeMdContent(t *testing.T) {
 		agentDirpath := t.TempDir()
 		agencDirpath := "/home/user/.agenc"
 
-		if err := writeAssistantAgentConfig(agentDirpath, agencDirpath); err != nil {
+		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 

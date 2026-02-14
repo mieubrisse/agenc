@@ -74,8 +74,8 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 		sessionName := resolveSessionName(db, m)
 		status := getMissionStatus(m.ID, m.Status)
 		repo := displayGitRepo(m.GitRepo)
-		if config.IsMissionAssistant(agencDirpath, m.ID) {
-			repo = "💁‍♂️  AgenC Assistant"
+		if config.IsMissionAdjutant(agencDirpath, m.ID) {
+			repo = "🤖  Adjutant"
 		}
 		tmuxTitle := ""
 		if m.TmuxPane != nil {

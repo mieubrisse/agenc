@@ -102,14 +102,14 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     "agenc tmux pane new -- agenc mission new --blank",
 	},
 	"talkToAgenc": {
-		Title:       "💁‍♂️  AgenC Assistant",
-		Description: "Launch an AgenC assistant mission in a new window",
-		Command:     "agenc tmux window new -a -- agenc mission new --assistant",
+		Title:       "🤖  Adjutant",
+		Description: "Launch an Adjutant mission in a new window",
+		Command:     "agenc tmux window new -a -- agenc mission new --adjutant",
 	},
-	"sideAssistant": {
-		Title:       "💁‍♂️  Side Assistant",
-		Description: "Launch an AgenC assistant mission in a new pane",
-		Command:     "agenc tmux pane new -- agenc mission new --assistant",
+	"sideAdjutant": {
+		Title:       "🤖  Side Adjutant",
+		Description: "Launch an Adjutant mission in a new pane",
+		Command:     "agenc tmux pane new -- agenc mission new --adjutant",
 	},
 	"newMission": {
 		Title:          "🚀  New Mission",
@@ -162,7 +162,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"sendFeedback": {
 		Title:       "💬  Send Feedback",
 		Description: "Send feedback about AgenC",
-		Command:     "agenc tmux window new -a -- agenc mission new --assistant --prompt \"I'd like to send feedback about AgenC\"",
+		Command:     "agenc tmux window new -a -- agenc mission new --adjutant --prompt \"I'd like to send feedback about AgenC\"",
 	},
 }
 
@@ -172,7 +172,7 @@ var builtinPaletteCommandOrder = []string{
 	"quickClaude",
 	"sideClaude",
 	"talkToAgenc",
-	"sideAssistant",
+	"sideAdjutant",
 	"newMission",
 	"switchMission",
 	"resumeMission",

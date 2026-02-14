@@ -80,7 +80,7 @@ const (
 	cloneFlagName     = "clone"
 	promptFlagName    = "prompt"
 	blankFlagName     = "blank"
-	assistantFlagName = "assistant"
+	adjutantFlagName = "adjutant"
 
 	// mission ls flags
 	allFlagName = "all"
