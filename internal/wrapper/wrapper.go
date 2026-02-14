@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"syscall"
 	"time"
 
@@ -72,21 +71,6 @@ type Wrapper struct {
 
 	// pendingRestart stores the deferred restart command when in stateRestartPending.
 	pendingRestart *Command
-
-	// tokenExpiresAt stores the Unix timestamp (as float64) when the Claude
-	// OAuth token expires. Read from the Keychain at credential clone time.
-	// The watchTokenExpiry goroutine compares this against time.Now() to
-	// decide when to show a warning.
-	tokenExpiresAt float64
-
-	// perMissionCredentialHash caches the SHA-256 hash of the per-mission
-	// Keychain credential JSON. The credential sync goroutine compares the
-	// current Keychain contents against this hash to detect when Claude
-	// updates credentials (e.g. via /login). Initialized after cloneCredentials.
-	// Protected by credentialHashMu since it's accessed by both the upward
-	// and downward sync goroutines.
-	perMissionCredentialHash string
-	credentialHashMu         sync.Mutex
 
 	// Window coloring configuration for tmux state feedback. Read from config.yml at startup.
 	// Empty strings mean that specific color setting is disabled.
@@ -214,17 +198,6 @@ func (w *Wrapper) Run(isResume bool) error {
 	// AgenC tmux session.
 	w.renameWindowForTmux()
 
-	// Keychain auth disabled: using token file auth via CLAUDE_CODE_OAUTH_TOKEN.
-	// The token is read from $AGENC_DIRPATH/cache/oauth-token and passed as an
-	// env var by buildClaudeCmd/buildHeadlessClaudeCmd. All Keychain cloning,
-	// syncing, writeback, and expiry watching are no longer needed.
-	//
-	// w.cloneCredentials()
-	// w.initCredentialHash()
-	// go w.watchTokenExpiry(ctx)
-	// go w.watchCredentialUpwardSync(ctx)
-	// go w.watchCredentialDownwardSync(ctx)
-
 	// Spawn initial Claude process
 	if isResume {
 		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
@@ -259,7 +232,6 @@ func (w *Wrapper) Run(isResume bool) error {
 				_ = w.claudeCmd.Process.Signal(sig)
 			}
 			<-w.claudeExited
-			// w.writeBackCredentials() // Keychain auth disabled
 			return nil
 
 		case cmdResp := <-w.commandCh:
@@ -270,11 +242,6 @@ func (w *Wrapper) Run(isResume bool) error {
 			if w.state == stateRestarting {
 				// Wrapper-initiated restart: respawn Claude
 				w.logger.Info("Claude exited for restart, respawning")
-				// Keychain auth disabled:
-				// w.writeBackCredentials()
-				// w.cloneCredentials()
-				// w.initCredentialHash()
-				w.clearStatuslineMessage()
 
 				// Respawn Claude: use session-based resume if we have a session,
 				// fresh session otherwise
@@ -299,7 +266,6 @@ func (w *Wrapper) Run(isResume bool) error {
 				w.logger.Info("Claude respawned successfully", "pid", w.claudeCmd.Process.Pid)
 			} else {
 				// Natural exit — wrapper exits
-				// w.writeBackCredentials() // Keychain auth disabled
 				return nil
 			}
 		}
@@ -374,33 +340,6 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 
 	default:
 		return Response{Status: "error", Error: "unexpected wrapper state"}
-	}
-}
-
-// cloneCredentials clones fresh credentials from the global Keychain into
-// the per-mission entry and reads the token expiry timestamp. Errors are
-// logged as warnings but never fatal.
-func (w *Wrapper) cloneCredentials() {
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
-	if err := claudeconfig.CloneKeychainCredentials(claudeConfigDirpath); err != nil {
-		w.logger.Warn("Failed to clone Keychain credentials", "error", err)
-	}
-
-	// Read the token expiry so the watchTokenExpiry goroutine can warn
-	// before expiration without additional Keychain reads.
-	w.tokenExpiresAt = claudeconfig.GetCredentialExpiresAt()
-	w.logger.Info("Read token expiry timestamp", "tokenExpiresAt", w.tokenExpiresAt)
-}
-
-// writeBackCredentials merges per-mission Keychain credentials back into the
-// global entry so MCP OAuth tokens propagate to future missions. Errors are
-// logged as warnings but never fail the wrapper exit.
-func (w *Wrapper) writeBackCredentials() {
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
-	if err := claudeconfig.WriteBackKeychainCredentials(claudeConfigDirpath); err != nil {
-		if w.logger != nil {
-			w.logger.Warn("Failed to write back Keychain credentials", "error", err)
-		}
 	}
 }
 
@@ -636,9 +575,6 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 	}
 	go w.writeHeartbeat(ctx)
 
-	// Keychain auth disabled: using token file auth via CLAUDE_CODE_OAUTH_TOKEN
-	// w.cloneCredentials()
-
 	// Rotate log file if needed
 	claudeOutputLogFilepath := config.GetMissionClaudeOutputLogFilepath(w.agencDirpath, w.missionID)
 	if err := rotateLogFileIfNeeded(claudeOutputLogFilepath); err != nil {
@@ -679,7 +615,6 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		if err := w.gracefulShutdownClaude(cmd); err != nil {
 			w.logger.Warn("Graceful shutdown failed", "error", err)
 		}
-		// w.writeBackCredentials() // Keychain auth disabled
 		return nil
 
 	case <-ctx.Done():
@@ -688,17 +623,14 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		if err := w.gracefulShutdownClaude(cmd); err != nil {
 			w.logger.Warn("Graceful shutdown failed", "error", err)
 		}
-		// w.writeBackCredentials() // Keychain auth disabled
 		return stacktrace.NewError("headless mission timed out after %v", cfg.Timeout)
 
 	case err := <-claudeExited:
 		if err != nil {
 			w.logger.Info("Claude process exited with error", "error", err)
-			// w.writeBackCredentials() // Keychain auth disabled
 			return stacktrace.Propagate(err, "claude exited with error")
 		}
 		w.logger.Info("Claude process completed successfully")
-		// w.writeBackCredentials() // Keychain auth disabled
 		return nil
 	}
 }
