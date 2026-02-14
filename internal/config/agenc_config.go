@@ -109,9 +109,10 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     "agenc tmux window new -a -- agenc mission new --adjutant",
 	},
 	"sideAdjutant": {
-		Title:       "🤖  Side Adjutant",
-		Description: "Launch an Adjutant mission in a new pane",
-		Command:     "agenc tmux pane new -- agenc mission new --adjutant",
+		Title:          "🤖  Side Adjutant",
+		Description:    "Launch an Adjutant mission in a new pane",
+		Command:        "agenc tmux pane new -- agenc mission new --adjutant",
+		TmuxKeybinding: "-n C-t",
 	},
 	"newMission": {
 		Title:          "🚀  New Mission",
