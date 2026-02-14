@@ -35,6 +35,7 @@ const (
 
 	// Tmux subcommands
 	injectCmdStr         = "inject"
+	uninjectCmdStr       = "uninject"
 	paletteCmdStr        = "palette"
 	switchCmdStr         = "switch"
 	resolveMissionCmdStr = "resolve-mission"
