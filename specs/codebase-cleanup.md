@@ -4,7 +4,7 @@ Codebase Cleanup Report
 Executive Summary
 -----------------
 
-The AgenC codebase demonstrates solid architectural design and strong security practices, but suffers from significant technical debt in code organization and testing. The primary issues are oversized god objects (`database.go` at 871 lines, `wrapper.go` at 771 lines), critical gaps in test coverage for core runtime components (wrapper, daemon, session packages have 0 tests), and extensive commented-out code from the deprecated Keychain authentication system. While the system-level architecture is well-documented and accurate, the file-level organization needs refactoring to improve maintainability. No critical security vulnerabilities were found, and dependency management is current and appropriate.
+The AgenC codebase demonstrates solid architectural design and strong security practices, but suffers from significant technical debt in code organization, testing, and Go-specific concerns. The primary issues are oversized god objects (`database.go` at 871 lines, `wrapper.go` at 771 lines), critical gaps in test coverage for core runtime components (wrapper, daemon, session packages have 0 tests), missing Go tooling infrastructure (no linter, race detector, or coverage in CI), and pervasive context/timeout management issues (only 1 of 67 subprocess calls uses `exec.CommandContext`). Additional concerns include extensive commented-out code from the deprecated Keychain authentication system and missing file permission security for sensitive files. While the system-level architecture is well-documented and accurate, the file-level organization needs refactoring to improve maintainability. No critical security vulnerabilities were found in SQL injection or command injection patterns, and dependency management is current and appropriate.
 
 Critical Issues
 ----------------
@@ -21,10 +21,11 @@ Critical Issues
 - Impact: Difficult to reason about state transitions, high complexity, testing challenges
 - Recommendation: Extract state machine, heartbeat logic, and git watching to separate files. Remove all commented-out Keychain auth code
 
-**P0-3: Excessive Command File Count (78 files in cmd/)**
+**P0-3: Excessive Command File Count (78 files in cmd/)** → **RECLASSIFIED TO P2**
 - Issue: Many trivial command files with duplicated patterns, no clear organization
-- Impact: Difficult to navigate and maintain, slows onboarding
+- Impact: Difficult to navigate and maintain, slows onboarding (but not a correctness or safety issue)
 - Recommendation: Group into subdirectories (cmd/mission/, cmd/config/, cmd/cron/, cmd/tmux/, cmd/daemon/). Target: ~40 files
+- Note: This was originally P0 but downgraded to P2 based on risk assessment - it's a navigation annoyance, not critical
 
 **P0-4: Zero Test Coverage for Critical Runtime Components**
 - Missing tests: `internal/wrapper/` (0/6 files), `internal/session/` (0/2 files), `internal/daemon/` (1/8 files - only tests claudeconfig merge)
@@ -98,7 +99,27 @@ High Priority Issues
 **P1-4: Limited Use of Interfaces**
 - Issue: Only one file defines interfaces (`internal/daemon/cron_scheduler.go`)
 - Impact: Tight coupling, difficult to mock dependencies, hard to test
-- Recommendation: Define MissionStore interface for database, wrapper operations interface, use dependency injection
+- Recommendation: Define MissionStore interface for database operations, use dependency injection
+- **When to introduce:** After refactoring database.go and stabilizing concrete types. Don't introduce interfaces prematurely.
+- **Concrete example:**
+  ```go
+  // internal/database/interface.go
+  type MissionStore interface {
+      CreateMission(ctx context.Context, params *CreateMissionParams) (*Mission, error)
+      GetMission(ctx context.Context, id string) (*Mission, error)
+      ListMissions(ctx context.Context, params ListMissionsParams) ([]*Mission, error)
+      ArchiveMission(ctx context.Context, id string) error
+      DeleteMission(ctx context.Context, id string) error
+      UpdateHeartbeat(ctx context.Context, id string) error
+      // ... other CRUD operations
+  }
+
+  // Usage in commands (dependency injection via constructor)
+  func NewMissionListCommand(store MissionStore) *cobra.Command {
+      // Now testable with mock store
+  }
+  ```
+- **Go proverb:** "Accept interfaces, return concrete types" - define interfaces in consumer packages, not provider packages
 
 **P1-5: Excessive JSON Marshal/Unmarshal Operations**
 - File: `internal/claudeconfig/merge.go` (87 occurrences across 15 files)
@@ -147,6 +168,40 @@ High Priority Issues
   - Update methods use inconsistent naming: `UpdateHeartbeat`, `UpdateLastActive`, `UpdateMissionPrompt`
 - Recommendation: Standardize on one pattern (prefer: `(nil, nil)` for not-found, specific error only for actual failures)
 - Long-term: Consider `Get` methods that return `(*Mission, bool, error)` where bool indicates "found"
+
+**P1-9: Configuration Validation Gaps**
+- File: `internal/config/agenc_config.go`
+- Issue: Incomplete validation in `ValidateAndPopulateDefaults()`
+- Missing validations:
+  - Git repo URLs validated by regex only, no actual URL parsing/validation
+  - Path inputs not validated (could accept `../../../etc/passwd` patterns)
+  - Timeout duration strings not validated (could accept invalid/negative values)
+  - Max concurrent cron value not validated (what if user sets 0 or -1?)
+  - User-provided prompts not sanitized for control characters
+  - No validation that required directories exist before use
+- Impact: Invalid config can cause runtime failures, cryptic errors, potential path traversal
+- Recommendation:
+  - Add comprehensive input validation with clear, actionable error messages
+  - Validate paths are within expected boundaries
+  - Parse and validate all duration strings
+  - Add bounds checking for numeric configs (min/max values)
+  - Document validation rules in config.yml comments
+
+**P1-10: File Permission Security**
+- Files: `cache/oauth-token`, `missions/*/wrapper.sock`, mission directories
+- Issue: No verification or enforcement of restrictive permissions on sensitive files
+- Security concerns:
+  - `cache/oauth-token` could be world-readable if umask is misconfigured (should be mode 600)
+  - `wrapper.sock` permissions not explicitly set (should be 600 or 700)
+  - Mission directories might expose sensitive data if permissions too permissive
+  - No umask enforcement in daemon or wrapper startup
+- Impact: OAuth token leakage if system has permissive umask, potential unauthorized access to wrapper socket
+- Recommendation:
+  - Explicitly set mode 600 when creating oauth-token file: `os.WriteFile(path, data, 0600)`
+  - Set restrictive permissions on wrapper.sock after creation
+  - Document required umask in deployment guide
+  - Add `agenc doctor` check for file permission issues
+  - Consider adding permission check on startup with warning if too permissive
 
 Medium Priority Issues
 ----------------------
@@ -253,6 +308,50 @@ Low Priority / Nice-to-Haves
 - Issue: `m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)` discards errors
 - Impact: Corrupted timestamps become zero values silently
 - Recommendation: Return errors from scanner functions or log parsing failures
+
+Go Best Practices Referenced
+-----------------------------
+
+This technical debt audit is grounded in established Go community wisdom and best practices:
+
+**Official Go Documentation:**
+- **Effective Go** (https://go.dev/doc/effective_go)
+  - Context usage and cancellation patterns
+  - Error handling conventions (wrapping with %w)
+  - Interface design principles
+  - Concurrency patterns with goroutines and channels
+
+- **Go Code Review Comments** (https://github.com/golang/go/wiki/CodeReviewComments)
+  - Package naming conventions
+  - Error string formatting (lowercase, no punctuation)
+  - Receiver naming consistency
+  - Interface granularity
+
+**Go Proverbs** (https://go-proverbs.github.io/)
+
+Applied to this codebase:
+- *"A little copying is better than a little dependency"* - relevant to the 36 path helper functions (P2 duplication vs abstraction tradeoff)
+- *"Clear is better than clever"* - applies to wrapper.go state machine simplification
+- *"Errors are values"* - relevant to inconsistent error handling patterns (P2-2)
+- *"Don't communicate by sharing memory; share memory by communicating"* - applies to cron scheduler race condition (P1-7)
+- *"The bigger the interface, the weaker the abstraction"* (Rob Pike) - guidance for P1-4 interface design
+- *"Make the zero value useful"* - consider for struct initialization patterns
+- *"Accept interfaces, return concrete types"* - P1-4 interface placement guidance
+
+**Standard Library Patterns:**
+- Context propagation (P0-7 addresses this gap)
+- Option pattern for configuration
+- Functional configuration
+- Resource cleanup with defer
+- Table-driven tests (already well-adopted in this codebase)
+
+**Tooling Standards:**
+- `golangci-lint` as the standard meta-linter (P0-6)
+- `go test -race` for race detection (P0-6)
+- `go test -cover` for coverage reporting (P0-6)
+- `gofmt` for formatting (already mentioned, P3-1)
+
+This report prioritizes issues that violate these community-established patterns, with P0/P1 issues representing significant departures from Go best practices.
 
 Quantitative Metrics
 --------------------
@@ -696,7 +795,7 @@ Risk Assessment Matrix
 | P0-2: Refactor wrapper.go | P0 | **HIGH** | Mission lifecycle, ALL users | Incremental extraction, comprehensive tests FIRST | Last of P0s |
 | P1-7: Fix race condition | P1 | Medium | Cron scheduler | 3-line fix, test with -race | After tests available |
 | P0-4: Add wrapper tests | P0 | Medium | Test coverage | No production impact | Before wrapper refactor |
-| P0-3: Organize cmd/ | P0 | Low | Import paths change | Update imports atomically | After tests |
+| P2: Organize cmd/ | P2 | Low | Import paths change | Update imports atomically | After tests (deprioritized from P0) |
 
 **Critical Path:**
 1. Fix failing tests (enables all other work)
@@ -733,8 +832,9 @@ Recommendations
    - Define timeout constants
    - Update all exec.Command calls to exec.CommandContext
 10. **Split database.go** - P0-1 (follow detailed strategy above)
-11. **Organize cmd/ directory** - P0-3 (low risk after tests in place)
-12. **Fix cron scheduler race condition** - P1-7 (small fix, big impact)
+11. **Fix cron scheduler race condition** - P1-7 (small fix, big impact)
+12. **Harden file permissions** - P1-10 (security improvement)
+13. **Add configuration validation** - P1-9 (prevents runtime errors)
 
 ### Longer-term (Weeks 7-11): High-Risk Refactoring
 13. **Refactor wrapper.go** - P0-2 (follow detailed strategy above, needs wrapper tests first)
@@ -749,8 +849,9 @@ Recommendations
 18. **Implement configuration caching** - P1-5 (reduces JSON overhead)
 19. **Add observability/metrics** - P2-10 (production visibility)
 20. **Introduce interfaces** - P1-4 (for testability, after concrete types stabilized)
-21. **Extract summary command logic** - P2-1 (low priority refactor)
-22. **Add nil pointer guards** - P2-9 (safety improvement)
+21. **Organize cmd/ directory** - P2 (navigation improvement, formerly P0-3)
+22. **Extract summary command logic** - P2-1 (low priority refactor)
+23. **Add nil pointer guards** - P2-9 (safety improvement)
 
 ### Performance Optimizations:
 23. **Reduce heartbeat frequency** - P2-6 (database load reduction)
