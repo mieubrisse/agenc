@@ -135,7 +135,7 @@ func reloadMission(db *database.DB, missionID string) error {
 				agencCmdStr, missionCmdStr, resumeCmdStr, database.ShortID(missionID),
 			)
 		}
-		return reloadMissionInTmux(db, missionRecord, paneID)
+		return reloadMissionInTmux(missionRecord, paneID)
 	}
 
 	// Non-tmux path: warn and fall back to stop + resume
@@ -148,7 +148,7 @@ func reloadMission(db *database.DB, missionID string) error {
 
 // reloadMissionInTmux performs an in-place reload using tmux primitives:
 // remain-on-exit to keep the pane alive, stop wrapper, respawn-pane to restart.
-func reloadMissionInTmux(db *database.DB, mission *database.Mission, paneID string) error {
+func reloadMissionInTmux(mission *database.Mission, paneID string) error {
 	// Resolve window ID from pane ID
 	windowID, err := tmuxGetWindowID(paneID)
 	if err != nil {
