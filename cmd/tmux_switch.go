@@ -37,9 +37,20 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
 	}
 
-	// If we're not running in a TTY (e.g., invoked via tmux run-shell from a
-	// keybinding), re-exec ourselves in a display-popup so fzf can render properly.
-	// When invoked from the palette or directly from a shell, stdin is already a TTY.
+	// Auto-wrap in a popup if we're running without a TTY. This handles three
+	// invocation contexts:
+	//
+	// 1. From the palette: The palette itself runs in a tmux display-popup, so
+	//    stdin is already a TTY. We detect this and run normally (no nested popup).
+	//
+	// 2. From a keybinding: Tmux keybindings use `run-shell`, which doesn't
+	//    provide a TTY. Without this check, fzf would fail with "Inappropriate
+	//    ioctl for device". We detect the missing TTY and re-exec in a popup.
+	//
+	// 3. From a shell: The shell has a TTY, so we run normally.
+	//
+	// This ensures the fzf picker works in all three contexts without requiring
+	// different command strings in the config or keybinding generation logic.
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		// Build the command to re-exec in a popup
 		cmdArgs := []string{"agenc", "tmux", "switch"}
