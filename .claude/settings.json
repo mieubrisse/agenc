@@ -15,7 +15,9 @@
             "Bash(go:*)",
             "Bash(./agenc:*)",
             "Bash(tree:*)",
-            "Bash(make:*)"
+            "Bash(make:*)",
+            "Bash(find:*)",
+            "Bash(gofmt:*)"
         ],
         "deny": [
             "Read(./.env)",
