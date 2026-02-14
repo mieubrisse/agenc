@@ -144,8 +144,8 @@ func padRight(s string, width int) string {
 // renderSkill renders the SKILL.md content from the command groups.
 func renderSkill(groups []commandGroup) (string, error) {
 	funcMap := template.FuncMap{
-		"padRight":   padRight,
-		"sectionH2":  func(s string) string { return s + "\n" + strings.Repeat("-", len(s)) },
+		"padRight":  padRight,
+		"sectionH2": func(s string) string { return s + "\n" + strings.Repeat("-", len(s)) },
 		"maxUsageLen": func(cmds []commandEntry) int {
 			maxLen := 0
 			for _, c := range cmds {

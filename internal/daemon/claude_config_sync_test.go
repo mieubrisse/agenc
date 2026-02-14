@@ -149,10 +149,10 @@ func TestMergeSettingsWithAgencOverrides_InvalidJSON(t *testing.T) {
 
 func TestDeepMergeJSON(t *testing.T) {
 	tests := []struct {
-		name     string
-		base     string
-		overlay  string
-		checkFn  func(t *testing.T, result map[string]json.RawMessage)
+		name    string
+		base    string
+		overlay string
+		checkFn func(t *testing.T, result map[string]json.RawMessage)
 	}{
 		{
 			name:    "disjoint keys merge",

@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
 const (
 	sentinelBegin = "# >>> AgenC keybindings >>>"
 	sentinelEnd   = "# <<< AgenC keybindings <<<"
@@ -93,7 +92,6 @@ func contractHomePath(path string) string {
 	}
 	return path
 }
-
 
 // findTmuxConfFilepath locates the user's tmux.conf. It checks ~/.tmux.conf
 // first, then ~/.config/tmux/tmux.conf. Returns the path, whether the file

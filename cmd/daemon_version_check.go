@@ -65,4 +65,3 @@ func restartDaemon(agencDirpath string, oldVersion string, newVersion string) {
 
 	fmt.Fprintf(os.Stderr, "Daemon restarted: %s → %s\n", oldVersion, newVersion)
 }
-

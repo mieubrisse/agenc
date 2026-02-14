@@ -143,4 +143,3 @@ func (d *Daemon) updateRepo(ctx context.Context, repoName string, refreshDefault
 		d.logger.Printf("Repo update: failed to update '%s': %v", repoName, err)
 	}
 }
-

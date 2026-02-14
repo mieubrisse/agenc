@@ -507,11 +507,11 @@ func TestSocketProtocol(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	tests := []struct {
-		name        string
-		cmd         Command
-		wantStatus  string
-		wantError   string
-		checkState  func(*testing.T, *Wrapper)
+		name       string
+		cmd        Command
+		wantStatus string
+		wantError  string
+		checkState func(*testing.T, *Wrapper)
 	}{
 		{
 			name: "restart command",

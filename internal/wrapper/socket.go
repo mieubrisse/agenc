@@ -71,7 +71,7 @@ func listenSocket(ctx context.Context, socketFilepath string, commandCh chan<- c
 
 // commandWithResponse pairs a Command with a channel for sending back the Response.
 type commandWithResponse struct {
-	cmd      Command
+	cmd        Command
 	responseCh chan<- Response
 }
 

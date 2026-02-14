@@ -17,8 +17,8 @@ import (
 
 // RepoResolutionResult holds the outcome of resolving a repo input.
 type RepoResolutionResult struct {
-	RepoName      string // Canonical repo name (github.com/owner/repo)
-	CloneDirpath  string // Path to the clone in $AGENC_DIRPATH/repos/
+	RepoName       string // Canonical repo name (github.com/owner/repo)
+	CloneDirpath   string // Path to the clone in $AGENC_DIRPATH/repos/
 	WasNewlyCloned bool   // True if the repo was cloned as part of resolution
 }
 
@@ -471,7 +471,6 @@ func resolveAsSearchTerms(agencDirpath string, input string, fzfPrompt string) (
 		WasNewlyCloned: false,
 	}, nil
 }
-
 
 // getOriginRemoteURL reads the origin remote URL from a local git repo.
 func getOriginRemoteURL(repoDirpath string) (string, error) {

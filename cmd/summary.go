@@ -88,27 +88,27 @@ func calculateDayBounds(date time.Time) (time.Time, time.Time) {
 
 // DailyStats holds all the statistics for a day.
 type DailyStats struct {
-	MissionsCreated     int
-	SessionsCreated     int
-	TotalCommits        int
-	CommitsByRepo       map[string]int
-	FirstActivity       *time.Time
-	LastActivity        *time.Time
-	TotalMessages       int
-	TokensConsumed      int
-	SessionStats        []SessionStat
-	PeakHour            int
-	PeakHourSessions    int
+	MissionsCreated  int
+	SessionsCreated  int
+	TotalCommits     int
+	CommitsByRepo    map[string]int
+	FirstActivity    *time.Time
+	LastActivity     *time.Time
+	TotalMessages    int
+	TokensConsumed   int
+	SessionStats     []SessionStat
+	PeakHour         int
+	PeakHourSessions int
 }
 
 // SessionStat holds statistics for a single Claude session.
 type SessionStat struct {
-	MissionID    string
-	SessionName  string
-	Repo         string
-	Messages     int
-	Tokens       int
-	CreatedAt    time.Time
+	MissionID   string
+	SessionName string
+	Repo        string
+	Messages    int
+	Tokens      int
+	CreatedAt   time.Time
 }
 
 // gatherDailyStats collects all statistics for the given day.
@@ -393,7 +393,6 @@ func countCommitsInRange(repoPath string, dayStart, dayEnd time.Time) (int, erro
 	}
 	return len(lines), nil
 }
-
 
 // printDailySummary displays the formatted daily summary.
 func printDailySummary(date time.Time, stats *DailyStats) {

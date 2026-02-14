@@ -84,18 +84,18 @@ func TestOverlapPolicies(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name           string
-		overlapPolicy  config.CronOverlapPolicy
+		name            string
+		overlapPolicy   config.CronOverlapPolicy
 		expectSecondRun bool
 	}{
 		{
-			name:           "skip policy prevents concurrent runs",
-			overlapPolicy:  config.CronOverlapSkip,
+			name:            "skip policy prevents concurrent runs",
+			overlapPolicy:   config.CronOverlapSkip,
 			expectSecondRun: false,
 		},
 		{
-			name:           "allow policy permits concurrent runs",
-			overlapPolicy:  config.CronOverlapAllow,
+			name:            "allow policy permits concurrent runs",
+			overlapPolicy:   config.CronOverlapAllow,
 			expectSecondRun: true,
 		},
 	}
@@ -364,11 +364,11 @@ func TestScheduleEvaluation(t *testing.T) {
 	defer cleanup()
 
 	tests := []struct {
-		name           string
-		schedule       string
-		testTime       time.Time
-		expectedDue    bool
-		description    string
+		name        string
+		schedule    string
+		testTime    time.Time
+		expectedDue bool
+		description string
 	}{
 		{
 			name:        "every minute",
@@ -393,7 +393,7 @@ func TestScheduleEvaluation(t *testing.T) {
 		},
 		{
 			name:        "weekday only",
-			schedule:    "0 9 * * 1-5", // 9 AM weekdays
+			schedule:    "0 9 * * 1-5",                               // 9 AM weekdays
 			testTime:    time.Date(2024, 1, 1, 9, 0, 0, 0, time.UTC), // Monday
 			expectedDue: true,
 			description: "should be due on Monday at 9 AM",

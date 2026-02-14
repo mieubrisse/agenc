@@ -305,7 +305,7 @@ type AgencConfig struct {
 	CronsMaxConcurrent    int                             `yaml:"cronsMaxConcurrent,omitempty"`
 	PaletteCommands       map[string]PaletteCommandConfig `yaml:"paletteCommands,omitempty"`
 	PaletteTmuxKeybinding string                          `yaml:"paletteTmuxKeybinding,omitempty"`
-	TmuxWindowTitle *TmuxWindowTitleConfig `yaml:"tmuxWindowTitle,omitempty"`
+	TmuxWindowTitle       *TmuxWindowTitleConfig          `yaml:"tmuxWindowTitle,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -638,7 +638,7 @@ func validatePaletteUniqueness(cfg *AgencConfig, configFilepath string) error {
 	resolved := cfg.GetResolvedPaletteCommands()
 	paletteKey := cfg.GetPaletteTmuxKeybinding()
 
-	seenTitles := make(map[string]string)    // title → command name
+	seenTitles := make(map[string]string)      // title → command name
 	seenKeybindings := make(map[string]string) // keybinding → command name
 
 	for _, cmd := range resolved {

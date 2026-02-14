@@ -183,4 +183,3 @@ func (d *Daemon) ingestClaudeConfig(userClaudeDirpath string, shadowDirpath stri
 		d.logger.Printf("Config watcher: ingest failed: %v", err)
 	}
 }
-

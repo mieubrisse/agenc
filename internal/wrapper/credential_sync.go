@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	credentialSyncInterval          = 1 * time.Minute
+	credentialSyncInterval           = 1 * time.Minute
 	credentialDownwardDebouncePeriod = 1 * time.Second
 	credentialRestartStatuslineMsg   = "\U0001f504 New authentication token detected; restarting upon next idle"
 )

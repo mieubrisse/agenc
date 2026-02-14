@@ -801,5 +801,3 @@ func findGitRoot(startPath string) string {
 		path = parent
 	}
 }
-
-

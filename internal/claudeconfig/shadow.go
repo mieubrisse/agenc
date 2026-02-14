@@ -383,4 +383,3 @@ func commitShadowChanges(shadowDirpath string, message string) error {
 
 	return nil
 }
-

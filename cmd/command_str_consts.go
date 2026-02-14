@@ -51,12 +51,12 @@ const (
 	claudeUpdateCmdStr = "claude-update"
 
 	// Config subcommands
-	initCmdStr             = "init"
-	getCmdStr              = "get"
-	setCmdStr              = "set"
-	editCmdStr             = "edit"
-	paletteCommandCmdStr   = "paletteCommand"
-	repoConfigCmdStr       = "repoConfig"
+	initCmdStr           = "init"
+	getCmdStr            = "get"
+	setCmdStr            = "set"
+	editCmdStr           = "edit"
+	paletteCommandCmdStr = "paletteCommand"
+	repoConfigCmdStr     = "repoConfig"
 
 	// Daemon subcommands
 	startCmdStr   = "start"

@@ -73,9 +73,9 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		FormatRow: func(e missionPickerEntry) []string {
 			return []string{e.LastActive, e.ShortID, e.Status, e.Session, e.Repo}
 		},
-		FzfPrompt:        "Select mission to inspect: ",
-		FzfHeaders:       []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
-		MultiSelect:      false,
+		FzfPrompt:         "Select mission to inspect: ",
+		FzfHeaders:        []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
+		MultiSelect:       false,
 		NotCanonicalError: "not a valid mission ID",
 	})
 	if err != nil {

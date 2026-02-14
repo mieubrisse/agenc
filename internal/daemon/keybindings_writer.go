@@ -39,4 +39,3 @@ func (d *Daemon) writeAndSourceKeybindings() {
 		d.logger.Printf("Keybindings writer: %v", err)
 	}
 }
-

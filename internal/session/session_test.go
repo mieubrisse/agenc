@@ -70,33 +70,33 @@ func TestSummaryFallback(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		hasIndexFile   bool
+		name            string
+		hasIndexFile    bool
 		hasJSONLSummary bool
-		indexSummary   string
-		jsonlSummary   string
-		want           string
+		indexSummary    string
+		jsonlSummary    string
+		want            string
 	}{
 		{
-			name:           "index summary preferred over JSONL summary",
-			hasIndexFile:   true,
+			name:            "index summary preferred over JSONL summary",
+			hasIndexFile:    true,
 			hasJSONLSummary: true,
-			indexSummary:   "Summary from index",
-			jsonlSummary:   "Summary from JSONL",
-			want:           "Summary from index",
+			indexSummary:    "Summary from index",
+			jsonlSummary:    "Summary from JSONL",
+			want:            "Summary from index",
 		},
 		{
-			name:           "JSONL summary used when index missing",
-			hasIndexFile:   false,
+			name:            "JSONL summary used when index missing",
+			hasIndexFile:    false,
 			hasJSONLSummary: true,
-			jsonlSummary:   "Summary from JSONL",
-			want:           "Summary from JSONL",
+			jsonlSummary:    "Summary from JSONL",
+			want:            "Summary from JSONL",
 		},
 		{
-			name:           "empty when no summaries exist",
-			hasIndexFile:   false,
+			name:            "empty when no summaries exist",
+			hasIndexFile:    false,
 			hasJSONLSummary: false,
-			want:           "",
+			want:            "",
 		},
 	}
 
@@ -153,13 +153,13 @@ func TestJSONLParsing(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
+		name         string
 		jsonlContent string
-		wantTitle   string
-		wantSummary string
+		wantTitle    string
+		wantSummary  string
 	}{
 		{
-			name:        "malformed JSON lines are skipped",
+			name: "malformed JSON lines are skipped",
 			jsonlContent: `{"type":"summary","summary":"Valid summary"}
 {malformed json line
 {"type":"custom-title","customTitle":"Valid title"}
@@ -168,13 +168,13 @@ func TestJSONLParsing(t *testing.T) {
 			wantSummary: "Valid summary",
 		},
 		{
-			name:        "empty file returns empty strings",
+			name:         "empty file returns empty strings",
 			jsonlContent: "",
-			wantTitle:   "",
-			wantSummary: "",
+			wantTitle:    "",
+			wantSummary:  "",
 		},
 		{
-			name:        "lines without type field are skipped",
+			name: "lines without type field are skipped",
 			jsonlContent: `{"something":"else"}
 {"type":"summary","summary":"Good summary"}
 `,
@@ -182,7 +182,7 @@ func TestJSONLParsing(t *testing.T) {
 			wantSummary: "Good summary",
 		},
 		{
-			name:        "multiple summary entries - last one wins",
+			name: "multiple summary entries - last one wins",
 			jsonlContent: `{"type":"summary","summary":"First summary"}
 {"type":"summary","summary":"Second summary"}
 {"type":"summary","summary":"Last summary"}
@@ -191,7 +191,7 @@ func TestJSONLParsing(t *testing.T) {
 			wantSummary: "Last summary",
 		},
 		{
-			name:        "multiple custom-title entries - last one wins",
+			name: "multiple custom-title entries - last one wins",
 			jsonlContent: `{"type":"custom-title","customTitle":"First title"}
 {"type":"custom-title","customTitle":"Second title"}
 {"type":"custom-title","customTitle":"Last title"}

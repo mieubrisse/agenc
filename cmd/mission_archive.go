@@ -69,9 +69,9 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 		FormatRow: func(e missionPickerEntry) []string {
 			return []string{e.LastActive, e.ShortID, e.Session, e.Repo}
 		},
-		FzfPrompt:        "Select missions to archive (TAB to multi-select): ",
-		FzfHeaders:       []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
-		MultiSelect:      true,
+		FzfPrompt:         "Select missions to archive (TAB to multi-select): ",
+		FzfHeaders:        []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
+		MultiSelect:       true,
 		NotCanonicalError: "not a valid mission ID",
 	})
 	if err != nil {

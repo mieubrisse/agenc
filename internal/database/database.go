@@ -48,18 +48,18 @@ const stripTmuxPanePercentSQL = `UPDATE missions SET tmux_pane = REPLACE(tmux_pa
 
 // Mission represents a row in the missions table.
 type Mission struct {
-	ID                   string
-	ShortID              string
-	Prompt               string
-	Status               string
-	GitRepo              string
-	LastHeartbeat        *time.Time
-	LastActive           *time.Time
-	SessionName          string
-	SessionNameUpdatedAt *time.Time
-	CronID               *string
-	CronName             *string
-	ConfigCommit         *string
+	ID                     string
+	ShortID                string
+	Prompt                 string
+	Status                 string
+	GitRepo                string
+	LastHeartbeat          *time.Time
+	LastActive             *time.Time
+	SessionName            string
+	SessionNameUpdatedAt   *time.Time
+	CronID                 *string
+	CronName               *string
+	ConfigCommit           *string
 	TmuxPane               *string
 	PromptCount            int
 	LastSummaryPromptCount int
