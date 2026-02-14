@@ -1,7 +1,7 @@
 ![AgenC — AI work factory](./readme-images/cover.png)
 
 <div align="center">
-    <h1>AgenC: Minecraft → Starcraft</h1>
+    <h1>AgenC</h1>
 </div>
 
 </h1>
@@ -137,15 +137,16 @@ Missions are the main primitive of AgenC: disposable self-contained workspaces w
 You can see your missions with `agenc mission ls`.
 
 ### 3. 🎨 Command Palette
-Inevitably you'll want to do side work while Claude is working away.
+Inevitably you'll want to do work on the side while Claude is working away.
 
 Press `ctrl-y` to open the command palette and...
 
-- 🐚 Open a shell in your current mission's workspace ("Open Shell" or `ctrl-p`)
-- 🚀 Launch a side mission ("New Mission" or `ctrl-n`)
+- 🐚 Open a side shell in your current mission's workspace ("Side Shell" or `ctrl-p`)
+- 🚀 Launch a side mission ("New Mission" or `ctrl-n`, or "Side Claude" or "Quick Claude")
 - 🔀 Switch between your running missions ("Switch Mission" or `ctrl-m`)
-- 🦀 Open a quick empty Claude for side questions ("Quick Claude" or "Side Claude")
 - 💬 Send me feedback about AgenC!
+
+These commands are cheap; use them liberally. AgenC is designed to help you manage having 10+ threads going at once.
 
 The command palette can be configured with custom hotkeys and custom commands.
 
@@ -209,6 +210,8 @@ I'd love to hear from you! To send me feedback you can...
 
 Tips
 ----
+- **When things go wrong, upgrade!** Pop off a new mission and fix the problem - patch the `settings.json`, upgrade the prompt, debug the issue. Missions are cheap; use them liberally. I'm often juggling 6-8 missions at any given time.
+
 - **Run Claude in sandbox mode.** This cuts cuts a lot of permission request fatigue. Run `/sandbox` from your global Claude Code (not inside a mission) to enable sandboxed command execution. This allows Claude to run commands within defined sandbox restrictions without manual approval prompts on every action. The setting automatically carries into every AgenC mission. This is the recommended alternative to `--dangerously-skip-permissions`.
 
 - **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run "Resume Mission" or `agenc mission resume`.
