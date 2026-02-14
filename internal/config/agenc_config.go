@@ -115,7 +115,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Title:          "🚀  New Mission",
 		Description:    "Create a new mission and launch Claude",
 		Command:        "agenc tmux window new -a -- agenc mission new",
-		TmuxKeybinding: "n",
+		TmuxKeybinding: "-n C-n",
 	},
 	"switchMission": {
 		Title:          "🔀  Switch Mission",
