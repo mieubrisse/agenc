@@ -17,10 +17,12 @@ The AgenC — agent mission management CLI
 * [agenc detach](agenc_detach.md)	 - Detach from the AgenC tmux session (alias for 'agenc tmux detach')
 * [agenc discord](agenc_discord.md)	 - Open the AgenC Discord community in your browser
 * [agenc doctor](agenc_doctor.md)	 - Check for common configuration issues
+* [agenc feedback](agenc_feedback.md)	 - Launch a feedback mission with Adjutant
 * [agenc login](agenc_login.md)	 - Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
 * [agenc mission](agenc_mission.md)	 - Manage agent missions
 * [agenc prime](agenc_prime.md)	 - Print AgenC CLI quick reference for AI agent context
 * [agenc repo](agenc_repo.md)	 - Manage the repo library
+* [agenc star](agenc_star.md)	 - Open the AgenC GitHub repository in your browser
 * [agenc summary](agenc_summary.md)	 - Show a daily summary of AgenC activity
 * [agenc tmux](agenc_tmux.md)	 - Manage the AgenC tmux session
 * [agenc version](agenc_version.md)	 - Print the agenc version

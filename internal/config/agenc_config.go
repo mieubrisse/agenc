@@ -173,6 +173,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Join the AgenC Discord community",
 		Command:     "agenc discord",
 	},
+	"starAgenc": {
+		Title:       "⭐  Star AgenC",
+		Description: "Open the AgenC GitHub repo in your browser",
+		Command:     "agenc star",
+	},
 }
 
 // builtinPaletteCommandOrder controls the display order of builtin commands
@@ -193,6 +198,7 @@ var builtinPaletteCommandOrder = []string{
 	"nukeMissions",
 	"sendFeedback",
 	"joinDiscord",
+	"starAgenc",
 }
 
 // BuiltinPaletteCommandOrder returns the display order of builtin commands.
