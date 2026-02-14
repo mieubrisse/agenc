@@ -704,6 +704,59 @@ func GetCredentialExpiresAt() float64 {
 	return ExtractExpiresAtFromJSON([]byte(credential))
 }
 
+// GetLastSessionID reads the lastSessionId for a mission's agent directory
+// from the mission's .claude.json file. Returns empty string if not found
+// or if the file cannot be read.
+func GetLastSessionID(agencDirpath string, missionID string) string {
+	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
+	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
+	claudeJSONFilepath := filepath.Join(claudeConfigDirpath, ".claude.json")
+
+	data, err := os.ReadFile(claudeJSONFilepath)
+	if err != nil {
+		return ""
+	}
+
+	var claudeJSON map[string]json.RawMessage
+	if err := json.Unmarshal(data, &claudeJSON); err != nil {
+		return ""
+	}
+
+	projectsRaw, ok := claudeJSON["projects"]
+	if !ok {
+		return ""
+	}
+
+	var projects map[string]json.RawMessage
+	if err := json.Unmarshal(projectsRaw, &projects); err != nil {
+		return ""
+	}
+
+	// Look up the project by the mission's agent directory path
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+	projectDataRaw, ok := projects[agentDirpath]
+	if !ok {
+		return ""
+	}
+
+	var projectData map[string]json.RawMessage
+	if err := json.Unmarshal(projectDataRaw, &projectData); err != nil {
+		return ""
+	}
+
+	sessionIDRaw, ok := projectData["lastSessionId"]
+	if !ok {
+		return ""
+	}
+
+	var sessionID string
+	if err := json.Unmarshal(sessionIDRaw, &sessionID); err != nil {
+		return ""
+	}
+
+	return sessionID
+}
+
 // findGitRoot walks up from the given path looking for a .git directory.
 // Returns the repo root path, or empty string if not found.
 func findGitRoot(startPath string) string {

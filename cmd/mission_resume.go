@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -142,20 +141,9 @@ func resumeMission(db *database.DB, missionID string) error {
 }
 
 // missionHasConversation checks whether a Claude conversation exists for the
-// given mission by looking for a project directory under claude-config/projects/
-// whose name contains the mission ID. Claude Code only creates this directory
-// after the user sends their first message.
+// given mission by reading the lastSessionId from .claude.json. Returns true
+// if a valid session ID exists, false otherwise.
 func missionHasConversation(agencDirpath string, missionID string) bool {
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
-	projectsDirpath := filepath.Join(claudeConfigDirpath, "projects")
-	entries, err := os.ReadDir(projectsDirpath)
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if entry.IsDir() && strings.Contains(entry.Name(), missionID) {
-			return true
-		}
-	}
-	return false
+	sessionID := claudeconfig.GetLastSessionID(agencDirpath, missionID)
+	return sessionID != ""
 }

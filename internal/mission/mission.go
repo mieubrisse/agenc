@@ -166,3 +166,31 @@ func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath strin
 
 	return cmd, nil
 }
+
+// SpawnClaudeResumeWithSession starts claude with session-based resumption
+// using claude -r <session-id>. If sessionID is empty, falls back to
+// claude -c. Returns the running command. The caller is responsible for
+// calling cmd.Wait().
+func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, sessionID string) (*exec.Cmd, error) {
+	var args []string
+	if sessionID != "" {
+		args = []string{"-r", sessionID}
+	} else {
+		args = []string{"-c"}
+	}
+
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, args)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
+	}
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to start claude resume")
+	}
+
+	return cmd, nil
+}

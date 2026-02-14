@@ -227,7 +227,13 @@ func (w *Wrapper) Run(isResume bool) error {
 
 	// Spawn initial Claude process
 	if isResume {
-		w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
+		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
+		if sessionID != "" {
+			w.claudeCmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, sessionID)
+		} else {
+			// Fallback to fresh start if no session exists
+			w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, "")
+		}
 	} else {
 		w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.initialPrompt)
 	}
@@ -270,10 +276,11 @@ func (w *Wrapper) Run(isResume bool) error {
 				// w.initCredentialHash()
 				w.clearStatuslineMessage()
 
-				// Respawn Claude: use -c if we have a conversation (graceful),
-				// fresh session otherwise (hard)
-				if w.hasConversation {
-					w.claudeCmd, err = mission.SpawnClaudeResume(w.agencDirpath, w.missionID, w.agentDirpath)
+				// Respawn Claude: use session-based resume if we have a session,
+				// fresh session otherwise
+				sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
+				if sessionID != "" {
+					w.claudeCmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, sessionID)
 				} else {
 					w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, "")
 				}
