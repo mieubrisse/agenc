@@ -78,7 +78,7 @@ Quickstart
 
 ### Install
 
-```
+```bash
 brew tap mieubrisse/agenc
 brew install agenc
 ```
@@ -88,22 +88,40 @@ This automatically installs required dependencies (`gh`, `fzf`, `tmux`).
 ### 1. 🔧 Initialize
 The AgenC directory defaults to `~/.agenc`. Override with `AGENC_DIRPATH` if needed.
 
-Run `agenc init` and answer the prompts. I recommend "yes" to creating a config repo; AgenC will sync it to GitHub automatically.
+Run the following and answer the prompts:
 
-The AgenC interface is tmux. If you haven't used it before, here's a starter `~/.tmux.conf` you can use:
-
-```tmux
-# The -n hotkey means you don't have to use the tmux leader (ctrl-b) first
-bind -n C-h previous-window
-bind -n C-l next-window
-bind -n 'C-;' select-pane -t :.+
-
-set -g extended-keys on
-bind -n C-S-h swap-window -t -1\; select-window -t -1
-bind -n C-S-l swap-window -t +1\; select-window -t +1
+```bash
+agenc init
 ```
 
-It gives you `ctrl-h` and `ctrl-l` to cycle between windows, `ctrl-;` to cycle between panes, and `ctrl-shift-h` and `ctrl-shift-l` to reorder windows.
+I recommend "yes" to creating a config repo; AgenC will sync it to GitHub automatically.
+
+The AgenC interface is tmux. Run this so you get the AgenC keybindings:
+
+```bash
+agenc tmux inject
+```
+
+If you haven't used tmux before, drop this into your `~/.tmux.conf`:
+
+```tmux
+set -g extended-keys on
+
+# Ctrl-h goes to previous window
+bind -n C-h previous-window
+
+# Ctrl-l goes to next window
+bind -n C-l next-window
+
+# Ctrl-; toggles between panes inside a window
+bind -n 'C-;' select-pane -t :.+
+
+# Ctrl-shift-h moves a window to the left
+bind -n C-S-h swap-window -t -1\; select-window -t -1
+
+# Ctrl-shift-l moves a window to the right
+bind -n C-S-l swap-window -t +1\; select-window -t +1
+```
 
 ### 2. 🚀 Launch
 Attach to the AgenC interface:
@@ -121,18 +139,19 @@ Missions are the main primitive of AgenC: disposable self-contained workspaces w
 You can see your missions with `agenc mission ls`.
 
 ### 3. 🎨 Command Palette
-Inevitably you'll want to side work while Claude is chunking away.
+Inevitably you'll want to do side work while Claude is working away.
 
 Press `ctrl-y` to open the command palette and...
 
-- 🚀 Launch a side mission (`ctrl-n`)
 - 🐚 Open a shell in your current mission's workspace ("Open Shell" or `ctrl-p`)
-- 🦀 Open a quick empty Claude for side questions
+- 🚀 Launch a side mission ("New Mission" or `ctrl-n`)
+- 🔀 Switch between your running missions ("Switch Mission" or `ctrl-m`)
+- 🦀 Open a quick empty Claude for side questions ("Quick Claude" or "Side Claude")
 - 💬 Send me feedback about AgenC!
 
-The command palette can also have custom commands with custom hotkeys.
+The command palette can be configured with custom hotkeys and custom commands.
 
-One way to do this is through the `agenc config paletteCommand`. For example, this is to open my dotfiles:
+The hard way to do this is through the [CLI helpdocs](docs/cli/agenc.md) the `agenc config paletteCommand`. For example, this is to open my dotfiles:
 
 ```
 agenc config paletteCommand add dotfiles \
@@ -140,10 +159,10 @@ agenc config paletteCommand add dotfiles \
     --command="agenc tmux window new -- agenc mission new mieubrisse/dotfiles" \
 ```
 
-Another way to do this is through the Adjutant.
+The easier way is through the Adjutant.
 
 ### 5. 🤖 Adjutant
-AgenC has an Adjutant ("Adjutant" on the palette) that knows how to configure AgenC, as well as launch and manage missions.
+AgenC has an AI assistant called Adjutant ("Adjutant" on the palette or `ctrl-t`) that knows how to configure AgenC, as well as launch and manage missions.
 
 You _can_ use the `agenc config` commands to configure stuff like palette commands... but now I just talk to the Adjutant for my AgenC configuration needs.
 
@@ -154,7 +173,7 @@ Missions can also be stopped with "Mission Stop" or "Mission Resume" on the pale
 
 Full CLI docs: [docs/cli/](docs/cli/)
 
-### 6. Secrets (optional)
+### 6. 🔐 Secrets
 
 If you create a `.claude/secrets.env` with [1Password CLI secret references](https://developer.1password.com/docs/cli/secret-references/) in it, AgenC will resolve them on mission launch and inject them into Claude. This is useful for MCP server credentials.
 
@@ -184,37 +203,43 @@ SUBSTACK_USER_ID="op://Private/Substack Session Token/username"
 ```
 
 ### 8. Send feedback
-Use "Send Feedback" in the command palette, ask the Adjutant, or [join the Discord](https://discord.gg/x9Y8Se4XF3).
+I'd love to hear from you! To send me feedback you can...
+
+- Use "Send Feedback" in the command palette
+- Ask the Adjutant to do it
+- [Join the Discord](https://discord.gg/x9Y8Se4XF3).
 
 Tips
 ----
 - **Run Claude in sandbox mode.** This cuts cuts a lot of permission request fatigue. Run `/sandbox` from your global Claude Code (not inside a mission) to enable sandboxed command execution. This allows Claude to run commands within defined sandbox restrictions without manual approval prompts on every action. The setting automatically carries into every AgenC mission. This is the recommended alternative to `--dangerously-skip-permissions`.
 
-- **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run `agenc mission resume` or `agenc mission ls`.
+- **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run "Resume Mission" or `agenc mission resume`.
 
-- **Tell your agents to always commit and push.** Unpushed work sits stranded on the mission's local filesystem. Add instructions to your CLAUDE.md telling agents to `git push` immediately after every commit. This lets you fire-and-forget instructions to your agents, confident the work will persist even if the mission ends.
+- **Have your agents always commit and push.** Unpushed work sits stranded on the mission's local filesystem. You can add instructions that get injected for AgenC agents only in your `$AGENC_DIRPATH/config/claude-modifications/CLAUDE.md`. Tell your agents here that they should always commit (and, optionally, push if you're working solo on th erepo). This lets you fire-and-forget instructions to your agents, confident the work will persist even if the mission ends.
 
-- **Bind friendlier tmux hotkeys.** Add these to your `~/.tmux.conf` for faster workflow:
-  ```tmux
-  # Window navigation
-  bind -n C-h previous-window
-  bind -n C-l next-window
 
-  # Pane creation and swapping
-  bind -n C-p split-window -h -c "#{pane_current_path}"
-  bind -n 'C-;' select-pane -t :.+
-  ```
+How It Works
+------------
 
-  After editing `~/.tmux.conf`, reload with: `tmux source-file ~/.tmux.conf`
+![](readme-images/architecture.png)
 
+### Missions
+- Mission as the core primitive of AgenC
+- Each mission has its own independent directory at `$AGENC_DIRPATH/missions` (no Git worktrees)
+    - This is to emulate human behaviour and enable future federation: humans don't have Git worktrees; they have their own repo copy
+- Each mission has its own copy of the global Claude Config, to make mission-forking easy (not yet implemented) which will enable
+- Wrapper tends the Claude process, tracks when it's busy and idle, and can bounce it if needed
+    - Wrapper will also trigger a pull in the repo library
+
+### Daemon
+- Keep repo library up-to-date with main 
 
 ### Authentication
-Each mission gets a clone of your global Claude Code credentials token at launch. This token expires roughly once a day. With a single Claude Code instance, it refreshes seamlessly. The problem comes with multiple simultaneous instances: they all try to refresh the same token at once, invalidating each other in a thrashing loop that causes auth failures across all missions.
+AgenC has you create a long-lived Claude token and passes that through to all your Claude sessions.`CLAUDE_CODE_OAUTH_TOKEN` and uses that 
 
-TODO:
-- AgenC will show Claude commandline sttu
-
-See [docs/authentication.md](docs/authentication.md) for the full details on credential flow and MCP OAuth tokens.
+- explain problem about using the regular token, and the auth thrashing
+    - explain with similar text like we have in `config init` (and also link the Claude Code Github issue)
+- TODO maybe remove docs/authentication.md???
 
 Configuration
 -------------
@@ -264,6 +289,7 @@ Uninstall
 ---------
 
 ```
+agenc tmux uninject
 agenc mission nuke -f
 agenc daemon stop
 brew uninstall agenc
@@ -279,30 +305,7 @@ If you customized `AGENC_DIRPATH`, remove that directory instead.
 
 Development
 -----------
-
-### Running the linter
-
-AgenC uses `golangci-lint` to enforce code quality standards. To run the linter locally:
-
-**Install golangci-lint:**
-
-```bash
-brew install golangci-lint
-```
-
-**Run the linter:**
-
-```bash
-golangci-lint run
-```
-
-The linter configuration is defined in `.golangci.yml` and includes checks for:
-- Unchecked errors (`errcheck`)
-- Security issues (`gosec`)
-- Go vet checks (`govet`)
-- Advanced static analysis (`staticcheck`)
-- Unused code (`unused`)
-- Cyclomatic complexity (`gocyclo`, max 15)
+Clone the repo and run `make build`.
 
 CLI Reference
 -------------
