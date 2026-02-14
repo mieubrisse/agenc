@@ -93,8 +93,13 @@ func (c *PaletteCommandConfig) IsEmpty() bool {
 var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"quickClaude": {
 		Title:       "🦀  Quick Claude",
-		Description: "Launch a blank mission instantly",
+		Description: "Creates a blank mission in a new window",
 		Command:     "agenc tmux window new -a --name '🦀 Quick Claude' -- agenc mission new --blank",
+	},
+	"sideClaude": {
+		Title:       "🦀  Side Claude",
+		Description: "Creates a blank mission in a new pane",
+		Command:     "agenc tmux pane new -- agenc mission new --blank",
 	},
 	"talkToAgenc": {
 		Title:       "💁‍♂️  AgenC Assistant",
@@ -160,6 +165,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 // in the palette and ls output.
 var builtinPaletteCommandOrder = []string{
 	"quickClaude",
+	"sideClaude",
 	"talkToAgenc",
 	"newMission",
 	"switchMission",
