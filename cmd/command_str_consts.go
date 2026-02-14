@@ -42,6 +42,7 @@ const (
 	// Mission subcommands
 	newCmdStr          = "new"
 	resumeCmdStr       = "resume"
+	reloadCmdStr       = "reload"
 	archiveCmdStr      = "archive"
 	inspectCmdStr      = "inspect"
 	nukeCmdStr         = "nuke"
