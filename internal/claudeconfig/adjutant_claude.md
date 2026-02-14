@@ -44,6 +44,31 @@ tmux source-file ~/.tmux.conf
 
 This applies the changes to any running tmux sessions without requiring a restart.
 
+AgenC Keybindings
+-----------------
+
+**When the user talks about "keybindings," they are referring to AgenC's tmux keybindings** — not Claude Code's keyboard shortcuts or any other keybinding system. These are managed through `agenc config` commands, not through `~/.claude/keybindings.json` or other configuration files.
+
+AgenC has two types of tmux keybindings:
+
+1. **Command palette keybinding** — opens the AgenC command palette (default: prefix + a, k)
+   - View current binding: `agenc config get paletteTmuxKeybinding`
+   - Change binding: `agenc config set paletteTmuxKeybinding "<binding>"`
+   - Example: `agenc config set paletteTmuxKeybinding "-T agenc p"` (prefix + a, p)
+   - Example: `agenc config set paletteTmuxKeybinding "C-k"` (prefix + Ctrl-k, no agenc table)
+
+2. **Individual palette command keybindings** — shortcuts for specific palette commands
+   - View all: `agenc config paletteCommand ls`
+   - Add keybinding to custom command: `agenc config paletteCommand add myCmd --title="..." --command="..." --keybinding="f"`
+   - Update existing keybinding: `agenc config paletteCommand update myCmd --keybinding="C-n"`
+   - Remove keybinding: `agenc config paletteCommand update myCmd --keybinding=""`
+
+**Keybinding syntax:** The value is passed to tmux's `bind-key` command:
+- Bare key like `"f"` or `"C-n"` — bound in agenc key table (requires prefix + a, then key)
+- Global binding like `"-n C-s"` — bound in root table (no prefix needed, works globally)
+
+After changing keybindings, AgenC automatically regenerates the tmux configuration. Run `agenc tmux inject` to apply changes to the current tmux session without restarting.
+
 Sandbox Rules
 -------------
 
