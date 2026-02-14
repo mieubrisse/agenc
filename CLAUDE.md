@@ -16,6 +16,13 @@ Read `docs/system-architecture.md` before making non-trivial changes to the code
 
 The architecture doc describes the system at the **filepath level** — no code snippets, no function signatures. If you need to reference something more specific than a file path, that detail belongs in code comments, not in the architecture doc.
 
+Adjutant
+--------
+
+"Adjutant" refers to the in-codebase assistant that helps users operate AgenC. It is implemented as Go code within the codebase — not an external service or separate binary.
+
+When the user mentions "Adjutant" or you see references to it in code, understand that this is the built-in assistant component that provides guidance and helps users navigate AgenC functionality.
+
 Building the Binary
 -------------------
 
