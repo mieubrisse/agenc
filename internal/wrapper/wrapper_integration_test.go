@@ -33,8 +33,12 @@ func setupTest(t *testing.T) *testSetup {
 	t.Helper()
 
 	// Create temporary agenc directory with very short path to avoid unix socket path limit (104 chars on macOS)
-	// Use /tmp directly with a short random name
-	tempDir, err := os.MkdirTemp("/tmp", "wt-")
+	// Use /tmp/claude/ which is allowed by sandbox
+	tmpClaudeDir := "/tmp/claude"
+	if err := os.MkdirAll(tmpClaudeDir, 0755); err != nil {
+		t.Fatalf("failed to create /tmp/claude directory: %v", err)
+	}
+	tempDir, err := os.MkdirTemp(tmpClaudeDir, "wt-")
 	if err != nil {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
