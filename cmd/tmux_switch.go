@@ -87,7 +87,7 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, switchable)
+	entries, err := buildMissionPickerEntries(db, switchable, 50)
 	if err != nil {
 		return err
 	}

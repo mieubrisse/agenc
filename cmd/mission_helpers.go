@@ -68,7 +68,7 @@ func getTmuxWindowTitle(paneID string) string {
 
 // buildMissionPickerEntries converts database missions to picker entries using
 // the same formatting infrastructure as mission ls.
-func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([]missionPickerEntry, error) {
+func buildMissionPickerEntries(db *database.DB, missions []*database.Mission, sessionMaxLen int) ([]missionPickerEntry, error) {
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
 		sessionName := resolveSessionName(db, m)
@@ -86,7 +86,7 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission) ([
 			LastActive: formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
 			ShortID:    m.ShortID,
 			Status:     colorizeStatus(status),
-			Session:    truncatePrompt(sessionName, defaultPromptMaxLen),
+			Session:    truncatePrompt(sessionName, sessionMaxLen),
 			Repo:       repo,
 			TmuxTitle:  tmuxTitle,
 		})

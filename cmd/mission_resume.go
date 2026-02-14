@@ -47,7 +47,7 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("no stopped missions to resume")
 	}
 
-	entries, err := buildMissionPickerEntries(db, stoppedMissions)
+	entries, err := buildMissionPickerEntries(db, stoppedMissions, 100)
 	if err != nil {
 		return err
 	}

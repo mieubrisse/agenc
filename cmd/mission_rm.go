@@ -61,7 +61,7 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, missions)
+	entries, err := buildMissionPickerEntries(db, missions, defaultPromptMaxLen)
 	if err != nil {
 		return err
 	}
