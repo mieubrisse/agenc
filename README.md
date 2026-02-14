@@ -132,12 +132,12 @@ agenc config paletteCommand add dotfiles \
     --command="agenc tmux window new -- agenc mission new mieubrisse/dotfiles" \
 ```
 
-Another way to do this is through the assistant.
+Another way to do this is through the Adjutant.
 
-### 5. 💁‍♂️ Assistant
-AgenC has an assistant ("AgenC Assistant" on the palette) that knows how to configure AgenC, as well as launch and manage missions.
+### 5. 🤖 Adjutant
+AgenC has an Adjutant ("Adjutant" on the palette) that knows how to configure AgenC, as well as launch and manage missions.
 
-You _can_ use the `agenc config` commands to configure stuff like palette commands... but now I just talk to the assistant for my AgenC configuration needs.
+You _can_ use the `agenc config` commands to configure stuff like palette commands... but now I just talk to the Adjutant for my AgenC configuration needs.
 
 ### 6. Mission Management
 You can see all missions with `agenc mission ls`. 
@@ -177,7 +177,7 @@ SUBSTACK_USER_ID="op://Private/Substack Session Token/username"
 
 ### 8. Send feedback
 
-Use "Send Feedback" in the command palette, ask the AgenC Assistant, or [join the Discord](https://discord.gg/x9Y8Se4XF3).
+Use "Send Feedback" in the command palette, ask the Adjutant, or [join the Discord](https://discord.gg/x9Y8Se4XF3).
 
 Tips
 ----
