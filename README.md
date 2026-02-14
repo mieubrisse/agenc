@@ -8,7 +8,7 @@
   <p align="center">
     AgenC is a self-upgrading AI work factory.</br>
     </br>
-    <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat</br>
+    <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat.</br>
     </br>
     You spend your time building the factory; the Claudes do the rest.</br>
     </br>
@@ -36,9 +36,9 @@ Much better is John Rush's philosophy of [Inputs, Not Outputs](https://www.john-
 
 Each iteration makes all future outputs better.
 
-Unfortunately, this doesn't scale.
+But it doesn't scale.
 
-The Claudes start to step on each other, each lesson rollback requires forking a new window, juggling all the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
+The Claudes step on each other, each lesson rollback requires forking a new window, juggling the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
 
 AgenC tames this chaos. It provides:
 
