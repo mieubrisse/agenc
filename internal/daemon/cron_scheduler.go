@@ -88,11 +88,6 @@ func (s *CronScheduler) runSchedulerCycle(ctx context.Context, logger logger) {
 	// Clean up finished missions first
 	s.cleanupFinishedMissions(logger)
 
-	// Count currently running missions
-	s.mu.Lock()
-	runningCount := len(s.runningMissions)
-	s.mu.Unlock()
-
 	for name, cronCfg := range cfg.Crons {
 		if ctx.Err() != nil {
 			return
@@ -108,11 +103,14 @@ func (s *CronScheduler) runSchedulerCycle(ctx context.Context, logger logger) {
 			continue
 		}
 
-		// Check max concurrent limit
-		if runningCount >= maxConcurrent {
+		// Check max concurrent limit while holding lock
+		s.mu.Lock()
+		if len(s.runningMissions) >= maxConcurrent {
+			s.mu.Unlock()
 			logger.Printf("Cron scheduler: skipping '%s' - max concurrent limit (%d) reached", name, maxConcurrent)
 			continue
 		}
+		s.mu.Unlock()
 
 		// Double-fire guard: check if we already spawned a mission this minute
 		if s.wasSpawnedThisMinute(name, now) {
@@ -122,12 +120,12 @@ func (s *CronScheduler) runSchedulerCycle(ctx context.Context, logger logger) {
 		// Overlap policy: check if previous run is still running
 		s.mu.Lock()
 		alreadyRunning := s.runningMissions[name] != nil
-		s.mu.Unlock()
-
 		if alreadyRunning && cronCfg.GetOverlapPolicy() == config.CronOverlapSkip {
+			s.mu.Unlock()
 			logger.Printf("Cron scheduler: skipping '%s' - previous run still in progress (overlap=skip)", name)
 			continue
 		}
+		s.mu.Unlock()
 
 		// Spawn the headless mission
 		logger.Printf("Cron scheduler: spawning mission for cron '%s'", name)
@@ -135,8 +133,6 @@ func (s *CronScheduler) runSchedulerCycle(ctx context.Context, logger logger) {
 			logger.Printf("Cron scheduler: failed to spawn mission for '%s': %v", name, err)
 			continue
 		}
-
-		runningCount++
 	}
 }
 
