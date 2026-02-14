@@ -41,6 +41,17 @@ func listenSocket(ctx context.Context, socketFilepath string, commandCh chan<- c
 		logger.Warn("Failed to create wrapper socket", "path", socketFilepath, "error", err)
 		return
 	}
+
+	// Set restrictive permissions (mode 0600) on the socket to prevent
+	// unauthorized access. The socket provides control over the wrapper
+	// process (restart commands, state updates), so it should only be
+	// accessible to the owner.
+	if err := os.Chmod(socketFilepath, 0600); err != nil {
+		logger.Warn("Failed to set socket permissions", "path", socketFilepath, "error", err)
+		listener.Close()
+		os.Remove(socketFilepath)
+		return
+	}
 	defer func() {
 		listener.Close()
 		os.Remove(socketFilepath)
