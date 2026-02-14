@@ -104,7 +104,7 @@ Attach to the AgenC interface:
 agenc attach
 ```
 
-You'll be dropped into the repo selection screen. Select "New Repo" and enter a repo you're working on.
+You'll be dropped into the repo selection screen. Select "Github Repo" and enter a repo you're working on.
 
 AgenC will clone it, launch a new **mission**, and drop you into Claude to start your work.
 
