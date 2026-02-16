@@ -13,7 +13,7 @@ Examples:
   agenc config cron add daily-report \
     --schedule="0 9 * * *" \
     --prompt="Generate the daily status report" \
-    --git=github.com/owner/my-repo \
+    --repo=github.com/owner/my-repo \
     --timeout=30m
 
   agenc config cron add weekly-cleanup \
@@ -30,10 +30,10 @@ agenc config cron add <name> [flags]
 
 ```
       --description string   human-readable description (optional)
-      --git string           git repository to clone (e.g., github.com/owner/repo) (optional)
   -h, --help                 help for add
       --overlap string       overlap policy: 'skip' or 'allow' (optional)
       --prompt string        initial prompt for the Claude mission (required)
+      --repo string          repository to clone (e.g., github.com/owner/repo) (optional)
       --schedule string      cron schedule expression (e.g., '0 9 * * *') (required)
       --timeout string       maximum runtime (e.g., '1h', '30m') (optional)
 ```

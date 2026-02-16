@@ -30,8 +30,8 @@ Examples:
     --timeout=2h \
     --overlap=allow
 
-  # Clear the git repository
-  agenc config cron update daily-report --git=""
+  # Clear the repository
+  agenc config cron update daily-report --repo=""
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigCronUpdate,
@@ -42,7 +42,7 @@ func init() {
 	configCronUpdateCmd.Flags().String(cronConfigScheduleFlagName, "", "cron schedule expression (e.g., '0 9 * * *')")
 	configCronUpdateCmd.Flags().String(cronConfigPromptFlagName, "", "initial prompt for the Claude mission")
 	configCronUpdateCmd.Flags().String(cronConfigDescriptionFlagName, "", "human-readable description")
-	configCronUpdateCmd.Flags().String(cronConfigGitFlagName, "", "git repository to clone (e.g., github.com/owner/repo)")
+	configCronUpdateCmd.Flags().String(cronConfigRepoFlagName, "", "repository to clone (e.g., github.com/owner/repo)")
 	configCronUpdateCmd.Flags().String(cronConfigTimeoutFlagName, "", "maximum runtime (e.g., '1h', '30m')")
 	configCronUpdateCmd.Flags().String(cronConfigOverlapFlagName, "", "overlap policy: 'skip' or 'allow'")
 	configCronUpdateCmd.Flags().Bool(cronConfigEnabledFlagName, true, "whether the cron job is enabled")
@@ -70,14 +70,14 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 	scheduleChanged := cmd.Flags().Changed(cronConfigScheduleFlagName)
 	promptChanged := cmd.Flags().Changed(cronConfigPromptFlagName)
 	descriptionChanged := cmd.Flags().Changed(cronConfigDescriptionFlagName)
-	gitChanged := cmd.Flags().Changed(cronConfigGitFlagName)
+	repoChanged := cmd.Flags().Changed(cronConfigRepoFlagName)
 	timeoutChanged := cmd.Flags().Changed(cronConfigTimeoutFlagName)
 	overlapChanged := cmd.Flags().Changed(cronConfigOverlapFlagName)
 	enabledChanged := cmd.Flags().Changed(cronConfigEnabledFlagName)
 
 	// Check that at least one flag was provided
 	if !scheduleChanged && !promptChanged && !descriptionChanged &&
-		!gitChanged && !timeoutChanged && !overlapChanged && !enabledChanged {
+		!repoChanged && !timeoutChanged && !overlapChanged && !enabledChanged {
 		return stacktrace.NewError("at least one configuration flag must be provided")
 	}
 
@@ -112,19 +112,19 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 		cronCfg.Description = description
 	}
 
-	if gitChanged {
-		git, err := cmd.Flags().GetString(cronConfigGitFlagName)
+	if repoChanged {
+		repo, err := cmd.Flags().GetString(cronConfigRepoFlagName)
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigGitFlagName)
+			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigRepoFlagName)
 		}
-		if git != "" {
-			result, err := ResolveRepoInput(agencDirpath, git, "Select repo: ")
+		if repo != "" {
+			result, err := ResolveRepoInput(agencDirpath, repo, "Select repo: ")
 			if err != nil {
-				return stacktrace.Propagate(err, "failed to resolve git repo")
+				return stacktrace.Propagate(err, "failed to resolve repo")
 			}
-			git = result.RepoName
+			repo = result.RepoName
 		}
-		cronCfg.Git = git
+		cronCfg.Git = repo
 	}
 
 	if timeoutChanged {

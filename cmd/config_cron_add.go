@@ -21,7 +21,7 @@ Examples:
   agenc config cron add daily-report \
     --schedule="0 9 * * *" \
     --prompt="Generate the daily status report" \
-    --git=github.com/owner/my-repo \
+    --repo=github.com/owner/my-repo \
     --timeout=30m
 
   agenc config cron add weekly-cleanup \
@@ -38,7 +38,7 @@ func init() {
 	configCronAddCmd.Flags().String(cronConfigScheduleFlagName, "", "cron schedule expression (e.g., '0 9 * * *') (required)")
 	configCronAddCmd.Flags().String(cronConfigPromptFlagName, "", "initial prompt for the Claude mission (required)")
 	configCronAddCmd.Flags().String(cronConfigDescriptionFlagName, "", "human-readable description (optional)")
-	configCronAddCmd.Flags().String(cronConfigGitFlagName, "", "git repository to clone (e.g., github.com/owner/repo) (optional)")
+	configCronAddCmd.Flags().String(cronConfigRepoFlagName, "", "repository to clone (e.g., github.com/owner/repo) (optional)")
 	configCronAddCmd.Flags().String(cronConfigTimeoutFlagName, "", "maximum runtime (e.g., '1h', '30m') (optional)")
 	configCronAddCmd.Flags().String(cronConfigOverlapFlagName, "", "overlap policy: 'skip' or 'allow' (optional)")
 	_ = configCronAddCmd.MarkFlagRequired(cronConfigScheduleFlagName)
@@ -82,13 +82,13 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 	timeoutStr, _ := cmd.Flags().GetString(cronConfigTimeoutFlagName)
 	overlapStr, _ := cmd.Flags().GetString(cronConfigOverlapFlagName)
 
-	git, _ := cmd.Flags().GetString(cronConfigGitFlagName)
-	if git != "" {
-		result, err := ResolveRepoInput(agencDirpath, git, "Select repo: ")
+	repo, _ := cmd.Flags().GetString(cronConfigRepoFlagName)
+	if repo != "" {
+		result, err := ResolveRepoInput(agencDirpath, repo, "Select repo: ")
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to resolve git repo")
+			return stacktrace.Propagate(err, "failed to resolve repo")
 		}
-		git = result.RepoName
+		repo = result.RepoName
 	}
 
 	if timeoutStr != "" {
@@ -109,7 +109,7 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 		Schedule:    schedule,
 		Prompt:      prompt,
 		Description: description,
-		Git:         git,
+		Git:         repo,
 		Timeout:     timeoutStr,
 		Overlap:     overlapPolicy,
 	}

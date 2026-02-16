@@ -122,7 +122,7 @@ const (
 	cronConfigScheduleFlagName    = "schedule"
 	cronConfigPromptFlagName      = "prompt"
 	cronConfigDescriptionFlagName = "description"
-	cronConfigGitFlagName         = "git"
+	cronConfigRepoFlagName        = "repo"
 	cronConfigTimeoutFlagName     = "timeout"
 	cronConfigOverlapFlagName     = "overlap"
 	cronConfigEnabledFlagName     = "enabled"

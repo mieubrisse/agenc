@@ -12,7 +12,7 @@ identified by a unique name and has the following configurable fields:
   schedule     - Cron expression (e.g., "0 9 * * *" for 9am daily)
   prompt       - Initial prompt for the Claude mission
   description  - Human-readable description (optional)
-  git          - Git repository to clone into workspace (optional)
+  repo         - Repository to clone into workspace (optional)
   timeout      - Maximum runtime (e.g., "1h", "30m") (optional)
   overlap      - Overlap policy: "skip" (default) or "allow" (optional)
   enabled      - Whether the cron job is enabled (defaults to true)

@@ -22,8 +22,8 @@ Examples:
     --timeout=2h \
     --overlap=allow
 
-  # Clear the git repository
-  agenc config cron update daily-report --git=""
+  # Clear the repository
+  agenc config cron update daily-report --repo=""
 
 
 ```
@@ -35,10 +35,10 @@ agenc config cron update <name> [flags]
 ```
       --description string   human-readable description
       --enabled              whether the cron job is enabled (default true)
-      --git string           git repository to clone (e.g., github.com/owner/repo)
   -h, --help                 help for update
       --overlap string       overlap policy: 'skip' or 'allow'
       --prompt string        initial prompt for the Claude mission
+      --repo string          repository to clone (e.g., github.com/owner/repo)
       --schedule string      cron schedule expression (e.g., '0 9 * * *')
       --timeout string       maximum runtime (e.g., '1h', '30m')
 ```
