@@ -24,6 +24,8 @@
   </p>
 </p>
 
+[2026-02-16 demo](https://github.com/user-attachments/assets/feb5506a-2a79-4ffa-826b-82ccee927acf)
+
 Why AgenC
 ----------
 If you're like most people, you use Claude like this:
@@ -51,11 +53,7 @@ AgenC tames this chaos. It provides:
 
 ![](readme-images/agenc-scale-up.png)
 
-Here's it in action:
-
-[AgenC demo](https://github.com/user-attachments/assets/d12c5b06-c5db-420a-aaa3-7b8ca5d69ab6)
-
-Of course, AgenC is built with AgenC.
+And of course, AgenC is built with AgenC.
 
 > ### ⚠️ **ADDICTION WARNING** ⚠️
 >
