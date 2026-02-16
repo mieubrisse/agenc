@@ -1,5 +1,7 @@
 /agenc
 /dist/
 
+.claude/settings.local.json
+
 # Generated at build time by cmd/genskill (embedded via go:embed)
 internal/claudeconfig/prime_content.md
