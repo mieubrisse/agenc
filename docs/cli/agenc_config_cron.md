@@ -24,7 +24,7 @@ Example config.yml:
       schedule: "0 9 * * *"
       prompt: "Generate the daily status report"
       description: "Automated daily report generation"
-      git: github.com/owner/my-repo
+      repo: github.com/owner/my-repo
       timeout: 30m
       enabled: true
 

@@ -109,7 +109,7 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 		Schedule:    schedule,
 		Prompt:      prompt,
 		Description: description,
-		Git:         repo,
+		Repo:        repo,
 		Timeout:     timeoutStr,
 		Overlap:     overlapPolicy,
 	}

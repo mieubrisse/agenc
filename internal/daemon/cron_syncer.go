@@ -81,8 +81,8 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 		}
 
 		// Add git repo if specified
-		if cronCfg.Git != "" {
-			programArgs = append(programArgs, cronCfg.Git)
+		if cronCfg.Repo != "" {
+			programArgs = append(programArgs, cronCfg.Repo)
 		}
 
 		// Get log file paths for this cron

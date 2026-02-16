@@ -124,7 +124,7 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 			}
 			repo = result.RepoName
 		}
-		cronCfg.Git = repo
+		cronCfg.Repo = repo
 	}
 
 	if timeoutChanged {

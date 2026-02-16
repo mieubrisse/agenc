@@ -70,8 +70,8 @@ func runCronRun(cmd *cobra.Command, args []string) error {
 		"--timeout", timeout,
 	}
 
-	if cronCfg.Git != "" {
-		cmdArgs = append(cmdArgs, cronCfg.Git)
+	if cronCfg.Repo != "" {
+		cmdArgs = append(cmdArgs, cronCfg.Repo)
 	}
 
 	// Get the path to the agenc binary

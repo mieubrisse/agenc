@@ -133,7 +133,7 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 	cronCfg := config.CronConfig{
 		Schedule: schedule,
 		Prompt:   prompt,
-		Git:      gitRepo,
+		Repo:     gitRepo,
 		Timeout:  timeout,
 	}
 

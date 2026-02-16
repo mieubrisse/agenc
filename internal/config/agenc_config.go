@@ -40,7 +40,7 @@ type CronConfig struct {
 	Schedule    string            `yaml:"schedule"`              // Cron expression (5 or 6 fields)
 	Prompt      string            `yaml:"prompt"`                // Initial prompt for the mission
 	Description string            `yaml:"description,omitempty"` // Human-readable description
-	Git         string            `yaml:"git,omitempty"`         // Git repo to clone into workspace
+	Repo        string            `yaml:"repo,omitempty"`        // Git repo to clone into workspace
 	Timeout     string            `yaml:"timeout,omitempty"`     // Max runtime (e.g., "1h", "30m")
 	Overlap     CronOverlapPolicy `yaml:"overlap,omitempty"`     // "skip" (default) or "allow"
 	Enabled     *bool             `yaml:"enabled,omitempty"`     // Defaults to true if omitted
@@ -472,10 +472,10 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		if cronCfg.Prompt == "" {
 			return nil, nil, stacktrace.NewError("cron '%s' in %s must have a prompt", name, configFilepath)
 		}
-		if cronCfg.Git != "" && !canonicalRepoRegex.MatchString(cronCfg.Git) {
+		if cronCfg.Repo != "" && !canonicalRepoRegex.MatchString(cronCfg.Repo) {
 			return nil, nil, stacktrace.NewError(
-				"invalid git repo '%s' for cron '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				cronCfg.Git, name, configFilepath,
+				"invalid repo '%s' for cron '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				cronCfg.Repo, name, configFilepath,
 			)
 		}
 		if err := ValidateCronOverlapPolicy(cronCfg.Overlap); err != nil {
@@ -887,11 +887,11 @@ func ValidateAndPopulateDefaults(cfg *AgencConfig) error {
 		}
 
 		// Validate git repo URL if provided
-		if cronCfg.Git != "" {
+		if cronCfg.Repo != "" {
 			// Canonical format already validated, but also support full URLs
-			if !canonicalRepoRegex.MatchString(cronCfg.Git) {
-				if err := ValidateGitRepoURL(cronCfg.Git); err != nil {
-					return stacktrace.Propagate(err, "invalid git URL for cron '%s'", name)
+			if !canonicalRepoRegex.MatchString(cronCfg.Repo) {
+				if err := ValidateGitRepoURL(cronCfg.Repo); err != nil {
+					return stacktrace.Propagate(err, "invalid repo URL for cron '%s'", name)
 				}
 			}
 		}
