@@ -71,6 +71,37 @@ AgenC has two types of tmux keybindings:
 
 After changing keybindings, AgenC automatically regenerates the tmux configuration. Run `agenc tmux inject` to apply changes to the current tmux session without restarting.
 
+Managing Cron Jobs
+------------------
+
+**Always use `agenc config cron` commands for non-interactive cron management.** AgenC has two sets of cron commands:
+
+- **`agenc cron`** — includes interactive commands (like `agenc cron new` wizard) and runtime commands (`history`, `logs`, `run`)
+- **`agenc config cron`** — non-interactive configuration commands with flags
+
+**For Adjutant and other non-interactive contexts, use `agenc config cron`:**
+
+```bash
+# Add a new cron job (non-interactive)
+agenc config cron add daily-report \
+  --schedule="0 9 * * *" \
+  --prompt="Generate the daily status report" \
+  --repo=github.com/owner/my-repo \
+  --timeout=30m
+
+# List cron jobs
+agenc config cron ls
+
+# Update a cron job
+agenc config cron update daily-report --schedule="0 10 * * *"
+agenc config cron update daily-report --enabled=false
+
+# Remove a cron job
+agenc config cron rm daily-report
+```
+
+The `agenc cron` commands are aliases that also work (`agenc cron ls`, `agenc cron rm`, `agenc cron enable/disable`), but `agenc config cron` provides the most flexible non-interactive interface with full flag support.
+
 Sandbox Rules
 -------------
 

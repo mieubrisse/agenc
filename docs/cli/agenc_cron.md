@@ -25,6 +25,17 @@ Example config.yml:
       prompt: "Clean up old temporary files"
       overlap: skip
 
+ALIASES:
+
+  The following commands have equivalents under 'agenc config cron':
+    agenc cron new       → agenc config cron add   (non-interactive with flags)
+    agenc cron ls        → agenc config cron ls
+    agenc cron rm        → agenc config cron rm
+    agenc cron enable    → agenc config cron update --enabled=true
+    agenc cron disable   → agenc config cron update --enabled=false
+
+  Use 'agenc config cron' for non-interactive/scriptable cron management.
+
 
 ### Options
 

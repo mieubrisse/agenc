@@ -35,6 +35,18 @@ Example config.yml:
       schedule: "0 0 * * SUN"
       prompt: "Clean up old temporary files"
       overlap: skip
+
+ALIASES:
+
+  These commands are non-interactive alternatives to 'agenc cron':
+    agenc config cron add              → agenc cron new (interactive wizard)
+    agenc config cron ls               → agenc cron ls
+    agenc config cron rm               → agenc cron rm
+    agenc config cron update --enabled → agenc cron enable/disable
+
+  Additional 'agenc cron' commands: history, logs, run
+
+  Prefer 'agenc config cron' for scripting and non-interactive contexts.
 `,
 }
 
