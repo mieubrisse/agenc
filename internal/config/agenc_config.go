@@ -133,7 +133,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	},
 	"sideShell": {
 		Title:          "🐚  Side Shell",
-		Description:    "Split pane and open a shell in the current directory",
+		Description:    "Split pane and open a shell in the current mission's workspace",
 		Command:        "agenc tmux pane new -- $SHELL",
 		TmuxKeybinding: "-n C-p",
 	},
