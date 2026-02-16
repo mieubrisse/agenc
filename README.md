@@ -43,10 +43,11 @@ The Claudes step on each other, each lesson rollback requires forking a new wind
 AgenC tames this chaos. It provides:
 
 - 📦 Claude session isolation in fully independent sandboxes (no Git worktrees, and no merge queue - each agent is completely independent!)
-- 🎨 Window management and command palette w/hotkeys so launching new sessions, switching windows, and rolling lessons back into your Claude config is a thought away
+- 🎨 Session management and command palette w/hotkeys so launching new sessions, switching windows, stopping/resuming sessions, and rolling lessons back into your Claude config is a thought away
 - 🔧 Palette customization, so your most-used operations are easy
+- 🔁 Cron jobs so your factory can work while you're away
 - 🔐 1Password secrets injection
-- 🤖 An AI assistant that knows how to configure & drive AgenC, so you never have to use CLI commands
+- 🤖 An AI assistant that knows how to configure & drive AgenC so you never have to use CLI commands
 
 ![](readme-images/agenc-scale-up.png)
 
@@ -54,17 +55,17 @@ Here's it in action:
 
 [AgenC demo](https://github.com/user-attachments/assets/d12c5b06-c5db-420a-aaa3-7b8ca5d69ab6)
 
-And of course, AgenC is built with AgenC.
+Of course, AgenC is built with AgenC.
 
 > ### ⚠️ **ADDICTION WARNING** ⚠️
 >
 > AgenC **WILL** force-multiply you. But you should know it has a videogame-like addictive quality.
 >
-> Because it's so easy to launch & manage work, you get this "just one more mission" feeling.
+> Because it's so easy launch work, you get a "just one more mission" feeling.
 > 
-> In building AgenC, I noticed it was hard to switch off and go to sleep. My brain would be buzzing with ideas, and I'd wake up in the middle of the night wanting to launch new threads.
+> I noticed in building AgenC that it's hard to switch off and go to sleep. My brain would be buzzing with ideas; I'd wake up in the middle of the night wanting to launch new work.
 >
-> Please remember to take breaks, and leave sufficient wind-down time before sleep!
+> Please remember to take breaks and leave sufficient wind-down time before sleep!
 
 Quickstart
 -----------
@@ -201,12 +202,98 @@ SUBSTACK_USER_ID="op://Private/Substack Session Token/username"
 }
 ```
 
+### 7. 🔁 Crons
+
+Crons let your factory work while you're away. AgenC runs scheduled headless missions — think "generate a daily report at 9am" or "clean up old files every Sunday."
+
+**Create a cron job:**
+
+The easiest way is through the Adjutant. Just ask: "Create a cron that runs daily at 9am to generate a status report."
+
+You can also use the CLI wizard:
+
+```bash
+agenc cron new daily-report
+```
+
+The wizard asks for:
+- **Schedule** — Standard cron expression (e.g., `0 9 * * *` for 9am daily)
+- **Prompt** — What you want Claude to do
+- **Git repo** (optional) — Repository to clone into the workspace
+- **Timeout** (optional) — Max runtime (default: 1 hour)
+
+**What happens when a cron runs:**
+
+The daemon spawns a headless mission at the scheduled time. The mission runs in isolation with its own workspace, just like a regular mission. Output is captured to a log file with automatic rotation.
+
+**View cron jobs:**
+
+```bash
+agenc cron ls
+```
+
+Shows all crons with their schedules, enabled status, last run time, and next run time.
+
+**View cron output:**
+
+```bash
+agenc cron logs daily-report
+```
+
+Shows output from the most recent run. Add `-f` to tail the log in real-time.
+
+**View run history:**
+
+```bash
+agenc cron history daily-report
+```
+
+Shows past runs with start time, mission ID, status, and duration.
+
+**Manually trigger a cron:**
+
+```bash
+agenc cron run daily-report
+```
+
+Runs the cron immediately as a headless mission. Useful for testing before committing to a schedule.
+
+**Disable/enable:**
+
+```bash
+agenc cron disable daily-report
+agenc cron enable daily-report
+```
+
+**Delete:**
+
+```bash
+agenc cron rm daily-report
+```
+
+**Cron expressions:**
+
+AgenC uses standard 5-field cron expressions: `minute hour day-of-month month day-of-week`
+
+Common examples:
+- `0 9 * * *` — 9am every day
+- `0 9 * * 1-5` — 9am weekdays (Monday-Friday)
+- `0 0 * * SUN` — Midnight on Sundays
+- `*/15 * * * *` — Every 15 minutes
+- `0 */4 * * *` — Every 4 hours
+
+**Concurrency and overlap:**
+
+By default, if a cron is still running when the next scheduled time arrives, the new run is skipped (`overlap: skip`). You can allow concurrent runs by setting `overlap: allow` in your cron config.
+
+AgenC limits concurrent cron missions to 10 by default (configurable via `cronsMaxConcurrent` in `config.yml`). When the limit is reached, new crons are skipped until slots free up.
+
 ### 8. Send feedback
 I'd love to hear from you! To send me feedback you can...
 
 - Use "Send Feedback" in the command palette
-- Ask the Adjutant to do it
-- [Join the Discord](https://discord.gg/x9Y8Se4XF3).
+- Ask the Adjutant to send feedback
+- Join the Discord using "Join Discord" on the command palette or [use this link](https://discord.gg/x9Y8Se4XF3)
 
 Tips
 ----
@@ -250,7 +337,7 @@ The wrapper:
 - **Tracks idle state** by listening to hooks that fire when Claude starts and stops responding
 - **Writes heartbeats** to the database every 30 seconds so the daemon knows which missions are alive
 - **Restarts Claude** on command (via unix socket) — useful after upgrading Claude or when something breaks
-- **Updates the repo library** immediately when you push, so other missions get your changes without waiting
+- **Updates the repo library** immediately when you push, so new missions get your changes without waiting
 
 When Claude exits (naturally or via `/exit`), the wrapper cleans up and stops. The mission directory stays intact, so you can resume later.
 
@@ -258,32 +345,31 @@ When Claude exits (naturally or via `/exit`), the wrapper cleans up and stops. T
 
 The **daemon** is a background process that keeps the factory running smoothly. It runs six concurrent loops:
 
-1. **Repo sync** (every 60 seconds) — Fetches and fast-forwards repos in the shared library so new missions clone from fresh code
-2. **Config auto-commit** (every 10 minutes) — If your `$AGENC_DIRPATH/config/` is a Git repo, the daemon auto-commits and pushes changes so your config stays version-controlled
+1. **Repo sync** (every 60 seconds) — Fetches and fast-forwards repos in the shared library so new missions clone from fresh code without needing to run a slow `git clone`
+2. **Config auto-commit** (every 10 minutes) — If your `$AGENC_DIRPATH/config/` is a Git repo, the daemon auto-commits and pushes changes to Github so your config stays version-controlled
 3. **Cron scheduler** (every 60 seconds) — Spawns headless missions on schedule for recurring tasks
 4. **Config watcher** (on file change) — Watches `~/.claude` and mirrors changes to a shadow repo so missions can inherit your latest config
 5. **Keybindings writer** (every 5 minutes) — Regenerates tmux keybindings to pick up any palette command changes
-6. **Mission summarizer** (every 2 minutes) — Uses Claude Haiku to generate short descriptions of active missions for tmux window titles
 
-The daemon starts automatically when you run `agenc attach`. If it crashes, just restart it with `agenc daemon restart` — running missions are unaffected.
+The daemon starts automatically when you run most `agenc` commands. If it crashes, just restart it with `agenc daemon restart` - running missions are unaffected.
 
 ### Repo Library
 
-AgenC maintains a **shared library** of Git repos at `$AGENC_DIRPATH/repos/`. When you create a mission, AgenC copies from this library instead of cloning from GitHub every time.
+AgenC maintains a **repo library** of Git repos at `$AGENC_DIRPATH/repos/`. When you create a mission, AgenC copies from this library instead of cloning from GitHub every time so that new missions are fast.
 
-The daemon keeps the library fresh by fetching every 60 seconds. The wrapper contributes by watching for pushes — when you `git push` from a mission, the wrapper immediately updates the library copy so other missions get your changes.
+The daemon keeps the library fresh by fetching every 60 seconds. The wrapper contributes by watching for pushes: when you `git push` from a mission, the wrapper immediately updates the library copy so new missions get your changes. Existing missions will notice when they try to merge, same as a human.
 
 Missions cannot read or modify the repo library directly (enforced via permissions). They only see their own workspace.
 
 ### Authentication
 
-Standard Claude Code authentication doesn't work well with multiple concurrent sessions — the tokens refresh and invalidate each other in a loop ([GitHub issue](https://github.com/anthropics/claude-code/issues/24317)).
+Standard Claude Code authentication doesn't work well with multiple concurrent sessions because the tokens refresh and invalidate each other in a loop ([GitHub issue](https://github.com/anthropics/claude-code/issues/24317)).
 
 AgenC solves this by using a **long-lived OAuth token** that you provide once during setup. The token is stored at `$AGENC_DIRPATH/cache/oauth-token` (mode 600, never committed to Git). When the wrapper spawns Claude, it reads this file and passes the token via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable.
 
 All missions share the same token, so there's no refresh thrashing. When the token expires, update it once with `agenc config set claudeCodeOAuthToken <new-token>`, and all new missions (plus running missions after restart) pick it up automatically.
 
-See [docs/authentication.md](docs/authentication.md) for details.
+The only downside that I haven't figured yet figured out is the tokens set up via `claude setup-token` can't query usage, so the `/usage` command won't work in AgenC. You'll need to drop down to vanilla Claude to check your usage.
 
 Configuration
 -------------
