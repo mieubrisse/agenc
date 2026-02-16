@@ -38,14 +38,14 @@ Each iteration makes all future outputs better.
 
 But it doesn't scale.
 
-The Claudes step on each other, each lesson rollback requires forking a new window, juggling the windows becomes a circus, and you spend a bunch of time `cd`ing around and getting in and out of Claude.
+The Claudes step on each other, each friction requires spawning a new Claude window, juggling the windows becomes a circus, and you spend a bunch of time `cd`ing around getting in and out of Claude.
 
 AgenC tames this chaos. It provides:
 
-- 📦 Claude session isolation in fully independent sandboxes (no Git worktrees, and no merge queue - each agent is completely independent!)
+- 📦 Claude session isolation in fully independent sandboxes (no Git worktrees, no merge queue - each agent is completely independent!)
 - 🎨 Session management and command palette w/hotkeys so launching new sessions, switching windows, stopping/resuming sessions, and rolling lessons back into your Claude config is a thought away
-- 🔧 Palette customization, so your most-used operations are easy
-- 🔁 Cron jobs so your factory can work while you're away
+- 🔧 Palette customization so your top-used operations are easy
+<!-- - 🔁 Cron jobs so your factory can work while you're away -->
 - 🔐 1Password secrets injection
 - 🤖 An AI assistant that knows how to configure & drive AgenC so you never have to use CLI commands
 
@@ -63,7 +63,7 @@ Of course, AgenC is built with AgenC.
 >
 > Because it's so easy launch work, you get a "just one more mission" feeling.
 > 
-> I noticed in building AgenC that it's hard to switch off and go to sleep. My brain would be always buzzing with ideas, and I'd wake up in the middle of the night wanting to launch new work.
+> I noticed while building AgenC that it's hard to switch off and go to sleep. My brain would always be buzzing with ideas, and I'd wake up in the middle of the night wanting to launch new work.
 >
 > Please remember to take breaks and leave sufficient wind-down time before sleep!
 
@@ -72,6 +72,7 @@ Quickstart
 
 ### Prerequisites
 
+- **MacOS** (for now)
 - **Claude Code** installed and in your PATH ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
 
 ### Install
@@ -100,7 +101,7 @@ The AgenC interface is tmux. Run this so you get the AgenC keybindings:
 agenc tmux inject
 ```
 
-If you haven't used tmux before, drop this into your `~/.tmux.conf`:
+If you haven't used tmux before, here's a starter `~/.tmux.conf`:
 
 ```tmux
 set -g extended-keys on
@@ -132,12 +133,12 @@ You'll be dropped into the repo selection screen. Select "Github Repo" and enter
 
 AgenC will clone it, launch a new **mission**, and drop you into Claude to start your work.
 
-Missions are the main primitive of AgenC: disposable self-contained workspaces with a full copy of the Git repo (not worktrees, so no need for a master merge queue).
+Missions are the main primitive of AgenC: disposable self-contained workspaces with a fully independent copy of the Git repo.
 
 You can see your missions with `agenc mission ls`.
 
 ### 3. 🎨 Command Palette
-Inevitably you'll want to do work on the side while Claude is working away.
+Inevitably you'll want to do work on the side while Claude is grinding away.
 
 Press `ctrl-y` to open the command palette and...
 
@@ -201,6 +202,7 @@ SUBSTACK_USER_ID="op://Private/Substack Session Token/username"
 }
 ```
 
+<!--
 ### 7. 🔁 Crons
 
 > ⚠️ Crons only work on MacOS for now!
@@ -288,8 +290,9 @@ Common examples:
 By default, if a cron is still running when the next scheduled time arrives, the new run is skipped (`overlap: skip`). You can allow concurrent runs by setting `overlap: allow` in your cron config.
 
 AgenC limits concurrent cron missions to 10 by default (configurable via `cronsMaxConcurrent` in `config.yml`). When the limit is reached, new crons are skipped until slots free up.
+-->
 
-### 8. Send feedback
+### 7. Send feedback
 I'd love to hear from you! To send me feedback you can...
 
 - Use "Send Feedback" in the command palette
@@ -348,7 +351,7 @@ The **daemon** is a background process that keeps the factory running smoothly. 
 
 1. **Repo sync** (every 60 seconds) — Fetches and fast-forwards repos in the shared library so new missions clone from fresh code without needing to run a slow `git clone`
 2. **Config auto-commit** (every 10 minutes) — If your `$AGENC_DIRPATH/config/` is a Git repo, the daemon auto-commits and pushes changes to Github so your config stays version-controlled
-3. **Cron scheduler** (every 60 seconds) — Spawns headless missions on schedule for recurring tasks
+<!-- 3. **Cron scheduler** (every 60 seconds) — Spawns headless missions on schedule for recurring tasks -->
 4. **Config watcher** (on file change) — Watches `~/.claude` and mirrors changes to a shadow repo so missions can inherit your latest config
 5. **Keybindings writer** (every 5 minutes) — Regenerates tmux keybindings to pick up any palette command changes
 
@@ -380,7 +383,7 @@ AgenC stores its state in `$AGENC_DIRPATH` (defaults to `~/.agenc`). The central
 Key features:
 
 - **Synced repos** — keep repositories continuously up-to-date in a shared library
-- **Cron jobs** — spawn headless missions on a schedule
+<!-- - **Cron jobs** — spawn headless missions on a schedule -->
 - **Palette commands** — customize the tmux command palette and keybindings
 - **Config auto-sync** — optionally back the config directory with Git for automatic versioning
 
