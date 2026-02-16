@@ -43,6 +43,8 @@ make build
 go build -o agenc .
 ```
 
+**Sandbox:** The `make build` command requires access to the Go build cache (typically at `~/.cache/go-build`), which is outside the default sandbox permissions. When running `make build`, you must disable the sandbox by setting `dangerouslyDisableSandbox: true` in the Bash tool call. This is safe because the Makefile and Go toolchain are trusted build tools.
+
 Running the Binary
 ------------------
 
