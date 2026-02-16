@@ -21,6 +21,7 @@ const (
 
 // runConfigWatcherLoop initializes the shadow repo (if needed), performs an
 // initial ingest from ~/.claude, then watches for ongoing changes.
+// It also watches the agenc config.yml file for changes to trigger cron syncing.
 func (d *Daemon) runConfigWatcherLoop(ctx context.Context) {
 	userClaudeDirpath, err := config.GetUserClaudeDirpath()
 	if err != nil {
@@ -37,11 +38,11 @@ func (d *Daemon) runConfigWatcherLoop(ctx context.Context) {
 	shadowDirpath := claudeconfig.GetShadowRepoDirpath(d.agencDirpath)
 	d.logger.Println("Config watcher: shadow repo ready, starting watch")
 
-	d.watchClaudeDir(ctx, userClaudeDirpath, shadowDirpath)
+	d.watchBothConfigs(ctx, userClaudeDirpath, shadowDirpath)
 }
 
-// watchClaudeDir sets up fsnotify watches and runs the event loop.
-func (d *Daemon) watchClaudeDir(ctx context.Context, userClaudeDirpath string, shadowDirpath string) {
+// watchBothConfigs sets up fsnotify watches for both ~/.claude and agenc config.yml.
+func (d *Daemon) watchBothConfigs(ctx context.Context, userClaudeDirpath string, shadowDirpath string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		d.logger.Printf("Config watcher: failed to create watcher: %v", err)
@@ -49,16 +50,26 @@ func (d *Daemon) watchClaudeDir(ctx context.Context, userClaudeDirpath string, s
 	}
 	defer watcher.Close()
 
-	// Add watches for tracked files and directories
+	// Add watches for tracked files and directories in ~/.claude
 	d.addTrackedWatches(watcher, userClaudeDirpath)
 
-	var debounceTimer *time.Timer
+	// Add watch for agenc config.yml
+	agencConfigPath := config.GetConfigFilepath(d.agencDirpath)
+	if err := watcher.Add(agencConfigPath); err != nil {
+		d.logger.Printf("Config watcher: failed to watch agenc config.yml: %v", err)
+	}
+
+	var claudeDebounceTimer *time.Timer
+	var agencDebounceTimer *time.Timer
 
 	for {
 		select {
 		case <-ctx.Done():
-			if debounceTimer != nil {
-				debounceTimer.Stop()
+			if claudeDebounceTimer != nil {
+				claudeDebounceTimer.Stop()
+			}
+			if agencDebounceTimer != nil {
+				agencDebounceTimer.Stop()
 			}
 			return
 
@@ -67,15 +78,28 @@ func (d *Daemon) watchClaudeDir(ctx context.Context, userClaudeDirpath string, s
 				return
 			}
 
+			// Check if this is the agenc config.yml file
+			if event.Name == agencConfigPath {
+				// Reset debounce timer for agenc config
+				if agencDebounceTimer != nil {
+					agencDebounceTimer.Stop()
+				}
+				agencDebounceTimer = time.AfterFunc(ingestDebounce, func() {
+					d.syncCronsAfterConfigChange()
+				})
+				continue
+			}
+
+			// Otherwise, process as a ~/.claude change
 			if !isTrackedPath(event.Name, userClaudeDirpath) {
 				continue
 			}
 
-			// Reset debounce timer on each event
-			if debounceTimer != nil {
-				debounceTimer.Stop()
+			// Reset debounce timer for ~/.claude changes
+			if claudeDebounceTimer != nil {
+				claudeDebounceTimer.Stop()
 			}
-			debounceTimer = time.AfterFunc(ingestDebounce, func() {
+			claudeDebounceTimer = time.AfterFunc(ingestDebounce, func() {
 				d.ingestClaudeConfig(userClaudeDirpath, shadowDirpath)
 				// Re-add watches in case directories were created/removed
 				d.addTrackedWatches(watcher, userClaudeDirpath)
@@ -181,5 +205,18 @@ func isPathUnder(child string, parent string) bool {
 func (d *Daemon) ingestClaudeConfig(userClaudeDirpath string, shadowDirpath string) {
 	if err := claudeconfig.IngestFromClaudeDir(userClaudeDirpath, shadowDirpath); err != nil {
 		d.logger.Printf("Config watcher: ingest failed: %v", err)
+	}
+}
+
+// syncCronsAfterConfigChange triggers a cron sync after the agenc config changes.
+func (d *Daemon) syncCronsAfterConfigChange() {
+	cfg, _, err := config.ReadAgencConfig(d.agencDirpath)
+	if err != nil {
+		d.logger.Printf("Config watcher: failed to read config after change: %v", err)
+		return
+	}
+
+	if err := d.cronSyncer.SyncCronsToLaunchd(cfg.Crons, d.logger); err != nil {
+		d.logger.Printf("Config watcher: failed to sync crons: %v", err)
 	}
 }

@@ -77,7 +77,7 @@ The daemon is a long-running background process that performs periodic maintenan
 - PID file: `$AGENC_DIRPATH/daemon/daemon.pid`
 - Log file: `$AGENC_DIRPATH/daemon/daemon.log`
 
-The daemon runs six concurrent goroutines:
+The daemon runs five concurrent goroutines:
 
 **1. Repo update loop** (`internal/daemon/template_updater.go`)
 - Runs every 60 seconds
@@ -88,24 +88,18 @@ The daemon runs six concurrent goroutines:
 - Runs every 10 minutes (first cycle delayed by 10 minutes after startup)
 - If `$AGENC_DIRPATH/config/` is a Git repo with uncommitted changes: stages all, commits with timestamp message, pushes (if `origin` remote exists)
 
-**3. Cron scheduler loop** (`internal/daemon/cron_scheduler.go`)
-- Runs every 60 seconds (immediate first cycle)
-- Reads enabled cron jobs from `config.yml`, checks which are due
-- Spawns headless missions for due crons, respecting max concurrent limit and overlap policies
-- On startup, adopts orphaned headless missions from a previous daemon instance
-- On shutdown, gracefully terminates all running cron missions
-
-**4. Config watcher loop** (`internal/daemon/config_watcher.go`)
-- Initializes the shadow repo on first run, then watches `~/.claude` for changes via fsnotify
-- On change (debounced at 500ms), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
+**3. Config watcher loop** (`internal/daemon/config_watcher.go`)
+- Initializes the shadow repo on first run, then watches both `~/.claude` and `config.yml` for changes via fsnotify
+- On `~/.claude` changes (debounced at 500ms), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
+- On `config.yml` changes (debounced at 500ms), triggers cron sync to launchd plists
 - Watches both the `~/.claude` directory and all tracked subdirectories, resolving symlinks to watch actual targets
 
-**5. Keybindings writer loop** (`internal/daemon/keybindings_writer.go`)
+**4. Keybindings writer loop** (`internal/daemon/keybindings_writer.go`)
 - Writes the tmux keybindings file on startup and every 5 minutes
 - Sources the keybindings into any running tmux server after writing
 - Ensures keybindings stay current after binary upgrades (daemon auto-restarts on version bump)
 
-**6. Mission summarizer loop** (`internal/daemon/mission_summarizer.go`)
+**5. Mission summarizer loop** (`internal/daemon/mission_summarizer.go`)
 - Runs every 2 minutes
 - Queries the database for active missions where `prompt_count - last_summary_prompt_count >= 10`
 - For each eligible mission: extracts recent user messages from session JSONL, calls Claude Haiku via `claude --print --model claude-haiku-4-5-20251001` to generate a 3-8 word description, stores the result in the `ai_summary` database column
@@ -296,16 +290,23 @@ SQLite mission tracking with auto-migration.
 
 ### `internal/daemon/`
 
-Background daemon with six concurrent loops.
+Background daemon with five concurrent loops.
 
-- `daemon.go` — `Daemon` struct, `Run` method that starts and coordinates all goroutines
+- `daemon.go` — `Daemon` struct, `Run` method that starts and coordinates all goroutines, initial cron sync on startup
 - `process.go` — daemon lifecycle: `ForkDaemon` (re-executes binary as detached process via setsid), `ReadPID`, `IsProcessRunning`, `StopDaemon` (SIGTERM then SIGKILL)
 - `template_updater.go` — repo update loop (60-second interval, fetches synced + active-mission repos)
 - `config_auto_commit.go` — config auto-commit loop (10-minute interval, git add/commit/push)
-- `cron_scheduler.go` — cron scheduler loop (60-second interval, spawns headless missions, overlap policies, orphan adoption)
-- `config_watcher.go` — config watcher loop (fsnotify on `~/.claude`, 500ms debounce, ingests into shadow repo)
+- `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup
+- `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo and triggers cron sync)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
 - `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
+
+### `internal/launchd/`
+
+macOS launchd integration for cron scheduling.
+
+- `plist.go` — `Plist` struct and XML generation, `ParseCronExpression` (converts cron expressions to `StartCalendarInterval`), `CronToPlistFilename` (sanitizes cron names), `PlistDirpath` helper
+- `manager.go` — `Manager` wraps launchctl operations: `LoadPlist`, `UnloadPlist`, `IsLoaded`, `RemovePlist` (two-step: unload then delete), `ListAgencCronJobs`, `VerifyLaunchctlAvailable`
 
 ### `internal/tmux/`
 
@@ -440,14 +441,40 @@ The `$AGENC_DIRPATH/config/` directory can optionally be a Git repo. The daemon'
 
 ### Cron scheduling
 
-Cron jobs are defined in `config.yml` under the `crons` key. The daemon's cron scheduler (`internal/daemon/cron_scheduler.go`) evaluates cron expressions every 60 seconds using the `gronx` library.
+Cron jobs are defined in `config.yml` under the `crons` key. The daemon syncs cron configuration to macOS launchd plists in `~/Library/LaunchAgents/`.
 
-Key behaviors:
-- **Max concurrent limit** — configurable via `cronsMaxConcurrent` (default: 10). Crons are skipped when the limit is reached.
-- **Overlap policies** — `skip` (default): skips if the previous run is still active. `allow`: permits concurrent runs of the same cron.
-- **Double-fire guard** — checks the database for a mission created by this cron in the current minute, preventing duplicate spawns.
-- **Orphan adoption** — on daemon startup, queries the database for cron-spawned missions, checks their wrapper PIDs, and adopts any that are still running into the scheduler's tracking map.
-- **Graceful shutdown** — on daemon stop, sends SIGINT to all running cron missions and waits up to 60 seconds before force-killing.
+**Architecture:**
+```
+config.yml → fsnotify → daemon → cron syncer → launchd plists → launchd → agenc mission new
+```
+
+The daemon's cron syncer (`internal/daemon/cron_syncer.go`, `internal/launchd/`) handles synchronization:
+
+**Plist management:**
+- Each cron job generates a plist file: `agenc-cron-{cronName}.plist`
+- Plists contain `StartCalendarInterval` scheduling directives parsed from cron expressions
+- Enabled crons: plist is written and loaded into launchd
+- Disabled crons: plist is unloaded from launchd (but file remains)
+- Deleted crons: plist is unloaded and file is deleted
+
+**Sync triggers:**
+- On daemon startup: full sync of all crons
+- On `config.yml` change: incremental sync (debounced at 500ms)
+- Orphan cleanup: on startup, scans `~/Library/LaunchAgents/` for `agenc-cron-*.plist` files not in config and removes them (unload + delete)
+
+**Execution flow:**
+1. launchd triggers at scheduled time
+2. Invokes `agenc mission new --headless --cron-trigger=<cronName> --prompt=<prompt> [repo]`
+3. `mission_new.go` checks `--cron-trigger` flag
+4. Double-fire prevention: queries database for most recent mission with matching `cron_name`
+5. If found and status != "completed", exit 0 (skip)
+6. Otherwise, proceed with normal mission creation
+
+**Key behaviors:**
+- **Scheduling reliability** — launchd handles scheduling, survives daemon restarts
+- **Double-fire prevention** — queries `GetMostRecentMissionForCron` by `cron_name`, skips if status is active
+- **No max concurrent limit** — macOS handles process management
+- **Cron expression support** — basic expressions only (`minute hour day month weekday`), no `*/N` syntax
 
 Cron missions run in headless mode (`wrapper.RunHeadless`) with configurable timeout (default: 1 hour), capturing output to `claude-output.log` with log rotation.
 

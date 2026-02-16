@@ -115,11 +115,12 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 }
 
 // GetMostRecentMissionForCron returns the most recent mission for a cron job,
-// or nil if no mission exists for the cron.
-func (db *DB) GetMostRecentMissionForCron(cronID string) (*Mission, error) {
+// or nil if no mission exists for the cron. This function queries by cron_name
+// to check if there is a running mission for the cron (for double-fire prevention).
+func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE cron_id = ? ORDER BY created_at DESC LIMIT 1",
-		cronID,
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
+		cronName,
 	)
 
 	mission, err := scanMission(row)
@@ -127,7 +128,7 @@ func (db *DB) GetMostRecentMissionForCron(cronID string) (*Mission, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to get most recent mission for cron '%s'", cronID)
+		return nil, stacktrace.Propagate(err, "failed to get most recent mission for cron '%s'", cronName)
 	}
 	return mission, nil
 }

@@ -27,6 +27,7 @@ var headlessFlag bool
 var timeoutFlag string
 var cronIDFlag string
 var cronNameFlag string
+var cronTriggerFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   newCmdStr + " [repo]",
@@ -53,9 +54,11 @@ func init() {
 	missionNewCmd.Flags().StringVar(&timeoutFlag, timeoutFlagName, "1h", "max runtime for headless missions (e.g., '1h', '30m')")
 	missionNewCmd.Flags().StringVar(&cronIDFlag, cronIDFlagName, "", "cron job ID (internal use)")
 	missionNewCmd.Flags().StringVar(&cronNameFlag, cronNameFlagName, "", "cron job name (internal use)")
+	missionNewCmd.Flags().StringVar(&cronTriggerFlag, cronTriggerFlagName, "", "cron job name for double-fire prevention (internal use)")
 	// Hide internal cron flags
 	missionNewCmd.Flags().MarkHidden(cronIDFlagName)
 	missionNewCmd.Flags().MarkHidden(cronNameFlagName)
+	missionNewCmd.Flags().MarkHidden(cronTriggerFlagName)
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -70,6 +73,18 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ensureDaemonRunning(agencDirpath)
+
+	// Double-fire prevention: if this is a cron trigger, check for running missions
+	if cronTriggerFlag != "" {
+		if shouldSkipCronTrigger(cronTriggerFlag) {
+			fmt.Printf("Skipping cron trigger '%s': previous mission still running\n", cronTriggerFlag)
+			return nil
+		}
+		// Set cronNameFlag so the mission gets tagged with the cron name
+		if cronNameFlag == "" {
+			cronNameFlag = cronTriggerFlag
+		}
+	}
 
 	// Ensure shadow repo is initialized (auto-creates from ~/.claude if needed)
 	if err := claudeconfig.EnsureShadowRepo(agencDirpath); err != nil {
@@ -89,6 +104,36 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	return runMissionNewWithPicker(args)
+}
+
+// shouldSkipCronTrigger checks if a cron trigger should be skipped due to a
+// running mission. Returns true if there is a recent mission for this cron
+// that is still active (status != "completed").
+func shouldSkipCronTrigger(cronName string) bool {
+	db, err := openDB()
+	if err != nil {
+		fmt.Printf("Warning: failed to check for running mission: %v\n", err)
+		return false
+	}
+	defer db.Close()
+
+	mission, err := db.GetMostRecentMissionForCron(cronName)
+	if err != nil {
+		fmt.Printf("Warning: failed to query for recent mission: %v\n", err)
+		return false
+	}
+
+	// No previous mission found
+	if mission == nil {
+		return false
+	}
+
+	// Check if the mission is still active
+	if mission.Status != "completed" && mission.Status != "archived" {
+		return true
+	}
+
+	return false
 }
 
 // runMissionNewWithClone creates a new mission by cloning the agent directory

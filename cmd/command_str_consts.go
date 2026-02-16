@@ -110,13 +110,14 @@ const (
 	repoConfigWindowTitleFlagName  = "window-title"
 
 	// cron flags
-	headlessFlagName = "headless"
-	timeoutFlagName  = "timeout"
-	cronIDFlagName   = "cron-id"
-	cronNameFlagName = "cron-name"
-	followFlagName   = "follow"
-	cronFlagName     = "cron"
-	dateFlagName     = "date"
+	headlessFlagName    = "headless"
+	timeoutFlagName     = "timeout"
+	cronIDFlagName      = "cron-id"
+	cronNameFlagName    = "cron-name"
+	cronTriggerFlagName = "cron-trigger"
+	followFlagName      = "follow"
+	cronFlagName        = "cron"
+	dateFlagName        = "date"
 
 	// config cron flags
 	cronConfigScheduleFlagName    = "schedule"
