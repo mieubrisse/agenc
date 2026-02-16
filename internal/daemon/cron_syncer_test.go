@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/launchd"
 )
 
 func TestNewCronSyncer(t *testing.T) {
@@ -23,7 +24,7 @@ func TestNewCronSyncer(t *testing.T) {
 	}
 }
 
-func TestSanitizeLabelName(t *testing.T) {
+func TestSanitizeCronName(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -58,9 +59,9 @@ func TestSanitizeLabelName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizeLabelName(tt.input)
+			got := launchd.SanitizeCronName(tt.input)
 			if got != tt.want {
-				t.Errorf("sanitizeLabelName() = %v, want %v", got, tt.want)
+				t.Errorf("launchd.SanitizeCronName() = %v, want %v", got, tt.want)
 			}
 		})
 	}

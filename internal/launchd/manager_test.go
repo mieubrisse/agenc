@@ -38,7 +38,10 @@ func TestGetPlistPathForLabel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := GetPlistPathForLabel(tt.label)
+			path, err := GetPlistPathForLabel(tt.label)
+			if err != nil {
+				t.Fatalf("GetPlistPathForLabel() error = %v", err)
+			}
 			expectedFilename := "agenc-cron-" + tt.wantLabel + ".plist"
 			if filepath.Base(path) != expectedFilename {
 				t.Errorf("GetPlistPathForLabel() = %v, want filename %v", filepath.Base(path), expectedFilename)

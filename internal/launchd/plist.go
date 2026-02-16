@@ -157,27 +157,35 @@ func (p *Plist) WriteToDisk(targetPath string) error {
 	return nil
 }
 
-// CronToPlistFilename converts a cron name to a plist filename.
-// Sanitizes the name by converting spaces to dashes and removing special characters.
-func CronToPlistFilename(cronName string) string {
+// SanitizeCronName sanitizes a cron name for use in labels and filenames.
+// This is the canonical sanitization function - use this everywhere.
+func SanitizeCronName(cronName string) string {
 	// Replace spaces with dashes
 	sanitized := strings.ReplaceAll(cronName, " ", "-")
 
 	// Remove special characters (keep alphanumeric, dash, underscore)
 	reg := regexp.MustCompile(`[^a-zA-Z0-9\-_]`)
-	sanitized = reg.ReplaceAllString(sanitized, "")
+	return reg.ReplaceAllString(sanitized, "")
+}
 
-	return fmt.Sprintf("agenc-cron-%s.plist", sanitized)
+// CronToPlistFilename converts a cron name to a plist filename.
+// Sanitizes the name by converting spaces to dashes and removing special characters.
+func CronToPlistFilename(cronName string) string {
+	return fmt.Sprintf("agenc-cron-%s.plist", SanitizeCronName(cronName))
 }
 
 // PlistDirpath returns the path to the LaunchAgents directory.
-func PlistDirpath() string {
+// Returns error if home directory cannot be determined.
+func PlistDirpath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		// Fallback to HOME env var
+		// Try fallback to HOME env var
 		homeDir = os.Getenv("HOME")
+		if homeDir == "" {
+			return "", stacktrace.NewError("cannot determine home directory: UserHomeDir failed and $HOME is unset")
+		}
 	}
-	return filepath.Join(homeDir, "Library", "LaunchAgents")
+	return filepath.Join(homeDir, "Library", "LaunchAgents"), nil
 }
 
 // ParseCronExpression parses a cron expression into a CalendarInterval.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -147,9 +148,13 @@ func (m *Manager) RemoveJobByLabel(label string) error {
 }
 
 // GetPlistPathForLabel returns the expected plist file path for a given label.
-func GetPlistPathForLabel(label string) string {
+func GetPlistPathForLabel(label string) (string, error) {
 	// Extract cron name from label (agenc-cron-{cronName})
 	cronName := strings.TrimPrefix(label, "agenc-cron-")
 	filename := fmt.Sprintf("agenc-cron-%s.plist", cronName)
-	return fmt.Sprintf("%s/%s", PlistDirpath(), filename)
+	dirpath, err := PlistDirpath()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to get plist directory")
+	}
+	return filepath.Join(dirpath, filename), nil
 }
