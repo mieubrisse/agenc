@@ -6,7 +6,7 @@
 
 </h1>
   <p align="center">
-    AgenC is a self-upgrading AI work factory.</br>
+    AgenC is a self-upgrading agentic work factory.</br>
     </br>
     <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat.</br>
     </br>
@@ -45,7 +45,7 @@ The Claudes step on each other, each friction requires spawning a new Claude win
 AgenC tames this chaos. It provides:
 
 - 📦 Claude session isolation in fully independent sandboxes (no Git worktrees, no merge queue - each agent is completely independent!)
-- 🎨 Session management and command palette w/hotkeys so launching new sessions, switching windows, stopping/resuming sessions, and rolling lessons back into your Claude config is a thought away
+- 🎨 Session management and command palette + hotkeys so launching new sessions, switching windows, stopping/resuming sessions, and rolling lessons back into your Claude config is a thought away
 - 🔧 Palette customization so your top-used operations are easy
 <!-- - 🔁 Cron jobs so your factory can work while you're away -->
 - 🔐 1Password secrets injection
@@ -71,7 +71,7 @@ Quickstart
 ### Prerequisites
 
 - **MacOS** (for now)
-- **Claude Code** installed and in your PATH ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
+- **Claude Code** installed and in your PATH
 
 ### Install
 
@@ -82,13 +82,19 @@ brew install agenc
 
 This automatically installs required dependencies (`gh`, `fzf`, `tmux`).
 
+If you're not logged in to `gh`, use:
+
+```
+gh auth login
+```
+
 ### 1. 🔧 Initialize
 The AgenC directory defaults to `~/.agenc`. Override with `AGENC_DIRPATH` if needed.
 
 Run the following and answer the prompts:
 
 ```bash
-agenc init
+agenc config init
 ```
 
 I recommend "yes" to creating a config repo; AgenC will sync it to GitHub automatically.
@@ -121,7 +127,7 @@ bind -n C-S-l swap-window -t +1\; select-window -t +1
 ```
 
 ### 2. 🚀 Launch
-Attach to the AgenC interface:
+Attach to the AgenC tmux interface:
 
 ```bash
 agenc attach
@@ -131,9 +137,7 @@ You'll be dropped into the repo selection screen. Select "Github Repo" and enter
 
 AgenC will clone it, launch a new **mission**, and drop you into Claude to start your work.
 
-Missions are the main primitive of AgenC: disposable self-contained workspaces with a fully independent copy of the Git repo.
-
-You can see your missions with `agenc mission ls`.
+Missions are the main primitive of AgenC: disposable self-contained workspaces with a fully independent copy of the Git repo (no merge queue needed - the agents figure it out, just like humans).
 
 ### 3. 🎨 Command Palette
 Inevitably you'll want to do work on the side while Claude is grinding away.
@@ -141,6 +145,7 @@ Inevitably you'll want to do work on the side while Claude is grinding away.
 Press `ctrl-y` to open the command palette and...
 
 - 🐚 Open a side shell in your current mission's workspace ("Side Shell" or `ctrl-p`)
+  > 💡 [cmdk](https://github.com/mieubrisse/cmdk) is amazing in the side shell
 - 🚀 Launch a side mission ("New Mission" or `ctrl-n`, or "Side Claude" or "Quick Claude")
 - 🔀 Switch between your running missions ("Switch Mission" or `ctrl-m`)
 - 💬 Send me feedback about AgenC!
@@ -149,25 +154,30 @@ These commands are cheap; use them liberally. AgenC is designed to help you mana
 
 The command palette can be configured with custom hotkeys and custom commands.
 
-The hard way to do this is through the [CLI helpdocs](docs/cli/agenc.md) the `agenc config paletteCommand`. For example, this is to open my dotfiles:
+The hard way to do this is through the [CLI helpdocs](docs/cli/agenc.md) the `agenc config paletteCommand`. For example, this is to quickly set up a new Github repo:
 
 ```
-agenc config paletteCommand add dotfiles \
-    --title="🛠️ Open Dotfiles" \
-    --command="agenc tmux window new -- agenc mission new mieubrisse/dotfiles" \
+agenc config paletteCommand add newRepo \
+    --title "🆕 New Repo" \
+    --command "agenc tmux window new -a -- agenc mission new \
+        --blank \
+        --prompt 'I want to create a new GitHub repository. Please:
+            1) Ask me what the repository name should be and whether I want it public or private
+            2) Create it on GitHub using the gh CLI
+            3) Initialize this blank mission directory as a git repo and set it up to track the newly created GitHub repository.'"
 ```
 
 The easier way is through the Adjutant.
 
 ### 5. 🤖 Adjutant
-AgenC has an AI assistant called Adjutant ("Adjutant" on the palette or `ctrl-t`) that knows how to configure AgenC, as well as launch and manage missions.
+AgenC has an AI assistant called Adjutant ("Adjutant" on the palette or `ctrl-t` for Side Adjutant) that knows how to configure AgenC, as well as launch and manage missions.
 
 You _can_ use the `agenc config` commands to configure stuff like palette commands... but now I just talk to the Adjutant for my AgenC configuration needs.
 
 ### 6. Mission Management
-You can see all missions with `agenc mission ls`. 
+You can see all missions with `agenc mission ls`, and switch between missions with "Switch Mission" (`ctrl-m`) on the command palette.
 
-Missions can also be stopped with "Mission Stop" or "Mission Resume" on the palette. Since each mission is an isolated workspace, no work is lost.
+Missions can also be stopped with "Mission Stop" (`ctrl-s`) or "Mission Resume" on the palette. Since each mission is an isolated workspace, no work is lost.
 
 Full CLI docs: [docs/cli/](docs/cli/)
 
@@ -299,13 +309,13 @@ I'd love to hear from you! To send me feedback you can...
 
 Tips
 ----
-- **When things go wrong, upgrade!** Pop off a new mission and fix the problem - patch the `settings.json`, upgrade the prompt, debug the issue. Missions are cheap; use them liberally. I'm often juggling 6-8 missions at any given time.
+- **When things go wrong, upgrade!** Pop off a new mission and fix the problem: patch the `settings.json`, upgrade the prompt, debug the issue. Missions are cheap; use them liberally. I'm often juggling 6-8 missions at any given time.
 
-- **Run Claude in sandbox mode.** This cuts cuts a lot of permission request fatigue. Run `/sandbox` from your global Claude Code (not inside a mission) to enable sandboxed command execution. This allows Claude to run commands within defined sandbox restrictions without manual approval prompts on every action. The setting automatically carries into every AgenC mission. This is the recommended alternative to `--dangerously-skip-permissions`.
+- **Run Claude in sandbox mode.** This cuts a lot of permission request fatigue. Run `/sandbox` once from vanilla Claude (not inside AgenC) to enable sandboxed command execution. This allows Claude to run commands without manual approval prompts on every action. The setting automatically carries into every new AgenC mission (or if you want to upgrade an existing Mission, do "Reconfig Mission" → "Reload Mission"). This is the recommended alternative to `--dangerously-skip-permissions`.
 
-- **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run "Resume Mission" or `agenc mission resume`.
+- **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run "Resume Mission".
 
-- **Have your agents always commit and push.** Unpushed work sits stranded on the mission's local filesystem. You can add instructions that get injected for AgenC agents only in your `$AGENC_DIRPATH/config/claude-modifications/CLAUDE.md`. Tell your agents here that they should always commit (and, optionally, push if you're working solo on th erepo). This lets you fire-and-forget instructions to your agents, confident the work will persist even if the mission ends.
+- **Have your agents always commit and push.** Unpushed work sits stranded in the mission's workspace. You can add instructions that get injected for AgenC Claudes only in your `$AGENC_DIRPATH/config/claude-modifications/CLAUDE.md`. Tell your agents here that they should always commit (and, optionally, push if you're working solo on the repo). This lets you fire-and-forget instructions to your agents, confident the work will persist even if the mission ends.
 
 
 How It Works
@@ -313,7 +323,7 @@ How It Works
 
 ![](readme-images/architecture.png)
 
-AgenC runs three cooperating processes that work together to give you a factory of Claudes:
+AgenC runs several cooperating components that work together to give you a factory of Claudes:
 
 ### Missions
 
@@ -323,7 +333,7 @@ When you create a mission, AgenC:
 
 1. **Clones a full copy of your Git repo** into `$AGENC_DIRPATH/missions/<uuid>/agent/`. This is NOT a Git worktree — it's a complete independent clone. This means no merge queue, no conflicts with other missions, and no shared state. Each Claude has its own sandbox.
 
-2. **Builds a custom Claude config** by merging your global `~/.claude` config with AgenC-specific settings. This gives the Claude access to the mission's workspace, hooks that track when it's busy or idle, and permissions tailored for its work.
+2. **Builds a custom Claude config** by copying your global `~/.claude` config and injecting AgenC-specific niceties (e.g. skip the "Trust this project?" prompt).
 
 3. **Spawns a wrapper process** that supervises the Claude session. The wrapper handles authentication, tracks mission health, and can restart Claude if needed.
 
@@ -338,7 +348,7 @@ The wrapper:
 - **Passes authentication** to Claude via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable (more below)
 - **Tracks idle state** by listening to hooks that fire when Claude starts and stops responding
 - **Writes heartbeats** to the database every 30 seconds so the daemon knows which missions are alive
-- **Restarts Claude** on command (via unix socket) — useful after upgrading Claude or when something breaks
+- **Restarts Claude** on command (via unix socket) — useful after upgrading Claude config or when something breaks
 - **Updates the repo library** immediately when you push, so new missions get your changes without waiting
 
 When Claude exits (naturally or via `/exit`), the wrapper cleans up and stops. The mission directory stays intact, so you can resume later.
@@ -357,7 +367,7 @@ The daemon starts automatically when you run most `agenc` commands. If it crashe
 
 ### Repo Library
 
-AgenC maintains a **repo library** of Git repos at `$AGENC_DIRPATH/repos/`. When you create a mission, AgenC copies from this library instead of cloning from GitHub every time so that new missions are fast.
+AgenC maintains a **repo library** of Git repos at `$AGENC_DIRPATH/repos/`. When you create a mission, AgenC copies from this library instead of cloning from GitHub every time so that new don't require cloning from Github.
 
 The daemon keeps the library fresh by fetching every 60 seconds. The wrapper contributes by watching for pushes: when you `git push` from a mission, the wrapper immediately updates the library copy so new missions get your changes. Existing missions will notice when they try to merge, same as a human.
 
@@ -371,7 +381,7 @@ AgenC solves this by using a **long-lived OAuth token** that you provide once du
 
 All missions share the same token, so there's no refresh thrashing. When the token expires, update it once with `agenc config set claudeCodeOAuthToken <new-token>`, and all new missions (plus running missions after restart) pick it up automatically.
 
-The only downside that I haven't figured yet figured out is the tokens set up via `claude setup-token` can't query usage, so the `/usage` command won't work in AgenC. You'll need to drop down to vanilla Claude to check your usage.
+The only downside I haven't yet figured out is these Claude tokens can't query usage, so the `/usage` command won't work in AgenC Claudes. You'll need to drop down to vanilla Claude to check your usage.
 
 Configuration
 -------------
@@ -441,9 +451,9 @@ Clone the repo and run `make build`.
 
 CLI Reference
 -------------
-
 Run `agenc --help` for available commands, or see [docs/cli/](docs/cli/) for complete documentation.
 
+<!--
 Theory
 ------
 
@@ -456,22 +466,24 @@ Your organization is a function too - composed of these agent functions. You hav
 This is what it means to "program an organization." The industrial capitalists could only approximate it - writing policies, training workers, hoping the message got through. You can do it precisely: adjust a prompt, add a permission, provide a better example. The agent updates immediately. The org function improves.
 
 The key insight is that refining the outer function means refining the inner functions. Every time an agent misbehaves, that's signal. Capture it in the agent's config, and you've permanently raised its success rate. Do this systematically across all your agents, and the organization compounds in capability rather than in error.
+-->
 
 Vs Gastown
 ----------
-Gastown is a fascinating idea that provided the inspiration to write AgenC, and Steve Yegge sees far beyond the horizon of what we mere mortals see.
+Gastown is a fascinating idea that gave me the push to finally build AgenC, and Steve Yegge sees far beyond the horizon of what we mere mortals see.
 
-Particular things I like:
+Particular things I liked:
 - The Polecat handoff feature, and the idea that "if the session compacts, that's an error"
 - Tmux as the interface
 - Inter-agent mail
-- Persistent tracking of work + dependencies with Beads is a close alignment with [Fractal Outcomes](https://github.com/mieubrisse/orgbrain/blob/master/fractal-outcomes.md), my work organization framework that's worked well with people and I hypothesize will work even better with agents
+- Persistent tracking of work + dependencies with Beads aligns closely with [Fractal Outcomes](https://github.com/mieubrisse/orgbrain/blob/master/fractal-outcomes.md), a work organization framework I've been developing over the past years and which I think will be a good fit for agents
 
 However, I ultimately decided not to use Gastown and build AgenC because...
-- **I want less complexity.** Gastown has tons of concepts and moving pieces. I don't want to spend time debugging the system itself; I just want a HUD with great affordances for managing my work and Claude swarm.
-- **I think learning capture is the future.** I'm [a firm believer in knowledge leverage](https://mieubrisse.substack.com/p/the-leverage-series). Meaning, I want identification of factory friction & lesson capture to be a first-class concept. Gastown's fixed personas seem less focused on learning and more "brute-force the PRs until they work". I don't want to burn a Claude Max subscription in a couple days, and I want my factory to get smarter exponentially.
-- **I think a fully-controlled sandbox is a better architecture for learning.** AgenC works hard to fully control the environment the Claude - snapshotting global Claude config and using full repo clones - so we can enable automatic lesson identification and capture. Gastown uses worktrees, which tie the agents to the central repo and require the Refinery.
-- **I want a work-agnostic factory.** Gastown seems to orient towards doing a bunch of coding on a single repo. But I want a factory where coding and writing and assistant work are treated the same. And doing this work involves popping across many repos - dotfiles, writing repo, calendar assistant repo, Todoist assistant repo.
-- **I want Claude sessions as cattle, not pets.** Gastown seems to orient around a smaller number of named agents, particularly Polecats and Crew.
 
-So if Gastown is Kubernetes, I think AgenC is Docker. It's not as magic, not as high-level, but there's less chaos and more determinism.
+- **I want less complexity.** Gastown has tons of concepts and moving pieces. I want to spend minimal time debugging the system itself; I just want a HUD with great affordances for managing my work and Claude swarm.
+- **I think learning capture is the future.** I'm [a firm believer in knowledge leverage](https://mieubrisse.substack.com/p/the-leverage-series). Meaning, I want identification of factory friction & lesson capture to be first-class concepts. Gastown's fixed personas seem less focused on learning and more "brute-force the PRs until they work". I don't want to burn a Claude Max subscription in a couple days, and I want my factory to get smarter exponentially.
+- **I think a fully-controlled sandbox is a better architecture for learning.** AgenC works hard to fully control the environment the Claude - snapshotting global Claude config and using full repo clones - so we can enable automatic lesson identification and capture. Gastown uses worktrees, which tie the agents to the central repo and require the Refinery.
+- **I want a work-agnostic factory.** Gastown seems to orient towards doing a bunch of coding on a single repo. But I needed a factory where coding and writing and assistant work are treated the same. Doing this work involves popping across many repos - dotfiles, code repos, writing repos, etc. - which is how AgenC got its "juggle lots of things" focus.
+- **I want Claude sessions as cattle, not pets.** Gastown seems to orient around a smaller number of named agents, particularly Polecats and Crew. I prefer tons of missions that are easy to launch, manage, and kill.
+
+If Gastown is Kubernetes, I think AgenC is Docker. It's not as magic, but there's more control and less chaos.
