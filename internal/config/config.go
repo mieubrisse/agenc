@@ -375,27 +375,12 @@ func GetCronLogDirpath(agencDirpath string) string {
 }
 
 // GetCronLogFilepaths returns stdout and stderr log paths for a cron job.
+// The cron name must already be validated (alphanumeric, dash, underscore only).
 func GetCronLogFilepaths(agencDirpath string, cronName string) (stdout, stderr string) {
 	logDir := GetCronLogDirpath(agencDirpath)
-	// Use the same sanitization as launchd.SanitizeCronName for consistency
-	sanitized := sanitizeCronNameForLog(cronName)
-	stdout = filepath.Join(logDir, fmt.Sprintf("%s-stdout.log", sanitized))
-	stderr = filepath.Join(logDir, fmt.Sprintf("%s-stderr.log", sanitized))
+	stdout = filepath.Join(logDir, fmt.Sprintf("%s-stdout.log", cronName))
+	stderr = filepath.Join(logDir, fmt.Sprintf("%s-stderr.log", cronName))
 	return
-}
-
-// sanitizeCronNameForLog removes characters unsafe for filenames.
-// This should match the logic in launchd.SanitizeCronName for consistency.
-func sanitizeCronNameForLog(name string) string {
-	sanitized := strings.ReplaceAll(name, " ", "-")
-	// Remove special characters (keep alphanumeric, dash, underscore)
-	var result strings.Builder
-	for _, r := range sanitized {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
 }
 
 // ReadOAuthToken reads the OAuth token from the cache file. Returns an empty

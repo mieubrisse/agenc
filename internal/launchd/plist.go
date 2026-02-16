@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -157,21 +156,10 @@ func (p *Plist) WriteToDisk(targetPath string) error {
 	return nil
 }
 
-// SanitizeCronName sanitizes a cron name for use in labels and filenames.
-// This is the canonical sanitization function - use this everywhere.
-func SanitizeCronName(cronName string) string {
-	// Replace spaces with dashes
-	sanitized := strings.ReplaceAll(cronName, " ", "-")
-
-	// Remove special characters (keep alphanumeric, dash, underscore)
-	reg := regexp.MustCompile(`[^a-zA-Z0-9\-_]`)
-	return reg.ReplaceAllString(sanitized, "")
-}
-
 // CronToPlistFilename converts a cron name to a plist filename.
-// Sanitizes the name by converting spaces to dashes and removing special characters.
+// The cron name must already be validated (alphanumeric, dash, underscore only).
 func CronToPlistFilename(cronName string) string {
-	return fmt.Sprintf("agenc-cron-%s.plist", SanitizeCronName(cronName))
+	return fmt.Sprintf("agenc-cron-%s.plist", cronName)
 }
 
 // PlistDirpath returns the path to the LaunchAgents directory.

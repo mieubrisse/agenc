@@ -56,7 +56,7 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 	for name, cronCfg := range crons {
 		plistFilename := launchd.CronToPlistFilename(name)
 		plistPath := filepath.Join(plistDirpath, plistFilename)
-		label := fmt.Sprintf("agenc-cron-%s", launchd.SanitizeCronName(name))
+		label := fmt.Sprintf("agenc-cron-%s", name)
 
 		// Parse the cron schedule
 		calInterval, err := launchd.ParseCronExpression(cronCfg.Schedule)
@@ -168,10 +168,10 @@ func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, l
 		cronName = strings.TrimSuffix(cronName, ".plist")
 
 		// Check if this cron exists in the config
-		// Note: We need to check against the sanitized name
+		// Cron names are used directly without sanitization
 		found := false
 		for name := range crons {
-			if launchd.SanitizeCronName(name) == cronName {
+			if name == cronName {
 				found = true
 				break
 			}

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/launchd"
 )
 
 func TestNewCronSyncer(t *testing.T) {
@@ -21,49 +20,6 @@ func TestNewCronSyncer(t *testing.T) {
 	}
 	if syncer.manager == nil {
 		t.Error("manager not initialized")
-	}
-}
-
-func TestSanitizeCronName(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "simple name",
-			input: "my-cron",
-			want:  "my-cron",
-		},
-		{
-			name:  "name with spaces",
-			input: "my cron job",
-			want:  "my-cron-job",
-		},
-		{
-			name:  "name with special characters",
-			input: "my@cron#job!",
-			want:  "mycronjob",
-		},
-		{
-			name:  "name with underscores",
-			input: "my_cron_job",
-			want:  "my_cron_job",
-		},
-		{
-			name:  "name with mixed case",
-			input: "MyCronJob",
-			want:  "MyCronJob",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := launchd.SanitizeCronName(tt.input)
-			if got != tt.want {
-				t.Errorf("launchd.SanitizeCronName() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 
