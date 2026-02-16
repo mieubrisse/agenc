@@ -137,6 +137,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:        "agenc tmux pane new -- $SHELL",
 		TmuxKeybinding: "-n C-p",
 	},
+	"shell": {
+		Title:       "🐚  Shell",
+		Description: "Open a shell in a new window",
+		Command:     "agenc tmux window new -a -- $SHELL",
+	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
 		Description:    "Stop the mission in the focused pane",
@@ -191,6 +196,7 @@ var builtinPaletteCommandOrder = []string{
 	"switchMission",
 	"resumeMission",
 	"sideShell",
+	"shell",
 	"stopMission",
 	"reconfigMission",
 	"reloadMission",
