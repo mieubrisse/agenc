@@ -20,6 +20,7 @@ repoConfig:
     alwaysSynced: true                # daemon fetches every 60s (optional, default: false)
     windowTitle: "my-repo"            # custom tmux window name (optional)
 
+<!--
 # Max concurrent headless cron missions (default: 10)
 cronsMaxConcurrent: 10
 
@@ -33,6 +34,7 @@ crons:
     timeout: "1h"              # Max runtime as Go duration (default: 1h)
     overlap: skip              # "skip" (default) or "allow"
     enabled: true              # Defaults to true if omitted
+-->
 
 # Palette commands — customize the tmux command palette and keybindings
 paletteCommands:
@@ -103,6 +105,7 @@ agenc repo add owner/repo --always-synced                                    # c
 agenc repo rm owner/repo                                                     # remove from disk and config
 ```
 
+<!--
 crons
 -----
 
@@ -122,6 +125,7 @@ agenc cron enable <name> # enable a disabled cron
 agenc cron run <name>    # trigger a cron immediately
 agenc cron logs <name>   # view output from the latest run
 ```
+-->
 
 paletteCommands
 ---------------
