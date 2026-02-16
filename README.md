@@ -6,7 +6,7 @@
 
 </h1>
   <p align="center">
-    AgenC is a self-upgrading agentic work factory.</br>
+    AgenC is an agentic work factory focused on self-upgrading.</br>
     </br>
     <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat.</br>
     </br>
