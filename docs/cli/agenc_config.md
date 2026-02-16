@@ -11,6 +11,7 @@ Manage agenc configuration
 ### SEE ALSO
 
 * [agenc](agenc.md)	 - The AgenC — agent mission management CLI
+* [agenc config cron](agenc_config_cron.md)	 - Manage cron job configuration
 * [agenc config edit](agenc_config_edit.md)	 - Open config.yml in your editor ($EDITOR)
 * [agenc config get](agenc_config_get.md)	 - Get a config value
 * [agenc config init](agenc_config_init.md)	 - Initialize agenc configuration (interactive)

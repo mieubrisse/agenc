@@ -117,4 +117,13 @@ const (
 	followFlagName   = "follow"
 	cronFlagName     = "cron"
 	dateFlagName     = "date"
+
+	// config cron flags
+	cronConfigScheduleFlagName    = "schedule"
+	cronConfigPromptFlagName      = "prompt"
+	cronConfigDescriptionFlagName = "description"
+	cronConfigGitFlagName         = "git"
+	cronConfigTimeoutFlagName     = "timeout"
+	cronConfigOverlapFlagName     = "overlap"
+	cronConfigEnabledFlagName     = "enabled"
 )
