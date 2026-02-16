@@ -59,11 +59,11 @@ Of course, AgenC is built with AgenC.
 
 > ### ⚠️ **ADDICTION WARNING** ⚠️
 >
-> AgenC **WILL** force-multiply you. But you should know it has a videogame-like addictive quality.
+> AgenC feels great to use, like [painting with your mind](https://mieubrisse.substack.com/p/be-rembrandt). But you should know it has a videogame-like addictive quality.
 >
 > Because it's so easy launch work, you get a "just one more mission" feeling.
 > 
-> I noticed in building AgenC that it's hard to switch off and go to sleep. My brain would be buzzing with ideas; I'd wake up in the middle of the night wanting to launch new work.
+> I noticed in building AgenC that it's hard to switch off and go to sleep. My brain would be always buzzing with ideas, and I'd wake up in the middle of the night wanting to launch new work.
 >
 > Please remember to take breaks and leave sufficient wind-down time before sleep!
 
@@ -72,7 +72,6 @@ Quickstart
 
 ### Prerequisites
 
-- **macOS** (won't work on Linux yet)
 - **Claude Code** installed and in your PATH ([installation guide](https://docs.anthropic.com/en/docs/claude-code/getting-started))
 
 ### Install
@@ -204,7 +203,9 @@ SUBSTACK_USER_ID="op://Private/Substack Session Token/username"
 
 ### 7. 🔁 Crons
 
-Crons let your factory work while you're away. AgenC runs scheduled headless missions — think "generate a daily report at 9am" or "clean up old files every Sunday."
+> ⚠️ Crons only work on MacOS for now!
+
+Crons let your factory work while you're away. AgenC runs scheduled headless missions — think "generate a daily report at 9am" or "take a tech debt cleanup pass at the codebase" or "process my inbox every morning".
 
 **Create a cron job:**
 
@@ -224,7 +225,7 @@ The wizard asks for:
 
 **What happens when a cron runs:**
 
-The daemon spawns a headless mission at the scheduled time. The mission runs in isolation with its own workspace, just like a regular mission. Output is captured to a log file with automatic rotation.
+A headless mission gets spawned at the scheduled time. The mission is a regular mission, and runs in isolation with its own workspace like normal. Output is captured to a log file with automatic rotation.
 
 **View cron jobs:**
 
