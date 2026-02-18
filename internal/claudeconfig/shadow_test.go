@@ -571,7 +571,7 @@ func TestCopyAndPatchClaudeJSON(t *testing.T) {
 	defer os.Setenv("HOME", origHome)
 
 	missionAgentDirpath := "/tmp/claude/missions/test-123/agent"
-	if err := copyAndPatchClaudeJSON(destDirpath, missionAgentDirpath); err != nil {
+	if err := copyAndPatchClaudeJSON(destDirpath, missionAgentDirpath, nil); err != nil {
 		t.Fatalf("copyAndPatchClaudeJSON failed: %v", err)
 	}
 

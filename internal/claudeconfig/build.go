@@ -88,7 +88,7 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 	}
 
 	// Copy and patch .claude.json with trust entry for mission agent dir
-	if err := copyAndPatchClaudeJSON(claudeConfigDirpath, missionAgentDirpath); err != nil {
+	if err := copyAndPatchClaudeJSON(claudeConfigDirpath, missionAgentDirpath, nil); err != nil {
 		return stacktrace.Propagate(err, "failed to copy and patch .claude.json")
 	}
 
@@ -458,7 +458,10 @@ func copyDirWithRewriting(srcDirpath string, dstDirpath string, claudeConfigDirp
 // copyAndPatchClaudeJSON copies the user's .claude.json into the mission
 // config directory and adds a trust entry for the mission's agent directory.
 // Lookup order: ~/.claude/.claude.json (primary), ~/.claude.json (fallback).
-func copyAndPatchClaudeJSON(claudeConfigDirpath string, missionAgentDirpath string) error {
+// If trustedMcpServers is non-nil, the trust entry also includes
+// enabledMcpjsonServers and disabledMcpjsonServers to skip Claude Code's
+// MCP consent prompt.
+func copyAndPatchClaudeJSON(claudeConfigDirpath string, missionAgentDirpath string, trustedMcpServers *config.TrustedMcpServers) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to determine home directory")
@@ -501,14 +504,24 @@ func copyAndPatchClaudeJSON(claudeConfigDirpath string, missionAgentDirpath stri
 		projects = make(map[string]json.RawMessage)
 	}
 
-	// Add trust entry for the mission agent directory
-	trustEntry, err := json.Marshal(map[string]bool{
+	// Build trust entry for the mission agent directory
+	trustEntry := map[string]interface{}{
 		"hasTrustDialogAccepted": true,
-	})
+	}
+	if trustedMcpServers != nil {
+		if trustedMcpServers.All {
+			trustEntry["enabledMcpjsonServers"] = []string{}
+			trustEntry["disabledMcpjsonServers"] = []string{}
+		} else {
+			trustEntry["enabledMcpjsonServers"] = trustedMcpServers.List
+			trustEntry["disabledMcpjsonServers"] = []string{}
+		}
+	}
+	trustEntryData, err := json.Marshal(trustEntry)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to marshal trust entry")
 	}
-	projects[missionAgentDirpath] = json.RawMessage(trustEntry)
+	projects[missionAgentDirpath] = json.RawMessage(trustEntryData)
 
 	// Write projects back
 	projectsData, err := json.Marshal(projects)
