@@ -123,8 +123,8 @@ func setTmuxSessionEnv(key string, value string) error {
 	return nil
 }
 
-// isInsideAgencTmux returns true if the current process is running inside
-// the AgenC tmux session.
-func isInsideAgencTmux() bool {
-	return strings.TrimSpace(os.Getenv(agencTmuxEnvVar)) == "1"
+// isInsideTmux returns true if the current process is running inside any
+// tmux session (i.e. the $TMUX environment variable is set).
+func isInsideTmux() bool {
+	return os.Getenv("TMUX") != ""
 }

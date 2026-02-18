@@ -12,8 +12,7 @@ import (
 const (
 	tmuxSessionName = "agenc"
 
-	// Environment variables set on the tmux session.
-	agencTmuxEnvVar    = "AGENC_TMUX"
+	// Environment variable propagated to tmux sessions so all windows share the same agenc configuration.
 	agencDirpathEnvVar = "AGENC_DIRPATH"
 
 	// Minimum tmux version required (new-window -e flag).
