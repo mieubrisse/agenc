@@ -37,7 +37,7 @@ var TrackableItemNames = []string{
 // applies AgenC modifications (merged CLAUDE.md, merged settings.json with
 // hooks), copies and patches .claude.json, dumps credentials, and symlinks
 // plugins to ~/.claude/plugins.
-func BuildMissionConfigDir(agencDirpath string, missionID string) error {
+func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServers *config.TrustedMcpServers) error {
 	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
@@ -88,7 +88,7 @@ func BuildMissionConfigDir(agencDirpath string, missionID string) error {
 	}
 
 	// Copy and patch .claude.json with trust entry for mission agent dir
-	if err := copyAndPatchClaudeJSON(claudeConfigDirpath, missionAgentDirpath, nil); err != nil {
+	if err := copyAndPatchClaudeJSON(claudeConfigDirpath, missionAgentDirpath, trustedMcpServers); err != nil {
 		return stacktrace.Propagate(err, "failed to copy and patch .claude.json")
 	}
 

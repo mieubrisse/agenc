@@ -38,8 +38,19 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 		}
 	}
 
+	// Look up MCP trust config for this repo
+	var trustedMcpServers *config.TrustedMcpServers
+	if gitRepoName != "" {
+		cfg, _, err := config.ReadAgencConfig(agencDirpath)
+		if err == nil {
+			if rc, ok := cfg.GetRepoConfig(gitRepoName); ok {
+				trustedMcpServers = rc.TrustedMcpServers
+			}
+		}
+	}
+
 	// Build per-mission claude config directory from shadow repo
-	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID); err != nil {
+	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers); err != nil {
 		return "", stacktrace.Propagate(err, "failed to build per-mission claude config directory")
 	}
 

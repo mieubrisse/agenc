@@ -176,8 +176,19 @@ func updateMissionConfig(db *database.DB, missionID string, newCommitHash string
 
 	fmt.Printf("Updating config for mission %s...\n", missionRecord.ShortID)
 
+	// Look up MCP trust config for this repo
+	var trustedMcpServers *config.TrustedMcpServers
+	if missionRecord.GitRepo != "" {
+		cfg, _, cfgErr := config.ReadAgencConfig(agencDirpath)
+		if cfgErr == nil {
+			if rc, ok := cfg.GetRepoConfig(missionRecord.GitRepo); ok {
+				trustedMcpServers = rc.TrustedMcpServers
+			}
+		}
+	}
+
 	// Rebuild per-mission config directory from shadow repo
-	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID); err != nil {
+	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers); err != nil {
 		return stacktrace.Propagate(err, "failed to rebuild config for mission '%s'", missionID)
 	}
 
