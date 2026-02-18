@@ -9,10 +9,6 @@ import (
 	"github.com/odyssey/agenc/internal/session"
 )
 
-const (
-	agencTmuxEnvVar = "AGENC_TMUX"
-)
-
 // isSolePaneInWindow returns true if the given pane is the only pane in its window.
 // Returns false if the window has multiple panes or if detection fails.
 func isSolePaneInWindow(paneID string) bool {
@@ -24,8 +20,8 @@ func isSolePaneInWindow(paneID string) bool {
 	return paneCount == "1"
 }
 
-// renameWindowForTmux renames the current tmux window when running inside the
-// AgenC tmux session (AGENC_TMUX == 1). Priority order (highest to lowest):
+// renameWindowForTmux renames the current tmux window when running inside
+// any tmux session. Priority order (highest to lowest):
 // 1. AGENC_WINDOW_NAME env var (from `agenc tmux window new --name`)
 // 2. windowTitle from config.yml
 // 3. repo short name
@@ -33,7 +29,7 @@ func isSolePaneInWindow(paneID string) bool {
 // In regular tmux sessions or outside tmux, this is a no-op.
 // Only renames the window if this pane is the sole pane in the window.
 func (w *Wrapper) renameWindowForTmux() {
-	if os.Getenv(agencTmuxEnvVar) != "1" {
+	if os.Getenv("TMUX") == "" {
 		return
 	}
 
@@ -181,10 +177,10 @@ func extractRepoName(gitRepoName string) string {
 //  3. AI-generated summary from daemon (updated every ~10 user prompts)
 //  4. Auto-generated session name from Claude's session metadata
 //
-// Only runs inside the AgenC tmux session (AGENC_TMUX == 1). Called on each
+// Only runs inside a tmux session. Called on each
 // Stop event so the title stays in sync as the session evolves.
 func (w *Wrapper) updateWindowTitleFromSession() {
-	if os.Getenv(agencTmuxEnvVar) != "1" {
+	if os.Getenv("TMUX") == "" {
 		return
 	}
 
