@@ -316,8 +316,41 @@ func IsCanonicalRepoName(name string) bool {
 // Both fields are optional: alwaysSynced controls whether the daemon keeps
 // the repo continuously fetched, and windowTitle overrides the tmux window name.
 type RepoConfig struct {
-	AlwaysSynced bool   `yaml:"alwaysSynced,omitempty"`
-	WindowTitle  string `yaml:"windowTitle,omitempty"`
+	AlwaysSynced      bool               `yaml:"alwaysSynced,omitempty"`
+	WindowTitle       string             `yaml:"windowTitle,omitempty"`
+	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
+}
+
+// TrustedMcpServers configures MCP server trust for a repository.
+// Supports two formats: "all" (trust every server in .mcp.json) or
+// a list of named servers to trust.
+type TrustedMcpServers struct {
+	All  bool     // true when "all" is specified
+	List []string // populated when a list of server names is specified
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler to handle "all" (string)
+// or a list of server names.
+func (t *TrustedMcpServers) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var str string
+	if err := unmarshal(&str); err == nil {
+		if str == "all" {
+			t.All = true
+			return nil
+		}
+		return fmt.Errorf("trustedMcpServers: invalid value %q; must be \"all\" or a list of server names", str)
+	}
+
+	var list []string
+	if err := unmarshal(&list); err == nil {
+		if len(list) == 0 {
+			return fmt.Errorf("trustedMcpServers: empty list is not valid; use \"all\" to trust all servers, or list at least one server name")
+		}
+		t.List = list
+		return nil
+	}
+
+	return fmt.Errorf("trustedMcpServers: must be \"all\" or a list of server names")
 }
 
 // AgencConfig represents the contents of config.yml.

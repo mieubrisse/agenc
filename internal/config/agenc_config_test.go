@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/goccy/go-yaml"
 )
 
 func TestReadWriteAgencConfig(t *testing.T) {
@@ -1140,6 +1142,68 @@ func TestValidateAndPopulateDefaults(t *testing.T) {
 			t.Errorf("command not sanitized: got %q, want %q", got, want)
 		}
 	})
+}
+
+func TestTrustedMcpServers_UnmarshalYAML_All(t *testing.T) {
+	type wrapper struct {
+		Trust *TrustedMcpServers `yaml:"trust"`
+	}
+	input := `trust: all`
+	var w wrapper
+	if err := yaml.Unmarshal([]byte(input), &w); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if w.Trust == nil {
+		t.Fatal("expected non-nil TrustedMcpServers")
+	}
+	if !w.Trust.All {
+		t.Error("expected All=true")
+	}
+	if len(w.Trust.List) != 0 {
+		t.Errorf("expected empty List, got %v", w.Trust.List)
+	}
+}
+
+func TestTrustedMcpServers_UnmarshalYAML_List(t *testing.T) {
+	type wrapper struct {
+		Trust *TrustedMcpServers `yaml:"trust"`
+	}
+	input := "trust:\n  - github\n  - sentry\n"
+	var w wrapper
+	if err := yaml.Unmarshal([]byte(input), &w); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if w.Trust == nil {
+		t.Fatal("expected non-nil TrustedMcpServers")
+	}
+	if w.Trust.All {
+		t.Error("expected All=false")
+	}
+	if len(w.Trust.List) != 2 || w.Trust.List[0] != "github" || w.Trust.List[1] != "sentry" {
+		t.Errorf("expected [github sentry], got %v", w.Trust.List)
+	}
+}
+
+func TestTrustedMcpServers_UnmarshalYAML_EmptyList(t *testing.T) {
+	type wrapper struct {
+		Trust *TrustedMcpServers `yaml:"trust"`
+	}
+	input := "trust: []\n"
+	var w wrapper
+	if err := yaml.Unmarshal([]byte(input), &w); err == nil {
+		t.Fatal("expected error for empty list, got nil")
+	}
+}
+
+func TestTrustedMcpServers_UnmarshalYAML_InvalidString(t *testing.T) {
+	type wrapper struct {
+		Trust *TrustedMcpServers `yaml:"trust"`
+	}
+	input := `trust: none`
+	var w wrapper
+	if err := yaml.Unmarshal([]byte(input), &w); err == nil {
+		t.Fatal("expected error for invalid string, got nil")
+	}
 }
 
 func TestReadAgencConfig_CallsValidation(t *testing.T) {
