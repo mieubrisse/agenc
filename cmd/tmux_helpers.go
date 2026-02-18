@@ -57,3 +57,9 @@ func resolveAgencBinaryPath() (string, error) {
 func printInsideSessionError() {
 	fmt.Println("Already inside a tmux session. Use standard tmux commands to navigate.")
 }
+
+// isInsideTmux returns true if the current process is running inside any
+// tmux session (i.e. the $TMUX environment variable is set).
+func isInsideTmux() bool {
+	return os.Getenv("TMUX") != ""
+}
