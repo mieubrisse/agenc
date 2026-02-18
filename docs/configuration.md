@@ -19,6 +19,7 @@ repoConfig:
   github.com/owner/repo:
     alwaysSynced: true                # daemon fetches every 60s (optional, default: false)
     windowTitle: "my-repo"            # custom tmux window name (optional)
+    trustedMcpServers: all            # pre-approve MCP servers: "all" or list of names (optional)
 
 <!--
 # Max concurrent headless cron missions (default: 10)
@@ -84,6 +85,7 @@ Per-repo configuration, keyed by canonical repo name (`github.com/owner/repo`). 
 
 - **alwaysSynced** — when `true`, the daemon keeps the repo continuously fetched and fast-forwarded (every 60 seconds). Defaults to `false`.
 - **windowTitle** — custom tmux window name for missions using this repo. When set, missions display this title instead of the default repo name.
+- **trustedMcpServers** — pre-approves MCP servers from `.mcp.json` so missions skip the Claude Code consent prompt. Accepts `all` (trust every server) or a list of named servers (e.g., `[github, sentry]`). When absent, Claude Code prompts for consent as usual.
 
 ```yaml
 repoConfig:
@@ -92,6 +94,7 @@ repoConfig:
   github.com/owner/other-repo:
     alwaysSynced: true
     windowTitle: "other"
+    trustedMcpServers: all
 ```
 
 Manage via the CLI:
@@ -100,6 +103,9 @@ Manage via the CLI:
 agenc config repoConfig ls                                                  # list all repo configs
 agenc config repoConfig set github.com/owner/repo --always-synced=true      # enable auto-sync
 agenc config repoConfig set github.com/owner/repo --window-title="my-repo"  # set window title
+agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers all       # trust all servers
+agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers "github,sentry"  # trust specific
+agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers ""         # clear setting
 agenc config repoConfig rm github.com/owner/repo                            # remove config entry
 agenc repo add owner/repo --always-synced                                    # clone and enable sync
 agenc repo rm owner/repo                                                     # remove from disk and config
