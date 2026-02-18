@@ -353,6 +353,15 @@ func (t *TrustedMcpServers) UnmarshalYAML(unmarshal func(interface{}) error) err
 	return fmt.Errorf("trustedMcpServers: must be \"all\" or a list of server names")
 }
 
+// MarshalYAML implements yaml.InterfaceMarshaler to serialize back to
+// either the string "all" or a list of server names.
+func (t TrustedMcpServers) MarshalYAML() (interface{}, error) {
+	if t.All {
+		return "all", nil
+	}
+	return t.List, nil
+}
+
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
 	RepoConfigs           map[string]RepoConfig           `yaml:"repoConfig,omitempty"`
