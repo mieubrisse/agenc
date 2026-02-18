@@ -22,9 +22,10 @@ agenc config repoConfig set <repo> [flags]
 ### Options
 
 ```
-      --always-synced         keep this repo continuously synced by the daemon
-  -h, --help                  help for set
-      --window-title string   custom tmux window title for missions using this repo
+      --always-synced                keep this repo continuously synced by the daemon
+  -h, --help                         help for set
+      --trusted-mcp-servers string   MCP server trust: "all", comma-separated server names, or "" to clear
+      --window-title string          custom tmux window title for missions using this repo
 ```
 
 ### SEE ALSO

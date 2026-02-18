@@ -7,10 +7,11 @@ Manage per-repo configuration
 Manage per-repo configuration in config.yml.
 
 Each repo is identified by its canonical name (github.com/owner/repo) and
-supports two optional settings:
+supports three optional settings:
 
-  alwaysSynced  - daemon keeps the repo continuously fetched (every 60s)
-  windowTitle   - custom tmux window name for missions using this repo
+  alwaysSynced       - daemon keeps the repo continuously fetched (every 60s)
+  windowTitle        - custom tmux window name for missions using this repo
+  trustedMcpServers  - pre-approve MCP servers to skip the consent prompt
 
 Example config.yml:
 
@@ -18,6 +19,7 @@ Example config.yml:
     github.com/owner/repo:
       alwaysSynced: true
       windowTitle: "my-repo"
+      trustedMcpServers: all
     github.com/owner/other:
       alwaysSynced: true
 
