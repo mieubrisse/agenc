@@ -40,7 +40,6 @@ The session stores AgenC-specific state via tmux environment variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENC_TMUX` | Set to `1`. Indicates processes are running inside the AgenC-managed tmux session. |
 | `AGENC_DIRPATH` | Propagated from the attaching client's environment. Ensures all tmux windows use the same agenc base directory, even if the user has a custom `$AGENC_DIRPATH`. |
 
 ### Pane-Per-Mission Model
@@ -54,7 +53,7 @@ f5e6d7c8 dotfiles
 deadbeef
 ```
 
-Blank missions show just the `short_id` with no repo suffix. The wrapper only renames when `$AGENC_TMUX == 1` — in regular tmux sessions, it leaves the window name alone so the user can organize however they please.
+Blank missions show just the `short_id` with no repo suffix. The wrapper only renames when `$TMUX` is set — outside tmux, it leaves the window name alone so the user can organize however they please.
 
 Note: `AGENC_MISSION_UUID` is set inside `buildClaudeCmd` and is only available to the Claude child process, not to the tmux pane environment.
 
@@ -84,11 +83,10 @@ Behavior:
 3. Check if tmux session `agenc` exists (`tmux has-session -t agenc`)
 4. If not, create it:
    a. `tmux new-session -d -s agenc "/abs/path/to/agenc mission new"`
-   b. Set session environment: `tmux set-environment -t agenc AGENC_TMUX 1`
-   c. Set session environment: `tmux set-environment -t agenc AGENC_DIRPATH <value>` (propagate from client)
+   b. Set session environment: `tmux set-environment -t agenc AGENC_DIRPATH <value>` (propagate from client)
 5. Attach: `tmux attach-session -t agenc`. If this fails with "session not found" (user cancelled picker before attach), exit cleanly.
 
-If already inside the agenc session (detected via `$AGENC_TMUX`), print a message and exit — no nested attach.
+If already inside a tmux session (detected via `$TMUX`), print a message and exit — no nested attach.
 
 **Binary path resolution:** tmux windows may not inherit the user's full PATH (especially on macOS where the tmux server starts early). All tmux commands that invoke `agenc` must use the absolute path to the binary, resolved once at session creation time.
 
@@ -118,7 +116,7 @@ agenc tmux window new -- <command> [args...]
 This is the core primitive for spawning side missions. It is general-purpose — the command can be anything, not just `agenc mission new`.
 
 Behavior:
-1. Must be run inside the `agenc` tmux session (checks `$AGENC_TMUX == 1`)
+1. Must be run inside a tmux session (checks `$TMUX` is set)
 2. Creates a new tmux window adjacent to the session's active window:
 
 ```bash
@@ -148,7 +146,7 @@ The tmux integration happens one layer up: the caller runs `agenc tmux window ne
 
 The wrapper has one tmux-specific behavior:
 
-**Window renaming on startup.** When the wrapper starts inside the AgenC tmux session (checks `$AGENC_TMUX == 1`), it renames the window:
+**Window renaming on startup.** When the wrapper starts inside any tmux session (checks `$TMUX` is set), it renames the window:
 
 ```go
 shortID := missionRecord.ShortID
@@ -214,7 +212,7 @@ Implementation Plan
 
 5. Implement `agenc tmux window new -- <command>` — create window adjacent to current, run command
 6. Add SIGHUP to wrapper's signal handler (alongside SIGINT/SIGTERM)
-7. Add wrapper window renaming on startup (when `$AGENC_TMUX == 1`)
+7. Add wrapper window renaming on startup (when `$TMUX` is set)
 
 ### Phase 3: Testing
 

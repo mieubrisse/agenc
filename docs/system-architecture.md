@@ -324,7 +324,7 @@ Per-mission Claude child process management.
 - `credential_sync.go` — (disabled) credential upward/downward sync goroutines, previously synchronized Keychain credentials between missions; disabled as part of the token file auth migration
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
-- `tmux.go` — tmux window renaming when `AGENC_TMUX=1` (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from daemon > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
+- `tmux.go` — tmux window renaming when inside any tmux session (`$TMUX` set) (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from daemon > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
 
 ### Utility packages
 
