@@ -15,7 +15,7 @@ var tmuxAttachCmd = &cobra.Command{
 	Long: `Attach to the AgenC tmux session. If the session doesn't exist, it is
 created with 'agenc mission new' as the initial command.
 
-The session sets AGENC_TMUX=1 and propagates AGENC_DIRPATH so all windows
+The session propagates AGENC_DIRPATH so all windows
 share the same agenc configuration.`,
 	Args: cobra.NoArgs,
 	RunE: runTmuxAttach,
@@ -27,7 +27,7 @@ func init() {
 
 func runTmuxAttach(cmd *cobra.Command, args []string) error {
 	// Prevent nested attach
-	if os.Getenv(agencTmuxEnvVar) == "1" {
+	if isInsideTmux() {
 		printInsideSessionError()
 		return nil
 	}
@@ -77,12 +77,12 @@ func createTmuxSession(agencBinaryPath string) error {
 	// the command string because set-environment only affects windows created
 	// AFTER it's called — the initial window created by new-session wouldn't
 	// inherit them.
-	initialCmd := agencTmuxEnvVar + "=1"
+	initialCmd := ""
 	dirpathValue := os.Getenv(agencDirpathEnvVar)
 	if dirpathValue != "" {
-		initialCmd += " " + agencDirpathEnvVar + "=" + shellQuote(dirpathValue)
+		initialCmd = agencDirpathEnvVar + "=" + shellQuote(dirpathValue) + " "
 	}
-	initialCmd += " " + agencBinaryPath + " " + missionCmdStr + " " + newCmdStr
+	initialCmd += agencBinaryPath + " " + missionCmdStr + " " + newCmdStr
 
 	newSessionCmd := exec.Command("tmux",
 		"new-session",
@@ -94,11 +94,6 @@ func createTmuxSession(agencBinaryPath string) error {
 		return stacktrace.Propagate(err, "failed to create tmux session")
 	}
 
-	// Set session environment variables so that subsequent windows (created via
-	// tmux new-window) also inherit them.
-	if err := setTmuxSessionEnv(agencTmuxEnvVar, "1"); err != nil {
-		return err
-	}
 	if dirpathValue != "" {
 		if err := setTmuxSessionEnv(agencDirpathEnvVar, dirpathValue); err != nil {
 			return err

@@ -24,7 +24,7 @@ split. Use --detach to create the pane without switching focus to it.
 
 The new pane inherits the current pane's working directory.
 
-Must be run from inside the AgenC tmux session. Use -- to separate the
+Must be run from inside a tmux session. Use -- to separate the
 command from agenc flags.
 
 Example:
@@ -42,8 +42,8 @@ func init() {
 }
 
 func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
-	if !isInsideAgencTmux() {
-		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
+	if !isInsideTmux() {
+		return stacktrace.NewError("must be run inside a tmux session")
 	}
 
 	below, _ := cmd.Flags().GetBool(paneNewBelowFlagName)

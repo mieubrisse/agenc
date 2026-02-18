@@ -91,8 +91,8 @@ func formatPaletteEntryLine(entry config.ResolvedPaletteCommand) string {
 }
 
 func runTmuxPalette(cmd *cobra.Command, args []string) error {
-	if !isInsideAgencTmux() {
-		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
+	if !isInsideTmux() {
+		return stacktrace.NewError("must be run inside a tmux session")
 	}
 
 	callingMissionUUID := os.Getenv(config.CallingMissionUUIDEnvVar)

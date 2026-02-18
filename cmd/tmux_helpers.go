@@ -55,5 +55,5 @@ func resolveAgencBinaryPath() (string, error) {
 // printInsideSessionError prints a message when the user tries to attach
 // from inside the agenc session.
 func printInsideSessionError() {
-	fmt.Println("Already inside the agenc tmux session. Use standard tmux commands to navigate.")
+	fmt.Println("Already inside a tmux session. Use standard tmux commands to navigate.")
 }

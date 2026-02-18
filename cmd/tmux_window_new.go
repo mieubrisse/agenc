@@ -29,7 +29,7 @@ focus to it.
 
 Use --name (-n) to set a custom window title (default: inferred from command).
 
-Must be run from inside the AgenC tmux session. Use -- to separate the
+Must be run from inside a tmux session. Use -- to separate the
 command from agenc flags.
 
 Example:
@@ -48,8 +48,8 @@ func init() {
 }
 
 func runTmuxWindowNew(cmd *cobra.Command, args []string) error {
-	if !isInsideAgencTmux() {
-		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
+	if !isInsideTmux() {
+		return stacktrace.NewError("must be run inside a tmux session")
 	}
 
 	adjacent, err := cmd.Flags().GetBool(tmuxWindowNewAdjacentFlagStr)

@@ -33,8 +33,8 @@ func init() {
 }
 
 func runTmuxSwitch(cmd *cobra.Command, args []string) error {
-	if !isInsideAgencTmux() {
-		return stacktrace.NewError("must be run inside the AgenC tmux session (AGENC_TMUX != 1)")
+	if !isInsideTmux() {
+		return stacktrace.NewError("must be run inside a tmux session")
 	}
 
 	// Auto-wrap in a popup if we're running without a TTY. This handles three
