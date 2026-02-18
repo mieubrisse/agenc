@@ -1206,6 +1206,134 @@ func TestTrustedMcpServers_UnmarshalYAML_InvalidString(t *testing.T) {
 	}
 }
 
+func TestReadAgencConfig_TrustedMcpServers_All(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `repoConfig:
+  github.com/owner/repo:
+    trustedMcpServers: all
+`
+	if err := os.WriteFile(filepath.Join(configDirpath, ConfigFilename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	rc, ok := cfg.RepoConfigs["github.com/owner/repo"]
+	if !ok {
+		t.Fatal("repo not found in config")
+	}
+	if rc.TrustedMcpServers == nil {
+		t.Fatal("expected non-nil TrustedMcpServers")
+	}
+	if !rc.TrustedMcpServers.All {
+		t.Error("expected All=true")
+	}
+}
+
+func TestReadAgencConfig_TrustedMcpServers_List(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := "repoConfig:\n  github.com/owner/repo:\n    trustedMcpServers:\n      - github\n      - sentry\n"
+	if err := os.WriteFile(filepath.Join(configDirpath, ConfigFilename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	rc := cfg.RepoConfigs["github.com/owner/repo"]
+	if rc.TrustedMcpServers == nil {
+		t.Fatal("expected non-nil TrustedMcpServers")
+	}
+	if rc.TrustedMcpServers.All {
+		t.Error("expected All=false")
+	}
+	if len(rc.TrustedMcpServers.List) != 2 {
+		t.Errorf("expected 2 servers, got %d", len(rc.TrustedMcpServers.List))
+	}
+}
+
+func TestReadAgencConfig_TrustedMcpServers_Invalid(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `repoConfig:
+  github.com/owner/repo:
+    trustedMcpServers: none
+`
+	if err := os.WriteFile(filepath.Join(configDirpath, ConfigFilename), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for invalid trustedMcpServers, got nil")
+	}
+}
+
+func TestTrustedMcpServers_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	allServers := &TrustedMcpServers{All: true}
+	listServers := &TrustedMcpServers{List: []string{"github", "sentry"}}
+
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {TrustedMcpServers: allServers},
+			"github.com/owner/repo2": {TrustedMcpServers: listServers},
+			"github.com/owner/repo3": {},
+		},
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	rc1 := got.RepoConfigs["github.com/owner/repo1"]
+	if rc1.TrustedMcpServers == nil || !rc1.TrustedMcpServers.All {
+		t.Errorf("repo1: expected TrustedMcpServers.All=true, got %+v", rc1.TrustedMcpServers)
+	}
+
+	rc2 := got.RepoConfigs["github.com/owner/repo2"]
+	if rc2.TrustedMcpServers == nil || rc2.TrustedMcpServers.All {
+		t.Errorf("repo2: expected TrustedMcpServers with list, got %+v", rc2.TrustedMcpServers)
+	}
+	if len(rc2.TrustedMcpServers.List) != 2 || rc2.TrustedMcpServers.List[0] != "github" {
+		t.Errorf("repo2: expected [github sentry], got %v", rc2.TrustedMcpServers.List)
+	}
+
+	rc3 := got.RepoConfigs["github.com/owner/repo3"]
+	if rc3.TrustedMcpServers != nil {
+		t.Errorf("repo3: expected nil TrustedMcpServers, got %+v", rc3.TrustedMcpServers)
+	}
+}
+
 func TestReadAgencConfig_CallsValidation(t *testing.T) {
 	t.Run("rejects cron with invalid timeout", func(t *testing.T) {
 		tmpDir := t.TempDir()
