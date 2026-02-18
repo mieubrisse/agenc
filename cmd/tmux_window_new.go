@@ -17,8 +17,8 @@ const (
 
 var tmuxWindowNewCmd = &cobra.Command{
 	Use:   newCmdStr + " -- <command> [args...]",
-	Short: "Create a new window in the AgenC tmux session and run a command",
-	Long: `Create a new window in the AgenC tmux session and run a command inside it.
+	Short: "Create a new window in the current tmux session and run a command",
+	Long: `Create a new window in the current tmux session and run a command inside it.
 By default, the new window is appended at the end of the window list. Use
 --adjacent (-a) to insert it next to the current window instead.
 

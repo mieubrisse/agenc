@@ -1,10 +1,10 @@
 ## agenc tmux window new
 
-Create a new window in the AgenC tmux session and run a command
+Create a new window in the current tmux session and run a command
 
 ### Synopsis
 
-Create a new window in the AgenC tmux session and run a command inside it.
+Create a new window in the current tmux session and run a command inside it.
 By default, the new window is appended at the end of the window list. Use
 --adjacent (-a) to insert it next to the current window instead.
 
