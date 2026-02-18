@@ -106,8 +106,9 @@ const (
 	paletteCommandKeybindingFlagName  = "keybinding"
 
 	// repoConfig flags
-	repoConfigAlwaysSyncedFlagName = "always-synced"
-	repoConfigWindowTitleFlagName  = "window-title"
+	repoConfigAlwaysSyncedFlagName      = "always-synced"
+	repoConfigWindowTitleFlagName       = "window-title"
+	repoConfigTrustedMcpServersFlagName = "trusted-mcp-servers"
 
 	// cron flags
 	headlessFlagName    = "headless"

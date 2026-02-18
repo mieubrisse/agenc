@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -30,6 +31,7 @@ func init() {
 	configRepoConfigCmd.AddCommand(configRepoConfigSetCmd)
 	configRepoConfigSetCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the daemon")
 	configRepoConfigSetCmd.Flags().String(repoConfigWindowTitleFlagName, "", "custom tmux window title for missions using this repo")
+	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
 }
 
 func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
@@ -41,10 +43,11 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 
 	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
 	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
+	trustedChanged := cmd.Flags().Changed(repoConfigTrustedMcpServersFlagName)
 
-	if !alwaysSyncedChanged && !windowTitleChanged {
-		return stacktrace.NewError("at least one of --%s or --%s must be provided",
-			repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName)
+	if !alwaysSyncedChanged && !windowTitleChanged && !trustedChanged {
+		return stacktrace.NewError("at least one of --%s, --%s, or --%s must be provided",
+			repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName, repoConfigTrustedMcpServersFlagName)
 	}
 
 	cfg, cm, err := readConfigWithComments()
@@ -68,6 +71,30 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigWindowTitleFlagName)
 		}
 		rc.WindowTitle = title
+	}
+
+	if trustedChanged {
+		raw, err := cmd.Flags().GetString(repoConfigTrustedMcpServersFlagName)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigTrustedMcpServersFlagName)
+		}
+		if raw == "" {
+			rc.TrustedMcpServers = nil
+		} else if raw == "all" {
+			rc.TrustedMcpServers = &config.TrustedMcpServers{All: true}
+		} else {
+			parts := strings.Split(raw, ",")
+			servers := make([]string, 0, len(parts))
+			for _, p := range parts {
+				if s := strings.TrimSpace(p); s != "" {
+					servers = append(servers, s)
+				}
+			}
+			if len(servers) == 0 {
+				return stacktrace.NewError("--%s: no valid server names found in %q", repoConfigTrustedMcpServersFlagName, raw)
+			}
+			rc.TrustedMcpServers = &config.TrustedMcpServers{List: servers}
+		}
 	}
 
 	cfg.SetRepoConfig(repoName, rc)

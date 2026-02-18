@@ -3,9 +3,11 @@ package cmd
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -38,7 +40,7 @@ func runConfigRepoConfigLs(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(repoNames)
 
-	tbl := tableprinter.NewTable("REPO", "ALWAYS SYNCED", "WINDOW TITLE")
+	tbl := tableprinter.NewTable("REPO", "ALWAYS SYNCED", "WINDOW TITLE", "TRUSTED MCP SERVERS")
 	for _, name := range repoNames {
 		rc := cfg.RepoConfigs[name]
 		synced := formatCheckmark(rc.AlwaysSynced)
@@ -46,9 +48,19 @@ func runConfigRepoConfigLs(cmd *cobra.Command, args []string) error {
 		if windowTitle == "" {
 			windowTitle = "--"
 		}
-		tbl.AddRow(displayGitRepo(name), synced, windowTitle)
+		tbl.AddRow(displayGitRepo(name), synced, windowTitle, formatTrustedMcpServers(rc.TrustedMcpServers))
 	}
 	tbl.Print()
 
 	return nil
+}
+
+func formatTrustedMcpServers(t *config.TrustedMcpServers) string {
+	if t == nil {
+		return "--"
+	}
+	if t.All {
+		return "all"
+	}
+	return strings.Join(t.List, ", ")
 }
