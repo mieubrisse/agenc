@@ -62,6 +62,8 @@ func (w *Wrapper) renameWindowForTmux() {
 
 	//nolint:errcheck // best-effort; failure is not critical
 	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
+	//nolint:errcheck // best-effort; failure is not critical
+	_ = w.db.SetMissionTmuxWindowTitle(w.missionID, title)
 }
 
 // registerTmuxPane records the current tmux pane ID in the database so that
@@ -194,6 +196,15 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 		return
 	}
 
+	// If AgenC has previously set a title, check whether the user has since
+	// renamed the window. If the current window name no longer matches what
+	// AgenC set, respect the user's rename and do not overwrite it.
+	if storedTitle, err := w.db.GetMissionTmuxWindowTitle(w.missionID); err == nil && storedTitle != "" {
+		if current := currentWindowName(paneID); current != storedTitle {
+			return
+		}
+	}
+
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
 
 	// Custom title from /rename takes highest dynamic priority
@@ -202,6 +213,8 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 		title := truncateWindowTitle(customTitle, maxWindowTitleLen)
 		//nolint:errcheck // best-effort; failure is not critical
 		exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
+		//nolint:errcheck // best-effort; failure is not critical
+		_ = w.db.SetMissionTmuxWindowTitle(w.missionID, title)
 		return
 	}
 
@@ -209,9 +222,12 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 	// user activity). Preferred over auto-generated session summaries because
 	// it reflects what the user is currently working on.
 	if aiSummary, err := w.db.GetMissionAISummary(w.missionID); err == nil && aiSummary != "" {
+		_ = w.db.UpdateMissionSessionName(w.missionID, aiSummary)
 		title := truncateWindowTitle(aiSummary, maxWindowTitleLen)
 		//nolint:errcheck // best-effort; failure is not critical
 		exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
+		//nolint:errcheck // best-effort; failure is not critical
+		_ = w.db.SetMissionTmuxWindowTitle(w.missionID, title)
 		return
 	}
 
@@ -225,6 +241,19 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 	title := truncateWindowTitle(sessionName, maxWindowTitleLen)
 	//nolint:errcheck // best-effort; failure is not critical
 	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
+	//nolint:errcheck // best-effort; failure is not critical
+	_ = w.db.SetMissionTmuxWindowTitle(w.missionID, title)
+}
+
+// currentWindowName returns the current name of the tmux window containing
+// paneID, by querying tmux directly. Returns "" if the query fails or we are
+// not inside tmux.
+func currentWindowName(paneID string) string {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "#{window_name}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // truncateWindowTitle truncates a string to maxLen characters, appending an
