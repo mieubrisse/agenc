@@ -7,16 +7,28 @@ import (
 	"strings"
 )
 
-// AgencHookEntries defines the hook entries that agenc appends to the user's
-// hooks. Keys are hook event names, values are JSON arrays of hook group objects.
-// Each hook calls `agenc mission send claude-update` which sends the event to
-// the wrapper's unix socket for state tracking and tmux pane coloring.
-var AgencHookEntries = map[string]json.RawMessage{
-	"Stop":               json.RawMessage(`[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID Stop"}]}]`),
-	"UserPromptSubmit":   json.RawMessage(`[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID UserPromptSubmit"}]}]`),
-	"Notification":       json.RawMessage(`[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID Notification"}]}]`),
-	"PostToolUse":        json.RawMessage(`[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID PostToolUse"}]}]`),
-	"PostToolUseFailure": json.RawMessage(`[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID PostToolUseFailure"}]}]`),
+// agencHookEventNames lists the Claude hook events that agenc intercepts to
+// track Claude state and update tmux pane colors.
+var agencHookEventNames = []string{
+	"Stop",
+	"UserPromptSubmit",
+	"Notification",
+	"PostToolUse",
+	"PostToolUseFailure",
+}
+
+// AgencHookEntries maps each hook event name to the JSON hook group that agenc
+// injects into the mission's settings.json. Each hook calls
+// `agenc mission send claude-update` with the event name, forwarding it to the
+// wrapper's unix socket for state tracking and tmux pane coloring.
+var AgencHookEntries map[string]json.RawMessage
+
+func init() {
+	AgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
+	for _, eventName := range agencHookEventNames {
+		entry := `[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID ` + eventName + `"}]}]`
+		AgencHookEntries[eventName] = json.RawMessage(entry)
+	}
 }
 
 // AgencDenyPermissionTools lists the Claude Code tools to deny access for
