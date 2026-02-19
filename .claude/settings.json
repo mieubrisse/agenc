@@ -29,7 +29,8 @@
             "Read(./.env.*)",
             "Read(./secrets/**)",
             "Bash(rm -rf:*)",
-            "Bash(sudo:*)"
+            "Bash(sudo:*)",
+            "Skill(agenc-engineer:*)"
         ]
     }
 }
