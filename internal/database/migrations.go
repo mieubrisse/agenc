@@ -25,6 +25,7 @@ const (
 	addPromptCountColumnSQL            = `ALTER TABLE missions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0;`
 	addLastSummaryPromptCountColumnSQL = `ALTER TABLE missions ADD COLUMN last_summary_prompt_count INTEGER NOT NULL DEFAULT 0;`
 	addAISummaryColumnSQL              = `ALTER TABLE missions ADD COLUMN ai_summary TEXT NOT NULL DEFAULT '';`
+	addTmuxWindowTitleColumnSQL        = `ALTER TABLE missions ADD COLUMN tmux_window_title TEXT NOT NULL DEFAULT '';`
 )
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
@@ -278,5 +279,21 @@ func migrateDropAgentTemplate(conn *sql.DB) error {
 	}
 
 	_, err = conn.Exec("ALTER TABLE missions DROP COLUMN agent_template")
+	return err
+}
+
+// migrateAddTmuxWindowTitle idempotently adds the tmux_window_title column
+// for tracking what title AgenC last set on the tmux window tab.
+func migrateAddTmuxWindowTitle(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["tmux_window_title"] {
+		return nil
+	}
+
+	_, err = conn.Exec(addTmuxWindowTitleColumnSQL)
 	return err
 }

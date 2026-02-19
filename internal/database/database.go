@@ -84,6 +84,11 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to add AI summary columns")
 	}
 
+	if err := migrateAddTmuxWindowTitle(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add tmux_window_title column")
+	}
+
 	if err := migrateAddQueryIndices(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to add query performance indices")
