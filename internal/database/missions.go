@@ -340,6 +340,32 @@ func (db *DB) GetMissionAISummary(id string) (string, error) {
 	return summary, nil
 }
 
+// GetMissionTmuxWindowTitle returns the tmux window title that AgenC last set
+// for this mission. Returns "" if never set. Used to detect user renames
+// before applying automatic title updates.
+func (db *DB) GetMissionTmuxWindowTitle(id string) (string, error) {
+	var title string
+	err := db.conn.QueryRow("SELECT tmux_window_title FROM missions WHERE id = ?", id).Scan(&title)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to get tmux window title for mission '%s'", id)
+	}
+	return title, nil
+}
+
+// SetMissionTmuxWindowTitle records the exact string AgenC sent to
+// tmux rename-window for this mission. Called after every successful rename
+// so the wrapper can detect if the user has changed the title themselves.
+func (db *DB) SetMissionTmuxWindowTitle(id string, title string) error {
+	_, err := db.conn.Exec(
+		"UPDATE missions SET tmux_window_title = ? WHERE id = ?",
+		title, id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to set tmux window title for mission '%s'", id)
+	}
+	return nil
+}
+
 // ListMissionsNeedingSummary returns active missions where the number of new
 // prompts since the last summarization meets or exceeds the given threshold.
 func (db *DB) ListMissionsNeedingSummary(threshold int) ([]*Mission, error) {

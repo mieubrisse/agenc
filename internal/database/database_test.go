@@ -279,3 +279,60 @@ func TestListMissions_BrandNewMissionAppearsFirst(t *testing.T) {
 		t.Errorf("expected brand new mission to appear first, got %s", missions[0].ID)
 	}
 }
+
+
+func TestSetAndGetMissionTmuxWindowTitle(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	// Initially empty
+	title, err := db.GetMissionTmuxWindowTitle(mission.ID)
+	if err != nil {
+		t.Fatalf("GetMissionTmuxWindowTitle failed: %v", err)
+	}
+	if title != "" {
+		t.Errorf("expected empty initial title, got %q", title)
+	}
+
+	// Set a title
+	if err := db.SetMissionTmuxWindowTitle(mission.ID, "agenc"); err != nil {
+		t.Fatalf("SetMissionTmuxWindowTitle failed: %v", err)
+	}
+
+	// Read it back
+	got, err := db.GetMissionTmuxWindowTitle(mission.ID)
+	if err != nil {
+		t.Fatalf("GetMissionTmuxWindowTitle after set failed: %v", err)
+	}
+	if got != "agenc" {
+		t.Errorf("expected %q, got %q", "agenc", got)
+	}
+}
+
+func TestSetMissionTmuxWindowTitleOverwrite(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	if err := db.SetMissionTmuxWindowTitle(mission.ID, "first"); err != nil {
+		t.Fatalf("first SetMissionTmuxWindowTitle failed: %v", err)
+	}
+	if err := db.SetMissionTmuxWindowTitle(mission.ID, "second"); err != nil {
+		t.Fatalf("second SetMissionTmuxWindowTitle failed: %v", err)
+	}
+
+	got, err := db.GetMissionTmuxWindowTitle(mission.ID)
+	if err != nil {
+		t.Fatalf("GetMissionTmuxWindowTitle failed: %v", err)
+	}
+	if got != "second" {
+		t.Errorf("expected %q after overwrite, got %q", "second", got)
+	}
+}
