@@ -419,6 +419,11 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 			w.logger.Warn("Failed to increment prompt count", "error", err)
 		}
 
+	case "PostToolUse", "PostToolUseFailure":
+		// A tool just completed (or failed) — Claude is still actively working,
+		// so reset the window to busy in case a permission prompt turned it orange.
+		w.setWindowBusy()
+
 	case "Notification":
 		// Color the pane for notification types that need user attention
 		switch cmd.NotificationType {

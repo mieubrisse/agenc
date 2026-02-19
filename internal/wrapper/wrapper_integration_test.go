@@ -570,6 +570,22 @@ func TestSocketProtocol(t *testing.T) {
 			wantStatus: "ok",
 		},
 		{
+			name: "claude_update PostToolUse event",
+			cmd: Command{
+				Command: "claude_update",
+				Event:   "PostToolUse",
+			},
+			wantStatus: "ok",
+		},
+		{
+			name: "claude_update PostToolUseFailure event",
+			cmd: Command{
+				Command: "claude_update",
+				Event:   "PostToolUseFailure",
+			},
+			wantStatus: "ok",
+		},
+		{
 			name: "unknown command",
 			cmd: Command{
 				Command: "invalid",
