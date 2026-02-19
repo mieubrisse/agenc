@@ -132,6 +132,26 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windo
 	}
 }
 
+// cloneCredentials copies fresh credentials from the global Keychain into the
+// per-mission entry so Claude has access to current MCP OAuth tokens at spawn.
+func (w *Wrapper) cloneCredentials() {
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
+	if err := claudeconfig.CloneKeychainCredentials(claudeConfigDirpath); err != nil {
+		w.logger.Warn("Failed to clone Keychain credentials", "error", err)
+	}
+}
+
+// writeBackCredentials merges per-mission Keychain credentials back into the
+// global entry so MCP OAuth tokens acquired in this mission persist.
+func (w *Wrapper) writeBackCredentials() {
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
+	if err := claudeconfig.WriteBackKeychainCredentials(claudeConfigDirpath); err != nil {
+		if w.logger != nil {
+			w.logger.Warn("Failed to write back Keychain credentials", "error", err)
+		}
+	}
+}
+
 // Run executes the wrapper lifecycle. For a new mission, pass isResume=false.
 // For a resume, pass isResume=true. Run blocks until Claude exits naturally
 // or the wrapper shuts down.
@@ -186,6 +206,13 @@ func (w *Wrapper) Run(isResume bool) error {
 	// Start socket listener for receiving commands (restart, etc.)
 	socketFilepath := config.GetMissionSocketFilepath(w.agencDirpath, w.missionID)
 	go listenSocket(ctx, socketFilepath, w.commandCh, w.logger)
+
+	// Clone global MCP credentials into per-mission Keychain and start sync goroutines.
+	w.cloneCredentials()
+	defer w.writeBackCredentials()
+	w.initCredentialHash()
+	go w.watchCredentialUpwardSync(ctx)
+	go w.watchCredentialDownwardSync(ctx)
 
 	// Track whether a resumable conversation exists. For resumes, one already
 	// exists. For new missions, we start with false and flip to true when the
@@ -591,6 +618,13 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)
+
+	// Clone global MCP credentials into per-mission Keychain and start sync goroutines.
+	w.cloneCredentials()
+	defer w.writeBackCredentials()
+	w.initCredentialHash()
+	go w.watchCredentialUpwardSync(ctx)
+	go w.watchCredentialDownwardSync(ctx)
 
 	// Rotate log file if needed
 	claudeOutputLogFilepath := config.GetMissionClaudeOutputLogFilepath(w.agencDirpath, w.missionID)
