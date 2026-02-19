@@ -15,20 +15,33 @@ The `agenc` binary is in your PATH. Your current mission's UUID is in `$AGENC_MI
 **Never use interactive commands** that open `$EDITOR` or require terminal input without arguments — they will hang. Avoid: `agenc config edit`, `agenc cron new`. Use non-interactive alternatives (`agenc config set`, direct config.yml editing).
 
 
+Spawning missions (most common patterns)
+-----------------------------------------
+
+```
+# Interactive mission with a starting task:
+agenc mission new github.com/owner/repo --prompt "Your task here"
+
+# Headless (unattended, outputs to log file):
+agenc mission new github.com/owner/repo --headless --prompt "Your task here"
+```
+
+
 Manage agent missions
 ---------------------
 
 ```
-agenc mission archive [mission-id|search-terms...]        # Stop and archive one or more missions
-agenc mission inspect [mission-id|search-terms...]        # Print information about a mission
-agenc mission ls                                          # List active missions
-agenc mission new [search-terms...]                       # Create a new mission and launch claude
-agenc mission nuke                                        # Stop and permanently remove ALL missions
-agenc mission resume [mission-id|search-terms...]         # Unarchive (if needed) and resume a mission with claude --continue
-agenc mission rm [mission-id|search-terms...]             # Stop and permanently remove one or more missions
-agenc mission send                                        # Send messages to a running mission wrapper
-agenc mission stop [mission-id|search-terms...]           # Stop one or more mission wrapper processes
-agenc mission update-config [mission-id|search-terms...]  # Rebuild a mission's Claude config from the shadow repo
+agenc mission archive [mission-id|search-terms...]                    # Stop and archive one or more missions
+agenc mission inspect [mission-id|search-terms...]                    # Print information about a mission
+agenc mission ls                                                      # List active missions
+agenc mission new [repo]                                              # Create a new mission (opens fzf picker if no repo given)
+agenc mission new [repo] --prompt "task"                              # Create a mission with an initial prompt
+agenc mission new [repo] --headless --prompt "task"                   # Run a headless mission (no terminal; logs to file)
+agenc mission nuke                                                    # Stop and permanently remove ALL missions
+agenc mission resume [mission-id|search-terms...]                     # Unarchive (if needed) and resume a mission with claude --continue
+agenc mission rm [mission-id|search-terms...]                         # Stop and permanently remove one or more missions
+agenc mission stop [mission-id|search-terms...]                       # Stop one or more mission wrapper processes
+agenc mission update-config [mission-id|search-terms...]              # Rebuild a mission's Claude config from the shadow repo
 ```
 
 Manage the repo library
