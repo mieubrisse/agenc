@@ -121,10 +121,12 @@ The wrapper:
 4. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists)
 5. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 6. Sets `AGENC_MISSION_UUID` for the child process
-7. Starts three background goroutines:
-   - **Heartbeat writer** — updates `last_heartbeat` in the database every 30 seconds
+7. Starts background goroutines:
+   - **Heartbeat writer** — updates `last_heartbeat` in the database every 60 seconds
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (restart, claude_update)
+   - **`watchCredentialUpwardSync`** — polls per-mission Keychain every 60s; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
+   - **`watchCredentialDownwardSync`** — fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global credentials into per-mission Keychain
 8. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Supports restart commands via unix socket.
@@ -320,7 +322,6 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 Per-mission Claude child process management.
 
 - `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable
-- `token_expiry.go` — (disabled) `watchTokenExpiry` goroutine, previously checked Keychain token expiry; disabled as part of the token file auth migration
 - `credential_sync.go` — MCP OAuth credential sync goroutines: `initCredentialHash` (baseline hash at spawn), `watchCredentialUpwardSync` (polls per-mission Keychain every 60s; when hash changes, merges to global and writes broadcast timestamp to `global-credentials-expiry`), `watchCredentialDownwardSync` (fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global into per-mission Keychain)
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
@@ -420,7 +421,7 @@ Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — n
 
 ### Heartbeat system
 
-Each wrapper writes a heartbeat to the database every 30 seconds (`internal/wrapper/wrapper.go:writeHeartbeat`). The daemon uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/daemon/template_updater.go`).
+Each wrapper writes a heartbeat to the database every 60 seconds (`internal/wrapper/wrapper.go:writeHeartbeat`). The daemon uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/daemon/template_updater.go`).
 
 The `last_active` column tracks a different signal: when the user last submitted a prompt to the mission's Claude session (`internal/wrapper/wrapper.go:handleClaudeUpdate`). Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_active` persists indefinitely and reflects true user engagement. Mission listing and the switcher sort by `last_active` first, falling back to `last_heartbeat` then `created_at`.
 
@@ -497,7 +498,7 @@ Data Flow: Mission Lifecycle
 
 1. Wrapper writes PID file, starts socket listener
 2. Wrapper reads OAuth token from token file, spawns Claude (with 1Password wrapping if `secrets.env` exists), setting `CLAUDE_CONFIG_DIR`, `AGENC_MISSION_UUID`, and `CLAUDE_CODE_OAUTH_TOKEN`
-3. Background goroutines start: heartbeat writer, remote refs watcher
+3. Background goroutines start: heartbeat writer, remote refs watcher, credential upward sync, credential downward sync
 4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, and tmux pane coloring
 5. Main event loop blocks until Claude exits or a signal arrives
 6. Daemon concurrently syncs the mission's repo while the heartbeat is fresh
