@@ -426,17 +426,12 @@ func WriteOAuthToken(agencDirpath string, token string) error {
 // oauthTokenPrefix is the expected prefix for valid Claude Code OAuth tokens.
 const oauthTokenPrefix = "sk-ant-"
 
-// cleanupOldAuthFiles removes files from the previous Keychain-based auth
-// system. This runs once per wrapper launch to ensure a clean migration to
-// token-file auth. Errors are ignored (non-fatal) to avoid blocking auth setup.
-func cleanupOldAuthFiles(agencDirpath string) {
-	// Remove the global-credentials-expiry file used for broadcasting Keychain
-	// credential changes across missions. No longer needed with token-file auth.
-	expiryFilepath := GetGlobalCredentialsExpiryFilepath(agencDirpath)
-	if err := os.Remove(expiryFilepath); err != nil && !os.IsNotExist(err) {
-		// Log suppressed: cleanup is best-effort and should not produce noise
-	}
-
+// cleanupOldAuthFiles previously removed files from the Keychain-based auth
+// system during migration to token-file auth. It is now a no-op.
+func cleanupOldAuthFiles(_ string) {
+	// The global-credentials-expiry file is now used as a broadcast signal for
+	// MCP credential downward sync across missions. Do not delete it.
+	//
 	// Note: Per-mission Keychain entries ("Claude Code-credentials-<hash>") are
 	// cleaned up automatically when missions are removed via `agenc mission rm`.
 	// Old entries from before this cleanup was added are harmless and left in place.
