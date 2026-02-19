@@ -27,7 +27,8 @@ func isSolePaneInWindow(paneID string) bool {
 //  3. repo short name
 //  4. mission ID
 //
-// Only renames the window if this pane is the sole pane in the window.
+// Only renames the window if this pane is the sole pane in the window and the
+// user has not manually renamed the window since the last AgenC-managed rename.
 // In regular tmux sessions or outside tmux, this is a no-op.
 func (w *Wrapper) renameWindowForTmux() {
 	if os.Getenv("TMUX") == "" {
@@ -239,17 +240,17 @@ func currentWindowName(paneID string) string {
 //     we respect that.
 //
 // After a successful rename, the new title is stored in the database so future
-// calls can detect user renames. Returns true if the rename was applied.
-func (w *Wrapper) applyWindowTitle(paneID string, title string) bool {
+// calls can detect user renames.
+func (w *Wrapper) applyWindowTitle(paneID string, title string) {
 	if !isSolePaneInWindow(paneID) {
-		return false
+		return
 	}
 
 	// Respect user renames: if AgenC set a title before and the window no
 	// longer shows it, the user has renamed the window manually.
 	if storedTitle, err := w.db.GetMissionTmuxWindowTitle(w.missionID); err == nil && storedTitle != "" {
 		if current := currentWindowName(paneID); current != storedTitle {
-			return false
+			return
 		}
 	}
 
@@ -257,7 +258,6 @@ func (w *Wrapper) applyWindowTitle(paneID string, title string) bool {
 	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
 	//nolint:errcheck // best-effort; failure is not critical
 	_ = w.db.SetMissionTmuxWindowTitle(w.missionID, title)
-	return true
 }
 
 // truncateWindowTitle truncates a string to maxLen characters, appending an
