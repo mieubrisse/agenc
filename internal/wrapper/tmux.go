@@ -260,14 +260,15 @@ func (w *Wrapper) applyWindowTitle(paneID string, title string) {
 	_ = w.db.SetMissionTmuxWindowTitle(w.missionID, title)
 }
 
-// truncateWindowTitle truncates a string to maxLen characters, appending an
+// truncateWindowTitle truncates a string to maxLen runes, appending an
 // ellipsis if truncation occurs. Collapses internal whitespace first.
 func truncateWindowTitle(title string, maxLen int) string {
 	collapsed := strings.Join(strings.Fields(title), " ")
-	if len(collapsed) <= maxLen {
+	runes := []rune(collapsed)
+	if len(runes) <= maxLen {
 		return collapsed
 	}
-	return collapsed[:maxLen-1] + "…"
+	return string(runes[:maxLen-1]) + "…"
 }
 
 // maxWindowTitleLen is the maximum character length for tmux window titles
