@@ -1,12 +1,12 @@
 ![AgenC — AI work factory](./readme-images/cover.png)
 
 <div align="center">
-    <h1>AgenC</h1>
+    <h1>AgenC: the AI factory for learning loops</h1>
 </div>
 
 </h1>
   <p align="center">
-    AgenC is an agentic work factory focused on self-upgrading.</br>
+    AgenC is an AI work factory focused on learning loops.</br>
     </br>
     <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat.</br>
     </br>
