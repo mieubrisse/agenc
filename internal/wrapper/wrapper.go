@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -74,6 +75,19 @@ type Wrapper struct {
 
 	// pendingRestart stores the deferred restart command when in stateRestartPending.
 	pendingRestart *Command
+
+	// perMissionCredentialHash caches the SHA-256 hash of the per-mission
+	// Keychain credential JSON. The upward sync goroutine compares the current
+	// Keychain contents against this hash to detect when Claude updates MCP
+	// OAuth tokens. Protected by credentialHashMu since both the upward and
+	// downward sync goroutines access it.
+	perMissionCredentialHash string
+	credentialHashMu         sync.Mutex
+
+	// lastDownwardSyncTimestamp is the broadcast file timestamp from the most
+	// recent downward sync. Used to skip stale broadcasts and avoid re-applying
+	// the same global credential update twice.
+	lastDownwardSyncTimestamp float64
 
 	// Window coloring configuration for tmux state feedback. Read from config.yml at startup.
 	// Empty strings mean that specific color setting is disabled.
