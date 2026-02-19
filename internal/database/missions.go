@@ -346,6 +346,9 @@ func (db *DB) GetMissionAISummary(id string) (string, error) {
 func (db *DB) GetMissionTmuxWindowTitle(id string) (string, error) {
 	var title string
 	err := db.conn.QueryRow("SELECT tmux_window_title FROM missions WHERE id = ?", id).Scan(&title)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to get tmux window title for mission '%s'", id)
 	}

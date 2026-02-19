@@ -280,7 +280,6 @@ func TestListMissions_BrandNewMissionAppearsFirst(t *testing.T) {
 	}
 }
 
-
 func TestSetAndGetMissionTmuxWindowTitle(t *testing.T) {
 	db := openTestDB(t)
 
@@ -334,5 +333,17 @@ func TestSetMissionTmuxWindowTitleOverwrite(t *testing.T) {
 	}
 	if got != "second" {
 		t.Errorf("expected %q after overwrite, got %q", "second", got)
+	}
+}
+
+func TestGetMissionTmuxWindowTitle_UnknownMission(t *testing.T) {
+	db := openTestDB(t)
+
+	title, err := db.GetMissionTmuxWindowTitle("00000000-0000-0000-0000-000000000000")
+	if err != nil {
+		t.Fatalf("expected no error for unknown mission, got: %v", err)
+	}
+	if title != "" {
+		t.Errorf("expected empty string for unknown mission, got %q", title)
 	}
 }
