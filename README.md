@@ -8,7 +8,7 @@
   <p align="center">
     AgenC is an AI work factory focused on learning loops.</br>
     </br>
-    <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → upgrades for the factory. Repeat.</br>
+    <b>The idea:</b> Launch tons of parallel Claudes. They stumble. Turn friction → a smarter factory. Repeat.</br>
     </br>
     You spend your time building the factory; the Claudes do the rest.</br>
     </br>
@@ -40,7 +40,7 @@ Each iteration makes all future outputs better.
 
 But it doesn't scale.
 
-The Claudes step on each other, each friction requires spawning a new Claude window, juggling the windows becomes a circus, and you spend a bunch of time `cd`ing around getting in and out of Claude.
+The Claudes step on each other, you end up spawning heaps of side Claude windows, juggling the windows becomes a circus, and it's easy to forget what you even started working on.
 
 AgenC tames this chaos. It provides:
 
@@ -313,9 +313,11 @@ Tips
 
 - **Run Claude in sandbox mode.** This cuts a lot of permission request fatigue. Run `/sandbox` once from vanilla Claude (not inside AgenC) to enable sandboxed command execution. This allows Claude to run commands without manual approval prompts on every action. The setting automatically carries into every new AgenC mission (or if you want to upgrade an existing Mission, do "Reconfig Mission" → "Reload Mission"). This is the recommended alternative to `--dangerously-skip-permissions`.
 
-- **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run "Resume Mission".
+- **Paint, don't code.** Think in Bezos' Type 1 / Type 2 terms: Type 1 decisions are hard to reverse (security, data loss, architecture); Type 2 are easily undone (most implementation details). Act like a lightly-technical PM - set your guardrails in `settings.json` and `CLAUDE.md`, then let the agent make Type 2 decisions freely. Review outcomes, not every character. When something goes wrong, roll the lessons back into your config. Be okay with manageable messes; you can clean up WAY faster now.
 
-- **Paint, don't code.** Think in Bezos' Type 1 / Type 2 terms: Type 1 decisions are hard to reverse (security, data loss, architecture); Type 2 are easily undone (most implementation details). Act like a lightly-technical PM — set your guardrails in `settings.json` and `CLAUDE.md`, then let the agent make Type 2 decisions freely. Review outcomes, not every character. When something goes wrong, find the missing instruction and roll it into your config. "Have your agents always push" is one example: write it once in `$AGENC_DIRPATH/config/claude-modifications/CLAUDE.md` and every agent inherits it.
+- **Commit & push after every turn.** By default my agents commit after every turn, and also push to `main` for repos where I'm the only owner. Branches are for Type 1 decisions only. This occasionally causes some problems... but it's net SO much faster. And when your agents do dumb stuff, roll the lessons back into the Claude config so they get smarter.
+
+- **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run "Resume Mission".
 
 
 How It Works
