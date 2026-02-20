@@ -315,13 +315,7 @@ Tips
 
 - **Rename missions when you stop them.** Use `/rename` inside Claude to give a mission a descriptive name before exiting. This makes finding and resuming the right mission much easier later when you run "Resume Mission".
 
-- **Paint, don't code.** Jeff Bezos' famous Type 1 / Type 2 decision framework applies directly to working with AI agents. Type 1 decisions are hard to reverse — architectural choices, security boundaries, data-destructive operations. Type 2 decisions are easily reversible — most implementation details, code style, how a function is structured. The mistake most people make is treating every agent action like a Type 1 decision and hovering over every line of output. That's exhausting and defeats the point.
-
-  A more effective posture: act like a lightly-technical product manager. Define the guardrails (permissions in `settings.json`, instructions in `CLAUDE.md`, skills that encode your standards) and then let the agent make Type 2 decisions freely. Does the code work? Does the feature behave correctly? That's what you review. Save your scrutiny for the genuine Type 1 decisions — security holes, data loss risks, irreversible infrastructure changes.
-
-  When your agent gets something wrong, that's not a failure — it's a calibration signal. Fix the output, figure out what instruction or guardrail was missing, and roll that lesson into your Claude config. Over time your agents get better not because the model improved but because your configuration did.
-
-  AgenC makes this easy: `settings.json` permissions, per-mission `CLAUDE.md` injections via `$AGENC_DIRPATH/config/claude-modifications/CLAUDE.md`, and skills you can attach globally or per-mission let you encode your working standards once and have every agent inherit them. "Have your agents always push" is just one example of this — instead of reminding every agent every time, you write it once in your config and never think about it again.
+- **Paint, don't code.** Think in Bezos' Type 1 / Type 2 terms: Type 1 decisions are hard to reverse (security, data loss, architecture); Type 2 are easily undone (most implementation details). Act like a lightly-technical PM — set your guardrails in `settings.json` and `CLAUDE.md`, then let the agent make Type 2 decisions freely. Review outcomes, not every character. When something goes wrong, find the missing instruction and roll it into your config. "Have your agents always push" is one example: write it once in `$AGENC_DIRPATH/config/claude-modifications/CLAUDE.md` and every agent inherits it.
 
 
 How It Works
