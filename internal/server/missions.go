@@ -1,10 +1,20 @@
 package server
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"strings"
+	"syscall"
 	"time"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
+	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/mission"
 )
 
 // MissionResponse is the JSON representation of a mission returned by the API.
@@ -145,4 +155,391 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, toMissionResponse(mission))
+}
+
+// CreateMissionRequest is the JSON body for POST /missions.
+type CreateMissionRequest struct {
+	Repo        string `json:"repo"`
+	Prompt      string `json:"prompt"`
+	TmuxSession string `json:"tmux_session"`
+	Headless    bool   `json:"headless"`
+	Adjutant    bool   `json:"adjutant"`
+	CronID      string `json:"cron_id"`
+	CronName    string `json:"cron_name"`
+	Timeout     string `json:"timeout"`
+}
+
+// handleCreateMission handles POST /missions.
+// Creates a mission record, sets up the mission directory, and spawns the
+// wrapper process in the caller's tmux session (or headless).
+func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
+	var req CreateMissionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	// Build creation params
+	createParams := &database.CreateMissionParams{}
+	if req.CronID != "" {
+		createParams.CronID = &req.CronID
+	}
+	if req.CronName != "" {
+		createParams.CronName = &req.CronName
+	}
+	if commitHash := claudeconfig.GetShadowRepoCommitHash(s.agencDirpath); commitHash != "" {
+		createParams.ConfigCommit = &commitHash
+	}
+
+	// Determine git repo name and clone source
+	gitRepoName := req.Repo
+	var gitCloneDirpath string
+	if gitRepoName != "" {
+		gitCloneDirpath = config.GetRepoDirpath(s.agencDirpath, gitRepoName)
+	}
+
+	// Create database record
+	missionRecord, err := s.db.CreateMission(gitRepoName, createParams)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create mission: "+err.Error())
+		return
+	}
+
+	// For adjutant missions, write marker file before creating mission dir
+	if req.Adjutant {
+		missionDirpath := config.GetMissionDirpath(s.agencDirpath, missionRecord.ID)
+		if err := os.MkdirAll(missionDirpath, 0755); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create mission directory: "+err.Error())
+			return
+		}
+		markerFilepath := config.GetMissionAdjutantMarkerFilepath(s.agencDirpath, missionRecord.ID)
+		if err := os.WriteFile(markerFilepath, []byte{}, 0644); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to write adjutant marker: "+err.Error())
+			return
+		}
+		// Adjutant missions have no repo
+		gitRepoName = ""
+		gitCloneDirpath = ""
+	}
+
+	// Create mission directory structure
+	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create mission directory: "+err.Error())
+		return
+	}
+
+	// Spawn wrapper process
+	if err := s.spawnWrapper(missionRecord, req); err != nil {
+		s.logger.Printf("Failed to spawn wrapper for mission %s: %v", missionRecord.ShortID, err)
+		// Mission was created successfully, just the wrapper failed
+		// Return the mission but log the error
+	}
+
+	writeJSON(w, http.StatusCreated, toMissionResponse(missionRecord))
+}
+
+// spawnWrapper launches the wrapper process for a newly created mission.
+// For interactive missions, it creates a new tmux window in the caller's session.
+// For headless missions, it runs the wrapper in the background.
+func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMissionRequest) error {
+	agencBinpath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
+	}
+
+	if req.Headless {
+		// Build headless command args
+		args := []string{"mission", "resume", "--headless", missionRecord.ID}
+		if req.Prompt != "" {
+			args = append(args, "--prompt", req.Prompt)
+		}
+		timeout := req.Timeout
+		if timeout == "" {
+			timeout = "1h"
+		}
+		args = append(args, "--timeout", timeout)
+		if req.CronID != "" {
+			args = append(args, "--cron-id", req.CronID)
+		}
+		if req.CronName != "" {
+			args = append(args, "--cron-name", req.CronName)
+		}
+
+		cmd := exec.Command(agencBinpath, args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to start headless wrapper: %w", err)
+		}
+		return cmd.Process.Release()
+	}
+
+	// Interactive: create a tmux window in the caller's session
+	tmuxSession := req.TmuxSession
+	if tmuxSession == "" {
+		return fmt.Errorf("tmux_session is required for interactive missions")
+	}
+
+	resumeCmd := fmt.Sprintf("'%s' mission resume %s", agencBinpath, missionRecord.ID)
+	if req.Prompt != "" {
+		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(req.Prompt, "'", "'\\''"))
+	}
+
+	// Look up window title from config
+	windowTitle := s.lookupWindowTitle(missionRecord.GitRepo)
+
+	tmuxArgs := []string{"new-window", "-t", tmuxSession}
+	if windowTitle != "" {
+		tmuxArgs = append(tmuxArgs, "-n", windowTitle)
+	}
+	tmuxArgs = append(tmuxArgs, resumeCmd)
+
+	cmd := exec.Command("tmux", tmuxArgs...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("tmux new-window failed: %v (output: %s)", err, string(output))
+	}
+
+	return nil
+}
+
+// lookupWindowTitle reads the config and returns the window title for the
+// given repo, or empty string if not configured or on read error.
+func (s *Server) lookupWindowTitle(gitRepoName string) string {
+	if gitRepoName == "" {
+		return ""
+	}
+	cfg, _, err := config.ReadAgencConfig(s.agencDirpath)
+	if err != nil {
+		return ""
+	}
+	return cfg.GetWindowTitle(gitRepoName)
+}
+
+const (
+	stopTimeout = 10 * time.Second
+	stopTick    = 100 * time.Millisecond
+)
+
+// handleStopMission handles POST /missions/{id}/stop.
+// Sends SIGTERM to the wrapper process, polls for exit, falls back to SIGKILL.
+func (s *Server) handleStopMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	missionRecord, err := s.db.GetMission(resolvedID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if missionRecord == nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if err := s.stopWrapper(resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to stop wrapper: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+// stopWrapper gracefully stops a mission's wrapper process. Idempotent — if the
+// wrapper is already stopped, returns nil.
+func (s *Server) stopWrapper(missionID string) error {
+	pidFilepath := config.GetMissionPIDFilepath(s.agencDirpath, missionID)
+	pid, err := daemon.ReadPID(pidFilepath)
+	if err != nil {
+		return fmt.Errorf("failed to read mission PID file: %w", err)
+	}
+
+	if pid == 0 || !daemon.IsProcessRunning(pid) {
+		os.Remove(pidFilepath)
+		return nil
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("failed to find wrapper process: %w", err)
+	}
+
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("failed to send SIGTERM to wrapper (PID %d): %w", pid, err)
+	}
+
+	deadline := time.Now().Add(stopTimeout)
+	for time.Now().Before(deadline) {
+		if !daemon.IsProcessRunning(pid) {
+			os.Remove(pidFilepath)
+			return nil
+		}
+		time.Sleep(stopTick)
+	}
+
+	// Force kill if still running
+	_ = process.Signal(syscall.SIGKILL)
+	os.Remove(pidFilepath)
+	return nil
+}
+
+// handleDeleteMission handles DELETE /missions/{id}.
+// Stops the wrapper, removes the mission directory, and deletes the DB record.
+func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	missionRecord, err := s.db.GetMission(resolvedID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if missionRecord == nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	// Stop the wrapper if running
+	if err := s.stopWrapper(resolvedID); err != nil {
+		s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", id, err)
+	}
+
+	// Clean up per-mission Keychain credentials from the old auth system
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, resolvedID)
+	if err := claudeconfig.DeleteKeychainCredentials(claudeConfigDirpath); err != nil {
+		s.logger.Printf("Warning: failed to delete Keychain credentials for mission %s: %v", id, err)
+	}
+
+	// Remove the mission directory
+	missionDirpath := config.GetMissionDirpath(s.agencDirpath, resolvedID)
+	if _, statErr := os.Stat(missionDirpath); statErr == nil {
+		if err := os.RemoveAll(missionDirpath); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to remove mission directory: "+err.Error())
+			return
+		}
+	}
+
+	// Delete from database
+	if err := s.db.DeleteMission(resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete mission: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// ReloadMissionRequest is the optional JSON body for POST /missions/{id}/reload.
+type ReloadMissionRequest struct {
+	TmuxSession string `json:"tmux_session"`
+}
+
+// handleReloadMission handles POST /missions/{id}/reload.
+// Rebuilds the per-mission config directory and restarts the wrapper.
+func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	missionRecord, err := s.db.GetMission(resolvedID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if missionRecord == nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if missionRecord.Status == "archived" {
+		writeError(w, http.StatusBadRequest, "cannot reload archived mission")
+		return
+	}
+
+	// Check for old-format mission (no agent/ subdirectory)
+	agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, resolvedID)
+	if _, statErr := os.Stat(agentDirpath); os.IsNotExist(statErr) {
+		writeError(w, http.StatusBadRequest, "mission uses old directory format; archive and create a new mission")
+		return
+	}
+
+	// Detect tmux context and reload approach
+	if missionRecord.TmuxPane != nil && *missionRecord.TmuxPane != "" {
+		paneID := *missionRecord.TmuxPane
+		if err := s.reloadMissionInTmux(missionRecord, paneID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to reload mission: "+err.Error())
+			return
+		}
+	} else {
+		// Non-tmux: just stop the wrapper (CLI will handle resume)
+		if err := s.stopWrapper(resolvedID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to stop wrapper: "+err.Error())
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
+}
+
+// reloadMissionInTmux performs an in-place reload using tmux primitives.
+func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID string) error {
+	targetPane := "%" + paneID
+
+	// Verify pane still exists
+	checkCmd := exec.Command("tmux", "display-message", "-p", "-t", targetPane, "#{pane_id}")
+	output, err := checkCmd.Output()
+	if err != nil || strings.TrimSpace(string(output)) != targetPane {
+		return fmt.Errorf("tmux pane %s no longer exists", paneID)
+	}
+
+	// Resolve window ID from pane ID
+	windowCmd := exec.Command("tmux", "display-message", "-p", "-t", targetPane, "#{window_id}")
+	output, err = windowCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to resolve window ID: %v", err)
+	}
+	windowID := strings.TrimSpace(string(output))
+
+	// Set remain-on-exit on
+	setCmd := exec.Command("tmux", "set-option", "-w", "-t", windowID, "remain-on-exit", "on")
+	if output, err := setCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set remain-on-exit: %v (output: %s)", err, string(output))
+	}
+
+	// Ensure cleanup
+	defer func() {
+		restoreCmd := exec.Command("tmux", "set-option", "-w", "-t", windowID, "remain-on-exit", "off")
+		restoreCmd.Run()
+	}()
+
+	// Stop wrapper
+	if err := s.stopWrapper(missionRecord.ID); err != nil {
+		return fmt.Errorf("failed to stop wrapper: %w", err)
+	}
+
+	// Respawn the pane
+	agencBinpath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
+	}
+
+	resumeCommand := fmt.Sprintf("'%s' mission resume %s", agencBinpath, missionRecord.ID)
+	respawnCmd := exec.Command("tmux", "respawn-pane", "-k", "-t", targetPane, resumeCommand)
+	if output, err := respawnCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux respawn-pane failed: %v (output: %s)", err, string(output))
+	}
+
+	return nil
 }

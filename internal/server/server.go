@@ -98,7 +98,13 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /missions", s.handleListMissions)
+	mux.HandleFunc("POST /missions", s.handleCreateMission)
 	mux.HandleFunc("GET /missions/{id}", s.handleGetMission)
+	mux.HandleFunc("POST /missions/{id}/stop", s.handleStopMission)
+	mux.HandleFunc("DELETE /missions/{id}", s.handleDeleteMission)
+	mux.HandleFunc("POST /missions/{id}/reload", s.handleReloadMission)
+	// Push-event uses a catch-all prefix since repo names contain slashes
+	mux.HandleFunc("POST /repos/", s.handlePushEvent)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
