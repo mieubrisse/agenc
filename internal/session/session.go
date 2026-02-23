@@ -3,8 +3,11 @@ package session
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -200,4 +203,123 @@ func findNamesInJSONL(jsonlFilepath string) (customTitle string, summary string)
 	}
 
 	return customTitle, summary
+}
+
+// FindSessionJSONLPath locates the JSONL transcript file for a given session UUID.
+// It searches all project directories under ~/.claude/projects/ for a file named
+// <sessionID>.jsonl. Returns the full path or an error if not found.
+func FindSessionJSONLPath(sessionID string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	projectsDirpath := filepath.Join(homeDir, ".claude", "projects")
+	entries, err := os.ReadDir(projectsDirpath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read projects directory '%s': %w", projectsDirpath, err)
+	}
+
+	targetFilename := sessionID + ".jsonl"
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidateFilepath := filepath.Join(projectsDirpath, entry.Name(), targetFilename)
+		if _, err := os.Stat(candidateFilepath); err == nil {
+			return candidateFilepath, nil
+		}
+	}
+
+	return "", fmt.Errorf("session transcript not found for session ID: %s", sessionID)
+}
+
+// ListSessionIDs returns all session UUIDs for a given mission by scanning
+// the mission's project directory for .jsonl files. Returns session IDs
+// (filenames without the .jsonl extension) sorted by modification time
+// (most recent first). Returns an empty slice if no sessions are found.
+func ListSessionIDs(claudeConfigDirpath string, missionID string) []string {
+	projectDirpath := findProjectDirpath(claudeConfigDirpath, missionID)
+	if projectDirpath == "" {
+		return nil
+	}
+
+	entries, err := os.ReadDir(projectDirpath)
+	if err != nil {
+		return nil
+	}
+
+	type sessionEntry struct {
+		id      string
+		modTime int64
+	}
+	var sessions []sessionEntry
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".jsonl")
+		sessions = append(sessions, sessionEntry{
+			id:      sessionID,
+			modTime: info.ModTime().UnixMilli(),
+		})
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].modTime > sessions[j].modTime
+	})
+
+	result := make([]string, len(sessions))
+	for i, s := range sessions {
+		result[i] = s.id
+	}
+	return result
+}
+
+// TailJSONLFile reads the last N lines from a JSONL file and writes them to
+// the given writer. If n <= 0, writes the entire file. Returns the number
+// of lines written.
+func TailJSONLFile(jsonlFilepath string, n int, w io.Writer) (int, error) {
+	file, err := os.Open(jsonlFilepath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open session file '%s': %w", jsonlFilepath, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+
+	if n <= 0 {
+		count := 0
+		for scanner.Scan() {
+			fmt.Fprintln(w, scanner.Text())
+			count++
+		}
+		return count, scanner.Err()
+	}
+
+	ring := make([]string, n)
+	total := 0
+	for scanner.Scan() {
+		ring[total%n] = scanner.Text()
+		total++
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("error reading session file: %w", err)
+	}
+
+	count := total
+	if count > n {
+		count = n
+	}
+	startIdx := total - count
+	for i := 0; i < count; i++ {
+		fmt.Fprintln(w, ring[(startIdx+i)%n])
+	}
+	return count, nil
 }
