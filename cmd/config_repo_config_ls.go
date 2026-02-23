@@ -40,7 +40,7 @@ func runConfigRepoConfigLs(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(repoNames)
 
-	tbl := tableprinter.NewTable("REPO", "ALWAYS SYNCED", "WINDOW TITLE", "TRUSTED MCP SERVERS")
+	tbl := tableprinter.NewTable("REPO", "ALWAYS SYNCED", "WINDOW TITLE", "DEFAULT MODEL", "TRUSTED MCP SERVERS")
 	for _, name := range repoNames {
 		rc := cfg.RepoConfigs[name]
 		synced := formatCheckmark(rc.AlwaysSynced)
@@ -48,7 +48,11 @@ func runConfigRepoConfigLs(cmd *cobra.Command, args []string) error {
 		if windowTitle == "" {
 			windowTitle = "--"
 		}
-		tbl.AddRow(displayGitRepo(name), synced, windowTitle, formatTrustedMcpServers(rc.TrustedMcpServers))
+		defaultModel := rc.DefaultModel
+		if defaultModel == "" {
+			defaultModel = "--"
+		}
+		tbl.AddRow(displayGitRepo(name), synced, windowTitle, defaultModel, formatTrustedMcpServers(rc.TrustedMcpServers))
 	}
 	tbl.Print()
 

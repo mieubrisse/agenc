@@ -109,6 +109,7 @@ const (
 	repoConfigAlwaysSyncedFlagName      = "always-synced"
 	repoConfigWindowTitleFlagName       = "window-title"
 	repoConfigTrustedMcpServersFlagName = "trusted-mcp-servers"
+	repoConfigDefaultModelFlagName      = "default-model"
 
 	// cron flags
 	headlessFlagName    = "headless"

@@ -10,10 +10,11 @@ var configRepoConfigCmd = &cobra.Command{
 	Long: `Manage per-repo configuration in config.yml.
 
 Each repo is identified by its canonical name (github.com/owner/repo) and
-supports three optional settings:
+supports four optional settings:
 
   alwaysSynced       - daemon keeps the repo continuously fetched (every 60s)
   windowTitle        - custom tmux window name for missions using this repo
+  defaultModel       - default Claude model for missions using this repo
   trustedMcpServers  - pre-approve MCP servers to skip the consent prompt
 
 Example config.yml:
@@ -22,6 +23,7 @@ Example config.yml:
     github.com/owner/repo:
       alwaysSynced: true
       windowTitle: "my-repo"
+      defaultModel: opus
       trustedMcpServers: all
     github.com/owner/other:
       alwaysSynced: true

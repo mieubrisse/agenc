@@ -32,6 +32,7 @@ func init() {
 	configRepoConfigSetCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the daemon")
 	configRepoConfigSetCmd.Flags().String(repoConfigWindowTitleFlagName, "", "custom tmux window title for missions using this repo")
 	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
+	configRepoConfigSetCmd.Flags().String(repoConfigDefaultModelFlagName, "", `default Claude model for missions using this repo (e.g., "opus", "sonnet")`)
 }
 
 func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
@@ -44,10 +45,11 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
 	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
 	trustedChanged := cmd.Flags().Changed(repoConfigTrustedMcpServersFlagName)
+	defaultModelChanged := cmd.Flags().Changed(repoConfigDefaultModelFlagName)
 
-	if !alwaysSyncedChanged && !windowTitleChanged && !trustedChanged {
-		return stacktrace.NewError("at least one of --%s, --%s, or --%s must be provided",
-			repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName, repoConfigTrustedMcpServersFlagName)
+	if !alwaysSyncedChanged && !windowTitleChanged && !trustedChanged && !defaultModelChanged {
+		return stacktrace.NewError("at least one of --%s, --%s, --%s, or --%s must be provided",
+			repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName)
 	}
 
 	cfg, cm, err := readConfigWithComments()
@@ -95,6 +97,14 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 			}
 			rc.TrustedMcpServers = &config.TrustedMcpServers{List: servers}
 		}
+	}
+
+	if defaultModelChanged {
+		model, err := cmd.Flags().GetString(repoConfigDefaultModelFlagName)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigDefaultModelFlagName)
+		}
+		rc.DefaultModel = model
 	}
 
 	cfg.SetRepoConfig(repoName, rc)
