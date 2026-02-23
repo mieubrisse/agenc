@@ -9,6 +9,9 @@ import (
 	"sync"
 
 	"github.com/mieubrisse/stacktrace"
+
+	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 // Server is the AgenC HTTP server that manages missions and background loops.
@@ -18,6 +21,7 @@ type Server struct {
 	logger       *log.Logger
 	httpServer   *http.Server
 	listener     net.Listener
+	db           *database.DB
 }
 
 // NewServer creates a new Server instance.
@@ -32,6 +36,15 @@ func NewServer(agencDirpath string, socketPath string, logger *log.Logger) *Serv
 // Run starts the HTTP server on the unix socket and blocks until ctx is cancelled.
 // It performs graceful shutdown when the context is cancelled.
 func (s *Server) Run(ctx context.Context) error {
+	// Open the database
+	dbFilepath := config.GetDatabaseFilepath(s.agencDirpath)
+	db, err := database.Open(dbFilepath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open database")
+	}
+	s.db = db
+	defer s.db.Close()
+
 	// Clean up stale socket file from a previous run
 	os.Remove(s.socketPath)
 
@@ -84,6 +97,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /missions", s.handleListMissions)
+	mux.HandleFunc("GET /missions/{id}", s.handleGetMission)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
