@@ -7,8 +7,8 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 )
 
-// missionResponse is the JSON representation of a mission returned by the API.
-type missionResponse struct {
+// MissionResponse is the JSON representation of a mission returned by the API.
+type MissionResponse struct {
 	ID                     string     `json:"id"`
 	ShortID                string     `json:"short_id"`
 	Prompt                 string     `json:"prompt"`
@@ -30,8 +30,33 @@ type missionResponse struct {
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
-func toMissionResponse(m *database.Mission) missionResponse {
-	return missionResponse{
+// ToMission converts a MissionResponse to a database.Mission.
+func (mr *MissionResponse) ToMission() *database.Mission {
+	return &database.Mission{
+		ID:                     mr.ID,
+		ShortID:                mr.ShortID,
+		Prompt:                 mr.Prompt,
+		Status:                 mr.Status,
+		GitRepo:                mr.GitRepo,
+		LastHeartbeat:          mr.LastHeartbeat,
+		LastActive:             mr.LastActive,
+		SessionName:            mr.SessionName,
+		SessionNameUpdatedAt:   mr.SessionNameUpdatedAt,
+		CronID:                 mr.CronID,
+		CronName:               mr.CronName,
+		ConfigCommit:           mr.ConfigCommit,
+		TmuxPane:               mr.TmuxPane,
+		PromptCount:            mr.PromptCount,
+		LastSummaryPromptCount: mr.LastSummaryPromptCount,
+		AISummary:              mr.AISummary,
+		TmuxWindowTitle:        mr.TmuxWindowTitle,
+		CreatedAt:              mr.CreatedAt,
+		UpdatedAt:              mr.UpdatedAt,
+	}
+}
+
+func toMissionResponse(m *database.Mission) MissionResponse {
+	return MissionResponse{
 		ID:                     m.ID,
 		ShortID:                m.ShortID,
 		Prompt:                 m.Prompt,
@@ -54,8 +79,8 @@ func toMissionResponse(m *database.Mission) missionResponse {
 	}
 }
 
-func toMissionResponses(missions []*database.Mission) []missionResponse {
-	result := make([]missionResponse, len(missions))
+func toMissionResponses(missions []*database.Mission) []MissionResponse {
+	result := make([]MissionResponse, len(missions))
 	for i, m := range missions {
 		result[i] = toMissionResponse(m)
 	}
@@ -76,10 +101,10 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if mission == nil {
-			writeJSON(w, http.StatusOK, []missionResponse{})
+			writeJSON(w, http.StatusOK, []MissionResponse{})
 			return
 		}
-		writeJSON(w, http.StatusOK, []missionResponse{toMissionResponse(mission)})
+		writeJSON(w, http.StatusOK, []MissionResponse{toMissionResponse(mission)})
 		return
 	}
 
