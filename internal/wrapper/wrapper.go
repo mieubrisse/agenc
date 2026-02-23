@@ -19,6 +19,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 const (
@@ -518,18 +519,31 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 			timerActive = true
 		case <-debounceTimer.C:
 			timerActive = false
-			repoLibraryDirpath := config.GetRepoDirpath(w.agencDirpath, w.gitRepoName)
 			w.logger.Info("Remote ref changed, updating repo library", "repo", w.gitRepoName)
-			if _, err := os.Stat(repoLibraryDirpath); os.IsNotExist(err) {
-				w.logger.Error("Repo library clone not found; was it removed? Skipping update", "repo", w.gitRepoName, "expected", repoLibraryDirpath)
-			} else if err := mission.ForceUpdateRepo(repoLibraryDirpath); err != nil {
-				w.logger.Warn("Failed to force-update repo library", "repo", w.gitRepoName, "error", err)
-			}
+			w.triggerRepoPushEvent()
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}
 			w.logger.Warn("fsnotify error watching remote refs", "error", err)
+		}
+	}
+}
+
+// triggerRepoPushEvent notifies the server that a repo's remote refs changed.
+// Falls back to direct ForceUpdateRepo if the server is unreachable.
+func (w *Wrapper) triggerRepoPushEvent() {
+	socketFilepath := config.GetServerSocketFilepath(w.agencDirpath)
+	client := server.NewClient(socketFilepath)
+	if err := client.Post("/repos/"+w.gitRepoName+"/push-event", nil, nil); err != nil {
+		w.logger.Warn("Server push-event failed, falling back to direct update", "repo", w.gitRepoName, "error", err)
+		repoLibraryDirpath := config.GetRepoDirpath(w.agencDirpath, w.gitRepoName)
+		if _, statErr := os.Stat(repoLibraryDirpath); os.IsNotExist(statErr) {
+			w.logger.Error("Repo library clone not found; was it removed? Skipping update", "repo", w.gitRepoName, "expected", repoLibraryDirpath)
+			return
+		}
+		if err := mission.ForceUpdateRepo(repoLibraryDirpath); err != nil {
+			w.logger.Warn("Failed to force-update repo library", "repo", w.gitRepoName, "error", err)
 		}
 	}
 }
