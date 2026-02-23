@@ -6,6 +6,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/spf13/cobra"
 )
 
@@ -33,12 +34,24 @@ func runTmuxResolveMission(cmd *cobra.Command, args []string) error {
 	// stores just the number.
 	paneID := strings.TrimPrefix(args[0], "%")
 
-	agencDirpath, err := config.GetAgencDirpath()
+	dirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return nil // silently exit — no mission
 	}
 
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
+	// Try the server first
+	socketFilepath := config.GetServerSocketFilepath(dirpath)
+	client := server.NewClient(socketFilepath)
+	var responses []server.MissionResponse
+	if err := client.Get("/missions?tmux_pane="+paneID, &responses); err == nil {
+		if len(responses) > 0 {
+			fmt.Print(responses[0].ID)
+		}
+		return nil
+	}
+
+	// Fall back to direct database access
+	dbFilepath := config.GetDatabaseFilepath(dirpath)
 	db, err := database.Open(dbFilepath)
 	if err != nil {
 		return nil // silently exit — no mission
