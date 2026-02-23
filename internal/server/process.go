@@ -89,6 +89,18 @@ func ReadPID(pidFilepath string) (int, error) {
 	return pid, nil
 }
 
+// IsProcessRunning checks if a process with the given PID is running.
+func IsProcessRunning(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return process.Signal(syscall.Signal(0)) == nil
+}
+
 // IsRunning checks if the server process is running.
 func IsRunning(pidFilepath string) bool {
 	pid, err := ReadPID(pidFilepath)

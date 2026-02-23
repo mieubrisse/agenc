@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
 )
@@ -123,12 +122,12 @@ func stopMissionWrapper(missionID string) error {
 // management (SIGTERM + poll + SIGKILL fallback).
 func stopMissionWrapperDirect(missionID string) error {
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
-	pid, err := daemon.ReadPID(pidFilepath)
+	pid, err := server.ReadPID(pidFilepath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read mission PID file")
 	}
 
-	if pid == 0 || !daemon.IsProcessRunning(pid) {
+	if pid == 0 || !server.IsProcessRunning(pid) {
 		// Already stopped — clean up stale PID file if present
 		os.Remove(pidFilepath)
 		return nil
@@ -147,7 +146,7 @@ func stopMissionWrapperDirect(missionID string) error {
 
 	deadline := time.Now().Add(wrapperStopTimeout)
 	for time.Now().Before(deadline) {
-		if !daemon.IsProcessRunning(pid) {
+		if !server.IsProcessRunning(pid) {
 			os.Remove(pidFilepath)
 			fmt.Printf("Mission '%s' stopped.\n", database.ShortID(missionID))
 			return nil

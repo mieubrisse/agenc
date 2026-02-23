@@ -11,8 +11,8 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/launchd"
 	"github.com/odyssey/agenc/internal/version"
 )
 
@@ -24,6 +24,10 @@ type Server struct {
 	httpServer   *http.Server
 	listener     net.Listener
 	db           *database.DB
+
+	// Background loop state (formerly in the Daemon struct)
+	repoUpdateCycleCount int
+	cronSyncer           *CronSyncer
 }
 
 // NewServer creates a new Server instance.
@@ -32,6 +36,7 @@ func NewServer(agencDirpath string, socketPath string, logger *log.Logger) *Serv
 		agencDirpath: agencDirpath,
 		socketPath:   socketPath,
 		logger:       logger,
+		cronSyncer:   NewCronSyncer(agencDirpath),
 	}
 }
 
@@ -71,6 +76,14 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.logger.Printf("Server listening on %s", s.socketPath)
 
+	// Verify launchctl is available (required for cron scheduling)
+	if err := launchd.VerifyLaunchctlAvailable(); err != nil {
+		s.logger.Printf("Warning: %v - cron scheduling will not work", err)
+	}
+
+	// Initial cron sync on startup
+	s.syncCronsOnStartup()
+
 	var wg sync.WaitGroup
 
 	// Start HTTP server in a goroutine
@@ -82,12 +95,35 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Start background loops (formerly the daemon)
-	d := daemon.NewDaemon(s.agencDirpath, s.db, s.logger)
+	// Start background loops
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		d.Run(ctx)
+		s.runRepoUpdateLoop(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runConfigAutoCommitLoop(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runConfigWatcherLoop(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runKeybindingsWriterLoop(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runMissionSummarizerLoop(ctx)
 	}()
 
 	// Wait for context cancellation, then gracefully shut down
@@ -103,6 +139,24 @@ func (s *Server) Run(ctx context.Context) error {
 	s.logger.Println("Server stopped")
 
 	return nil
+}
+
+// syncCronsOnStartup performs an initial sync of cron jobs to launchd on server startup.
+func (s *Server) syncCronsOnStartup() {
+	cfg, _, err := config.ReadAgencConfig(s.agencDirpath)
+	if err != nil {
+		s.logger.Printf("Failed to read config on startup: %v", err)
+		return
+	}
+
+	if len(cfg.Crons) == 0 {
+		s.logger.Println("Cron syncer: no cron jobs configured")
+		return
+	}
+
+	if err := s.cronSyncer.SyncCronsToLaunchd(cfg.Crons, s.logger); err != nil {
+		s.logger.Printf("Failed to sync crons on startup: %v", err)
+	}
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {

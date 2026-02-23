@@ -14,7 +14,6 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/history"
 	"github.com/odyssey/agenc/internal/server"
@@ -315,8 +314,8 @@ func getMissionStatus(missionID string, dbStatus string) string {
 		return "ARCHIVED"
 	}
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
-	pid, err := daemon.ReadPID(pidFilepath)
-	if err == nil && pid != 0 && daemon.IsProcessRunning(pid) {
+	pid, err := server.ReadPID(pidFilepath)
+	if err == nil && pid != 0 && server.IsProcessRunning(pid) {
 		return "RUNNING"
 	}
 	return "STOPPED"

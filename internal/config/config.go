@@ -22,15 +22,17 @@ const (
 	UserClaudeDirname          = ".claude"
 	MissionsDirname            = "missions"
 	ReposDirname               = "repos"
-	DaemonDirname              = "daemon"
-	DaemonPIDFilename          = "daemon.pid"
-	DaemonLogFilename          = "daemon.log"
-	DaemonVersionFilename      = "daemon.version"
-	ServerDirname              = "server"
-	ServerPIDFilename          = "server.pid"
-	ServerLogFilename          = "server.log"
-	ServerSocketFilename       = "server.sock"
-	ConfigFilename             = "config.yml"
+	// Deprecated: daemon has been replaced by the server. These constants are
+	// kept only for cleanup of existing installations.
+	DaemonDirname         = "daemon"
+	DaemonPIDFilename     = "daemon.pid"
+	DaemonLogFilename     = "daemon.log"
+	DaemonVersionFilename = "daemon.version"
+	ServerDirname         = "server"
+	ServerPIDFilename     = "server.pid"
+	ServerLogFilename     = "server.log"
+	ServerSocketFilename  = "server.sock"
+	ConfigFilename        = "config.yml"
 
 	AgentDirname                    = "agent"
 	PIDFilename                     = "pid"
@@ -121,22 +123,26 @@ func GetGlobalClaudeDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ClaudeDirname)
 }
 
-// GetDaemonDirpath returns the path to the daemon directory.
+// Deprecated: GetDaemonDirpath returns the path to the daemon directory.
+// The daemon has been replaced by the server.
 func GetDaemonDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, DaemonDirname)
 }
 
-// GetDaemonPIDFilepath returns the path to the daemon PID file.
+// Deprecated: GetDaemonPIDFilepath returns the path to the daemon PID file.
+// The daemon has been replaced by the server.
 func GetDaemonPIDFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, DaemonDirname, DaemonPIDFilename)
 }
 
-// GetDaemonLogFilepath returns the path to the daemon log file.
+// Deprecated: GetDaemonLogFilepath returns the path to the daemon log file.
+// The daemon has been replaced by the server.
 func GetDaemonLogFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, DaemonDirname, DaemonLogFilename)
 }
 
-// GetDaemonVersionFilepath returns the path to the daemon version file.
+// Deprecated: GetDaemonVersionFilepath returns the path to the daemon version file.
+// The daemon has been replaced by the server.
 func GetDaemonVersionFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, DaemonDirname, DaemonVersionFilename)
 }

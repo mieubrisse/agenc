@@ -1,4 +1,4 @@
-package daemon
+package server
 
 import (
 	"context"
@@ -16,8 +16,8 @@ const (
 
 // runKeybindingsWriterLoop writes the tmux keybindings file on startup and
 // then periodically to keep it current after binary upgrades.
-func (d *Daemon) runKeybindingsWriterLoop(ctx context.Context) {
-	d.writeAndSourceKeybindings()
+func (s *Server) runKeybindingsWriterLoop(ctx context.Context) {
+	s.writeAndSourceKeybindings()
 
 	ticker := time.NewTicker(keybindingsWriteInterval)
 	defer ticker.Stop()
@@ -27,15 +27,15 @@ func (d *Daemon) runKeybindingsWriterLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.writeAndSourceKeybindings()
+			s.writeAndSourceKeybindings()
 		}
 	}
 }
 
 // writeAndSourceKeybindings regenerates the keybindings file and sources it
 // into any running tmux server.
-func (d *Daemon) writeAndSourceKeybindings() {
-	if err := tmux.RefreshKeybindings(d.agencDirpath); err != nil {
-		d.logger.Printf("Keybindings writer: %v", err)
+func (s *Server) writeAndSourceKeybindings() {
+	if err := tmux.RefreshKeybindings(s.agencDirpath); err != nil {
+		s.logger.Printf("Keybindings writer: %v", err)
 	}
 }

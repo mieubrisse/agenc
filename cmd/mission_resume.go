@@ -10,8 +10,8 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
@@ -114,11 +114,11 @@ func resumeMission(db *database.DB, missionID string) error {
 
 	// Check if the wrapper is already running for this mission
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
-	pid, err := daemon.ReadPID(pidFilepath)
+	pid, err := server.ReadPID(pidFilepath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read mission PID file")
 	}
-	if daemon.IsProcessRunning(pid) {
+	if server.IsProcessRunning(pid) {
 		return stacktrace.NewError("mission '%s' is already running (wrapper PID %d)", missionID, pid)
 	}
 

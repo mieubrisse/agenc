@@ -12,7 +12,6 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
 )
@@ -353,12 +352,12 @@ func (s *Server) handleStopMission(w http.ResponseWriter, r *http.Request) {
 // wrapper is already stopped, returns nil.
 func (s *Server) stopWrapper(missionID string) error {
 	pidFilepath := config.GetMissionPIDFilepath(s.agencDirpath, missionID)
-	pid, err := daemon.ReadPID(pidFilepath)
+	pid, err := ReadPID(pidFilepath)
 	if err != nil {
 		return fmt.Errorf("failed to read mission PID file: %w", err)
 	}
 
-	if pid == 0 || !daemon.IsProcessRunning(pid) {
+	if pid == 0 || !IsProcessRunning(pid) {
 		os.Remove(pidFilepath)
 		return nil
 	}
@@ -374,7 +373,7 @@ func (s *Server) stopWrapper(missionID string) error {
 
 	deadline := time.Now().Add(stopTimeout)
 	for time.Now().Before(deadline) {
-		if !daemon.IsProcessRunning(pid) {
+		if !IsProcessRunning(pid) {
 			os.Remove(pidFilepath)
 			return nil
 		}

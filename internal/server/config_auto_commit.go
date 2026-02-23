@@ -1,4 +1,4 @@
-package daemon
+package server
 
 import (
 	"context"
@@ -17,13 +17,13 @@ const (
 
 // runConfigAutoCommitLoop periodically checks whether the config directory is
 // a Git repository with uncommitted changes, and if so auto-commits and pushes.
-func (d *Daemon) runConfigAutoCommitLoop(ctx context.Context) {
+func (s *Server) runConfigAutoCommitLoop(ctx context.Context) {
 	// Run first cycle after a short delay so it doesn't race with startup I/O
 	select {
 	case <-ctx.Done():
 		return
 	case <-time.After(configAutoCommitInterval):
-		d.runConfigAutoCommitCycle(ctx)
+		s.runConfigAutoCommitCycle(ctx)
 	}
 
 	ticker := time.NewTicker(configAutoCommitInterval)
@@ -34,15 +34,15 @@ func (d *Daemon) runConfigAutoCommitLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.runConfigAutoCommitCycle(ctx)
+			s.runConfigAutoCommitCycle(ctx)
 		}
 	}
 }
 
 // runConfigAutoCommitCycle performs a single auto-commit/push cycle for the
 // config directory.
-func (d *Daemon) runConfigAutoCommitCycle(ctx context.Context) {
-	configDirpath := config.GetConfigDirpath(d.agencDirpath)
+func (s *Server) runConfigAutoCommitCycle(ctx context.Context) {
+	configDirpath := config.GetConfigDirpath(s.agencDirpath)
 
 	if !isGitRepo(configDirpath) {
 		return
@@ -56,7 +56,7 @@ func (d *Daemon) runConfigAutoCommitCycle(ctx context.Context) {
 	addCmd := exec.CommandContext(ctx, "git", "add", "-A")
 	addCmd.Dir = configDirpath
 	if output, err := addCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Config auto-commit: git add failed: %v\n%s", err, strings.TrimSpace(string(output)))
+		s.logger.Printf("Config auto-commit: git add failed: %v\n%s", err, strings.TrimSpace(string(output)))
 		return
 	}
 
@@ -66,11 +66,11 @@ func (d *Daemon) runConfigAutoCommitCycle(ctx context.Context) {
 	commitCmd := exec.CommandContext(ctx, "git", "commit", "-m", commitMsg)
 	commitCmd.Dir = configDirpath
 	if output, err := commitCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Config auto-commit: git commit failed: %v\n%s", err, strings.TrimSpace(string(output)))
+		s.logger.Printf("Config auto-commit: git commit failed: %v\n%s", err, strings.TrimSpace(string(output)))
 		return
 	}
 
-	d.logger.Printf("Config auto-commit: committed changes: %s", commitMsg)
+	s.logger.Printf("Config auto-commit: committed changes: %s", commitMsg)
 
 	if !hasOriginRemote(ctx, configDirpath) {
 		return
@@ -80,11 +80,11 @@ func (d *Daemon) runConfigAutoCommitCycle(ctx context.Context) {
 	pushCmd := exec.CommandContext(ctx, "git", "push")
 	pushCmd.Dir = configDirpath
 	if output, err := pushCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Config auto-commit: git push failed: %v\n%s", err, strings.TrimSpace(string(output)))
+		s.logger.Printf("Config auto-commit: git push failed: %v\n%s", err, strings.TrimSpace(string(output)))
 		return
 	}
 
-	d.logger.Println("Config auto-commit: pushed to remote")
+	s.logger.Println("Config auto-commit: pushed to remote")
 }
 
 // isGitRepo returns true if the given directory contains a .git subdirectory.

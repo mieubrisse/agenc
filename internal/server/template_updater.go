@@ -1,4 +1,4 @@
-package daemon
+package server
 
 import (
 	"context"
@@ -24,8 +24,8 @@ const (
 
 // runRepoUpdateLoop periodically fetches and fast-forwards synced repos
 // and active mission repos.
-func (d *Daemon) runRepoUpdateLoop(ctx context.Context) {
-	d.runRepoUpdateCycle(ctx)
+func (s *Server) runRepoUpdateLoop(ctx context.Context) {
+	s.runRepoUpdateCycle(ctx)
 
 	ticker := time.NewTicker(repoUpdateInterval)
 	defer ticker.Stop()
@@ -35,7 +35,7 @@ func (d *Daemon) runRepoUpdateLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.runRepoUpdateCycle(ctx)
+			s.runRepoUpdateCycle(ctx)
 		}
 	}
 }
@@ -46,13 +46,13 @@ const (
 	refreshDefaultBranchInterval = 10
 )
 
-func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
-	d.repoUpdateCycleCount++
-	refreshDefaultBranch := d.repoUpdateCycleCount%refreshDefaultBranchInterval == 0
+func (s *Server) runRepoUpdateCycle(ctx context.Context) {
+	s.repoUpdateCycleCount++
+	refreshDefaultBranch := s.repoUpdateCycleCount%refreshDefaultBranchInterval == 0
 
-	cfg, _, err := config.ReadAgencConfig(d.agencDirpath)
+	cfg, _, err := config.ReadAgencConfig(s.agencDirpath)
 	if err != nil {
-		d.logger.Printf("Repo update: failed to read config: %v", err)
+		s.logger.Printf("Repo update: failed to read config: %v", err)
 		return
 	}
 
@@ -64,9 +64,9 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 
 	// Include repos from missions with a recent heartbeat (active wrapper)
 	now := time.Now().UTC()
-	missions, err := d.db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	missions, err := s.db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
 	if err != nil {
-		d.logger.Printf("Repo update: failed to list missions: %v", err)
+		s.logger.Printf("Repo update: failed to list missions: %v", err)
 	} else {
 		for _, m := range missions {
 			if m.GitRepo == "" || m.LastHeartbeat == nil {
@@ -78,7 +78,7 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 		}
 	}
 
-	preferSSH := mission.DetectPreferredProtocol(d.agencDirpath)
+	preferSSH := mission.DetectPreferredProtocol(s.agencDirpath)
 
 	for repo := range reposToSync {
 		if ctx.Err() != nil {
@@ -87,24 +87,24 @@ func (d *Daemon) runRepoUpdateCycle(ctx context.Context) {
 
 		repoName, cloneURL, err := mission.ParseRepoReference(repo, preferSSH, "")
 		if err != nil {
-			d.logger.Printf("Repo update: invalid repo '%s': %v", repo, err)
+			s.logger.Printf("Repo update: invalid repo '%s': %v", repo, err)
 			continue
 		}
 
-		if err := d.ensureRepoCloned(ctx, repoName, cloneURL); err != nil {
-			d.logger.Printf("Repo update: clone failed for '%s': %v", repoName, err)
+		if err := s.ensureRepoCloned(ctx, repoName, cloneURL); err != nil {
+			s.logger.Printf("Repo update: clone failed for '%s': %v", repoName, err)
 			continue
 		}
 
-		d.updateRepo(ctx, repoName, refreshDefaultBranch)
+		s.updateRepo(ctx, repoName, refreshDefaultBranch)
 	}
 }
 
 // ensureRepoCloned clones the repo if it doesn't already exist. Unlike
 // mission.EnsureRepoClone, this uses CombinedOutput and logs instead of
 // writing to stdout/stderr.
-func (d *Daemon) ensureRepoCloned(ctx context.Context, repoName string, cloneURL string) error {
-	cloneDirpath := config.GetRepoDirpath(d.agencDirpath, repoName)
+func (s *Server) ensureRepoCloned(ctx context.Context, repoName string, cloneURL string) error {
+	cloneDirpath := config.GetRepoDirpath(s.agencDirpath, repoName)
 
 	if _, err := os.Stat(cloneDirpath); err == nil {
 		return nil
@@ -119,27 +119,27 @@ func (d *Daemon) ensureRepoCloned(ctx context.Context, repoName string, cloneURL
 
 	gitCmd := exec.CommandContext(ctx, "git", "clone", cloneURL, cloneDirpath)
 	if output, err := gitCmd.CombinedOutput(); err != nil {
-		d.logger.Printf("Repo update: git clone output for '%s': %s", repoName, strings.TrimSpace(string(output)))
+		s.logger.Printf("Repo update: git clone output for '%s': %s", repoName, strings.TrimSpace(string(output)))
 		return err
 	}
 
-	d.logger.Printf("Repo update: cloned '%s' from %s", repoName, cloneURL)
+	s.logger.Printf("Repo update: cloned '%s' from %s", repoName, cloneURL)
 	return nil
 }
 
-func (d *Daemon) updateRepo(ctx context.Context, repoName string, refreshDefaultBranch bool) {
-	repoDirpath := config.GetRepoDirpath(d.agencDirpath, repoName)
+func (s *Server) updateRepo(ctx context.Context, repoName string, refreshDefaultBranch bool) {
+	repoDirpath := config.GetRepoDirpath(s.agencDirpath, repoName)
 
 	// Periodically refresh origin/HEAD so we track the remote's default branch
 	if refreshDefaultBranch {
 		setHeadCmd := exec.CommandContext(ctx, "git", "remote", "set-head", "origin", "--auto")
 		setHeadCmd.Dir = repoDirpath
 		if output, err := setHeadCmd.CombinedOutput(); err != nil {
-			d.logger.Printf("Repo update: git remote set-head failed for '%s': %v\n%s", repoName, err, string(output))
+			s.logger.Printf("Repo update: git remote set-head failed for '%s': %v\n%s", repoName, err, string(output))
 		}
 	}
 
 	if err := mission.ForceUpdateRepo(repoDirpath); err != nil {
-		d.logger.Printf("Repo update: failed to update '%s': %v", repoName, err)
+		s.logger.Printf("Repo update: failed to update '%s': %v", repoName, err)
 	}
 }

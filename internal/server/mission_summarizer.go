@@ -1,4 +1,4 @@
-package daemon
+package server
 
 import (
 	"context"
@@ -45,13 +45,13 @@ const (
 // API key — the CLI reuses the existing OAuth token. If performance becomes an
 // issue, consider switching to a direct API call with the Anthropic SDK, which
 // would eliminate subprocess overhead but require separate API key configuration.
-func (d *Daemon) runMissionSummarizerLoop(ctx context.Context) {
+func (s *Server) runMissionSummarizerLoop(ctx context.Context) {
 	// Initial delay to avoid racing with startup I/O
 	select {
 	case <-ctx.Done():
 		return
 	case <-time.After(summarizerInterval):
-		d.runMissionSummarizerCycle(ctx)
+		s.runMissionSummarizerCycle(ctx)
 	}
 
 	ticker := time.NewTicker(summarizerInterval)
@@ -62,17 +62,17 @@ func (d *Daemon) runMissionSummarizerLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.runMissionSummarizerCycle(ctx)
+			s.runMissionSummarizerCycle(ctx)
 		}
 	}
 }
 
 // runMissionSummarizerCycle performs a single pass over all active missions,
 // generating AI descriptions for those that are eligible.
-func (d *Daemon) runMissionSummarizerCycle(ctx context.Context) {
-	missions, err := d.db.ListMissionsNeedingSummary(summarizerPromptThreshold)
+func (s *Server) runMissionSummarizerCycle(ctx context.Context) {
+	missions, err := s.db.ListMissionsNeedingSummary(summarizerPromptThreshold)
 	if err != nil {
-		d.logger.Printf("Mission summarizer: failed to list eligible missions: %v", err)
+		s.logger.Printf("Mission summarizer: failed to list eligible missions: %v", err)
 		return
 	}
 
@@ -83,11 +83,11 @@ func (d *Daemon) runMissionSummarizerCycle(ctx context.Context) {
 
 		// Skip missions that already have a custom title from /rename — the
 		// AI summary would never be displayed since /rename takes priority.
-		claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(d.agencDirpath, m.ID)
+		claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, m.ID)
 		if customTitle := session.FindCustomTitle(claudeConfigDirpath, m.ID); customTitle != "" {
 			// Still reset the counter so we don't re-check every cycle
-			if err := d.db.UpdateAISummary(m.ID, m.AISummary); err != nil {
-				d.logger.Printf("Mission summarizer: failed to reset summary counter for %s: %v", m.ShortID, err)
+			if err := s.db.UpdateAISummary(m.ID, m.AISummary); err != nil {
+				s.logger.Printf("Mission summarizer: failed to reset summary counter for %s: %v", m.ShortID, err)
 			}
 			continue
 		}
@@ -98,24 +98,24 @@ func (d *Daemon) runMissionSummarizerCycle(ctx context.Context) {
 			continue
 		}
 
-		summary, err := d.generateMissionSummary(ctx, userMessages)
+		summary, err := s.generateMissionSummary(ctx, userMessages)
 		if err != nil {
-			d.logger.Printf("Mission summarizer: failed to generate summary for %s: %v", m.ShortID, err)
+			s.logger.Printf("Mission summarizer: failed to generate summary for %s: %v", m.ShortID, err)
 			continue
 		}
 
-		if err := d.db.UpdateAISummary(m.ID, summary); err != nil {
-			d.logger.Printf("Mission summarizer: failed to save summary for %s: %v", m.ShortID, err)
+		if err := s.db.UpdateAISummary(m.ID, summary); err != nil {
+			s.logger.Printf("Mission summarizer: failed to save summary for %s: %v", m.ShortID, err)
 			continue
 		}
 
-		d.logger.Printf("Mission summarizer: updated summary for %s: %q", m.ShortID, summary)
+		s.logger.Printf("Mission summarizer: updated summary for %s: %q", m.ShortID, summary)
 	}
 }
 
 // generateMissionSummary calls Claude Haiku via the CLI to produce a short
 // description of what the user is working on, based on their recent messages.
-func (d *Daemon) generateMissionSummary(ctx context.Context, userMessages []string) (string, error) {
+func (s *Server) generateMissionSummary(ctx context.Context, userMessages []string) (string, error) {
 	// Build the prompt with recent user messages
 	var messageBullets strings.Builder
 	for _, msg := range userMessages {
@@ -147,7 +147,7 @@ func (d *Daemon) generateMissionSummary(ctx context.Context, userMessages []stri
 	cmd := exec.CommandContext(cmdCtx, claudeBinary, "--print", "--model", summarizerModel, "-p", prompt)
 
 	// Pass OAuth token for authentication
-	oauthToken, err := config.ReadOAuthToken(d.agencDirpath)
+	oauthToken, err := config.ReadOAuthToken(s.agencDirpath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read OAuth token: %w", err)
 	}
