@@ -11,6 +11,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -78,6 +79,14 @@ func (s *Server) Run(ctx context.Context) error {
 		if err := s.httpServer.Serve(listener); err != http.ErrServerClosed {
 			s.logger.Printf("HTTP server error: %v", err)
 		}
+	}()
+
+	// Start background loops (formerly the daemon)
+	d := daemon.NewDaemon(s.agencDirpath, s.db, s.logger)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.Run(ctx)
 	}()
 
 	// Wait for context cancellation, then gracefully shut down
