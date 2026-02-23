@@ -26,6 +26,10 @@ const (
 	DaemonPIDFilename          = "daemon.pid"
 	DaemonLogFilename          = "daemon.log"
 	DaemonVersionFilename      = "daemon.version"
+	ServerDirname              = "server"
+	ServerPIDFilename          = "server.pid"
+	ServerLogFilename          = "server.log"
+	ServerSocketFilename       = "server.sock"
 	ConfigFilename             = "config.yml"
 
 	AgentDirname                    = "agent"
@@ -73,6 +77,7 @@ func EnsureDirStructure(agencDirpath string) error {
 		filepath.Join(agencDirpath, ClaudeDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
 		filepath.Join(agencDirpath, DaemonDirname),
+		filepath.Join(agencDirpath, ServerDirname),
 		filepath.Join(agencDirpath, CacheDirname),
 	}
 	for _, dirpath := range dirs {
@@ -134,6 +139,26 @@ func GetDaemonLogFilepath(agencDirpath string) string {
 // GetDaemonVersionFilepath returns the path to the daemon version file.
 func GetDaemonVersionFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, DaemonDirname, DaemonVersionFilename)
+}
+
+// GetServerDirpath returns the path to the server directory.
+func GetServerDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ServerDirname)
+}
+
+// GetServerPIDFilepath returns the path to the server PID file.
+func GetServerPIDFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ServerDirname, ServerPIDFilename)
+}
+
+// GetServerLogFilepath returns the path to the server log file.
+func GetServerLogFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ServerDirname, ServerLogFilename)
+}
+
+// GetServerSocketFilepath returns the path to the server unix socket file.
+func GetServerSocketFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ServerDirname, ServerSocketFilename)
 }
 
 // GetDatabaseFilepath returns the path to the SQLite database file.
