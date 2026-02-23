@@ -17,6 +17,7 @@ var configSetCmd = &cobra.Command{
 
 Supported keys:
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
+  defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
@@ -112,6 +113,9 @@ func isTmuxKeybindingKey(key string) bool {
 // type conversion and validation as needed.
 func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 	switch key {
+	case "defaultModel":
+		cfg.DefaultModel = value
+		return nil
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value
 		return nil

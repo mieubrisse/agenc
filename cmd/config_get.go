@@ -12,6 +12,7 @@ import (
 // supportedConfigKeys lists all keys accepted by 'config get' and 'config set'.
 var supportedConfigKeys = []string{
 	"claudeCodeOAuthToken",
+	"defaultModel",
 	"paletteTmuxKeybinding",
 	"tmuxWindowTitle.busyBackgroundColor",
 	"tmuxWindowTitle.busyForegroundColor",
@@ -28,6 +29,7 @@ Prints "unset" if the key has not been explicitly set.
 
 Supported keys:
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
+  defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
@@ -75,6 +77,11 @@ func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
 			return "unset", nil
 		}
 		return token, nil
+	case "defaultModel":
+		if cfg.DefaultModel == "" {
+			return "unset", nil
+		}
+		return cfg.DefaultModel, nil
 	case "paletteTmuxKeybinding":
 		if cfg.PaletteTmuxKeybinding == "" {
 			return "unset", nil
