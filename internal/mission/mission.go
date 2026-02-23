@@ -66,7 +66,12 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 // (CLAUDE_CONFIG_DIR, AGENC_MISSION_UUID, CLAUDE_CODE_OAUTH_TOKEN), set but
 // does NOT set stdin/stdout/stderr — callers should wire those as needed
 // (e.g. interactive mode connects to the terminal, headless mode uses pipes).
-func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, claudeArgs []string) (*exec.Cmd, error) {
+func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, model string, claudeArgs []string) (*exec.Cmd, error) {
+	// Prepend --model flag if a default model is configured
+	if model != "" {
+		claudeArgs = append([]string{"--model", model}, claudeArgs...)
+	}
+
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
@@ -126,8 +131,8 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 
 // SpawnClaude starts claude as a child process in the given agent directory.
 // Returns the running command. The caller is responsible for calling cmd.Wait().
-func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
-	return SpawnClaudeWithPrompt(agencDirpath, missionID, agentDirpath, "")
+func SpawnClaude(agencDirpath string, missionID string, agentDirpath string, model string) (*exec.Cmd, error) {
+	return SpawnClaudeWithPrompt(agencDirpath, missionID, agentDirpath, model, "")
 }
 
 // SpawnClaudeWithPrompt starts claude with an initial prompt as a child process
@@ -135,14 +140,14 @@ func SpawnClaude(agencDirpath string, missionID string, agentDirpath string) (*e
 // initialPrompt is non-empty, it is passed as a positional argument to pre-fill
 // the first message. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
-func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, initialPrompt string) (*exec.Cmd, error) {
+func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, model string, initialPrompt string) (*exec.Cmd, error) {
 	var args []string
 	if initialPrompt != "" {
 		// Pass prompt as positional argument for interactive mode with pre-filled message
 		args = []string{initialPrompt}
 	}
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, args)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, model, args)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude command")
 	}
@@ -161,8 +166,8 @@ func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath s
 // SpawnClaudeResume starts claude -c as a child process in the given agent
 // directory. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
-func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath string) (*exec.Cmd, error) {
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, []string{"-c"})
+func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath string, model string) (*exec.Cmd, error) {
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, model, []string{"-c"})
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
 	}
@@ -182,7 +187,7 @@ func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath strin
 // using claude -r <session-id>. If sessionID is empty, falls back to
 // claude -c. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
-func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, sessionID string) (*exec.Cmd, error) {
+func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, model string, sessionID string) (*exec.Cmd, error) {
 	var args []string
 	if sessionID != "" {
 		args = []string{"-r", sessionID}
@@ -190,7 +195,7 @@ func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDi
 		args = []string{"-c"}
 	}
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, args)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, model, args)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
 	}
