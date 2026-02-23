@@ -92,27 +92,28 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 		return stacktrace.Propagate(err, "failed to copy and patch .claude.json")
 	}
 
-	// Symlink plugins to ~/.claude/plugins
-	if err := symlinkPlugins(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to symlink plugins")
+	// Symlink directories to ~/.claude/ so all missions share centralized
+	// state rather than fragmenting caches, telemetry, and session data.
+	symlinkDirNames := []string{
+		"plugins",         // IDE plugins
+		"projects",        // conversation transcripts, subagent logs, auto-memory
+		"shell-snapshots", // Claude Code shell snapshot files
+		"statsig",         // Statsig SDK feature flag evaluation cache
+		"telemetry",       // first-party telemetry event queue
+		"usage-data",      // usage analytics for 'claude usage' reporting
+		"todos",           // TodoWrite tool data
+		"tasks",           // task tracking data
+		"debug",           // debug log files
+		"session-env",     // per-session environment snapshots
+		"file-history",    // @-mention file index cache
+		"cache",           // general cache (changelog, etc.)
+		"backups",         // config backup files
+		"paste-cache",     // paste buffer cache
 	}
-
-	// Symlink projects to ~/.claude/projects so session transcripts persist
-	// beyond the mission lifecycle
-	if err := symlinkProjects(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to symlink projects")
-	}
-
-	// Symlink shell-snapshots to ~/.claude/shell-snapshots so Claude's shell
-	// snapshot functionality can write files without permission issues
-	if err := symlinkShellSnapshots(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to symlink shell-snapshots")
-	}
-
-	// Symlink statsig to ~/.claude/statsig so all missions share the Statsig
-	// SDK's cached feature flag evaluations, avoiding a network fetch on startup
-	if err := symlinkStatsig(claudeConfigDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to symlink statsig")
+	for _, dirName := range symlinkDirNames {
+		if err := symlinkToGlobalClaudeDir(claudeConfigDirpath, dirName); err != nil {
+			return stacktrace.Propagate(err, "failed to symlink %s", dirName)
+		}
 	}
 
 	return nil
@@ -351,97 +352,28 @@ func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirp
 	return WriteIfChanged(destFilepath, rewrittenData)
 }
 
-// symlinkPlugins creates a symlink from the mission config's plugins/
-// directory to ~/.claude/plugins/. If ~/.claude/plugins/ doesn't exist,
-// the symlink is still created (it will resolve when the user installs a plugin).
-func symlinkPlugins(claudeConfigDirpath string) error {
+// symlinkToGlobalClaudeDir creates a symlink from claudeConfigDirpath/dirName
+// to ~/.claude/dirName, ensuring the target directory exists first. Any
+// existing file, directory, or symlink at the link path is removed before
+// creating the new symlink.
+func symlinkToGlobalClaudeDir(claudeConfigDirpath string, dirName string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to determine home directory")
 	}
 
-	pluginsTargetDirpath := filepath.Join(homeDir, ".claude", "plugins")
-	pluginsLinkPath := filepath.Join(claudeConfigDirpath, "plugins")
-
-	// Remove existing plugins directory/file if it exists
-	os.RemoveAll(pluginsLinkPath)
-
-	return os.Symlink(pluginsTargetDirpath, pluginsLinkPath)
-}
-
-// symlinkProjects creates a symlink from the mission config's projects/
-// directory to ~/.claude/projects/. This ensures conversation transcripts,
-// subagent logs, and per-project auto-memory persist beyond the mission
-// lifecycle and are visible to Claude across all sessions.
-// The target directory is created if it doesn't already exist.
-func symlinkProjects(claudeConfigDirpath string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to determine home directory")
-	}
-
-	projectsTargetDirpath := filepath.Join(homeDir, ".claude", "projects")
-	projectsLinkPath := filepath.Join(claudeConfigDirpath, "projects")
+	targetDirpath := filepath.Join(homeDir, ".claude", dirName)
+	linkPath := filepath.Join(claudeConfigDirpath, dirName)
 
 	// Ensure the target directory exists so Claude Code can write into it
-	if err := os.MkdirAll(projectsTargetDirpath, 0700); err != nil {
-		return stacktrace.Propagate(err, "failed to create '%s'", projectsTargetDirpath)
+	if err := os.MkdirAll(targetDirpath, 0700); err != nil {
+		return stacktrace.Propagate(err, "failed to create '%s'", targetDirpath)
 	}
 
-	// Remove existing projects directory/symlink if it exists
-	os.RemoveAll(projectsLinkPath)
+	// Remove existing directory/symlink if it exists
+	os.RemoveAll(linkPath)
 
-	return os.Symlink(projectsTargetDirpath, projectsLinkPath)
-}
-
-// symlinkShellSnapshots creates a symlink from the mission config's
-// shell-snapshots/ directory to ~/.claude/shell-snapshots/. This allows
-// Claude Code's internal shell snapshot functionality to write files without
-// hitting permission issues in the mission's claude-config directory.
-// The target directory is created if it doesn't already exist.
-func symlinkShellSnapshots(claudeConfigDirpath string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to determine home directory")
-	}
-
-	snapshotsTargetDirpath := filepath.Join(homeDir, ".claude", "shell-snapshots")
-	snapshotsLinkPath := filepath.Join(claudeConfigDirpath, "shell-snapshots")
-
-	// Ensure the target directory exists so Claude Code can write into it
-	if err := os.MkdirAll(snapshotsTargetDirpath, 0700); err != nil {
-		return stacktrace.Propagate(err, "failed to create '%s'", snapshotsTargetDirpath)
-	}
-
-	// Remove existing shell-snapshots directory/symlink if it exists
-	os.RemoveAll(snapshotsLinkPath)
-
-	return os.Symlink(snapshotsTargetDirpath, snapshotsLinkPath)
-}
-
-// symlinkStatsig creates a symlink from the mission config's statsig/
-// directory to ~/.claude/statsig/. The Statsig SDK caches feature flag
-// evaluations here; sharing this cache across missions avoids a network
-// fetch on every mission startup.
-// The target directory is created if it doesn't already exist.
-func symlinkStatsig(claudeConfigDirpath string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to determine home directory")
-	}
-
-	statsigTargetDirpath := filepath.Join(homeDir, ".claude", "statsig")
-	statsigLinkPath := filepath.Join(claudeConfigDirpath, "statsig")
-
-	// Ensure the target directory exists so Claude Code can write into it
-	if err := os.MkdirAll(statsigTargetDirpath, 0700); err != nil {
-		return stacktrace.Propagate(err, "failed to create '%s'", statsigTargetDirpath)
-	}
-
-	// Remove existing statsig directory/symlink if it exists
-	os.RemoveAll(statsigLinkPath)
-
-	return os.Symlink(statsigTargetDirpath, statsigLinkPath)
+	return os.Symlink(targetDirpath, linkPath)
 }
 
 // copyDirWithRewriting recursively copies a directory tree from src to dst,
