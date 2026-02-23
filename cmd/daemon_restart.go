@@ -4,14 +4,11 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
 )
 
 var daemonRestartCmd = &cobra.Command{
 	Use:   restartCmdStr,
-	Short: "Restart the background daemon",
+	Short: "Restart the background daemon (deprecated: use 'server stop' then 'server start')",
 	RunE:  runDaemonRestart,
 }
 
@@ -20,30 +17,9 @@ func init() {
 }
 
 func runDaemonRestart(cmd *cobra.Command, args []string) error {
-	if _, err := getAgencContext(); err != nil {
-		return err
+	printDaemonDeprecation()
+	if err := runServerStop(cmd, args); err != nil {
+		fmt.Println("Server was not running; starting fresh.")
 	}
-	pidFilepath := config.GetDaemonPIDFilepath(agencDirpath)
-	logFilepath := config.GetDaemonLogFilepath(agencDirpath)
-
-	pid, err := daemon.ReadPID(pidFilepath)
-	if err != nil {
-		return err
-	}
-
-	if pid > 0 && daemon.IsProcessRunning(pid) {
-		if err := daemon.StopDaemon(pidFilepath); err != nil {
-			return err
-		}
-		fmt.Println("Daemon stopped.")
-	}
-
-	if err := daemon.ForkDaemon(logFilepath, pidFilepath); err != nil {
-		return err
-	}
-
-	newPID, _ := daemon.ReadPID(pidFilepath)
-	fmt.Printf("Daemon started (PID %d).\n", newPID)
-
-	return nil
+	return runServerStart(cmd, args)
 }

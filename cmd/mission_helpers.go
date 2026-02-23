@@ -10,8 +10,8 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 // ============================================================================
@@ -126,16 +126,16 @@ var (
 )
 
 // getAgencContext lazily ensures agenc is fully configured. It runs
-// ensureConfigured() at most once per CLI invocation and, for non-daemon
-// processes, checks whether the daemon needs a version-bump restart.
+// ensureConfigured() at most once per CLI invocation and, for non-server
+// processes, checks whether the server needs a version-bump restart.
 func getAgencContext() (string, error) {
 	agencCtxOnce.Do(func() {
 		_, agencCtxErr = ensureConfigured()
 		if agencCtxErr != nil {
 			return
 		}
-		if !daemon.IsDaemonProcess() {
-			checkDaemonVersion(agencDirpath)
+		if !server.IsServerProcess() {
+			checkServerVersion(agencDirpath)
 		}
 	})
 	return agencDirpath, agencCtxErr

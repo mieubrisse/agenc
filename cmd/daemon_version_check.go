@@ -3,65 +3,60 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
-
-	"golang.org/x/mod/semver"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/daemon"
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/version"
 )
 
-// checkDaemonVersion compares the running daemon's version against the CLI
-// version. If the CLI is newer by semver, it gracefully restarts the daemon.
-// If versions differ but can't be compared by semver, it prints a warning.
-// All errors are silently ignored — this check must never block CLI commands.
-func checkDaemonVersion(agencDirpath string) {
-	pidFilepath := config.GetDaemonPIDFilepath(agencDirpath)
+// checkServerVersion compares the running server's version against the CLI
+// version. If the versions differ, it restarts the server so background loops
+// pick up the new binary. All errors are silently ignored — this check must
+// never block CLI commands.
+func checkServerVersion(agencDirpath string) {
+	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 
-	pid, err := daemon.ReadPID(pidFilepath)
-	if err != nil || pid == 0 || !daemon.IsProcessRunning(pid) {
+	if !server.IsRunning(pidFilepath) {
 		return
 	}
 
-	versionFilepath := config.GetDaemonVersionFilepath(agencDirpath)
-	raw, err := os.ReadFile(versionFilepath)
-	if err != nil {
+	// Use the health endpoint to get the server version
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	client := server.NewClient(socketFilepath)
+
+	var healthResp struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}
+	if err := client.Get("/health", &healthResp); err != nil {
 		return
 	}
-	daemonVersion := strings.TrimSpace(string(raw))
 
+	serverVersion := healthResp.Version
 	cliVersion := version.Version
-	if daemonVersion == cliVersion {
+	if serverVersion == cliVersion || serverVersion == "" {
 		return
 	}
 
-	if semver.IsValid(cliVersion) && semver.IsValid(daemonVersion) {
-		if semver.Compare(cliVersion, daemonVersion) > 0 {
-			restartDaemon(agencDirpath, daemonVersion, cliVersion)
-		}
-		return
-	}
-
-	fmt.Fprintf(os.Stderr, "Warning: daemon version (%s) does not match CLI version (%s). "+
-		"Run '%s %s %s' to restart the daemon.\n", daemonVersion, cliVersion, agencCmdStr, daemonCmdStr, restartCmdStr)
+	// Versions differ — restart the server
+	restartServer(agencDirpath, serverVersion, cliVersion)
 }
 
-// restartDaemon stops the running daemon and starts a new one, printing a
+// restartServer stops the running server and starts a new one, printing a
 // notice to stderr.
-func restartDaemon(agencDirpath string, oldVersion string, newVersion string) {
-	pidFilepath := config.GetDaemonPIDFilepath(agencDirpath)
-	logFilepath := config.GetDaemonLogFilepath(agencDirpath)
+func restartServer(agencDirpath string, oldVersion string, newVersion string) {
+	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
+	logFilepath := config.GetServerLogFilepath(agencDirpath)
 
-	if err := daemon.StopDaemon(pidFilepath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to stop daemon for upgrade: %v\n", err)
+	if err := server.StopServer(pidFilepath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to stop server for upgrade: %v\n", err)
 		return
 	}
 
-	if err := daemon.ForkDaemon(logFilepath, pidFilepath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to start daemon after upgrade: %v\n", err)
+	if err := server.ForkServer(logFilepath, pidFilepath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to start server after upgrade: %v\n", err)
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "Daemon restarted: %s → %s\n", oldVersion, newVersion)
+	fmt.Fprintf(os.Stderr, "Server restarted: %s → %s\n", oldVersion, newVersion)
 }
