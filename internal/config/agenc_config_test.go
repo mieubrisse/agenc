@@ -1405,3 +1405,69 @@ func TestGetDefaultModel(t *testing.T) {
 		t.Errorf("expected '' for unset config, got '%s'", got)
 	}
 }
+
+func TestDefaultModel_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{
+		DefaultModel: "sonnet",
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {DefaultModel: "opus"},
+			"github.com/owner/repo2": {},
+		},
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if got.DefaultModel != "sonnet" {
+		t.Errorf("expected global defaultModel 'sonnet', got '%s'", got.DefaultModel)
+	}
+
+	rc1 := got.RepoConfigs["github.com/owner/repo1"]
+	if rc1.DefaultModel != "opus" {
+		t.Errorf("expected repo1 defaultModel 'opus', got '%s'", rc1.DefaultModel)
+	}
+
+	rc2 := got.RepoConfigs["github.com/owner/repo2"]
+	if rc2.DefaultModel != "" {
+		t.Errorf("expected empty defaultModel for repo2, got '%s'", rc2.DefaultModel)
+	}
+}
+
+func TestDefaultModel_FromYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+defaultModel: haiku
+repoConfig:
+  github.com/owner/repo1:
+    defaultModel: opus
+  github.com/owner/repo2:
+    alwaysSynced: true
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if cfg.DefaultModel != "haiku" {
+		t.Errorf("expected global defaultModel 'haiku', got '%s'", cfg.DefaultModel)
+	}
+	if cfg.GetDefaultModel("github.com/owner/repo1") != "opus" {
+		t.Errorf("expected repo1 resolved model 'opus', got '%s'", cfg.GetDefaultModel("github.com/owner/repo1"))
+	}
+	if cfg.GetDefaultModel("github.com/owner/repo2") != "haiku" {
+		t.Errorf("expected repo2 to fall back to 'haiku', got '%s'", cfg.GetDefaultModel("github.com/owner/repo2"))
+	}
+}
