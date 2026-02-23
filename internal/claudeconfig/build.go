@@ -109,6 +109,12 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 		return stacktrace.Propagate(err, "failed to symlink shell-snapshots")
 	}
 
+	// Symlink statsig to ~/.claude/statsig so all missions share the Statsig
+	// SDK's cached feature flag evaluations, avoiding a network fetch on startup
+	if err := symlinkStatsig(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to symlink statsig")
+	}
+
 	return nil
 }
 
@@ -411,6 +417,31 @@ func symlinkShellSnapshots(claudeConfigDirpath string) error {
 	os.RemoveAll(snapshotsLinkPath)
 
 	return os.Symlink(snapshotsTargetDirpath, snapshotsLinkPath)
+}
+
+// symlinkStatsig creates a symlink from the mission config's statsig/
+// directory to ~/.claude/statsig/. The Statsig SDK caches feature flag
+// evaluations here; sharing this cache across missions avoids a network
+// fetch on every mission startup.
+// The target directory is created if it doesn't already exist.
+func symlinkStatsig(claudeConfigDirpath string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine home directory")
+	}
+
+	statsigTargetDirpath := filepath.Join(homeDir, ".claude", "statsig")
+	statsigLinkPath := filepath.Join(claudeConfigDirpath, "statsig")
+
+	// Ensure the target directory exists so Claude Code can write into it
+	if err := os.MkdirAll(statsigTargetDirpath, 0700); err != nil {
+		return stacktrace.Propagate(err, "failed to create '%s'", statsigTargetDirpath)
+	}
+
+	// Remove existing statsig directory/symlink if it exists
+	os.RemoveAll(statsigLinkPath)
+
+	return os.Symlink(statsigTargetDirpath, statsigLinkPath)
 }
 
 // copyDirWithRewriting recursively copies a directory tree from src to dst,
