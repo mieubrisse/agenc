@@ -76,6 +76,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.logger.Printf("Server listening on %s", s.socketPath)
 
+	// Ensure the tmux pool session exists for mission windows
+	if err := s.ensurePoolSession(); err != nil {
+		s.logger.Printf("Warning: failed to create tmux pool session: %v", err)
+	}
+
 	// Verify launchctl is available (required for cron scheduling)
 	if err := launchd.VerifyLaunchctlAvailable(); err != nil {
 		s.logger.Printf("Warning: %v - cron scheduling will not work", err)
