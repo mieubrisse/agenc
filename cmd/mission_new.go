@@ -16,6 +16,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
@@ -247,11 +248,46 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 	return createAndLaunchMission(agencDirpath, selection.RepoName, gitCloneDirpath, promptFlag)
 }
 
-// createAndLaunchAdjutantMission creates an Adjutant mission. The
-// Adjutant has no git repo but gets permissions to run agenc commands and a
-// SessionStart hook that injects the CLI quick reference. A .adjutant marker file is written so that
-// BuildMissionConfigDir can detect adjutant missions autonomously.
+// createAndLaunchAdjutantMission creates an Adjutant mission. Tries the server
+// first, falling back to direct creation if the server is unreachable.
 func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) error {
+	// Try server first
+	if missionRecord, err := createAdjutantViaServer(agencDirpath, initialPrompt); err == nil {
+		fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
+		fmt.Println("Launching Adjutant...")
+		db, dbErr := openDB()
+		if dbErr != nil {
+			return dbErr
+		}
+		defer db.Close()
+		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "🤖  Adjutant", initialPrompt, db)
+		return w.Run(false)
+	}
+
+	// Fall back to direct creation
+	return createAndLaunchAdjutantMissionDirect(agencDirpath, initialPrompt)
+}
+
+// createAdjutantViaServer creates an adjutant mission via the server HTTP API.
+func createAdjutantViaServer(agencDirpath string, initialPrompt string) (*server.MissionResponse, error) {
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	client := server.NewClient(socketFilepath)
+
+	req := server.CreateMissionRequest{
+		Adjutant: true,
+		Prompt:   initialPrompt,
+	}
+
+	var resp server.MissionResponse
+	if err := client.Post("/missions", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// createAndLaunchAdjutantMissionDirect creates an Adjutant mission via direct
+// DB and filesystem access when the server is unreachable.
+func createAndLaunchAdjutantMissionDirect(agencDirpath string, initialPrompt string) error {
 	db, err := openDB()
 	if err != nil {
 		return err
@@ -392,6 +428,59 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 // are empty when no git repo is involved. initialPrompt is optional; if
 // non-empty, it will be sent to Claude when starting the conversation.
 func createAndLaunchMission(
+	agencDirpath string,
+	gitRepoName string,
+	gitCloneDirpath string,
+	initialPrompt string,
+) error {
+	// Try creating via server first
+	if missionRecord, err := createMissionViaServer(agencDirpath, gitRepoName, initialPrompt); err == nil {
+		fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
+		if !headlessFlag {
+			// Interactive mode: run the wrapper in the current process
+			fmt.Println("Launching claude...")
+			db, dbErr := openDB()
+			if dbErr != nil {
+				return dbErr
+			}
+			defer db.Close()
+			windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
+			w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt, db)
+			return w.Run(false)
+		}
+		fmt.Printf("Running in headless mode...\n")
+		return nil
+	}
+
+	// Fall back to direct creation
+	return createAndLaunchMissionDirect(agencDirpath, gitRepoName, gitCloneDirpath, initialPrompt)
+}
+
+// createMissionViaServer attempts to create a mission via the server HTTP API.
+// Returns the created mission response, or an error if the server is unreachable.
+func createMissionViaServer(agencDirpath string, gitRepoName string, initialPrompt string) (*server.MissionResponse, error) {
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	client := server.NewClient(socketFilepath)
+
+	req := server.CreateMissionRequest{
+		Repo:     gitRepoName,
+		Prompt:   initialPrompt,
+		Headless: headlessFlag,
+		CronID:   cronIDFlag,
+		CronName: cronNameFlag,
+		Timeout:  timeoutFlag,
+	}
+
+	var resp server.MissionResponse
+	if err := client.Post("/missions", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// createAndLaunchMissionDirect creates a mission using direct DB and filesystem
+// access when the server is unreachable.
+func createAndLaunchMissionDirect(
 	agencDirpath string,
 	gitRepoName string,
 	gitCloneDirpath string,

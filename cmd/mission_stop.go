@@ -13,6 +13,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/daemon"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 const (
@@ -101,10 +102,26 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// stopMissionWrapper gracefully stops a mission's wrapper process if it is
-// running. This is idempotent: if the wrapper is already stopped, it returns
-// nil without error.
+// stopMissionWrapper gracefully stops a mission's wrapper process. Tries the
+// server endpoint first, falling back to direct process management if the
+// server is unreachable. This is idempotent: if the wrapper is already stopped,
+// it returns nil without error.
 func stopMissionWrapper(missionID string) error {
+	// Try the server first
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	client := server.NewClient(socketFilepath)
+	if err := client.Post("/missions/"+missionID+"/stop", nil, nil); err == nil {
+		fmt.Printf("Mission '%s' stopped.\n", database.ShortID(missionID))
+		return nil
+	}
+
+	// Fall back to direct process management
+	return stopMissionWrapperDirect(missionID)
+}
+
+// stopMissionWrapperDirect stops a mission's wrapper via direct process
+// management (SIGTERM + poll + SIGKILL fallback).
+func stopMissionWrapperDirect(missionID string) error {
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := daemon.ReadPID(pidFilepath)
 	if err != nil {

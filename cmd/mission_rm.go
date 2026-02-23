@@ -12,6 +12,7 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var missionRmCmd = &cobra.Command{
@@ -109,9 +110,24 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// removeMission tears down a mission in the reverse order of `mission new`:
-// mission new creates DB record then directory, so we remove directory then DB record.
+// removeMission tears down a mission. Tries the server DELETE endpoint first,
+// falling back to direct filesystem and database operations.
 func removeMission(db *database.DB, missionID string) error {
+	// Try the server first
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	client := server.NewClient(socketFilepath)
+	if err := client.Delete("/missions/" + missionID); err == nil {
+		fmt.Printf("Removed mission: %s\n", database.ShortID(missionID))
+		return nil
+	}
+
+	// Fall back to direct removal
+	return removeMissionDirect(db, missionID)
+}
+
+// removeMissionDirect tears down a mission via direct filesystem and database
+// operations when the server is unreachable.
+func removeMissionDirect(db *database.DB, missionID string) error {
 	if _, err := prepareMissionForAction(db, missionID); err != nil {
 		return err
 	}

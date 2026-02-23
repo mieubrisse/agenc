@@ -11,6 +11,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var missionReloadCmd = &cobra.Command{
@@ -102,11 +103,25 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// reloadMission handles the reload logic for a single mission. It detects
-// whether the mission is running in tmux and routes to the appropriate reload
-// path. Returns an error if the mission doesn't exist, is archived, or uses
-// the old directory format.
+// reloadMission handles the reload logic for a single mission. It tries the
+// server endpoint first, falling back to direct tmux management if the server
+// is unreachable.
 func reloadMission(db *database.DB, missionID string) error {
+	// Try the server first
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	client := server.NewClient(socketFilepath)
+	if err := client.Post("/missions/"+missionID+"/reload", nil, nil); err == nil {
+		fmt.Printf("Mission '%s' reloaded\n", database.ShortID(missionID))
+		return nil
+	}
+
+	// Fall back to direct reload
+	return reloadMissionDirect(db, missionID)
+}
+
+// reloadMissionDirect handles the reload logic via direct process and tmux
+// management when the server is unreachable.
+func reloadMissionDirect(db *database.DB, missionID string) error {
 	missionRecord, err := db.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
