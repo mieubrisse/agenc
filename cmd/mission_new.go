@@ -73,7 +73,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	if _, err := getAgencContext(); err != nil {
 		return err
 	}
-	ensureDaemonRunning(agencDirpath)
+	ensureServerRunning(agencDirpath)
 
 	// Double-fire prevention: if this is a cron trigger, check for running missions
 	if cronTriggerFlag != "" {
