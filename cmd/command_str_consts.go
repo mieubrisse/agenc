@@ -14,6 +14,7 @@ const (
 	missionCmdStr  = "mission"
 	repoCmdStr     = "repo"
 	daemonCmdStr   = "daemon"
+	serverCmdStr   = "server"
 	discordCmdStr  = "discord"
 	tmuxCmdStr     = "tmux"
 	versionCmdStr  = "version"

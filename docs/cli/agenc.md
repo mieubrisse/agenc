@@ -22,6 +22,7 @@ The AgenC — agent mission management CLI
 * [agenc mission](agenc_mission.md)	 - Manage agent missions
 * [agenc prime](agenc_prime.md)	 - Print AgenC CLI quick reference for AI agent context
 * [agenc repo](agenc_repo.md)	 - Manage the repo library
+* [agenc server](agenc_server.md)	 - Manage the AgenC server
 * [agenc session](agenc_session.md)	 - Manage Claude Code sessions
 * [agenc star](agenc_star.md)	 - Open the AgenC GitHub repository in your browser
 * [agenc summary](agenc_summary.md)	 - Show a daily summary of AgenC activity
