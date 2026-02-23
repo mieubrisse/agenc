@@ -1,7 +1,7 @@
 System Architecture
 ===================
 
-AgenC is a CLI tool that runs AI agents (Claude Code instances) in isolated, per-mission sandboxes. It tracks all missions in a central database, manages a shared repository library, and keeps configuration version-controlled via a background daemon.
+AgenC is a CLI tool that runs AI agents (Claude Code instances) in isolated, per-mission sandboxes. It tracks all missions in a central database, manages a shared repository library, and keeps configuration version-controlled via a background server process.
 
 Read this document before making non-trivial changes to the codebase. It is the canonical map of how the system fits together — runtime processes, directory layout, package responsibilities, and cross-cutting patterns.
 
@@ -59,7 +59,7 @@ graph TB
 | `server/server.pid` | Server | CLI (`server stop/status`) | Process coordination |
 | `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
 | `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI, hooks (`mission send claude-update`) | Restart commands, Claude state updates |
-| `daemon/daemon.pid` | Daemon | CLI (`daemon stop/status`) | Process coordination |
+| `daemon/daemon.pid` | Daemon (deprecated) | CLI (`server stop/status`) | Process coordination (legacy) |
 | `.git/refs/remotes/origin/<branch>` | Git (after push) | Wrapper (via fsnotify) | Trigger repo library update |
 
 
@@ -76,7 +76,7 @@ The CLI is the user-facing entry point. It parses commands, manages the database
 
 ### Server
 
-The server is a long-running HTTP API process that listens on a unix socket. It is being incrementally built to replace direct database access from the CLI and eventually absorb the daemon's background loops. The CLI communicates with the server via HTTP requests over the unix socket.
+The server is a long-running HTTP API process that listens on a unix socket. It handles mission lifecycle operations, serves query endpoints, and runs background maintenance loops. The CLI communicates with the server via HTTP requests over the unix socket.
 
 - Entry point: `internal/server/server.go` (`Server.Run`)
 - Process management: `internal/server/process.go` (PID file, fork, stop)
@@ -87,42 +87,44 @@ The server is a long-running HTTP API process that listens on a unix socket. It 
 - Socket: `$AGENC_DIRPATH/server/server.sock` (mode 0600)
 
 Current endpoints:
-- `GET /health` — returns `{"status": "ok"}`
+- `GET /health` — returns `{"status": "ok", "version": "<version>"}`
+- `GET /missions` — lists all missions
+- `GET /missions/{id}` — get a single mission by ID
+- `POST /missions` — create a new mission (DB record, directory, wrapper spawn)
+- `POST /missions/{id}/stop` — stop a mission's wrapper process
+- `DELETE /missions/{id}` — stop wrapper, clean up directory, delete from DB
+- `POST /missions/{id}/reload` — in-place reload via tmux respawn-pane
+- `POST /repos/{name}/push-event` — force-update a repo library after push
 
-The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, cleans up the socket file.
+The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 
-### Daemon
+CLI commands use a "server-first with direct fallback" pattern: they try the server HTTP endpoint first, and if the server is unreachable, fall back to direct filesystem/database/process operations. The `agenc daemon` subcommand is deprecated and delegates to `agenc server`.
 
-The daemon is a long-running background process that performs periodic maintenance. It is forked by `agenc daemon start` and detaches from the parent terminal via `setsid`.
+### Background loops
 
-- Entry point: `internal/daemon/daemon.go` (`Daemon.Run`)
-- Process management: `internal/daemon/process.go` (PID file, fork, stop)
-- PID file: `$AGENC_DIRPATH/daemon/daemon.pid`
-- Log file: `$AGENC_DIRPATH/daemon/daemon.log`
+The server runs five concurrent background goroutines (formerly the daemon):
 
-The daemon runs five concurrent goroutines:
-
-**1. Repo update loop** (`internal/daemon/template_updater.go`)
+**1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs every 60 seconds
 - Fetches and fast-forwards all repos in the synced set: `config.yml` `repoConfig` entries with `alwaysSynced: true` + repos from missions with a recent heartbeat (< 5 minutes)
 - Refreshes `origin/HEAD` every 10 cycles (~10 minutes) via `git remote set-head origin --auto`
 
-**2. Config auto-commit loop** (`internal/daemon/config_auto_commit.go`)
+**2. Config auto-commit loop** (`internal/server/config_auto_commit.go`)
 - Runs every 10 minutes (first cycle delayed by 10 minutes after startup)
 - If `$AGENC_DIRPATH/config/` is a Git repo with uncommitted changes: stages all, commits with timestamp message, pushes (if `origin` remote exists)
 
-**3. Config watcher loop** (`internal/daemon/config_watcher.go`)
+**3. Config watcher loop** (`internal/server/config_watcher.go`)
 - Initializes the shadow repo on first run, then watches both `~/.claude` and `config.yml` for changes via fsnotify
 - On `~/.claude` changes (debounced at 500ms), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
 - On `config.yml` changes (debounced at 500ms), triggers cron sync to launchd plists
 - Watches both the `~/.claude` directory and all tracked subdirectories, resolving symlinks to watch actual targets
 
-**4. Keybindings writer loop** (`internal/daemon/keybindings_writer.go`)
+**4. Keybindings writer loop** (`internal/server/keybindings_writer.go`)
 - Writes the tmux keybindings file on startup and every 5 minutes
 - Sources the keybindings into any running tmux server after writing
-- Ensures keybindings stay current after binary upgrades (daemon auto-restarts on version bump)
+- Ensures keybindings stay current after binary upgrades (server auto-restarts on version bump)
 
-**5. Mission summarizer loop** (`internal/daemon/mission_summarizer.go`)
+**5. Mission summarizer loop** (`internal/server/mission_summarizer.go`)
 - Runs every 2 minutes
 - Queries the database for active missions where `prompt_count - last_summary_prompt_count >= 10`
 - For each eligible mission: extracts recent user messages from session JSONL, calls Claude Haiku via `claude --print --model claude-haiku-4-5-20251001` to generate a 3-8 word description, stores the result in the `ai_summary` database column
@@ -209,7 +211,7 @@ Directory Structure
 │   ├── mission/                  # Mission lifecycle, Claude spawning
 │   ├── claudeconfig/             # Per-mission config merging, shadow repo
 │   ├── server/                   # HTTP API server (unix socket)
-│   ├── daemon/                   # Background loops
+│   ├── daemon/                   # Deprecated (replaced by server)
 │   ├── tmux/                     # Tmux keybindings generation
 │   ├── wrapper/                  # Claude child process management
 │   ├── history/                  # Prompt extraction from history.jsonl
@@ -248,7 +250,7 @@ $AGENC_DIRPATH/
 │   ├── commands/                          # Normalized copy of ~/.claude/commands/
 │   └── agents/                            # Normalized copy of ~/.claude/agents/
 │
-├── repos/                                 # Shared repo library (daemon syncs these)
+├── repos/                                 # Shared repo library (server syncs these)
 │   └── github.com/owner/repo/            # One clone per repo
 │
 ├── missions/                              # Per-mission sandboxes
@@ -276,10 +278,10 @@ $AGENC_DIRPATH/
 │   ├── server.log                         # Server log
 │   └── server.sock                        # Unix socket for HTTP API (mode 0600)
 │
-└── daemon/
-    ├── daemon.pid                         # Daemon process ID
-    ├── daemon.log                         # Daemon log
-    └── daemon.version                     # Last recorded daemon version
+└── daemon/                                    # Deprecated (kept for cleanup of existing installs)
+    ├── daemon.pid
+    ├── daemon.log
+    └── daemon.version
 ```
 
 
@@ -321,31 +323,26 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 
 ### `internal/server/`
 
-HTTP API server that listens on a unix socket. Currently serves the health endpoint; will incrementally absorb mission queries, lifecycle operations, and daemon background loops.
+HTTP API server that listens on a unix socket. Serves mission lifecycle endpoints and runs background maintenance loops (formerly the daemon).
 
-- `server.go` — `Server` struct, `NewServer`, `Run` (starts HTTP listener on unix socket, graceful shutdown on context cancellation), `registerRoutes`, `handleHealth`
-- `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)
+- `server.go` — `Server` struct, `NewServer`, `Run` (starts HTTP listener, background loops, graceful shutdown on context cancellation), `registerRoutes`, `handleHealth`
+- `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `IsProcessRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)
 - `client.go` — `Client` struct with `Get`, `Post`, `Delete` methods for CLI-to-server communication over the unix socket
+- `missions.go` — mission CRUD endpoints, wrapper process management (stop/reload/delete), tmux in-place reload
+- `repos.go` — push-event endpoint for triggering repo library updates
 - `errors.go` — `writeError`, `writeJSON` helper functions for consistent JSON responses
-
-### `internal/database/`
-
-SQLite mission tracking with auto-migration.
-
-- `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, cron association tracking. Idempotent migrations handle schema evolution.
-
-### `internal/daemon/`
-
-Background daemon with five concurrent loops.
-
-- `daemon.go` — `Daemon` struct, `Run` method that starts and coordinates all goroutines, initial cron sync on startup
-- `process.go` — daemon lifecycle: `ForkDaemon` (re-executes binary as detached process via setsid), `ReadPID`, `IsProcessRunning`, `StopDaemon` (SIGTERM then SIGKILL)
 - `template_updater.go` — repo update loop (60-second interval, fetches synced + active-mission repos)
 - `config_auto_commit.go` — config auto-commit loop (10-minute interval, git add/commit/push)
 - `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo and triggers cron sync)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
 - `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
+
+### `internal/database/`
+
+SQLite mission tracking with auto-migration.
+
+- `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, cron association tracking. Idempotent migrations handle schema evolution.
 
 ### `internal/launchd/`
 
@@ -356,10 +353,10 @@ macOS launchd integration for cron scheduling.
 
 ### `internal/tmux/`
 
-Tmux keybindings generation and version detection, shared by the CLI (`tmux inject`) and daemon.
+Tmux keybindings generation and version detection, shared by the CLI (`tmux inject`) and server.
 
 - `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`. Keybinding generation accepts the detected tmux version and a slice of `CustomKeybinding` entries (built from resolved palette commands). Version-gates features: the command palette keybinding (`display-popup`) is only emitted on tmux >= 3.2. The hardcoded key table entry (`prefix + a`) and palette popup (`k`) remain fixed; all other keybindings (including built-in defaults like `n`, `p`, `d`) are driven by the resolved palette commands.
-- `version.go` — `ParseVersion` (parses `tmux -V` output), `DetectVersion` (runs `tmux -V` and parses the result). Used by keybindings generation, the daemon, and the CLI to detect the installed tmux version.
+- `version.go` — `ParseVersion` (parses `tmux -V` output), `DetectVersion` (runs `tmux -V` and parses the result). Used by keybindings generation, the server, and the CLI to detect the installed tmux version.
 
 ### `internal/wrapper/`
 
@@ -368,8 +365,8 @@ Per-mission Claude child process management.
 - `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable, model resolution from `defaultModel` config (repo-level then top-level) passed as `--model` to the Claude CLI
 - `credential_sync.go` — MCP OAuth credential sync goroutines: `initCredentialHash` (baseline hash at spawn), `watchCredentialUpwardSync` (polls per-mission Keychain every 60s; when hash changes, merges to global and writes broadcast timestamp to `global-credentials-expiry`), `watchCredentialDownwardSync` (fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global into per-mission Keychain)
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
-- `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/daemon/hook use, `ErrWrapperNotRunning` sentinel error
-- `tmux.go` — tmux window renaming when inside any tmux session (`$TMUX` set) (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from daemon > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
+- `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/server/hook use, `ErrWrapperNotRunning` sentinel error
+- `tmux.go` — tmux window renaming when inside any tmux session (`$TMUX` set) (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from server > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
 
 ### Utility packages
 
@@ -418,7 +415,7 @@ The shadow repo (`internal/claudeconfig/shadow.go`) tracks the user's `~/.claude
 
 **Path rewriting:** Path rewriting is a one-way operation at build time only (`RewriteClaudePaths`). When `BuildMissionConfigDir` creates the per-mission config, `~/.claude` paths (absolute, `${HOME}/.claude`, and `~/.claude` forms) are rewritten to point to the mission's `claude-config/` directory. For `settings.json`, rewriting is selective: the `permissions` block is preserved unchanged while all other fields (hooks, etc.) are rewritten (`RewriteSettingsPaths`).
 
-**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo as-is and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The daemon's config watcher loop (`internal/daemon/config_watcher.go`) triggers ingestion automatically whenever `~/.claude` changes are detected via fsnotify.
+**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo as-is and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The server's config watcher loop (`internal/server/config_watcher.go`) triggers ingestion automatically whenever `~/.claude` changes are detected via fsnotify.
 
 ### Idle detection via socket
 
@@ -435,8 +432,8 @@ The config merge injects five hooks into each mission's `settings.json` (`intern
 The `agenc mission send claude-update` command reads hook JSON from stdin (to extract `notification_type` for Notification events), then sends a `claude_update` command to the wrapper's unix socket with a 1-second timeout. It always exits 0 to avoid blocking Claude.
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
-- **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending, updates tmux window title (priority: custom title from /rename > AI summary from daemon > auto-generated session name)
-- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, updates `last_active` in the database, increments `prompt_count` (used by the daemon's mission summarizer to determine summarization eligibility)
+- **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending, updates tmux window title (priority: custom title from /rename > AI summary from server > auto-generated session name)
+- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, updates `last_active` in the database, increments `prompt_count` (used by the server's mission summarizer to determine summarization eligibility)
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
 - **PostToolUse / PostToolUseFailure** → sets tmux pane to busy color; corrects the window color after a permission prompt (which turns the pane orange) when Claude resumes work after the user responds
 
@@ -465,7 +462,7 @@ Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — n
 
 ### Heartbeat system
 
-Each wrapper writes a heartbeat to the database every 60 seconds (`internal/wrapper/wrapper.go:writeHeartbeat`). The daemon uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/daemon/template_updater.go`).
+Each wrapper writes a heartbeat to the database every 60 seconds (`internal/wrapper/wrapper.go:writeHeartbeat`). The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
 
 The `last_active` column tracks a different signal: when the user last submitted a prompt to the mission's Claude session (`internal/wrapper/wrapper.go:handleClaudeUpdate`). Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_active` persists indefinitely and reflects true user engagement. Mission listing and the switcher sort by `last_active` first, falling back to `last_heartbeat` then `created_at`.
 
@@ -473,7 +470,7 @@ The `last_active` column tracks a different signal: when the user last submitted
 
 All repos are cloned into a shared library at `$AGENC_DIRPATH/repos/github.com/owner/repo/`. Missions copy from this library at creation time rather than cloning directly from GitHub.
 
-The daemon keeps the library fresh by fetching and fast-forwarding every 60 seconds. The wrapper contributes by watching `.git/refs/remotes/origin/<branch>` for push events — when a mission pushes to its repo, the wrapper immediately force-updates the corresponding library clone so other missions get the changes without waiting for the next daemon cycle (debounced at 5 seconds).
+The daemon keeps the library fresh by fetching and fast-forwarding every 60 seconds. The wrapper contributes by watching `.git/refs/remotes/origin/<branch>` for push events — when a mission pushes to its repo, the wrapper immediately force-updates the corresponding library clone so other missions get the changes without waiting for the next server cycle (debounced at 5 seconds).
 
 Missions are denied Read/Glob/Grep/Write/Edit access to the repo library directory via injected deny permissions in settings.json (`internal/claudeconfig/overrides.go`).
 
@@ -485,18 +482,18 @@ Implemented in `internal/mission/mission.go:buildClaudeCmd` and `internal/wrappe
 
 ### Config auto-sync
 
-The `$AGENC_DIRPATH/config/` directory can optionally be a Git repo. The daemon's config auto-commit loop (`internal/daemon/config_auto_commit.go`) checks every 10 minutes: if there are uncommitted changes, it stages all, commits with a timestamped message, and pushes (skipping push if no `origin` remote exists). This keeps agent configuration version-controlled without manual effort.
+The `$AGENC_DIRPATH/config/` directory can optionally be a Git repo. The server's config auto-commit loop (`internal/server/config_auto_commit.go`) checks every 10 minutes: if there are uncommitted changes, it stages all, commits with a timestamped message, and pushes (skipping push if no `origin` remote exists). This keeps agent configuration version-controlled without manual effort.
 
 ### Cron scheduling
 
-Cron jobs are defined in `config.yml` under the `crons` key. The daemon syncs cron configuration to macOS launchd plists in `~/Library/LaunchAgents/`.
+Cron jobs are defined in `config.yml` under the `crons` key. The server syncs cron configuration to macOS launchd plists in `~/Library/LaunchAgents/`.
 
 **Architecture:**
 ```
-config.yml → fsnotify → daemon → cron syncer → launchd plists → launchd → agenc mission new
+config.yml → fsnotify → server → cron syncer → launchd plists → launchd → agenc mission new
 ```
 
-The daemon's cron syncer (`internal/daemon/cron_syncer.go`, `internal/launchd/`) handles synchronization:
+The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`) handles synchronization:
 
 **Plist management:**
 - Each cron job generates a plist file: `agenc-cron-{cronName}.plist`
@@ -506,7 +503,7 @@ The daemon's cron syncer (`internal/daemon/cron_syncer.go`, `internal/launchd/`)
 - Deleted crons: plist is unloaded and file is deleted
 
 **Sync triggers:**
-- On daemon startup: full sync of all crons
+- On server startup: full sync of all crons
 - On `config.yml` change: incremental sync (debounced at 500ms)
 - Orphan cleanup: on startup, scans `~/Library/LaunchAgents/` for `agenc-cron-*.plist` files not in config and removes them (unload + delete)
 
@@ -519,7 +516,7 @@ The daemon's cron syncer (`internal/daemon/cron_syncer.go`, `internal/launchd/`)
 6. Otherwise, proceed with normal mission creation
 
 **Key behaviors:**
-- **Scheduling reliability** — launchd handles scheduling, survives daemon restarts
+- **Scheduling reliability** — launchd handles scheduling, survives server restarts
 - **Double-fire prevention** — queries `GetMostRecentMissionForCron` by `cron_name`, skips if status is active
 - **No max concurrent limit** — macOS handles process management
 - **Cron expression support** — basic expressions only (`minute hour day month weekday`), no `*/N` syntax
@@ -532,7 +529,7 @@ Data Flow: Mission Lifecycle
 
 ### Creation (`agenc mission new`)
 
-1. CLI ensures the daemon is running and a config source repo is registered
+1. CLI ensures the server is running and a config source repo is registered
 2. Resolves the git repo reference (URL, shorthand, or fzf picker) and ensures it is cloned into the repo library
 3. Creates a database record — generates UUID + 8-char short ID, records the git repo name, config source commit hash, and optional cron association
 4. Creates the mission directory structure: copies the repo from the library via rsync, then builds the per-mission Claude config directory (see "Per-mission config merging")
@@ -563,13 +560,13 @@ Data Flow: Mission Lifecycle
 Failure Modes
 -------------
 
-**Daemon dies while missions are running.** Missions are unaffected — each wrapper is an independent process. The repo library stops syncing and cron jobs stop scheduling. Restarting the daemon (`agenc daemon restart`) restores both. The cron scheduler adopts orphaned headless missions on startup.
+**Server dies while missions are running.** Missions are unaffected — each wrapper is an independent process. The repo library stops syncing and cron jobs stop scheduling. Restarting the server (`agenc server start`) restores both. The cron scheduler adopts orphaned headless missions on startup.
 
-**Wrapper crashes or is killed.** Claude continues running as an orphaned process (it is a child process, but not monitored). The PID file becomes stale. The heartbeat stops updating, so the daemon drops the mission from its repo sync set after 5 minutes. A subsequent `agenc mission stop` will detect the stale PID.
+**Wrapper crashes or is killed.** Claude continues running as an orphaned process (it is a child process, but not monitored). The PID file becomes stale. The heartbeat stops updating, so the server drops the mission from its repo sync set after 5 minutes. A subsequent `agenc mission stop` will detect the stale PID.
 
-**Repo fetch fails.** The daemon logs the error and moves on to the next repo. The failed repo retries on the next 60-second cycle. Missions already running are unaffected since they have their own copy.
+**Repo fetch fails.** The server logs the error and moves on to the next repo. The failed repo retries on the next 60-second cycle. Missions already running are unaffected since they have their own copy.
 
-**Database is locked.** SQLite is configured with max connections = 1. Concurrent access from the CLI, daemon, and wrapper is serialized. If a long-running transaction blocks others, they wait (SQLite's default busy timeout applies).
+**Database is locked.** SQLite is configured with max connections = 1. Concurrent access from the CLI, server, and wrapper is serialized. If a long-running transaction blocks others, they wait (SQLite's default busy timeout applies).
 
 **Claude crashes mid-mission.** The wrapper detects the exit via `cmd.Wait()`, cleans up the PID file, and exits. The mission can be resumed with `agenc mission resume` if a conversation was recorded.
 
@@ -595,8 +592,8 @@ Database Schema
 | `cron_name` | TEXT | Name of the cron job (nullable, used for orphan tracking) |
 | `tmux_pane` | TEXT | Tmux pane ID where the mission wrapper is running (nullable, cleared on exit) |
 | `prompt_count` | INTEGER | Total number of user prompt submissions, incremented by `UserPromptSubmit` hook |
-| `last_summary_prompt_count` | INTEGER | Value of `prompt_count` when the AI summary was last generated. The daemon re-summarizes when `prompt_count - last_summary_prompt_count >= 10` |
-| `ai_summary` | TEXT | AI-generated short description of what the user is working on, produced by the daemon's mission summarizer via Claude Haiku |
+| `last_summary_prompt_count` | INTEGER | Value of `prompt_count` when the AI summary was last generated. The server re-summarizes when `prompt_count - last_summary_prompt_count >= 10` |
+| `ai_summary` | TEXT | AI-generated short description of what the user is working on, produced by the server's mission summarizer via Claude Haiku |
 | `created_at` | TEXT | Mission creation timestamp (RFC3339) |
 | `updated_at` | TEXT | Last update timestamp (RFC3339) |
 
@@ -607,6 +604,6 @@ Database Schema
 | `idx_missions_short_id` | `short_id` | Enables O(1) mission resolution by short ID |
 | `idx_missions_activity` | `last_active DESC, last_heartbeat DESC` | Optimizes activity-based sorting for mission listings |
 | `idx_missions_tmux_pane` | `tmux_pane` (partial, WHERE tmux_pane IS NOT NULL) | Speeds up pane-to-mission resolution for tmux keybindings |
-| `idx_missions_summary` | `status, prompt_count, last_summary_prompt_count` | Improves performance of daemon's summary eligibility query |
+| `idx_missions_summary` | `status, prompt_count, last_summary_prompt_count` | Improves performance of server's summary eligibility query |
 
 SQLite is opened with max connections = 1 (`SetMaxOpenConns(1)`) due to its single-writer limitation. Migrations are idempotent and run on every database open.
