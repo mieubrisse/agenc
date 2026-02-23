@@ -24,6 +24,7 @@ const (
 	summaryCmdStr  = "summary"
 	starCmdStr     = "star"
 	feedbackCmdStr = "feedback"
+	sessionCmdStr  = "session"
 
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
@@ -35,6 +36,7 @@ const (
 	detachCmdStr = "detach"
 	windowCmdStr = "window"
 	paneCmdStr   = "pane"
+	printCmdStr  = "print"
 
 	// Tmux subcommands
 	injectCmdStr         = "inject"
@@ -92,6 +94,9 @@ const (
 
 	// mission inspect flags
 	dirFlagName = "dir"
+
+	// session/mission print flags
+	tailFlagName = "tail"
 
 	// mission nuke flags
 	forceFlagName = "force"
