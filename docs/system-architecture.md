@@ -9,13 +9,14 @@ Read this document before making non-trivial changes to the codebase. It is the 
 Process Overview
 ----------------
 
-Three cooperating processes form the runtime. They share state through the filesystem, a SQLite database, and per-mission unix sockets (for wrapper commands).
+Four cooperating processes form the runtime. They share state through the filesystem, a SQLite database, unix sockets, and HTTP over a unix socket (CLI-to-server communication).
 
 ```mermaid
 graph TB
     subgraph Processes
         CLI["CLI — agenc commands"]
-        Daemon["Daemon — background loops"]
+        Server["Server — HTTP API + background loops"]
+        Daemon["Daemon — background loops (being migrated to Server)"]
         Wrapper["Wrapper — per-mission supervisor"]
         Claude["Claude Code — AI agent"]
     end
@@ -27,11 +28,14 @@ graph TB
         Config["config/"]
     end
 
+    CLI -->|HTTP via unix socket| Server
     CLI -->|forks| Daemon
+    CLI -->|forks| Server
     CLI -->|spawns| Wrapper
     Daemon -->|spawns headless| Wrapper
     Wrapper -->|supervises| Claude
 
+    Server -->|owns| DB
     CLI -->|creates records| DB
     Wrapper -->|writes heartbeats| DB
     Daemon -->|reads heartbeats| DB
@@ -50,7 +54,9 @@ graph TB
 
 | Mechanism | Writer | Reader | Purpose |
 |-----------|--------|--------|---------|
-| `database.sqlite` | CLI, Wrapper | Daemon, CLI | Mission records, heartbeats, pane tracking |
+| `database.sqlite` | CLI, Wrapper, Server | Daemon, CLI, Server | Mission records, heartbeats, pane tracking |
+| `server/server.sock` | Server (listener) | CLI (HTTP client) | REST API for mission queries and lifecycle |
+| `server/server.pid` | Server | CLI (`server stop/status`) | Process coordination |
 | `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
 | `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI, hooks (`mission send claude-update`) | Restart commands, Claude state updates |
 | `daemon/daemon.pid` | Daemon | CLI (`daemon stop/status`) | Process coordination |
@@ -67,6 +73,23 @@ The CLI is the user-facing entry point. It parses commands, manages the database
 - Entry point: `main.go`
 - Commands: `cmd/` (Cobra-based; one file per command or command group)
 - Full command reference: `docs/cli/`
+
+### Server
+
+The server is a long-running HTTP API process that listens on a unix socket. It is being incrementally built to replace direct database access from the CLI and eventually absorb the daemon's background loops. The CLI communicates with the server via HTTP requests over the unix socket.
+
+- Entry point: `internal/server/server.go` (`Server.Run`)
+- Process management: `internal/server/process.go` (PID file, fork, stop)
+- HTTP client: `internal/server/client.go` (CLI-side HTTP client for unix socket communication)
+- Error/JSON helpers: `internal/server/errors.go`
+- PID file: `$AGENC_DIRPATH/server/server.pid`
+- Log file: `$AGENC_DIRPATH/server/server.log`
+- Socket: `$AGENC_DIRPATH/server/server.sock` (mode 0600)
+
+Current endpoints:
+- `GET /health` — returns `{"status": "ok"}`
+
+The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, cleans up the socket file.
 
 ### Daemon
 
@@ -185,6 +208,7 @@ Directory Structure
 │   ├── database/                 # SQLite CRUD
 │   ├── mission/                  # Mission lifecycle, Claude spawning
 │   ├── claudeconfig/             # Per-mission config merging, shadow repo
+│   ├── server/                   # HTTP API server (unix socket)
 │   ├── daemon/                   # Background loops
 │   ├── tmux/                     # Tmux keybindings generation
 │   ├── wrapper/                  # Claude child process management
@@ -247,6 +271,11 @@ $AGENC_DIRPATH/
 │       ├── statusline-message             # Per-mission statusline message (e.g. token expiry warning)
 │       └── claude-output.log              # Headless mode output (with rotation)
 │
+├── server/
+│   ├── server.pid                         # Server process ID
+│   ├── server.log                         # Server log
+│   └── server.sock                        # Unix socket for HTTP API (mode 0600)
+│
 └── daemon/
     ├── daemon.pid                         # Daemon process ID
     ├── daemon.log                         # Daemon log
@@ -289,6 +318,15 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 - `adjutant.go` — adjutant mission config builders: `buildAdjutantClaudeMd` (appends adjutant instructions), `buildAdjutantSettings` (injects adjutant permissions), `BuildAdjutantAllowEntries`/`BuildAdjutantDenyEntries` (permission entry generators)
 - `adjutant_claude.md` — embedded CLAUDE.md instructions for adjutant missions (tells the agent it is the Adjutant, directs CLI usage, establishes filesystem access boundaries)
 - `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
+
+### `internal/server/`
+
+HTTP API server that listens on a unix socket. Currently serves the health endpoint; will incrementally absorb mission queries, lifecycle operations, and daemon background loops.
+
+- `server.go` — `Server` struct, `NewServer`, `Run` (starts HTTP listener on unix socket, graceful shutdown on context cancellation), `registerRoutes`, `handleHealth`
+- `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)
+- `client.go` — `Client` struct with `Get`, `Post`, `Delete` methods for CLI-to-server communication over the unix socket
+- `errors.go` — `writeError`, `writeJSON` helper functions for consistent JSON responses
 
 ### `internal/database/`
 
