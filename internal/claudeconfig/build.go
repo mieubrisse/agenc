@@ -909,24 +909,19 @@ func GetLastSessionID(agencDirpath string, missionID string) string {
 		return ""
 	}
 
-	// Verify that the project directory actually exists. If a session was
-	// created but the user hasn't sent any messages yet, Claude Code will have
-	// written a sessionId to .claude.json but won't have created the project
-	// directory yet. Using `claude -r <session-id>` in this state fails with
-	// "no session to resume", so we check for the directory first.
-	if !projectDirectoryExists(agentDirpath) {
-		return ""
-	}
-
 	return sessionID
 }
 
-// projectDirectoryExists checks whether Claude Code has created a project
+// ProjectDirectoryExists checks whether Claude Code has created a project
 // directory for the given agent directory path. Claude Code transforms
 // absolute paths into project directory names by converting both slashes
 // and dots to hyphens.
 // For example: /Users/name/.config/path -> -Users-name--config-path
-func projectDirectoryExists(agentDirpath string) bool {
+//
+// Callers that use `claude -r <session-id>` should check this before
+// attempting resume — Claude Code won't have session data if the project
+// directory doesn't exist yet.
+func ProjectDirectoryExists(agentDirpath string) bool {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return false

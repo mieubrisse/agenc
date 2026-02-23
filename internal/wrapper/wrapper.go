@@ -249,10 +249,10 @@ func (w *Wrapper) Run(isResume bool) error {
 	// Spawn initial Claude process
 	if isResume {
 		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
-		if sessionID != "" {
+		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
 			w.claudeCmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, sessionID)
 		} else {
-			// Fallback to fresh start if no session exists
+			// Fallback to fresh start if no session or project directory exists
 			w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, "")
 		}
 	} else {
@@ -291,10 +291,10 @@ func (w *Wrapper) Run(isResume bool) error {
 				// Wrapper-initiated restart: respawn Claude
 				w.logger.Info("Claude exited for restart, respawning")
 
-				// Respawn Claude: use session-based resume if we have a session,
-				// fresh session otherwise
+				// Respawn Claude: use session-based resume if we have a session
+				// and the project directory exists, fresh session otherwise
 				sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
-				if sessionID != "" {
+				if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
 					w.claudeCmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, sessionID)
 				} else {
 					w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, "")
