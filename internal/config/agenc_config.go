@@ -149,9 +149,9 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		TmuxKeybinding: "-n C-s",
 	},
 	"reconfigMission": {
-		Title:       "🔧  Reconfig Mission",
-		Description: "Update the mission's ~/.claude config snapshot",
-		Command:     "agenc mission reconfig $AGENC_CALLING_MISSION_UUID",
+		Title:       "🔧  Reconfig & Reload Mission",
+		Description: "Update the mission's config and restart to apply changes",
+		Command:     "agenc mission reconfig $AGENC_CALLING_MISSION_UUID && agenc mission reload $AGENC_CALLING_MISSION_UUID",
 	},
 	"reloadMission": {
 		Title:       "🔄  Reload Mission",
