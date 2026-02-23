@@ -1369,3 +1369,39 @@ cronsMaxConcurrent: -5
 		}
 	})
 }
+
+func TestGetDefaultModel(t *testing.T) {
+	cfg := &AgencConfig{
+		DefaultModel: "sonnet",
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {DefaultModel: "opus"},
+			"github.com/owner/repo2": {},
+		},
+	}
+
+	// Repo with override returns repo model
+	if got := cfg.GetDefaultModel("github.com/owner/repo1"); got != "opus" {
+		t.Errorf("expected 'opus' for repo1, got '%s'", got)
+	}
+
+	// Repo without override falls back to global
+	if got := cfg.GetDefaultModel("github.com/owner/repo2"); got != "sonnet" {
+		t.Errorf("expected 'sonnet' for repo2, got '%s'", got)
+	}
+
+	// Unknown repo falls back to global
+	if got := cfg.GetDefaultModel("github.com/owner/unknown"); got != "sonnet" {
+		t.Errorf("expected 'sonnet' for unknown repo, got '%s'", got)
+	}
+
+	// Empty repo name falls back to global
+	if got := cfg.GetDefaultModel(""); got != "sonnet" {
+		t.Errorf("expected 'sonnet' for empty repo, got '%s'", got)
+	}
+
+	// No global, no repo override returns empty
+	cfgEmpty := &AgencConfig{}
+	if got := cfgEmpty.GetDefaultModel("github.com/owner/repo1"); got != "" {
+		t.Errorf("expected '' for unset config, got '%s'", got)
+	}
+}

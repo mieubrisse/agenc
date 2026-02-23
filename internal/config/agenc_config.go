@@ -319,6 +319,7 @@ type RepoConfig struct {
 	AlwaysSynced      bool               `yaml:"alwaysSynced,omitempty"`
 	WindowTitle       string             `yaml:"windowTitle,omitempty"`
 	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
+	DefaultModel      string             `yaml:"defaultModel,omitempty"`
 }
 
 // TrustedMcpServers configures MCP server trust for a repository.
@@ -370,6 +371,7 @@ type AgencConfig struct {
 	PaletteCommands       map[string]PaletteCommandConfig `yaml:"paletteCommands,omitempty"`
 	PaletteTmuxKeybinding string                          `yaml:"paletteTmuxKeybinding,omitempty"`
 	TmuxWindowTitle       *TmuxWindowTitleConfig          `yaml:"tmuxWindowTitle,omitempty"`
+	DefaultModel          string                          `yaml:"defaultModel,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -459,6 +461,17 @@ func (c *AgencConfig) SetAlwaysSynced(repoName string, synced bool) {
 	rc := c.RepoConfigs[repoName]
 	rc.AlwaysSynced = synced
 	c.RepoConfigs[repoName] = rc
+}
+
+// GetDefaultModel returns the resolved model for a given repo.
+// Precedence: repoConfig.defaultModel > config.defaultModel > "" (Claude decides).
+func (c *AgencConfig) GetDefaultModel(repoName string) string {
+	if repoName != "" {
+		if rc, ok := c.RepoConfigs[repoName]; ok && rc.DefaultModel != "" {
+			return rc.DefaultModel
+		}
+	}
+	return c.DefaultModel
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.
