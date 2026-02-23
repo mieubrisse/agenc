@@ -7,8 +7,10 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/session"
 )
 
 var inspectDirFlag bool
@@ -126,6 +128,26 @@ func inspectMission(db *database.DB, missionID string) error {
 	fmt.Printf("Directory:   %s\n", missionDirpath)
 	fmt.Printf("Created:     %s\n", mission.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Printf("Updated:     %s\n", mission.UpdatedAt.Format("2006-01-02 15:04:05"))
+
+	// List session UUIDs
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
+	sessionIDs := session.ListSessionIDs(claudeConfigDirpath, missionID)
+	currentSessionID := claudeconfig.GetLastSessionID(agencDirpath, missionID)
+
+	if len(sessionIDs) == 0 {
+		fmt.Printf("Sessions:    --\n")
+	} else {
+		fmt.Printf("Sessions:    %d total\n", len(sessionIDs))
+		for _, sid := range sessionIDs {
+			marker := "  "
+			suffix := ""
+			if sid == currentSessionID {
+				marker = "* "
+				suffix = "  (current)"
+			}
+			fmt.Printf("             %s%s%s\n", marker, sid, suffix)
+		}
+	}
 
 	return nil
 }
