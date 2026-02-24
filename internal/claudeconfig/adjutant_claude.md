@@ -102,6 +102,36 @@ agenc config cron rm daily-report
 
 The `agenc cron` commands are aliases that also work (`agenc cron ls`, `agenc cron rm`, `agenc cron enable/disable`), but `agenc config cron` provides the most flexible non-interactive interface with full flag support.
 
+Trusting MCP Servers
+--------------------
+
+When the user asks to **"trust"** something in a repo — MCP servers, tools, integrations — they are asking you to configure `trustedMcpServers` in that repo's `repoConfig`. This pre-approves MCP servers defined in the repo's `.mcp.json` so Claude Code skips the consent prompt when missions start.
+
+**Command:** `agenc config repoConfig set <repo> --trusted-mcp-servers=<value>`
+
+| Value | Effect |
+|-------|--------|
+| `all` | Trust every MCP server in the repo's `.mcp.json` |
+| `server1,server2` | Trust only the named servers (comma-separated) |
+| `""` (empty string) | Clear trust — Claude Code will prompt for consent again |
+
+**Examples:**
+
+```bash
+# Trust all MCP servers in a repo
+agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=all
+
+# Trust only specific servers
+agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=github,sentry
+
+# Clear trust (revert to prompting)
+agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=""
+```
+
+**How it works:** When a mission is created, AgenC checks the repo's `trustedMcpServers` config and writes the appropriate consent entries into the mission's `.claude.json`. This means the trust setting applies to all **new** missions — existing missions are not retroactively updated unless their config is rebuilt with `agenc mission update-config`.
+
+**Repo name format:** Always use the canonical form `github.com/owner/repo`. You can check existing repos with `agenc repo ls`.
+
 Sandbox Rules
 -------------
 
