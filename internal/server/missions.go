@@ -238,7 +238,8 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
 }
 
 // spawnWrapper launches the wrapper process for a newly created mission.
-// For interactive missions, it creates a new tmux window in the caller's session.
+// For interactive missions, it spawns the wrapper in the agenc-pool tmux session
+// and links the window into the caller's session.
 // For headless missions, it runs the wrapper in the background.
 func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMissionRequest) error {
 	agencBinpath, err := os.Executable()
@@ -272,7 +273,7 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		return cmd.Process.Release()
 	}
 
-	// Interactive: create a tmux window in the caller's session
+	// Interactive: spawn wrapper in the pool, then link into caller's session
 	tmuxSession := req.TmuxSession
 	if tmuxSession == "" {
 		return fmt.Errorf("tmux_session is required for interactive missions")
@@ -283,19 +284,17 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(req.Prompt, "'", "'\\''"))
 	}
 
-	// Look up window title from config
-	windowTitle := s.lookupWindowTitle(missionRecord.GitRepo)
-
-	tmuxArgs := []string{"new-window", "-t", tmuxSession}
-	if windowTitle != "" {
-		tmuxArgs = append(tmuxArgs, "-n", windowTitle)
-	}
-	tmuxArgs = append(tmuxArgs, resumeCmd)
-
-	cmd := exec.Command("tmux", tmuxArgs...)
-	output, err := cmd.CombinedOutput()
+	// Create the wrapper window in the pool
+	poolWindowTarget, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
 	if err != nil {
-		return fmt.Errorf("tmux new-window failed: %v (output: %s)", err, string(output))
+		return fmt.Errorf("failed to create pool window: %w", err)
+	}
+
+	// Link the pool window into the caller's session
+	if err := linkPoolWindow(poolWindowTarget, tmuxSession); err != nil {
+		// Window was created in pool but linking failed — clean up
+		s.destroyPoolWindow(missionRecord.ID)
+		return fmt.Errorf("failed to link pool window: %w", err)
 	}
 
 	return nil
@@ -344,6 +343,9 @@ func (s *Server) handleStopMission(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to stop wrapper: "+err.Error())
 		return
 	}
+
+	// Clean up pool window (may already be gone if wrapper exited cleanly)
+	s.destroyPoolWindow(resolvedID)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
@@ -407,10 +409,11 @@ func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stop the wrapper if running
+	// Stop the wrapper if running and clean up pool window
 	if err := s.stopWrapper(resolvedID); err != nil {
 		s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", id, err)
 	}
+	s.destroyPoolWindow(resolvedID)
 
 	// Clean up per-mission Keychain credentials from the old auth system
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, resolvedID)
