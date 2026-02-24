@@ -156,7 +156,7 @@ func runMissionNewWithClone() error {
 	fmt.Println("Launching claude...")
 
 	windowTitle := lookupWindowTitle(agencDirpath, sourceMission.GitRepo)
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, sourceMission.GitRepo, windowTitle, promptFlag, nil)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, sourceMission.GitRepo, windowTitle, promptFlag)
 	return w.Run(false)
 }
 
@@ -241,7 +241,7 @@ func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) e
 	fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
 	fmt.Println("Launching Adjutant...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "🤖  Adjutant", initialPrompt, nil)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "🤖  Adjutant", initialPrompt)
 	return w.Run(false)
 }
 
@@ -374,7 +374,7 @@ func createAndLaunchMission(
 	// Interactive mode: run the wrapper in the current process
 	fmt.Println("Launching claude...")
 	windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt, nil)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt)
 	return w.Run(false)
 }
 

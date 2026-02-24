@@ -134,7 +134,7 @@ func resumeMission(client *server.Client, missionID string) error {
 	if config.IsMissionAdjutant(agencDirpath, missionID) {
 		windowTitle = "🤖  Adjutant"
 	}
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", nil)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "")
 	return w.Run(hasConversation)
 }
 

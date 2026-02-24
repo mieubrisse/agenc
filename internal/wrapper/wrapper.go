@@ -17,16 +17,14 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
 	"github.com/odyssey/agenc/internal/server"
 )
 
 const (
 	repoRefDebouncePeriod = 5 * time.Second
-	// Heartbeat interval: 60s reduces database write frequency while maintaining
-	// adequate liveness detection. With 50 missions, this reduces writes from
-	// 100/min to 50/min, decreasing SQLite contention.
+	// Heartbeat interval: 60s keeps server request volume low while maintaining
+	// adequate liveness detection.
 	heartbeatInterval = 60 * time.Second
 )
 
@@ -49,7 +47,7 @@ type Wrapper struct {
 	defaultModel   string
 	missionDirpath string
 	agentDirpath   string
-	db             *database.DB
+	client         *server.Client
 	claudeCmd      *exec.Cmd
 	logger         *slog.Logger
 
@@ -104,7 +102,7 @@ type Wrapper struct {
 // starting a new conversation (not used for resumes). The windowTitle
 // parameter is optional; if non-empty, it overrides the default tmux window
 // title derived from the repo name.
-func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windowTitle string, initialPrompt string, db *database.DB) *Wrapper {
+func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windowTitle string, initialPrompt string) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	var titleCfg *config.TmuxWindowTitleConfig
@@ -125,7 +123,7 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windo
 		defaultModel:                   defaultModel,
 		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:                   config.GetMissionAgentDirpath(agencDirpath, missionID),
-		db:                             db,
+		client:                         server.NewClient(config.GetServerSocketFilepath(agencDirpath)),
 		claudeExited:                   make(chan error, 1),
 		commandCh:                      make(chan commandWithResponse, 1),
 		claudeIdle:                     true,
@@ -198,7 +196,7 @@ func (w *Wrapper) Run(isResume bool) error {
 	defer signal.Stop(sigCh)
 
 	// Write initial heartbeat and start periodic heartbeat loop
-	if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
+	if err := w.client.Heartbeat(w.missionID); err != nil {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)
@@ -417,11 +415,8 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 		w.claudeIdle = false
 		w.hasConversation = true
 		w.setWindowBusy()
-		if err := w.db.UpdateLastActive(w.missionID); err != nil {
-			w.logger.Warn("Failed to update last_active", "error", err)
-		}
-		if err := w.db.IncrementPromptCount(w.missionID); err != nil {
-			w.logger.Warn("Failed to increment prompt count", "error", err)
+		if err := w.client.RecordPrompt(w.missionID); err != nil {
+			w.logger.Warn("Failed to record prompt", "error", err)
 		}
 
 	case "PostToolUse", "PostToolUseFailure":
@@ -549,7 +544,7 @@ func (w *Wrapper) triggerRepoPushEvent() {
 }
 
 // writeHeartbeat periodically updates the mission's last_heartbeat timestamp
-// in the database so the daemon knows the wrapper is still alive.
+// via the server so the system knows the wrapper is still alive.
 func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
@@ -559,7 +554,7 @@ func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
+			if err := w.client.Heartbeat(w.missionID); err != nil {
 				w.logger.Warn("Failed to write heartbeat", "error", err)
 			}
 		}
@@ -637,7 +632,7 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 	defer signal.Stop(sigCh)
 
 	// Write initial heartbeat and start periodic heartbeat loop
-	if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
+	if err := w.client.Heartbeat(w.missionID); err != nil {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)

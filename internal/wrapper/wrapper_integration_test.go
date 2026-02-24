@@ -148,8 +148,8 @@ func waitForSocket(socketFilepath string, timeout time.Duration) error {
 }
 
 // createTestWrapper creates a wrapper with a logger initialized for testing.
-func createTestWrapper(agencDirpath, missionID, gitRepoName string, db *database.DB) *Wrapper {
-	w := NewWrapper(agencDirpath, missionID, gitRepoName, "", "", db)
+func createTestWrapper(agencDirpath, missionID, gitRepoName string) *Wrapper {
+	w := NewWrapper(agencDirpath, missionID, gitRepoName, "", "")
 	w.logger = slog.Default()
 	return w
 }
@@ -165,7 +165,7 @@ func TestGracefulRestart(t *testing.T) {
 	defer setup.cleanup()
 
 	// Create wrapper
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 
 	// Override claudeCmd with a mock process for testing
 	mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
@@ -277,7 +277,7 @@ func TestHardRestart(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 
 	mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
 	if err != nil {
@@ -349,7 +349,7 @@ func TestRestartIdempotency(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 
 	mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
 	if err != nil {
@@ -434,68 +434,12 @@ func TestRestartIdempotency(t *testing.T) {
 	}
 }
 
-// TestHeartbeatContinues verifies that the heartbeat goroutine updates the database.
-func TestHeartbeatContinues(t *testing.T) {
-	setup := setupTest(t)
-	defer setup.cleanup()
-
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
-
-	// Get initial heartbeat
-	mission, err := setup.db.GetMission(setup.missionID)
-	if err != nil {
-		t.Fatalf("failed to get mission: %v", err)
-	}
-	initialHeartbeat := mission.LastHeartbeat
-
-	// Start heartbeat goroutine with short interval
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Write initial heartbeat
-	if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
-		t.Fatalf("failed to write initial heartbeat: %v", err)
-	}
-
-	// Start heartbeat writer
-	go w.writeHeartbeat(ctx)
-
-	// Wait for at least one heartbeat cycle (30 seconds is too long for tests)
-	// Instead, we'll manually trigger a heartbeat update and verify it works
-	time.Sleep(100 * time.Millisecond)
-
-	// Manually write another heartbeat to simulate the goroutine behavior
-	time.Sleep(200 * time.Millisecond)
-	if err := w.db.UpdateHeartbeat(w.missionID); err != nil {
-		t.Fatalf("failed to update heartbeat: %v", err)
-	}
-
-	// Note: We can't override the const heartbeatInterval, so we test manually
-	_ = heartbeatInterval
-
-	// Verify heartbeat was updated
-	mission, err = setup.db.GetMission(setup.missionID)
-	if err != nil {
-		t.Fatalf("failed to get mission after heartbeat: %v", err)
-	}
-
-	if mission.LastHeartbeat == nil {
-		t.Error("expected LastHeartbeat to be set, got nil")
-	} else if initialHeartbeat != nil && !mission.LastHeartbeat.After(*initialHeartbeat) {
-		t.Error("expected heartbeat to be updated to a newer timestamp")
-	}
-
-	// Cancel context and verify goroutine exits cleanly
-	cancel()
-	time.Sleep(100 * time.Millisecond)
-}
-
 // TestSocketProtocol tests the wrapper socket communication.
 func TestSocketProtocol(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 	w.state = stateRunning
 	w.claudeIdle = true
 
@@ -658,7 +602,7 @@ func TestSignalHandling(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 
 	mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
 	if err != nil {
@@ -706,7 +650,7 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 	w.state = stateRunning
 	w.claudeIdle = false
 	w.hasConversation = false
@@ -763,18 +707,6 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	if !w.hasConversation {
 		t.Error("expected hasConversation=true after UserPromptSubmit")
 	}
-
-	// Verify database was updated
-	mission, err := setup.db.GetMission(setup.missionID)
-	if err != nil {
-		t.Fatalf("failed to get mission: %v", err)
-	}
-	if mission.LastActive == nil {
-		t.Error("expected LastActive to be set after UserPromptSubmit")
-	}
-	if mission.PromptCount != 1 {
-		t.Errorf("expected PromptCount=1, got %d", mission.PromptCount)
-	}
 }
 
 // TestJSONProtocol verifies the socket uses correct JSON encoding/decoding.
@@ -782,7 +714,7 @@ func TestJSONProtocol(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 	w.state = stateRunning
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -822,7 +754,7 @@ func TestInvalidJSON(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", setup.db)
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

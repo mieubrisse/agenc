@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/session"
 )
 
@@ -71,12 +72,14 @@ func (w *Wrapper) registerTmuxPane() {
 	if paneID == "" {
 		return
 	}
-	_ = w.db.SetTmuxPane(w.missionID, strings.TrimPrefix(paneID, "%"))
+	pane := strings.TrimPrefix(paneID, "%")
+	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{TmuxPane: &pane})
 }
 
 // clearTmuxPane removes the tmux pane association for this mission.
 func (w *Wrapper) clearTmuxPane() {
-	_ = w.db.ClearTmuxPane(w.missionID)
+	empty := ""
+	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{TmuxPane: &empty})
 }
 
 // setWindowBusy sets the tmux window tab to the busy colors, indicating
@@ -188,7 +191,7 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 	// Custom title from /rename takes highest dynamic priority — beats even an
 	// explicit --name flag so Quick Claude sessions can still be renamed.
 	if customTitle := session.FindCustomTitle(claudeConfigDirpath, w.missionID); customTitle != "" {
-		_ = w.db.UpdateMissionSessionName(w.missionID, customTitle)
+		_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{SessionName: &customTitle})
 		title := truncateWindowTitle(customTitle, maxWindowTitleLen)
 		w.applyWindowTitle(paneID, title)
 		return
@@ -203,9 +206,10 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 	// AI-generated summary from the daemon (periodically updated based on
 	// user activity). Preferred over auto-generated session summaries because
 	// it reflects what the user is currently working on.
-	if aiSummary, err := w.db.GetMissionAISummary(w.missionID); err == nil && aiSummary != "" {
-		_ = w.db.UpdateMissionSessionName(w.missionID, aiSummary)
-		title := truncateWindowTitle(aiSummary, maxWindowTitleLen)
+	missionRecord, err := w.client.GetMission(w.missionID)
+	if err == nil && missionRecord.AISummary != "" {
+		_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{SessionName: &missionRecord.AISummary})
+		title := truncateWindowTitle(missionRecord.AISummary, maxWindowTitleLen)
 		w.applyWindowTitle(paneID, title)
 		return
 	}
@@ -216,7 +220,7 @@ func (w *Wrapper) updateWindowTitleFromSession() {
 		return
 	}
 
-	_ = w.db.UpdateMissionSessionName(w.missionID, sessionName)
+	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{SessionName: &sessionName})
 	title := truncateWindowTitle(sessionName, maxWindowTitleLen)
 	w.applyWindowTitle(paneID, title)
 }
@@ -248,8 +252,8 @@ func (w *Wrapper) applyWindowTitle(paneID string, title string) {
 
 	// Respect user renames: if AgenC set a title before and the window no
 	// longer shows it, the user has renamed the window manually.
-	if storedTitle, err := w.db.GetMissionTmuxWindowTitle(w.missionID); err == nil && storedTitle != "" {
-		if current := currentWindowName(paneID); current != storedTitle {
+	if missionRecord, err := w.client.GetMission(w.missionID); err == nil && missionRecord.TmuxWindowTitle != "" {
+		if current := currentWindowName(paneID); current != missionRecord.TmuxWindowTitle {
 			return
 		}
 	}
@@ -257,7 +261,7 @@ func (w *Wrapper) applyWindowTitle(paneID string, title string) {
 	//nolint:errcheck // best-effort; failure is not critical
 	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
 	//nolint:errcheck // best-effort; failure is not critical
-	_ = w.db.SetMissionTmuxWindowTitle(w.missionID, title)
+	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{TmuxWindowTitle: &title})
 }
 
 // truncateWindowTitle truncates a string to maxLen runes, appending an
