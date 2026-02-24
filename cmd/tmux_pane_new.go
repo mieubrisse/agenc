@@ -14,8 +14,9 @@ const (
 )
 
 var tmuxPaneNewCmd = &cobra.Command{
-	Use:   newCmdStr + " -- <command> [args...]",
-	Short: "Create a new pane in the current window and run a command",
+	Use:        newCmdStr + " -- <command> [args...]",
+	Short:      "Create a new pane in the current window and run a command",
+	Deprecated: "use 'tmux split-window' directly instead",
 	Long: `Create a new pane in the current tmux window by splitting it, and run a
 command inside the new pane. When the command exits, the pane closes.
 

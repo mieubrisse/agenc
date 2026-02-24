@@ -5,8 +5,9 @@ import (
 )
 
 var tmuxPaneCmd = &cobra.Command{
-	Use:   paneCmdStr,
-	Short: "Manage tmux panes in the AgenC session",
+	Use:        paneCmdStr,
+	Short:      "Manage tmux panes in the AgenC session",
+	Deprecated: "use 'tmux split-window' directly instead",
 }
 
 func init() {

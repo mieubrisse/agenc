@@ -29,11 +29,8 @@ agenc mission new github.com/owner/repo --headless --prompt "Your task here"
 **When the user drives (interactive)** — open the mission in a new tmux window (preferred) or pane so the user can interact with it:
 
 ```
-# Preferred: new tmux window
+# New tmux window
 agenc tmux window new -- agenc mission new github.com/owner/repo --prompt "Your task here"
-
-# Alternative: new tmux pane
-agenc tmux pane new -- agenc mission new github.com/owner/repo --prompt "Your task here"
 ```
 
 

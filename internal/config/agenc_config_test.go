@@ -415,8 +415,8 @@ func TestPaletteCommands_BuiltinDefaults(t *testing.T) {
 			if cmd.Title != "🚀  New Mission" {
 				t.Errorf("expected newMission title '🚀  New Mission', got '%s'", cmd.Title)
 			}
-			if cmd.TmuxKeybinding != "n" {
-				t.Errorf("expected newMission keybinding 'n', got '%s'", cmd.TmuxKeybinding)
+			if cmd.TmuxKeybinding != "-n C-n" {
+				t.Errorf("expected newMission keybinding '-n C-n', got '%s'", cmd.TmuxKeybinding)
 			}
 			if !cmd.IsBuiltin {
 				t.Error("expected newMission to be marked as builtin")
@@ -521,7 +521,7 @@ paletteCommands:
   custom1:
     title: "Custom 1"
     command: "echo test"
-    tmuxKeybinding: "n"
+    tmuxKeybinding: "-n C-n"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)
@@ -710,8 +710,8 @@ func TestIsMissionScoped_False(t *testing.T) {
 
 func TestGetPaletteTmuxKeybinding_Default(t *testing.T) {
 	cfg := &AgencConfig{}
-	if got := cfg.GetPaletteTmuxKeybinding(); got != "-T agenc k" {
-		t.Errorf("expected default palette keybinding '-T agenc k', got '%s'", got)
+	if got := cfg.GetPaletteTmuxKeybinding(); got != DefaultPaletteTmuxKeybinding {
+		t.Errorf("expected default palette keybinding '%s', got '%s'", DefaultPaletteTmuxKeybinding, got)
 	}
 }
 
@@ -746,8 +746,15 @@ func TestPaletteTmuxKeybinding_RoundTrip(t *testing.T) {
 
 func TestPaletteTmuxKeybinding_ConflictsWithCommand(t *testing.T) {
 	tmpDir := t.TempDir()
+	// Set palette to "-T agenc x" and a custom command with bare keybinding "x"
+	// so the palette key "x" conflicts with the command keybinding "x".
 	writeConfigYAML(t, tmpDir, `
-paletteTmuxKeybinding: "-T agenc n"
+paletteTmuxKeybinding: "-T agenc x"
+paletteCommands:
+  customCmd:
+    title: "Custom"
+    command: "echo test"
+    tmuxKeybinding: "x"
 `)
 
 	_, _, err := ReadAgencConfig(tmpDir)

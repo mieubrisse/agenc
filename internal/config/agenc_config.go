@@ -98,21 +98,10 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Creates a blank mission in a new window",
 		Command:     "agenc tmux window new -a --name '🦀 Quick Claude' -- agenc mission new --blank",
 	},
-	"sideClaude": {
-		Title:       "🦀  Side Claude",
-		Description: "Creates a blank mission in a new pane",
-		Command:     "agenc tmux pane new -- agenc mission new --blank",
-	},
 	"talkToAgenc": {
 		Title:       "🤖  Adjutant",
 		Description: "Launch an Adjutant mission in a new window",
 		Command:     "agenc tmux window new -a -- agenc mission new --adjutant",
-	},
-	"sideAdjutant": {
-		Title:          "🤖  Side Adjutant",
-		Description:    "Launch an Adjutant mission in a new pane",
-		Command:        "agenc tmux pane new -- agenc mission new --adjutant",
-		TmuxKeybinding: "-n C-t",
 	},
 	"newMission": {
 		Title:          "🚀  New Mission",
@@ -134,7 +123,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"sideShell": {
 		Title:          "🐚  Side Shell",
 		Description:    "Split pane and open a shell in the current mission's workspace",
-		Command:        "agenc tmux pane new -- $SHELL",
+		Command:        "tmux split-window -h -c '#{pane_current_path}' $SHELL",
 		TmuxKeybinding: "-n C-p",
 	},
 	"shell": {
@@ -189,9 +178,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 // in the palette and ls output.
 var builtinPaletteCommandOrder = []string{
 	"quickClaude",
-	"sideClaude",
 	"talkToAgenc",
-	"sideAdjutant",
 	"newMission",
 	"switchMission",
 	"resumeMission",
