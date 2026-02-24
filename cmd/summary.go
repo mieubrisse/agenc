@@ -41,11 +41,10 @@ func init() {
 }
 
 func runSummary(cmd *cobra.Command, args []string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	// Determine the date range (calendar day from 3am to 3am)
 	var targetDate time.Time
@@ -60,8 +59,14 @@ func runSummary(cmd *cobra.Command, args []string) error {
 
 	dayStart, dayEnd := calculateDayBounds(targetDate)
 
+	// Fetch all missions for analysis
+	missions, err := client.ListMissions(true, "")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list missions")
+	}
+
 	// Gather statistics
-	stats, err := gatherDailyStats(db, dayStart, dayEnd)
+	stats, err := gatherDailyStats(missions, dayStart, dayEnd)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to gather daily statistics")
 	}
@@ -113,15 +118,9 @@ type SessionStat struct {
 }
 
 // gatherDailyStats collects all statistics for the given day.
-func gatherDailyStats(db *database.DB, dayStart, dayEnd time.Time) (*DailyStats, error) {
+func gatherDailyStats(missions []*database.Mission, dayStart, dayEnd time.Time) (*DailyStats, error) {
 	stats := &DailyStats{
 		CommitsByRepo: make(map[string]int),
-	}
-
-	// Get all missions (including archived) to analyze
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: true})
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to list missions")
 	}
 
 	// Count missions created during this day

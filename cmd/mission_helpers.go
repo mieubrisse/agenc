@@ -68,10 +68,10 @@ func getTmuxWindowTitle(paneID string) string {
 
 // buildMissionPickerEntries converts database missions to picker entries using
 // the same formatting infrastructure as mission ls.
-func buildMissionPickerEntries(db *database.DB, missions []*database.Mission, sessionMaxLen int) ([]missionPickerEntry, error) {
+func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) []missionPickerEntry {
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
-		sessionName := resolveSessionName(db, m)
+		sessionName := resolveSessionName(nil, m)
 		status := getMissionStatus(m.ID, m.Status)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAdjutant(agencDirpath, m.ID) {
@@ -91,7 +91,7 @@ func buildMissionPickerEntries(db *database.DB, missions []*database.Mission, se
 			TmuxTitle:  tmuxTitle,
 		})
 	}
-	return entries, nil
+	return entries
 }
 
 // filterStoppedMissions returns only missions that are currently stopped.
@@ -142,56 +142,18 @@ func getAgencContext() (string, error) {
 }
 
 // ============================================================================
-// Database helpers
+// Server client helpers
 // ============================================================================
 
-// openDB centralizes the database opening boilerplate used by every command
-// that touches the mission database.
-func openDB() (*database.DB, error) {
+// serverClient returns an HTTP client connected to the AgenC server. All CLI
+// commands use this instead of opening the database directly.
+func serverClient() (*server.Client, error) {
 	if _, err := getAgencContext(); err != nil {
 		return nil, err
 	}
-	dbFilepath := config.GetDatabaseFilepath(agencDirpath)
-	db, err := database.Open(dbFilepath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to open database")
-	}
-	return db, nil
-}
-
-// resolveAndRunForMission handles the common pattern for commands that always
-// receive exactly one mission ID: open DB, resolve the ID, run the action.
-func resolveAndRunForMission(rawID string, fn func(*database.DB, string) error) error {
-	db, err := openDB()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	missionID, err := db.ResolveMissionID(rawID)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to resolve mission ID")
-	}
-
-	return fn(db, missionID)
-}
-
-// prepareMissionForAction verifies a mission exists and stops its wrapper.
-// This is the common setup needed before destructive operations (remove, archive).
-func prepareMissionForAction(db *database.DB, missionID string) (*database.Mission, error) {
-	mission, err := db.GetMission(missionID)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to get mission")
-	}
-	if mission == nil {
-		return nil, stacktrace.NewError("mission '%s' not found", missionID)
-	}
-
-	if err := stopMissionWrapper(missionID); err != nil {
-		return nil, stacktrace.Propagate(err, "failed to stop wrapper for mission '%s'", missionID)
-	}
-
-	return mission, nil
+	ensureServerRunning(agencDirpath)
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	return server.NewClient(socketFilepath), nil
 }
 
 // ============================================================================

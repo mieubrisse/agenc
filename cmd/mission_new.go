@@ -7,15 +7,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/mission"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/wrapper"
 )
@@ -101,7 +98,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	if blankFlag {
-		return createAndLaunchMission(agencDirpath, "", "", promptFlag)
+		return createAndLaunchMission(agencDirpath, "", promptFlag)
 	}
 
 	return runMissionNewWithPicker(args)
@@ -111,78 +108,56 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 // running mission. Returns true if there is a recent mission for this cron
 // that is still active (status != "completed").
 func shouldSkipCronTrigger(cronName string) bool {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
-		fmt.Printf("Warning: failed to check for running mission: %v\n", err)
+		fmt.Printf("Warning: failed to connect to server: %v\n", err)
 		return false
 	}
-	defer db.Close()
 
-	mission, err := db.GetMostRecentMissionForCron(cronName)
+	missions, err := client.ListMissions(true, cronName)
 	if err != nil {
 		fmt.Printf("Warning: failed to query for recent mission: %v\n", err)
 		return false
 	}
 
-	// No previous mission found
-	if mission == nil {
+	if len(missions) == 0 {
 		return false
 	}
 
-	// Check if the mission is still active
-	if mission.Status != "completed" && mission.Status != "archived" {
-		return true
-	}
-
-	return false
+	mission := missions[0]
+	return mission.Status != "completed" && mission.Status != "archived"
 }
 
 // runMissionNewWithClone creates a new mission by cloning the agent directory
 // of an existing mission. The source mission's git_repo carries over to the
 // new mission.
 func runMissionNewWithClone() error {
-	return resolveAndRunForMission(cloneFlag, func(db *database.DB, sourceMissionID string) error {
-		sourceMission, err := db.GetMission(sourceMissionID)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to get source mission")
-		}
-		if sourceMission == nil {
-			return stacktrace.NewError("source mission '%s' not found", sourceMissionID)
-		}
+	client, err := serverClient()
+	if err != nil {
+		return err
+	}
 
-		createParams := &database.CreateMissionParams{}
-		if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
-			createParams.ConfigCommit = &commitHash
-		}
+	sourceMission, err := client.GetMission(cloneFlag)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get source mission")
+	}
 
-		missionRecord, err := db.CreateMission(sourceMission.GitRepo, createParams)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to create mission record")
-		}
-
-		fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
-
-		// Create mission directory structure with no git copy
-		// (agent directory will be copied separately from the source mission)
-		if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, "", ""); err != nil {
-			return stacktrace.Propagate(err, "failed to create mission directory")
-		}
-
-		// Copy the source mission's agent directory into the new mission
-		srcAgentDirpath := config.GetMissionAgentDirpath(agencDirpath, sourceMission.ID)
-		dstAgentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionRecord.ID)
-		if err := mission.CopyAgentDir(srcAgentDirpath, dstAgentDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to copy agent directory from source mission")
-		}
-
-		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
-		fmt.Println("Launching claude...")
-
-		gitRepoName := sourceMission.GitRepo
-		windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
-		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, promptFlag, db)
-		return w.Run(false)
+	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
+		Repo:      sourceMission.GitRepo,
+		Prompt:    promptFlag,
+		CloneFrom: sourceMission.ID,
 	})
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to create mission")
+	}
+
+	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
+	fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
+	fmt.Println("Launching claude...")
+
+	windowTitle := lookupWindowTitle(agencDirpath, sourceMission.GitRepo)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, sourceMission.GitRepo, windowTitle, promptFlag, nil)
+	return w.Run(false)
 }
 
 // runMissionNewWithPicker shows an fzf picker over the repo library, or resolves
@@ -235,98 +210,38 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 		if err != nil {
 			return err
 		}
-		return createAndLaunchMission(agencDirpath, result.RepoName, result.CloneDirpath, promptFlag)
+		return createAndLaunchMission(agencDirpath, result.RepoName, promptFlag)
 	}
 
 	if selection.RepoName == "" {
 		// NONE selected — Blank Mission
-		return createAndLaunchMission(agencDirpath, "", "", promptFlag)
+		return createAndLaunchMission(agencDirpath, "", promptFlag)
 	}
 
 	// Repo selected — clone into agent directory
-	gitCloneDirpath := config.GetRepoDirpath(agencDirpath, selection.RepoName)
-	return createAndLaunchMission(agencDirpath, selection.RepoName, gitCloneDirpath, promptFlag)
+	return createAndLaunchMission(agencDirpath, selection.RepoName, promptFlag)
 }
 
-// createAndLaunchAdjutantMission creates an Adjutant mission. Tries the server
-// first, falling back to direct creation if the server is unreachable.
+// createAndLaunchAdjutantMission creates an Adjutant mission via the server
+// and launches the wrapper in the current process.
 func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) error {
-	// Try server first
-	if missionRecord, err := createAdjutantViaServer(agencDirpath, initialPrompt); err == nil {
-		fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
-		fmt.Println("Launching Adjutant...")
-		db, dbErr := openDB()
-		if dbErr != nil {
-			return dbErr
-		}
-		defer db.Close()
-		w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "🤖  Adjutant", initialPrompt, db)
-		return w.Run(false)
-	}
-
-	// Fall back to direct creation
-	return createAndLaunchAdjutantMissionDirect(agencDirpath, initialPrompt)
-}
-
-// createAdjutantViaServer creates an adjutant mission via the server HTTP API.
-func createAdjutantViaServer(agencDirpath string, initialPrompt string) (*server.MissionResponse, error) {
-	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
-	client := server.NewClient(socketFilepath)
-
-	req := server.CreateMissionRequest{
-		Adjutant: true,
-		Prompt:   initialPrompt,
-	}
-
-	var resp server.MissionResponse
-	if err := client.Post("/missions", req, &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// createAndLaunchAdjutantMissionDirect creates an Adjutant mission via direct
-// DB and filesystem access when the server is unreachable.
-func createAndLaunchAdjutantMissionDirect(agencDirpath string, initialPrompt string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	createParams := &database.CreateMissionParams{}
-	if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
-		createParams.ConfigCommit = &commitHash
-	}
-
-	missionRecord, err := db.CreateMission("", createParams)
+	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
+		Adjutant: true,
+		Prompt:   initialPrompt,
+	})
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to create adjutant mission record")
+		return stacktrace.Propagate(err, "failed to create adjutant mission")
 	}
 
 	fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
-
-	// Ensure the mission directory exists before writing the marker file
-	missionDirpath := config.GetMissionDirpath(agencDirpath, missionRecord.ID)
-	if err := os.MkdirAll(missionDirpath, 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to create mission directory")
-	}
-
-	// Write the .adjutant marker file before CreateMissionDir so that
-	// BuildMissionConfigDir can detect this is an adjutant mission.
-	markerFilepath := config.GetMissionAdjutantMarkerFilepath(agencDirpath, missionRecord.ID)
-	if err := os.WriteFile(markerFilepath, []byte{}, 0644); err != nil {
-		return stacktrace.Propagate(err, "failed to write adjutant marker file")
-	}
-
-	if _, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, "", ""); err != nil {
-		return stacktrace.Propagate(err, "failed to create adjutant mission directory")
-	}
-
-	fmt.Printf("Mission directory: %s\n", missionDirpath)
 	fmt.Println("Launching Adjutant...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "🤖  Adjutant", initialPrompt, db)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "🤖  Adjutant", initialPrompt, nil)
 	return w.Run(false)
 }
 
@@ -421,128 +336,45 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 	return &entries[idx-2], nil
 }
 
-// createAndLaunchMission creates the mission record and directory, and
-// launches the wrapper process. gitRepoName is the canonical repo name
-// stored in the DB (e.g. "github.com/owner/repo"); gitCloneDirpath is
-// the filesystem path to the agenc-owned clone used for git operations. Both
-// are empty when no git repo is involved. initialPrompt is optional; if
-// non-empty, it will be sent to Claude when starting the conversation.
+// createAndLaunchMission creates the mission record and directory via the
+// server, and launches the wrapper process in the current terminal.
+// gitRepoName is the canonical repo name stored in the DB (e.g.
+// "github.com/owner/repo"); empty when no git repo is involved.
+// initialPrompt is optional; if non-empty, it will be sent to Claude.
 func createAndLaunchMission(
 	agencDirpath string,
 	gitRepoName string,
-	gitCloneDirpath string,
 	initialPrompt string,
 ) error {
-	// Try creating via server first
-	if missionRecord, err := createMissionViaServer(agencDirpath, gitRepoName, initialPrompt); err == nil {
-		fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
-		if !headlessFlag {
-			// Interactive mode: run the wrapper in the current process
-			fmt.Println("Launching claude...")
-			db, dbErr := openDB()
-			if dbErr != nil {
-				return dbErr
-			}
-			defer db.Close()
-			windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
-			w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt, db)
-			return w.Run(false)
-		}
-		fmt.Printf("Running in headless mode...\n")
-		return nil
+	client, err := serverClient()
+	if err != nil {
+		return err
 	}
 
-	// Fall back to direct creation
-	return createAndLaunchMissionDirect(agencDirpath, gitRepoName, gitCloneDirpath, initialPrompt)
-}
-
-// createMissionViaServer attempts to create a mission via the server HTTP API.
-// Returns the created mission response, or an error if the server is unreachable.
-func createMissionViaServer(agencDirpath string, gitRepoName string, initialPrompt string) (*server.MissionResponse, error) {
-	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
-	client := server.NewClient(socketFilepath)
-
-	req := server.CreateMissionRequest{
+	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
 		Repo:     gitRepoName,
 		Prompt:   initialPrompt,
 		Headless: headlessFlag,
 		CronID:   cronIDFlag,
 		CronName: cronNameFlag,
 		Timeout:  timeoutFlag,
-	}
-
-	var resp server.MissionResponse
-	if err := client.Post("/missions", req, &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// createAndLaunchMissionDirect creates a mission using direct DB and filesystem
-// access when the server is unreachable.
-func createAndLaunchMissionDirect(
-	agencDirpath string,
-	gitRepoName string,
-	gitCloneDirpath string,
-	initialPrompt string,
-) error {
-	// Open database and create mission record
-	db, err := openDB()
+	})
 	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	// Build creation params (cron + config commit)
-	createParams := &database.CreateMissionParams{}
-	if cronIDFlag != "" {
-		createParams.CronID = &cronIDFlag
-	}
-	if cronNameFlag != "" {
-		createParams.CronName = &cronNameFlag
-	}
-	if commitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath); commitHash != "" {
-		createParams.ConfigCommit = &commitHash
-	}
-
-	missionRecord, err := db.CreateMission(gitRepoName, createParams)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to create mission record")
+		return stacktrace.Propagate(err, "failed to create mission")
 	}
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
-	// Create mission directory structure (repo is copied directly as agent/)
-	missionDirpath, err := mission.CreateMissionDir(agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to create mission directory")
-	}
-
-	fmt.Printf("Mission directory: %s\n", missionDirpath)
-
-	windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt, db)
-
-	// Run in headless mode if requested
 	if headlessFlag {
-		if initialPrompt == "" {
-			return stacktrace.NewError("headless mode requires a prompt (use --%s)", promptFlagName)
-		}
-
-		timeout, err := time.ParseDuration(timeoutFlag)
-		if err != nil {
-			return stacktrace.Propagate(err, "invalid timeout '%s'", timeoutFlag)
-		}
-
-		fmt.Printf("Running in headless mode (timeout: %s)...\n", timeout)
-		return w.RunHeadless(false, wrapper.HeadlessConfig{
-			Timeout:  timeout,
-			CronID:   cronIDFlag,
-			CronName: cronNameFlag,
-		})
+		// Server already spawned the wrapper in headless mode
+		fmt.Printf("Running in headless mode...\n")
+		return nil
 	}
 
+	// Interactive mode: run the wrapper in the current process
 	fmt.Println("Launching claude...")
+	windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
+	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt, nil)
 	return w.Run(false)
 }
 

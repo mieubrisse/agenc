@@ -4,27 +4,6 @@ import (
 	"testing"
 )
 
-func TestTmuxPaneExists(t *testing.T) {
-	t.Run("returns false for empty pane ID", func(t *testing.T) {
-		if tmuxPaneExists("") {
-			t.Error("expected false for empty pane ID")
-		}
-	})
-
-	t.Run("returns false for non-numeric pane ID", func(t *testing.T) {
-		if tmuxPaneExists("invalid-pane-id") {
-			t.Error("expected false for non-numeric pane ID")
-		}
-	})
-
-	t.Run("returns false for nonexistent pane ID", func(t *testing.T) {
-		// Use a very high number that's unlikely to exist
-		if tmuxPaneExists("999999") {
-			t.Error("expected false for nonexistent pane ID")
-		}
-	})
-}
-
 func TestLooksLikeMissionID(t *testing.T) {
 	tests := []struct {
 		name     string

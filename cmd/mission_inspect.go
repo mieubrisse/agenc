@@ -9,7 +9,6 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/session"
 )
 
@@ -32,13 +31,12 @@ func init() {
 }
 
 func runMissionInspect(cmd *cobra.Command, args []string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: true})
+	missions, err := client.ListMissions(true, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -48,10 +46,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, missions, defaultPromptMaxLen)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(missions, defaultPromptMaxLen)
 
 	input := strings.Join(args, " ")
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
@@ -59,7 +54,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
@@ -88,16 +83,17 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return inspectMission(db, result.Items[0].MissionID)
+	return inspectMission(result.Items[0].MissionID)
 }
 
-func inspectMission(db *database.DB, missionID string) error {
-	mission, err := db.GetMission(missionID)
+func inspectMission(missionID string) error {
+	client, err := serverClient()
+	if err != nil {
+		return err
+	}
+	mission, err := client.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
-	}
-	if mission == nil {
-		return stacktrace.NewError("mission '%s' not found", missionID)
 	}
 
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
@@ -115,12 +111,12 @@ func inspectMission(db *database.DB, missionID string) error {
 	} else if mission.GitRepo != "" {
 		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
 	}
-	sessionName := resolveSessionName(db, mission)
+	sessionName := resolveSessionName(nil, mission)
 	if sessionName == "" {
 		sessionName = "--"
 	}
 	fmt.Printf("Session:     %s\n", sessionName)
-	prompt := resolveMissionPrompt(db, mission)
+	prompt := resolveMissionPrompt(nil, mission)
 	if prompt == "" {
 		prompt = "--"
 	}

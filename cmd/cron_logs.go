@@ -48,19 +48,19 @@ func runCronLogs(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find the most recent mission for this cron
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	mission, err := db.GetMostRecentMissionForCron(name)
+	missions, err := client.ListMissions(true, name)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to query missions")
 	}
-	if mission == nil {
+	if len(missions) == 0 {
 		return stacktrace.NewError("no runs found for cron job '%s'", name)
 	}
+	mission := missions[0]
 
 	// Get the log file path
 	logFilepath := config.GetMissionClaudeOutputLogFilepath(agencDirpath, mission.ID)

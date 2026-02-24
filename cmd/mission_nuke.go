@@ -28,13 +28,12 @@ func init() {
 }
 
 func runMissionNuke(cmd *cobra.Command, args []string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: true})
+	missions, err := client.ListMissions(true, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -67,9 +66,10 @@ func runMissionNuke(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, m := range missions {
-		if err := removeMission(db, m.ID); err != nil {
-			return err
+		if err := client.DeleteMission(m.ID); err != nil {
+			return stacktrace.Propagate(err, "failed to remove mission %s", database.ShortID(m.ID))
 		}
+		fmt.Printf("Removed mission: %s\n", database.ShortID(m.ID))
 	}
 
 	fmt.Printf("All %d mission(s) removed.\n", len(missions))

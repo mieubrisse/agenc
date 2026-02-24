@@ -31,13 +31,12 @@ func init() {
 }
 
 func runMissionResume(cmd *cobra.Command, args []string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -47,17 +46,14 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("no stopped missions to resume")
 	}
 
-	entries, err := buildMissionPickerEntries(db, stoppedMissions, 100)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(stoppedMissions, 100)
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
@@ -86,22 +82,19 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return resumeMission(db, result.Items[0].MissionID)
+	return resumeMission(client, result.Items[0].MissionID)
 }
 
 // resumeMission handles the per-mission resume logic: unarchive if needed,
 // check wrapper state, validate directory format, and launch claude --continue.
-func resumeMission(db *database.DB, missionID string) error {
-	missionRecord, err := db.GetMission(missionID)
+func resumeMission(client *server.Client, missionID string) error {
+	missionRecord, err := client.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
-	if missionRecord == nil {
-		return stacktrace.NewError("mission '%s' not found", missionID)
-	}
 
 	if missionRecord.Status == "archived" {
-		if err := db.UnarchiveMission(missionID); err != nil {
+		if err := client.UnarchiveMission(missionID); err != nil {
 			return stacktrace.Propagate(err, "failed to unarchive mission")
 		}
 		fmt.Printf("Unarchived mission: %s\n", database.ShortID(missionID))
@@ -132,10 +125,7 @@ func resumeMission(db *database.DB, missionID string) error {
 		)
 	}
 
-	// Check if a conversation actually exists for this mission. Claude Code
-	// creates a project directory under claude-config/projects/ only after the
-	// user sends their first message. If no such directory exists, there's
-	// nothing to continue and `claude -c` would fail.
+	// Check if a conversation actually exists for this mission.
 	hasConversation := missionHasConversation(agencDirpath, missionID)
 
 	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
@@ -144,7 +134,7 @@ func resumeMission(db *database.DB, missionID string) error {
 	if config.IsMissionAdjutant(agencDirpath, missionID) {
 		windowTitle = "🤖  Adjutant"
 	}
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", db)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "", nil)
 	return w.Run(hasConversation)
 }
 

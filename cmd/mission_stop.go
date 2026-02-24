@@ -2,22 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/server"
-)
-
-const (
-	wrapperStopTimeout = 10 * time.Second
-	wrapperStopTick    = 100 * time.Millisecond
 )
 
 var missionStopCmd = &cobra.Command{
@@ -36,13 +26,12 @@ func init() {
 }
 
 func runMissionStop(cmd *cobra.Command, args []string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -53,10 +42,7 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, runningMissions, defaultPromptMaxLen)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(runningMissions, defaultPromptMaxLen)
 
 	input := strings.Join(args, " ")
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
@@ -64,7 +50,7 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
@@ -94,70 +80,10 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, entry := range result.Items {
-		if err := stopMissionWrapper(entry.MissionID); err != nil {
-			return err
+		if err := client.StopMission(entry.MissionID); err != nil {
+			return stacktrace.Propagate(err, "failed to stop mission %s", entry.ShortID)
 		}
+		fmt.Printf("Mission '%s' stopped.\n", database.ShortID(entry.MissionID))
 	}
-	return nil
-}
-
-// stopMissionWrapper gracefully stops a mission's wrapper process. Tries the
-// server endpoint first, falling back to direct process management if the
-// server is unreachable. This is idempotent: if the wrapper is already stopped,
-// it returns nil without error.
-func stopMissionWrapper(missionID string) error {
-	// Try the server first
-	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
-	client := server.NewClient(socketFilepath)
-	if err := client.Post("/missions/"+missionID+"/stop", nil, nil); err == nil {
-		fmt.Printf("Mission '%s' stopped.\n", database.ShortID(missionID))
-		return nil
-	}
-
-	// Fall back to direct process management
-	return stopMissionWrapperDirect(missionID)
-}
-
-// stopMissionWrapperDirect stops a mission's wrapper via direct process
-// management (SIGTERM + poll + SIGKILL fallback).
-func stopMissionWrapperDirect(missionID string) error {
-	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
-	pid, err := server.ReadPID(pidFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read mission PID file")
-	}
-
-	if pid == 0 || !server.IsProcessRunning(pid) {
-		// Already stopped — clean up stale PID file if present
-		os.Remove(pidFilepath)
-		return nil
-	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to find wrapper process")
-	}
-
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return stacktrace.Propagate(err, "failed to send SIGTERM to wrapper (PID %d)", pid)
-	}
-
-	fmt.Printf("Sent SIGTERM to wrapper (PID %d), waiting for exit...\n", pid)
-
-	deadline := time.Now().Add(wrapperStopTimeout)
-	for time.Now().Before(deadline) {
-		if !server.IsProcessRunning(pid) {
-			os.Remove(pidFilepath)
-			fmt.Printf("Mission '%s' stopped.\n", database.ShortID(missionID))
-			return nil
-		}
-		time.Sleep(wrapperStopTick)
-	}
-
-	// Force kill if still running
-	_ = process.Signal(syscall.SIGKILL)
-	os.Remove(pidFilepath)
-	fmt.Printf("Mission '%s' force-killed after timeout.\n", database.ShortID(missionID))
-
 	return nil
 }

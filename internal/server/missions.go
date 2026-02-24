@@ -166,6 +166,7 @@ type CreateMissionRequest struct {
 	CronID      string `json:"cron_id"`
 	CronName    string `json:"cron_name"`
 	Timeout     string `json:"timeout"`
+	CloneFrom   string `json:"clone_from"`
 }
 
 // handleCreateMission handles POST /missions.
@@ -188,6 +189,12 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
 	}
 	if commitHash := claudeconfig.GetShadowRepoCommitHash(s.agencDirpath); commitHash != "" {
 		createParams.ConfigCommit = &commitHash
+	}
+
+	// Handle clone-from request
+	if req.CloneFrom != "" {
+		s.handleCreateClonedMission(w, req, createParams)
+		return
 	}
 
 	// Determine git repo name and clone source
@@ -232,6 +239,47 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
 		s.logger.Printf("Failed to spawn wrapper for mission %s: %v", missionRecord.ShortID, err)
 		// Mission was created successfully, just the wrapper failed
 		// Return the mission but log the error
+	}
+
+	writeJSON(w, http.StatusCreated, toMissionResponse(missionRecord))
+}
+
+// handleCreateClonedMission creates a mission by cloning the agent directory
+// from an existing mission. The source mission's git_repo carries over.
+func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMissionRequest, createParams *database.CreateMissionParams) {
+	sourceID, err := s.db.ResolveMissionID(req.CloneFrom)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "source mission not found: "+req.CloneFrom)
+		return
+	}
+	sourceMission, err := s.db.GetMission(sourceID)
+	if err != nil || sourceMission == nil {
+		writeError(w, http.StatusNotFound, "source mission not found: "+req.CloneFrom)
+		return
+	}
+
+	missionRecord, err := s.db.CreateMission(sourceMission.GitRepo, createParams)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create mission: "+err.Error())
+		return
+	}
+
+	// Create empty mission dir structure, then copy agent dir from source
+	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create mission directory: "+err.Error())
+		return
+	}
+
+	srcAgentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, sourceMission.ID)
+	dstAgentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, missionRecord.ID)
+	if err := mission.CopyAgentDir(srcAgentDirpath, dstAgentDirpath); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to copy agent directory: "+err.Error())
+		return
+	}
+
+	// Spawn wrapper (may fail for interactive missions without tmux_session — that's OK)
+	if err := s.spawnWrapper(missionRecord, req); err != nil {
+		s.logger.Printf("Failed to spawn wrapper for cloned mission %s: %v", missionRecord.ShortID, err)
 	}
 
 	writeJSON(w, http.StatusCreated, toMissionResponse(missionRecord))
@@ -622,6 +670,112 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 
 	s.logger.Printf("Started wrapper in pool window %s for mission %s", poolWindowTarget, database.ShortID(missionRecord.ID))
 	return nil
+}
+
+// handleArchiveMission handles POST /missions/{id}/archive.
+// Stops the wrapper, cleans up the pool window, and marks the mission archived.
+func (s *Server) handleArchiveMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	missionRecord, err := s.db.GetMission(resolvedID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if missionRecord == nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if missionRecord.Status == "archived" {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "archived"})
+		return
+	}
+
+	// Stop wrapper and clean up pool window
+	if err := s.stopWrapper(resolvedID); err != nil {
+		s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", id, err)
+	}
+	s.destroyPoolWindow(resolvedID)
+
+	if err := s.db.ArchiveMission(resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to archive mission: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "archived"})
+}
+
+// handleUnarchiveMission handles POST /missions/{id}/unarchive.
+// Sets the mission status back to active.
+func (s *Server) handleUnarchiveMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if err := s.db.UnarchiveMission(resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to unarchive mission: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "active"})
+}
+
+// UpdateMissionRequest is the JSON body for PATCH /missions/{id}.
+// All fields are optional; only non-nil fields are applied.
+type UpdateMissionRequest struct {
+	ConfigCommit *string `json:"config_commit,omitempty"`
+	SessionName  *string `json:"session_name,omitempty"`
+	Prompt       *string `json:"prompt,omitempty"`
+}
+
+// handleUpdateMission handles PATCH /missions/{id}.
+// Updates specific mission fields without replacing the whole record.
+func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req UpdateMissionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if req.ConfigCommit != nil {
+		if err := s.db.UpdateMissionConfigCommit(resolvedID, *req.ConfigCommit); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update config_commit: "+err.Error())
+			return
+		}
+	}
+	if req.SessionName != nil {
+		if err := s.db.UpdateMissionSessionName(resolvedID, *req.SessionName); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update session_name: "+err.Error())
+			return
+		}
+	}
+	if req.Prompt != nil {
+		if err := s.db.UpdateMissionPrompt(resolvedID, *req.Prompt); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update prompt: "+err.Error())
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
 // reloadMissionInTmux performs an in-place reload using tmux primitives.

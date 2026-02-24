@@ -13,7 +13,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var updateConfigAllFlag bool
@@ -55,18 +55,17 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 
 	newCommitHash := claudeconfig.GetShadowRepoCommitHash(agencDirpath)
 
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	if updateConfigAllFlag {
-		return updateConfigForAllMissions(db, newCommitHash)
+		return updateConfigForAllMissions(client, newCommitHash)
 	}
 
 	// Single mission mode
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -76,17 +75,14 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, missions, defaultPromptMaxLen)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(missions, defaultPromptMaxLen)
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
@@ -114,13 +110,13 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return updateMissionConfig(db, result.Items[0].MissionID, newCommitHash)
+	return updateMissionConfig(client, result.Items[0].MissionID, newCommitHash)
 }
 
 // updateConfigForAllMissions updates the Claude config for all non-archived
 // missions that have a per-mission config directory.
-func updateConfigForAllMissions(db *database.DB, newCommitHash string) error {
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+func updateConfigForAllMissions(client *server.Client, newCommitHash string) error {
+	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -135,7 +131,7 @@ func updateConfigForAllMissions(db *database.DB, newCommitHash string) error {
 			continue // Legacy mission without per-mission config
 		}
 
-		if err := updateMissionConfig(db, m.ID, newCommitHash); err != nil {
+		if err := updateMissionConfig(client, m.ID, newCommitHash); err != nil {
 			fmt.Printf("  Failed to update mission %s: %v\n", m.ShortID, err)
 			continue
 		}
@@ -148,13 +144,10 @@ func updateConfigForAllMissions(db *database.DB, newCommitHash string) error {
 
 // updateMissionConfig rebuilds a single mission's Claude config directory
 // from the shadow repo.
-func updateMissionConfig(db *database.DB, missionID string, newCommitHash string) error {
-	missionRecord, err := db.GetMission(missionID)
+func updateMissionConfig(client *server.Client, missionID string, newCommitHash string) error {
+	missionRecord, err := client.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
-	}
-	if missionRecord == nil {
-		return stacktrace.NewError("mission '%s' not found", missionID)
 	}
 
 	// Read current pinned commit from DB
@@ -192,10 +185,12 @@ func updateMissionConfig(db *database.DB, missionID string, newCommitHash string
 		return stacktrace.Propagate(err, "failed to rebuild config for mission '%s'", missionID)
 	}
 
-	// Update DB config_commit
+	// Update config_commit via server
 	if newCommitHash != "" {
-		if err := db.UpdateMissionConfigCommit(missionID, newCommitHash); err != nil {
-			return stacktrace.Propagate(err, "failed to update config_commit in database")
+		if err := client.UpdateMission(missionID, server.UpdateMissionRequest{
+			ConfigCommit: &newCommitHash,
+		}); err != nil {
+			return stacktrace.Propagate(err, "failed to update config_commit")
 		}
 	}
 

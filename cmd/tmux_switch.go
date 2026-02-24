@@ -37,22 +37,8 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("must be run inside a tmux session")
 	}
 
-	// Auto-wrap in a popup if we're running without a TTY. This handles three
-	// invocation contexts:
-	//
-	// 1. From the palette: The palette itself runs in a tmux display-popup, so
-	//    stdin is already a TTY. We detect this and run normally (no nested popup).
-	//
-	// 2. From a keybinding: Tmux keybindings use `run-shell`, which doesn't
-	//    provide a TTY. Without this check, fzf would fail with "Inappropriate
-	//    ioctl for device". We detect the missing TTY and re-exec in a popup.
-	//
-	// 3. From a shell: The shell has a TTY, so we run normally.
-	//
-	// This ensures the fzf picker works in all three contexts without requiring
-	// different command strings in the config or keybinding generation logic.
+	// Auto-wrap in a popup if we're running without a TTY.
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		// Build the command to re-exec in a popup
 		cmdArgs := []string{"agenc", "tmux", "switch"}
 		cmdArgs = append(cmdArgs, args...)
 		cmdStr := strings.Join(cmdArgs, " ")
@@ -63,13 +49,12 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		return popupCmd.Run()
 	}
 
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -87,17 +72,14 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, switchable, 50)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(switchable, 50)
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
@@ -128,12 +110,9 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 	selected := result.Items[0]
 
 	// Look up the mission's tmux pane and switch to its window.
-	mission, err := db.GetMission(selected.MissionID)
+	mission, err := client.GetMission(selected.MissionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
-	}
-	if mission == nil {
-		return stacktrace.NewError("mission '%s' not found", selected.MissionID)
 	}
 	if mission.TmuxPane == nil {
 		return stacktrace.NewError("mission %s no longer has a tmux pane", selected.ShortID)

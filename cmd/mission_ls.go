@@ -350,45 +350,14 @@ func checkGitStatus(dirpath string) string {
 	return ansiYellow + "modified" + ansiReset
 }
 
-// fetchMissions tries to fetch missions from the server, falling back to
-// direct database access if the server is not available.
+// fetchMissions fetches missions from the server.
 func fetchMissions() ([]*database.Mission, error) {
-	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
-	client := server.NewClient(socketFilepath)
-
-	path := "/missions"
-	params := []string{}
-	if lsAllFlag {
-		params = append(params, "include_archived=true")
-	}
-	if lsCronFlag != "" {
-		params = append(params, "cron_id="+lsCronFlag)
-	}
-	if len(params) > 0 {
-		path += "?" + strings.Join(params, "&")
-	}
-
-	var responses []server.MissionResponse
-	if err := client.Get(path, &responses); err == nil {
-		missions := make([]*database.Mission, len(responses))
-		for i := range responses {
-			missions[i] = responses[i].ToMission()
-		}
-		return missions, nil
-	}
-
-	// Fall back to direct database access
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 
-	dbParams := database.ListMissionsParams{IncludeArchived: lsAllFlag}
-	if lsCronFlag != "" {
-		dbParams.CronID = &lsCronFlag
-	}
-	missions, err := db.ListMissions(dbParams)
+	missions, err := client.ListMissions(lsAllFlag, lsCronFlag)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to list missions")
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -33,11 +33,10 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	tbl := tableprinter.NewTable("NAME", "SCHEDULE", "ENABLED", "LAST RUN", "STATUS", "NEXT RUN")
 
@@ -47,7 +46,7 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 			enabled = ansiYellow + "no" + ansiReset
 		}
 
-		lastRun, status := getCronLastRunStatus(db, name)
+		lastRun, status := getCronLastRunStatus(client, name)
 		nextRun := getNextRunDisplay(cronCfg.Schedule, cronCfg.IsEnabled())
 
 		tbl.AddRow(
@@ -64,12 +63,13 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getCronLastRunStatus(db *database.DB, cronName string) (string, string) {
-	mission, err := db.GetMostRecentMissionForCron(cronName)
-	if err != nil || mission == nil {
+func getCronLastRunStatus(client *server.Client, cronName string) (string, string) {
+	missions, err := client.ListMissions(true, cronName)
+	if err != nil || len(missions) == 0 {
 		return "--", "--"
 	}
 
+	mission := missions[0]
 	lastRun := mission.CreatedAt.Local().Format("2006-01-02 15:04")
 
 	status := getMissionStatus(mission.ID, mission.Status)

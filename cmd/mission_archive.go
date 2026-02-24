@@ -6,8 +6,6 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/database"
 )
 
 var missionArchiveCmd = &cobra.Command{
@@ -26,13 +24,12 @@ func init() {
 }
 
 func runMissionArchive(cmd *cobra.Command, args []string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -42,10 +39,7 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, missions, defaultPromptMaxLen)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(missions, defaultPromptMaxLen)
 
 	input := strings.Join(args, " ")
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
@@ -53,7 +47,7 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
@@ -83,22 +77,10 @@ func runMissionArchive(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, entry := range result.Items {
-		if err := archiveMission(db, entry.MissionID); err != nil {
-			return err
+		if err := client.ArchiveMission(entry.MissionID); err != nil {
+			return stacktrace.Propagate(err, "failed to archive mission %s", entry.ShortID)
 		}
+		fmt.Printf("Archived mission: %s\n", entry.ShortID)
 	}
-	return nil
-}
-
-func archiveMission(db *database.DB, missionID string) error {
-	if _, err := prepareMissionForAction(db, missionID); err != nil {
-		return err
-	}
-
-	if err := db.ArchiveMission(missionID); err != nil {
-		return stacktrace.Propagate(err, "failed to archive mission in database")
-	}
-
-	fmt.Printf("Archived mission: %s\n", database.ShortID(missionID))
 	return nil
 }

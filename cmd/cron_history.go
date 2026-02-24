@@ -7,7 +7,6 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -46,17 +45,12 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("cron job '%s' not found", name)
 	}
 
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	// Query missions for this cron
-	missions, err := db.ListMissions(database.ListMissionsParams{
-		IncludeArchived: true,
-		CronID:          &name,
-	})
+	missions, err := client.ListMissions(true, name)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
-	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/session"
 )
 
@@ -45,13 +44,12 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("--tail value must be positive")
 	}
 
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -60,10 +58,7 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("no missions found")
 	}
 
-	entries, err := buildMissionPickerEntries(db, missions, defaultPromptMaxLen)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(missions, defaultPromptMaxLen)
 
 	input := strings.Join(args, " ")
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
@@ -71,7 +66,7 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}

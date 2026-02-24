@@ -2,17 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/claudeconfig"
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/server"
 )
 
 var missionRmCmd = &cobra.Command{
@@ -31,28 +26,24 @@ func init() {
 }
 
 func runMissionRm(cmd *cobra.Command, args []string) error {
-	db, err := openDB()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	// When multiple args are provided and each looks like a mission ID,
 	// resolve and remove each one directly without going through the picker.
 	if len(args) > 1 && allLookLikeMissionIDs(args) {
 		for _, idArg := range args {
-			missionID, err := db.ResolveMissionID(idArg)
-			if err != nil {
-				return stacktrace.Propagate(err, "failed to resolve mission ID '%s'", idArg)
+			if err := client.DeleteMission(idArg); err != nil {
+				return stacktrace.Propagate(err, "failed to remove mission '%s'", idArg)
 			}
-			if err := removeMission(db, missionID); err != nil {
-				return err
-			}
+			fmt.Printf("Removed mission: %s\n", idArg)
 		}
 		return nil
 	}
 
-	missions, err := db.ListMissions(database.ListMissionsParams{IncludeArchived: true})
+	missions, err := client.ListMissions(true, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -62,10 +53,7 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	entries, err := buildMissionPickerEntries(db, missions, defaultPromptMaxLen)
-	if err != nil {
-		return err
-	}
+	entries := buildMissionPickerEntries(missions, defaultPromptMaxLen)
 
 	input := strings.Join(args, " ")
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
@@ -73,7 +61,7 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
 			}
-			missionID, err := db.ResolveMissionID(input)
+			missionID, err := client.ResolveMissionID(input)
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
@@ -103,55 +91,10 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, entry := range result.Items {
-		if err := removeMission(db, entry.MissionID); err != nil {
-			return err
+		if err := client.DeleteMission(entry.MissionID); err != nil {
+			return stacktrace.Propagate(err, "failed to remove mission %s", entry.ShortID)
 		}
+		fmt.Printf("Removed mission: %s\n", database.ShortID(entry.MissionID))
 	}
-	return nil
-}
-
-// removeMission tears down a mission. Tries the server DELETE endpoint first,
-// falling back to direct filesystem and database operations.
-func removeMission(db *database.DB, missionID string) error {
-	// Try the server first
-	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
-	client := server.NewClient(socketFilepath)
-	if err := client.Delete("/missions/" + missionID); err == nil {
-		fmt.Printf("Removed mission: %s\n", database.ShortID(missionID))
-		return nil
-	}
-
-	// Fall back to direct removal
-	return removeMissionDirect(db, missionID)
-}
-
-// removeMissionDirect tears down a mission via direct filesystem and database
-// operations when the server is unreachable.
-func removeMissionDirect(db *database.DB, missionID string) error {
-	if _, err := prepareMissionForAction(db, missionID); err != nil {
-		return err
-	}
-
-	// Clean up per-mission Keychain credentials from the old auth system.
-	// New missions don't create these entries, but old missions may still have them.
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
-	if err := claudeconfig.DeleteKeychainCredentials(claudeConfigDirpath); err != nil {
-		log.Printf("Warning: failed to delete Keychain credentials for mission %s: %v", database.ShortID(missionID), err)
-	}
-
-	// Remove the mission directory (agent/ is just a directory copy, so RemoveAll handles it)
-	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
-	if _, err := os.Stat(missionDirpath); err == nil {
-		if err := os.RemoveAll(missionDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to remove mission directory '%s'", missionDirpath)
-		}
-	}
-
-	// Delete from database
-	if err := db.DeleteMission(missionID); err != nil {
-		return stacktrace.Propagate(err, "failed to delete mission from database")
-	}
-
-	fmt.Printf("Removed mission: %s\n", database.ShortID(missionID))
 	return nil
 }
