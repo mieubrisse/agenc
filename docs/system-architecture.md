@@ -16,7 +16,7 @@ graph TB
     subgraph Processes
         CLI["CLI — agenc commands"]
         Server["Server — HTTP API + background loops"]
-        Daemon["Daemon — background loops (being migrated to Server)"]
+        Pool["agenc-pool — tmux session holding wrapper windows"]
         Wrapper["Wrapper — per-mission supervisor"]
         Claude["Claude Code — AI agent"]
     end
@@ -29,37 +29,33 @@ graph TB
     end
 
     CLI -->|HTTP via unix socket| Server
-    CLI -->|forks| Daemon
     CLI -->|forks| Server
-    CLI -->|spawns| Wrapper
-    Daemon -->|spawns headless| Wrapper
+    Server -->|spawns in pool| Wrapper
+    Server -->|link-window / unlink-window| Pool
     Wrapper -->|supervises| Claude
 
     Server -->|owns| DB
-    CLI -->|creates records| DB
     Wrapper -->|writes heartbeats| DB
-    Daemon -->|reads heartbeats| DB
 
-    Daemon -->|fetches & fast-forwards| Repos
+    Server -->|fetches & fast-forwards| Repos
     Wrapper -->|force-updates on push| Repos
-    CLI -->|copies repo into mission| Repos
 
     Claude -->|works in| Missions
     Claude -->|hooks report state via| Wrapper
 
-    Daemon -->|auto-commits| Config
+    Server -->|auto-commits| Config
 ```
 
 **Inter-process communication** relies on filesystem artifacts, SQLite, and per-mission unix sockets:
 
 | Mechanism | Writer | Reader | Purpose |
 |-----------|--------|--------|---------|
-| `database.sqlite` | CLI, Wrapper, Server | Daemon, CLI, Server | Mission records, heartbeats, pane tracking |
+| `database.sqlite` | Server, Wrapper | Server, CLI | Mission records, heartbeats, pane tracking |
 | `server/server.sock` | Server (listener) | CLI (HTTP client) | REST API for mission queries and lifecycle |
 | `server/server.pid` | Server | CLI (`server stop/status`) | Process coordination |
-| `missions/<uuid>/pid` | Wrapper | CLI (`mission stop`) | Process coordination |
+| `missions/<uuid>/pid` | Wrapper | Server (idle timeout, attach) | Process coordination |
 | `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI, hooks (`mission send claude-update`) | Restart commands, Claude state updates |
-| `daemon/daemon.pid` | Daemon (deprecated) | CLI (`server stop/status`) | Process coordination (legacy) |
+| `agenc-pool` tmux session | Server (creates) | Server (link/unlink), Wrapper (runs in) | Background session holding all wrapper windows |
 | `.git/refs/remotes/origin/<branch>` | Git (after push) | Wrapper (via fsnotify) | Trigger repo library update |
 
 
@@ -90,9 +86,11 @@ Current endpoints:
 - `GET /health` — returns `{"status": "ok", "version": "<version>"}`
 - `GET /missions` — lists all missions
 - `GET /missions/{id}` — get a single mission by ID
-- `POST /missions` — create a new mission (DB record, directory, wrapper spawn)
-- `POST /missions/{id}/stop` — stop a mission's wrapper process
-- `DELETE /missions/{id}` — stop wrapper, clean up directory, delete from DB
+- `POST /missions` — create a new mission (DB record, directory, wrapper spawn in pool)
+- `POST /missions/{id}/attach` — ensure wrapper running (lazy start), link pool window into caller's tmux session
+- `POST /missions/{id}/detach` — unlink pool window from caller's tmux session (wrapper keeps running)
+- `POST /missions/{id}/stop` — stop a mission's wrapper process and clean up pool window
+- `DELETE /missions/{id}` — stop wrapper, clean up pool window and directory, delete from DB
 - `POST /missions/{id}/reload` — in-place reload via tmux respawn-pane
 - `POST /repos/{name}/push-event` — force-update a repo library after push
 
@@ -102,7 +100,7 @@ CLI commands use a "server-first with direct fallback" pattern: they try the ser
 
 ### Background loops
 
-The server runs five concurrent background goroutines (formerly the daemon):
+The server runs six concurrent background goroutines (formerly the daemon):
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs every 60 seconds
@@ -130,6 +128,23 @@ The server runs five concurrent background goroutines (formerly the daemon):
 - For each eligible mission: extracts recent user messages from session JSONL, calls Claude Haiku via `claude --print --model claude-haiku-4-5-20251001` to generate a 3-8 word description, stores the result in the `ai_summary` database column
 - Skips missions that already have a custom title from `/rename` (resets the counter without generating a new summary)
 - Uses the Claude CLI subprocess rather than a direct API call to avoid requiring users to configure an API key (see code comment for performance tradeoff note)
+
+**6. Idle timeout loop** (`internal/server/idle_timeout.go`)
+- Runs every 2 minutes
+- Scans all non-archived missions for running wrappers
+- Uses `last_active` (user prompt timestamp), `last_heartbeat`, or `created_at` to determine idle duration
+- Stops wrappers idle longer than 30 minutes and destroys their pool windows
+- Wrappers are automatically re-spawned on the next attach (lazy start)
+
+### Tmux pool
+
+The `agenc-pool` tmux session is a background session that holds all wrapper windows. This enables the attach/detach model — wrappers run in the pool regardless of whether the user is viewing them.
+
+- Pool management: `internal/server/pool.go`
+- Created on server startup via `ensurePoolSession()`
+- Each mission gets a window named with the short mission ID
+- `link-window` / `unlink-window` are used to show/hide missions in the user's tmux session
+- Pool windows are auto-cleaned when wrappers exit or are stopped
 
 ### Wrapper
 
@@ -542,7 +557,7 @@ Data Flow: Mission Lifecycle
 3. Background goroutines start: heartbeat writer, remote refs watcher, credential upward sync, credential downward sync
 4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, and tmux pane coloring
 5. Main event loop blocks until Claude exits or a signal arrives
-6. Daemon concurrently syncs the mission's repo while the heartbeat is fresh
+6. Server concurrently syncs the mission's repo while the heartbeat is fresh
 
 ### Stopping
 
