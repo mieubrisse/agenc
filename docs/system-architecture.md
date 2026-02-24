@@ -9,7 +9,7 @@ Read this document before making non-trivial changes to the codebase. It is the 
 Process Overview
 ----------------
 
-Four cooperating processes form the runtime. They share state through the filesystem, a SQLite database, unix sockets, and HTTP over a unix socket (CLI-to-server communication).
+Four cooperating processes form the runtime. They share state through the filesystem, unix sockets, and HTTP over a unix socket. The server is the sole process that reads from and writes to the SQLite database.
 
 ```mermaid
 graph TB
@@ -33,9 +33,9 @@ graph TB
     Server -->|spawns in pool| Wrapper
     Server -->|link-window / unlink-window| Pool
     Wrapper -->|supervises| Claude
+    Wrapper -->|HTTP via unix socket| Server
 
     Server -->|owns| DB
-    Wrapper -->|writes heartbeats| DB
 
     Server -->|fetches & fast-forwards| Repos
     Wrapper -->|force-updates on push| Repos
@@ -50,8 +50,8 @@ graph TB
 
 | Mechanism | Writer | Reader | Purpose |
 |-----------|--------|--------|---------|
-| `database.sqlite` | Server, Wrapper | Server, CLI | Mission records, heartbeats, pane tracking |
-| `server/server.sock` | Server (listener) | CLI (HTTP client) | REST API for mission queries and lifecycle |
+| `database.sqlite` | Server | Server | Mission records, heartbeats, pane tracking |
+| `server/server.sock` | Server (listener) | CLI, Wrapper (HTTP clients) | REST API for mission CRUD, heartbeats, prompt tracking, pane/title updates |
 | `server/server.pid` | Server | CLI (`server stop/status`) | Process coordination |
 | `missions/<uuid>/pid` | Wrapper | Server (idle timeout, attach) | Process coordination |
 | `missions/<uuid>/wrapper.sock` | Wrapper (listener) | CLI, hooks (`mission send claude-update`) | Restart commands, Claude state updates |
@@ -64,7 +64,7 @@ Runtime Processes
 
 ### CLI
 
-The CLI is the user-facing entry point. It parses commands, manages the database, creates mission directories, and spawns wrapper processes.
+The CLI is the user-facing entry point. It parses commands and communicates with the server via HTTP over a unix socket for all mission operations. The CLI never accesses the database directly.
 
 - Entry point: `main.go`
 - Commands: `cmd/` (Cobra-based; one file per command or command group)
@@ -84,19 +84,22 @@ The server is a long-running HTTP API process that listens on a unix socket. It 
 
 Current endpoints:
 - `GET /health` — returns `{"status": "ok", "version": "<version>"}`
-- `GET /missions` — lists all missions
-- `GET /missions/{id}` — get a single mission by ID
+- `GET /missions` — lists all missions (supports `include_archived` and `cron_id` query params)
+- `GET /missions/{id}` — get a single mission by ID (supports short ID resolution)
 - `POST /missions` — create a new mission (DB record, directory, wrapper spawn in pool)
+- `PATCH /missions/{id}` — update mission fields (config_commit, session_name, prompt, tmux_pane, tmux_window_title)
 - `POST /missions/{id}/attach` — ensure wrapper running (lazy start), link pool window into caller's tmux session
 - `POST /missions/{id}/detach` — unlink pool window from caller's tmux session (wrapper keeps running)
 - `POST /missions/{id}/stop` — stop a mission's wrapper process and clean up pool window
 - `DELETE /missions/{id}` — stop wrapper, clean up pool window and directory, delete from DB
 - `POST /missions/{id}/reload` — in-place reload via tmux respawn-pane
+- `POST /missions/{id}/archive` — stop and archive a mission
+- `POST /missions/{id}/unarchive` — set a mission back to active
+- `POST /missions/{id}/heartbeat` — update a mission's last_heartbeat timestamp
+- `POST /missions/{id}/prompt` — update last_active and increment prompt_count
 - `POST /repos/{name}/push-event` — force-update a repo library after push
 
-The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
-
-CLI commands use a "server-first with direct fallback" pattern: they try the server HTTP endpoint first, and if the server is unreachable, fall back to direct filesystem/database/process operations. The `agenc daemon` subcommand is deprecated and delegates to `agenc server`.
+The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file. The `agenc daemon` subcommand is deprecated and delegates to `agenc server`.
 
 ### Background loops
 
@@ -148,7 +151,7 @@ The `agenc-pool` tmux session is a background session that holds all wrapper win
 
 ### Wrapper
 
-The wrapper is a per-mission foreground process that supervises a Claude child process. One wrapper runs per active mission.
+The wrapper is a per-mission foreground process that supervises a Claude child process. One wrapper runs per active mission. It communicates with the server via an HTTP client over the unix socket for all database operations (heartbeats, prompt tracking, pane registration, window title updates).
 
 - Entry point: `internal/wrapper/wrapper.go` (`Wrapper.Run` for interactive, `Wrapper.RunHeadless` for headless)
 - Tmux integration: `internal/wrapper/tmux.go`
@@ -156,14 +159,14 @@ The wrapper is a per-mission foreground process that supervises a Claude child p
 The wrapper:
 
 1. Writes the wrapper PID to `$AGENC_DIRPATH/missions/<uuid>/pid`
-2. Records the tmux pane ID in the database (cleared on exit) for pane→mission resolution
+2. Records the tmux pane ID via the server (cleared on exit) for pane→mission resolution
 3. Reads the OAuth token from the token file and sets `CLAUDE_CODE_OAUTH_TOKEN` in the child environment
 4. Resolves the Claude model: checks the repo's `defaultModel` in `config.yml`, falls back to the top-level `defaultModel`, or omits `--model` entirely (letting Claude choose its default)
 5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--model <value>` if a model was resolved
 6. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 7. Sets `AGENC_MISSION_UUID` for the child process
 8. Starts background goroutines:
-   - **Heartbeat writer** — updates `last_heartbeat` in the database every 60 seconds
+   - **Heartbeat writer** — updates `last_heartbeat` via the server every 60 seconds
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **Socket listener** (interactive mode only) — listens on `wrapper.sock` for JSON commands (restart, claude_update)
    - **`watchCredentialUpwardSync`** — polls per-mission Keychain every 60s; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
@@ -342,7 +345,7 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 
 - `server.go` — `Server` struct, `NewServer`, `Run` (starts HTTP listener, background loops, graceful shutdown on context cancellation), `registerRoutes`, `handleHealth`
 - `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `IsProcessRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)
-- `client.go` — `Client` struct with `Get`, `Post`, `Delete` methods for CLI-to-server communication over the unix socket
+- `client.go` — `Client` struct with `Get`, `Post`, `Delete`, `Patch` methods for CLI-to-server and wrapper-to-server communication over the unix socket. High-level API: `ListMissions`, `GetMission`, `CreateMission`, `UpdateMission`, `StopMission`, `DeleteMission`, `ArchiveMission`, `UnarchiveMission`, `Heartbeat`, `RecordPrompt`, `ReloadMission`
 - `missions.go` — mission CRUD endpoints, wrapper process management (stop/reload/delete), tmux in-place reload
 - `repos.go` — push-event endpoint for triggering repo library updates
 - `errors.go` — `writeError`, `writeJSON` helper functions for consistent JSON responses
@@ -377,11 +380,11 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 
 Per-mission Claude child process management.
 
-- `wrapper.go` — `Wrapper` struct, `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable, model resolution from `defaultModel` config (repo-level then top-level) passed as `--model` to the Claude CLI
+- `wrapper.go` — `Wrapper` struct (uses `server.Client` for all database operations), `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, socket listener), `handleClaudeUpdate` (processes hook events for idle tracking and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable, model resolution from `defaultModel` config (repo-level then top-level) passed as `--model` to the Claude CLI
 - `credential_sync.go` — MCP OAuth credential sync goroutines: `initCredentialHash` (baseline hash at spawn), `watchCredentialUpwardSync` (polls per-mission Keychain every 60s; when hash changes, merges to global and writes broadcast timestamp to `global-credentials-expiry`), `watchCredentialDownwardSync` (fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global into per-mission Keychain)
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/server/hook use, `ErrWrapperNotRunning` sentinel error
-- `tmux.go` — tmux window renaming when inside any tmux session (`$TMUX` set) (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from server > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing for mission resolution
+- `tmux.go` — tmux window renaming when inside any tmux session (`$TMUX` set) (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from server > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing via server client for mission resolution
 
 ### Utility packages
 
@@ -448,7 +451,7 @@ The `agenc mission send claude-update` command reads hook JSON from stdin (to ex
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
 - **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending, updates tmux window title (priority: custom title from /rename > AI summary from server > auto-generated session name)
-- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, updates `last_active` in the database, increments `prompt_count` (used by the server's mission summarizer to determine summarization eligibility)
+- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, calls the server's `/prompt` endpoint to update `last_active` and increment `prompt_count` (used by the server's mission summarizer to determine summarization eligibility)
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
 - **PostToolUse / PostToolUseFailure** → sets tmux pane to busy color; corrects the window color after a permission prompt (which turns the pane orange) when Claude resumes work after the user responds
 
@@ -464,7 +467,7 @@ The wrapper provides visual feedback by setting the tmux pane background color w
 
 ### Mission pane tracking
 
-Each wrapper records its tmux pane ID (`TMUX_PANE`) in the database's `tmux_pane` column on startup and clears it on exit (`internal/wrapper/tmux.go`). This enables tmux keybindings and the command palette to resolve which mission is focused in the current pane.
+Each wrapper records its tmux pane ID (`TMUX_PANE`) via the server's `PATCH /missions/{id}` endpoint on startup and clears it on exit (`internal/wrapper/tmux.go`). This enables tmux keybindings and the command palette to resolve which mission is focused in the current pane.
 
 The resolution flow:
 
@@ -477,15 +480,15 @@ Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — n
 
 ### Heartbeat system
 
-Each wrapper writes a heartbeat to the database every 60 seconds (`internal/wrapper/wrapper.go:writeHeartbeat`). The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
+Each wrapper sends a heartbeat to the server every 60 seconds via the `/heartbeat` endpoint (`internal/wrapper/wrapper.go:writeHeartbeat`). The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
 
-The `last_active` column tracks a different signal: when the user last submitted a prompt to the mission's Claude session (`internal/wrapper/wrapper.go:handleClaudeUpdate`). Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_active` persists indefinitely and reflects true user engagement. Mission listing and the switcher sort by `last_active` first, falling back to `last_heartbeat` then `created_at`.
+The `last_active` column tracks a different signal: when the user last submitted a prompt to the mission's Claude session. The wrapper's `handleClaudeUpdate` handler calls the server's `/prompt` endpoint on each `UserPromptSubmit` event. Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_active` persists indefinitely and reflects true user engagement. Mission listing and the switcher sort by `last_active` first, falling back to `last_heartbeat` then `created_at`.
 
 ### Repo library
 
 All repos are cloned into a shared library at `$AGENC_DIRPATH/repos/github.com/owner/repo/`. Missions copy from this library at creation time rather than cloning directly from GitHub.
 
-The daemon keeps the library fresh by fetching and fast-forwarding every 60 seconds. The wrapper contributes by watching `.git/refs/remotes/origin/<branch>` for push events — when a mission pushes to its repo, the wrapper immediately force-updates the corresponding library clone so other missions get the changes without waiting for the next server cycle (debounced at 5 seconds).
+The server keeps the library fresh by fetching and fast-forwarding every 60 seconds. The wrapper contributes by watching `.git/refs/remotes/origin/<branch>` for push events — when a mission pushes to its repo, the wrapper immediately force-updates the corresponding library clone so other missions get the changes without waiting for the next server cycle (debounced at 5 seconds).
 
 Missions are denied Read/Glob/Grep/Write/Edit access to the repo library directory via injected deny permissions in settings.json (`internal/claudeconfig/overrides.go`).
 
@@ -554,8 +557,8 @@ Data Flow: Mission Lifecycle
 
 1. Wrapper writes PID file, starts socket listener
 2. Wrapper reads OAuth token from token file, spawns Claude (with 1Password wrapping if `secrets.env` exists), setting `CLAUDE_CONFIG_DIR`, `AGENC_MISSION_UUID`, `CLAUDE_CODE_OAUTH_TOKEN`, and `--model` if a `defaultModel` is configured (repo-level overrides top-level)
-3. Background goroutines start: heartbeat writer, remote refs watcher, credential upward sync, credential downward sync
-4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, and tmux pane coloring
+3. Background goroutines start: heartbeat writer (sends heartbeats to server), remote refs watcher, credential upward sync, credential downward sync
+4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, tmux pane coloring, and recording prompts via the server
 5. Main event loop blocks until Claude exits or a signal arrives
 6. Server concurrently syncs the mission's repo while the heartbeat is fresh
 
@@ -581,7 +584,7 @@ Failure Modes
 
 **Repo fetch fails.** The server logs the error and moves on to the next repo. The failed repo retries on the next 60-second cycle. Missions already running are unaffected since they have their own copy.
 
-**Database is locked.** SQLite is configured with max connections = 1. Concurrent access from the CLI, server, and wrapper is serialized. If a long-running transaction blocks others, they wait (SQLite's default busy timeout applies).
+**Database is locked.** SQLite is configured with max connections = 1. Only the server process accesses the database, so contention is limited to concurrent HTTP request handlers. If a long-running transaction blocks others, they wait (SQLite's default busy timeout applies).
 
 **Claude crashes mid-mission.** The wrapper detects the exit via `cmd.Wait()`, cleans up the PID file, and exits. The mission can be resumed with `agenc mission resume` if a conversation was recorded.
 
@@ -621,4 +624,4 @@ Database Schema
 | `idx_missions_tmux_pane` | `tmux_pane` (partial, WHERE tmux_pane IS NOT NULL) | Speeds up pane-to-mission resolution for tmux keybindings |
 | `idx_missions_summary` | `status, prompt_count, last_summary_prompt_count` | Improves performance of server's summary eligibility query |
 
-SQLite is opened with max connections = 1 (`SetMaxOpenConns(1)`) due to its single-writer limitation. Migrations are idempotent and run on every database open.
+SQLite is opened with max connections = 1 (`SetMaxOpenConns(1)`) due to its single-writer limitation. Only the server process opens the database; the CLI and wrapper access data exclusively through the server's HTTP API. Migrations are idempotent and run on every database open.
