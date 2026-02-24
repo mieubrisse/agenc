@@ -169,6 +169,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /missions", s.handleListMissions)
 	mux.HandleFunc("POST /missions", s.handleCreateMission)
 	mux.HandleFunc("GET /missions/{id}", s.handleGetMission)
+	mux.HandleFunc("POST /missions/{id}/attach", s.handleAttachMission)
+	mux.HandleFunc("POST /missions/{id}/detach", s.handleDetachMission)
 	mux.HandleFunc("POST /missions/{id}/stop", s.handleStopMission)
 	mux.HandleFunc("DELETE /missions/{id}", s.handleDeleteMission)
 	mux.HandleFunc("POST /missions/{id}/reload", s.handleReloadMission)

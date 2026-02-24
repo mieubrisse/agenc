@@ -492,6 +492,135 @@ func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
 }
 
+// AttachRequest is the JSON body for POST /missions/{id}/attach.
+type AttachRequest struct {
+	TmuxSession string `json:"tmux_session"`
+}
+
+// handleAttachMission handles POST /missions/{id}/attach.
+// Ensures the mission's wrapper is running in the pool (lazy start), then links
+// the pool window into the caller's tmux session.
+func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req AttachRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	if req.TmuxSession == "" {
+		writeError(w, http.StatusBadRequest, "tmux_session is required")
+		return
+	}
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	missionRecord, err := s.db.GetMission(resolvedID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if missionRecord == nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if missionRecord.Status == "archived" {
+		writeError(w, http.StatusBadRequest, "cannot attach to archived mission")
+		return
+	}
+
+	// Lazy start: ensure wrapper is running in the pool
+	if err := s.ensureWrapperInPool(missionRecord); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start wrapper: "+err.Error())
+		return
+	}
+
+	// Link the pool window into the caller's tmux session
+	poolWindowTarget := fmt.Sprintf("%s:%s", poolSessionName, database.ShortID(resolvedID))
+	if err := linkPoolWindow(poolWindowTarget, req.TmuxSession); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to link window: "+err.Error())
+		return
+	}
+
+	s.logger.Printf("Attached mission %s to session %s", database.ShortID(resolvedID), req.TmuxSession)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "attached"})
+}
+
+// DetachRequest is the JSON body for POST /missions/{id}/detach.
+type DetachRequest struct {
+	TmuxSession string `json:"tmux_session"`
+}
+
+// handleDetachMission handles POST /missions/{id}/detach.
+// Unlinks the mission's window from the caller's tmux session. The wrapper
+// keeps running in the pool.
+func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req DetachRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	if req.TmuxSession == "" {
+		writeError(w, http.StatusBadRequest, "tmux_session is required")
+		return
+	}
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if err := unlinkPoolWindow(req.TmuxSession, resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to unlink window: "+err.Error())
+		return
+	}
+
+	s.logger.Printf("Detached mission %s from session %s", database.ShortID(resolvedID), req.TmuxSession)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
+}
+
+// ensureWrapperInPool checks if the mission's wrapper is running in the pool.
+// If not, it spawns a new wrapper in a pool window. This is the "lazy start"
+// mechanism — wrappers are only started when someone attaches.
+func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
+	// Check if the wrapper is already running
+	pidFilepath := config.GetMissionPIDFilepath(s.agencDirpath, missionRecord.ID)
+	pid, err := ReadPID(pidFilepath)
+	if err == nil && IsProcessRunning(pid) {
+		// Wrapper is already running — ensure pool window exists too
+		if poolWindowExists(missionRecord.ID) {
+			return nil
+		}
+		// Wrapper running but no pool window (orphan from before pool existed).
+		// We can't adopt it into the pool, so just return — the link-window will
+		// fail and the caller will see the error.
+		return nil
+	}
+
+	// Wrapper not running — spawn it in the pool
+	agencBinpath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
+	}
+
+	resumeCmd := fmt.Sprintf("'%s' mission resume %s", agencBinpath, missionRecord.ID)
+	poolWindowTarget, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
+	if err != nil {
+		return fmt.Errorf("failed to create pool window: %w", err)
+	}
+
+	s.logger.Printf("Started wrapper in pool window %s for mission %s", poolWindowTarget, database.ShortID(missionRecord.ID))
+	return nil
+}
+
 // reloadMissionInTmux performs an in-place reload using tmux primitives.
 func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID string) error {
 	targetPane := "%" + paneID
