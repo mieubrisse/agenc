@@ -108,3 +108,41 @@ func poolWindowExists(missionID string) bool {
 	cmd := exec.Command("tmux", "has-session", "-t", target)
 	return cmd.Run() == nil
 }
+
+// getLinkedMissionIDs returns the set of window names (short mission IDs) that
+// are linked into at least one tmux session besides agenc-pool. If the tmux
+// command fails (e.g., no server running), returns an empty map so the caller
+// falls through to the existing idle-kill behavior.
+func getLinkedMissionIDs() map[string]bool {
+	cmd := exec.Command("tmux", "list-windows", "-a", "-F", "#{session_name} #{window_name}")
+	output, err := cmd.Output()
+	if err != nil {
+		return map[string]bool{}
+	}
+
+	// Count which sessions each window name appears in
+	windowSessions := make(map[string]map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		sessionName, windowName := parts[0], parts[1]
+		if windowSessions[windowName] == nil {
+			windowSessions[windowName] = make(map[string]bool)
+		}
+		windowSessions[windowName][sessionName] = true
+	}
+
+	// A window is "linked" if it appears in any session besides agenc-pool
+	linked := make(map[string]bool)
+	for windowName, sessions := range windowSessions {
+		for sessionName := range sessions {
+			if sessionName != poolSessionName {
+				linked[windowName] = true
+				break
+			}
+		}
+	}
+	return linked
+}
