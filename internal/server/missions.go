@@ -734,9 +734,11 @@ func (s *Server) handleUnarchiveMission(w http.ResponseWriter, r *http.Request) 
 // UpdateMissionRequest is the JSON body for PATCH /missions/{id}.
 // All fields are optional; only non-nil fields are applied.
 type UpdateMissionRequest struct {
-	ConfigCommit *string `json:"config_commit,omitempty"`
-	SessionName  *string `json:"session_name,omitempty"`
-	Prompt       *string `json:"prompt,omitempty"`
+	ConfigCommit   *string `json:"config_commit,omitempty"`
+	SessionName    *string `json:"session_name,omitempty"`
+	Prompt         *string `json:"prompt,omitempty"`
+	TmuxPane       *string `json:"tmux_pane,omitempty"`
+	TmuxWindowTitle *string `json:"tmux_window_title,omitempty"`
 }
 
 // handleUpdateMission handles PATCH /missions/{id}.
@@ -774,8 +776,70 @@ func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.TmuxPane != nil {
+		if *req.TmuxPane == "" {
+			if err := s.db.ClearTmuxPane(resolvedID); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to clear tmux_pane: "+err.Error())
+				return
+			}
+		} else {
+			if err := s.db.SetTmuxPane(resolvedID, *req.TmuxPane); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to set tmux_pane: "+err.Error())
+				return
+			}
+		}
+	}
+	if req.TmuxWindowTitle != nil {
+		if err := s.db.SetMissionTmuxWindowTitle(resolvedID, *req.TmuxWindowTitle); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to set tmux_window_title: "+err.Error())
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// handleHeartbeat handles POST /missions/{id}/heartbeat.
+// Updates the mission's last_heartbeat timestamp.
+func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if err := s.db.UpdateHeartbeat(resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update heartbeat: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRecordPrompt handles POST /missions/{id}/prompt.
+// Updates last_active and increments the prompt count.
+func (s *Server) handleRecordPrompt(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission not found: "+id)
+		return
+	}
+
+	if err := s.db.UpdateLastActive(resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update last_active: "+err.Error())
+		return
+	}
+
+	if err := s.db.IncrementPromptCount(resolvedID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to increment prompt_count: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // reloadMissionInTmux performs an in-place reload using tmux primitives.

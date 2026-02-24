@@ -217,6 +217,16 @@ func (c *Client) UpdateMission(id string, update UpdateMissionRequest) error {
 	return c.Patch("/missions/"+id, update, nil)
 }
 
+// Heartbeat updates a mission's last_heartbeat timestamp.
+func (c *Client) Heartbeat(id string) error {
+	return c.Post("/missions/"+id+"/heartbeat", nil, nil)
+}
+
+// RecordPrompt updates last_active and increments prompt_count for a mission.
+func (c *Client) RecordPrompt(id string) error {
+	return c.Post("/missions/"+id+"/prompt", nil, nil)
+}
+
 // ReloadMission reloads a mission's wrapper via the server.
 func (c *Client) ReloadMission(id string, tmuxSession string) error {
 	body := map[string]string{}
