@@ -11,9 +11,14 @@ import (
 
 // checkServerVersion compares the running server's version against the CLI
 // version. If the versions differ, it restarts the server so background loops
-// pick up the new binary. All errors are silently ignored — this check must
-// never block CLI commands.
+// pick up the new binary. Also stops any stale daemon process from a pre-server
+// version. All errors are silently ignored — this check must never block CLI
+// commands.
 func checkServerVersion(agencDirpath string) {
+	// Stop any leftover daemon from a pre-server version of agenc.
+	// After upgrade, the daemon PID file may still exist with a running process.
+	stopStaleDaemon(agencDirpath)
+
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 
 	if !server.IsRunning(pidFilepath) {
@@ -40,6 +45,21 @@ func checkServerVersion(agencDirpath string) {
 
 	// Versions differ — restart the server
 	restartServer(agencDirpath, serverVersion, cliVersion)
+}
+
+// stopStaleDaemon stops any leftover daemon process from a pre-server version
+// of agenc. After a Homebrew upgrade, the old daemon PID file may still exist
+// with a running process. This function sends SIGTERM and cleans up. All errors
+// are silently ignored.
+func stopStaleDaemon(agencDirpath string) {
+	daemonPIDFilepath := config.GetDaemonPIDFilepath(agencDirpath)
+
+	if !server.IsRunning(daemonPIDFilepath) {
+		return
+	}
+
+	// Reuse StopServer — it works with any PID file (SIGTERM → poll → SIGKILL).
+	_ = server.StopServer(daemonPIDFilepath)
 }
 
 // restartServer stops the running server and starts a new one, printing a
