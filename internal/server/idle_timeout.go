@@ -51,6 +51,8 @@ func (s *Server) runIdleTimeoutCycle() {
 		return
 	}
 
+	linkedMissionIDs := getLinkedMissionIDs()
+
 	now := time.Now()
 	for _, m := range missions {
 		if !s.isWrapperRunning(m.ID) {
@@ -59,6 +61,12 @@ func (s *Server) runIdleTimeoutCycle() {
 
 		idleDuration := s.missionIdleDuration(m, now)
 		if idleDuration < defaultIdleTimeout {
+			continue
+		}
+
+		// Skip missions whose pool window is linked into a user session
+		if linkedMissionIDs[database.ShortID(m.ID)] {
+			s.logger.Printf("Idle timeout: skipping mission %s (linked into user session, idle for %s)", database.ShortID(m.ID), idleDuration.Round(time.Second))
 			continue
 		}
 
