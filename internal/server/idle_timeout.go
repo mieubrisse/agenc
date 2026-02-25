@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"os"
 	"time"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/session"
 )
 
 const (
@@ -13,7 +16,7 @@ const (
 	idleTimeoutCheckInterval = 2 * time.Minute
 
 	// defaultIdleTimeout is how long a mission can be idle before its wrapper
-	// is stopped. Idle means no UserPromptSubmit event (tracked via last_active).
+	// is stopped. Idle means the JSONL conversation log has not been modified.
 	defaultIdleTimeout = 30 * time.Minute
 )
 
@@ -91,15 +94,20 @@ func (s *Server) isWrapperRunning(missionID string) bool {
 	return IsProcessRunning(pid)
 }
 
-// missionIdleDuration returns how long a mission has been idle. It uses
-// last_active (user prompt time) if available, otherwise falls back to
-// last_heartbeat (wrapper liveness), and finally to created_at.
+// missionIdleDuration returns how long a mission has been idle by checking the
+// modification time of the active JSONL conversation log. Claude Code writes to
+// this file whenever it does anything (streaming, tool calls, thinking), so a
+// recently modified file means Claude is actively working.
+//
+// Falls back to created_at if the JSONL file cannot be located (mission has no
+// session yet, or the project directory doesn't exist).
 func (s *Server) missionIdleDuration(m *database.Mission, now time.Time) time.Duration {
-	if m.LastActive != nil {
-		return now.Sub(*m.LastActive)
-	}
-	if m.LastHeartbeat != nil {
-		return now.Sub(*m.LastHeartbeat)
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, m.ID)
+	jsonlFilepath := session.FindActiveJSONLPath(claudeConfigDirpath, m.ID)
+	if jsonlFilepath != "" {
+		if info, err := os.Stat(jsonlFilepath); err == nil {
+			return now.Sub(info.ModTime())
+		}
 	}
 	return now.Sub(m.CreatedAt)
 }
