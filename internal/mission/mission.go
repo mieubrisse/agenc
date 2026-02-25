@@ -1,14 +1,25 @@
 package mission
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+)
+
+const (
+	// Number of retry attempts when 1Password CLI fails to connect to the
+	// desktop app. The IPC socket between op and the desktop app is
+	// intermittently flaky.
+	opConnectMaxRetries = 3
+	opConnectRetryDelay = 1 * time.Second
 )
 
 // CreateMissionDir sets up the mission directory structure. When gitRepoSource
@@ -87,6 +98,12 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 		opBinary, err := exec.LookPath("op")
 		if err != nil {
 			return nil, stacktrace.Propagate(err, "'op' (1Password CLI) not found in PATH; required because '%s' exists", secretsEnvFilepath)
+		}
+
+		// Verify 1Password desktop app connectivity before building the
+		// command. The IPC socket is intermittently flaky, so retry on failure.
+		if err := ensureOpConnectivity(opBinary); err != nil {
+			return nil, err
 		}
 
 		opArgs := []string{
@@ -209,4 +226,25 @@ func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDi
 	}
 
 	return cmd, nil
+}
+
+// ensureOpConnectivity verifies that the 1Password CLI can connect to the
+// desktop app by running `op whoami`. The IPC socket between the CLI and the
+// desktop app is intermittently flaky, so this retries on failure to warm the
+// connection before using it for secret injection.
+func ensureOpConnectivity(opBinary string) error {
+	var lastErr error
+	for attempt := 0; attempt <= opConnectMaxRetries; attempt++ {
+		if attempt > 0 {
+			fmt.Fprintf(os.Stderr, "1Password connection failed, retrying (%d/%d)...\n", attempt, opConnectMaxRetries)
+			time.Sleep(opConnectRetryDelay)
+		}
+		cmd := exec.Command(opBinary, "whoami")
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		lastErr = stacktrace.NewError("%s: %s", err, strings.TrimSpace(string(output)))
+	}
+	return stacktrace.Propagate(lastErr, "1Password CLI failed to connect to desktop app after %d attempts", opConnectMaxRetries+1)
 }
