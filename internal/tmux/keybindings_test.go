@@ -170,6 +170,50 @@ func TestGenerateKeybindingsContent_GlobalMissionScopedKeybinding(t *testing.T) 
 	}
 }
 
+func TestGenerateKeybindingsContent_SingleQuotesInCommand(t *testing.T) {
+	// Commands containing single quotes must be escaped so they don't break
+	// the run-shell '...' wrapper. For example, the sideShell builtin uses:
+	//   tmux split-window -h -c '#{pane_current_path}' $SHELL
+	keybindings := []CustomKeybinding{
+		{
+			Key:     "-n C-p",
+			Command: "tmux split-window -h -c '#{pane_current_path}' $SHELL",
+			Comment: "sideShell — Side Shell (-n C-p)",
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+
+	// The inner single quotes must be escaped as '\'' so tmux parses them correctly.
+	// The full line should be: run-shell 'tmux split-window -h -c '\''#{pane_current_path}'\'' $SHELL'
+	expected := `run-shell 'tmux split-window -h -c '\''#{pane_current_path}'\'' $SHELL'`
+	if !strings.Contains(content, expected) {
+		t.Errorf("expected single quotes to be escaped in run-shell wrapper\nwant substring: %s\ngot content:\n%s", expected, content)
+	}
+}
+
+func TestGenerateKeybindingsContent_SingleQuotesInMissionScopedCommand(t *testing.T) {
+	// Mission-scoped commands with single quotes should also be escaped.
+	keybindings := []CustomKeybinding{
+		{
+			Key:             "p",
+			Command:         "tmux split-window -h -c '#{pane_current_path}' $SHELL",
+			Comment:         "test",
+			IsMissionScoped: true,
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+
+	// The escaped single quotes should appear in the mission-scoped preamble
+	if strings.Contains(content, "-c '#{pane_current_path}' $SHELL'") {
+		t.Error("expected single quotes in mission-scoped command to be escaped, but found unescaped form")
+	}
+	if !strings.Contains(content, `'\''#{pane_current_path}'\''`) {
+		t.Error("expected single quotes to be escaped as '\\'\\'' in mission-scoped command")
+	}
+}
+
 func TestBuildKeybindingsFromCommands_GlobalKeyComment(t *testing.T) {
 	// Verify that "-n" prefixed keybindings get appropriate comments
 	// (not "prefix + a, ...").

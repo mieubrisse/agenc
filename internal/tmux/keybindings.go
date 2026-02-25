@@ -15,6 +15,14 @@ import (
 // keybindings behind a prefix (prefix + a → agenc table).
 const agencKeyTable = "agenc"
 
+// escapeSingleQuotes escapes single quotes in a string so it can be safely
+// embedded inside a single-quoted shell/tmux string. The standard technique
+// is to end the current single-quoted segment, insert an escaped literal
+// single quote, and restart a new single-quoted segment: ' → '\”
+func escapeSingleQuotes(s string) string {
+	return strings.ReplaceAll(s, "'", `'\''`)
+}
+
 // agencBinary is the binary name used in generated tmux keybindings.
 const agencBinary = "agenc"
 
@@ -76,15 +84,16 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 			bindKeyArgs = kb.Key
 		}
 
+		escapedCommand := escapeSingleQuotes(kb.Command)
 		if kb.IsMissionScoped {
 			// Mission-scoped: resolve the pane's mission UUID first, skip if empty.
 			// #{pane_id} is expanded by tmux at key-press time.
 			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
-				"'\n", bindKeyArgs, agencBinary, kb.Command)
+				"'\n", bindKeyArgs, agencBinary, escapedCommand)
 		} else {
-			fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, kb.Command)
+			fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedCommand)
 		}
 	}
 
