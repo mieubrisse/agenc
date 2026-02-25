@@ -38,13 +38,13 @@ build: genskill docs
 	@go vet ./...
 	@echo "✓ Static analysis OK"
 
-	@echo "Building agenc..."
-	@go build -ldflags "$(LDFLAGS)" -o agenc .
-	@echo "✓ Build complete"
-
 	@echo "Running tests..."
 	@go test ./...
 	@echo "✓ Tests passed"
+
+	@echo "Building agenc..."
+	@go build -ldflags "$(LDFLAGS)" -o agenc .
+	@echo "✓ Build complete"
 
 docs: genskill
 	go run ./cmd/gendocs
