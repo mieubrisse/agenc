@@ -25,6 +25,7 @@ func main() {
 	}
 
 	rootCmd := cmd.GetRootCmd()
+	rootCmd.DisableAutoGenTag = true
 	if err := doc.GenMarkdownTree(rootCmd, outputDirpath); err != nil {
 		log.Fatalf("failed to generate docs: %v", err)
 	}
