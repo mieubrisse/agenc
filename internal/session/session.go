@@ -323,3 +323,14 @@ func TailJSONLFile(jsonlFilepath string, n int, w io.Writer) (int, error) {
 	}
 	return count, nil
 }
+
+// FindActiveJSONLPath returns the filesystem path of the most recently modified
+// JSONL conversation log for the given mission, or "" if none exists. This is
+// used by the idle timeout system to check whether Claude is actively working.
+func FindActiveJSONLPath(claudeConfigDirpath string, missionID string) string {
+	projectDirpath := findProjectDirpath(claudeConfigDirpath, missionID)
+	if projectDirpath == "" {
+		return ""
+	}
+	return findMostRecentJSONL(projectDirpath)
+}
