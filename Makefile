@@ -20,7 +20,7 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
-.PHONY: build clean docs genskill
+.PHONY: build clean docs genskill test
 
 build: genskill docs
 	@echo "Checking code formatting..."
@@ -42,6 +42,10 @@ build: genskill docs
 	@go build -ldflags "$(LDFLAGS)" -o agenc .
 	@echo "✓ Build complete"
 
+	@echo "Running tests..."
+	@go test ./...
+	@echo "✓ Tests passed"
+
 docs: genskill
 	go run ./cmd/gendocs
 
@@ -49,6 +53,11 @@ genskill:
 	@# Ensure embed placeholder exists before Go compilation (fresh checkout)
 	@test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md
 	go run ./cmd/genskill
+
+test:
+	@echo "Running tests..."
+	@go test ./...
+	@echo "✓ Tests passed"
 
 clean:
 	rm -f agenc
