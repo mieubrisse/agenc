@@ -109,37 +109,43 @@ func poolWindowExists(missionID string) bool {
 	return cmd.Run() == nil
 }
 
-// getLinkedMissionIDs returns the set of window names (short mission IDs) that
-// are linked into at least one tmux session besides agenc-pool. If the tmux
-// command fails (e.g., no server running), returns an empty map so the caller
-// falls through to the existing idle-kill behavior.
-func getLinkedMissionIDs() map[string]bool {
-	cmd := exec.Command("tmux", "list-windows", "-a", "-F", "#{session_name} #{window_name}")
+// getLinkedPaneIDs returns the set of tmux pane IDs (without the "%" prefix)
+// that are visible in at least one tmux session besides agenc-pool. This uses
+// pane IDs rather than window names because window names can be renamed by tmux
+// or by the running process, making them unreliable identifiers. Pane IDs are
+// immutable for the lifetime of the pane.
+//
+// If the tmux command fails (e.g., no server running), returns an empty map so
+// the caller falls through to the existing idle-kill behavior.
+func getLinkedPaneIDs() map[string]bool {
+	cmd := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
 		return map[string]bool{}
 	}
 
-	// Count which sessions each window name appears in
-	windowSessions := make(map[string]map[string]bool)
+	// Track which sessions each pane appears in
+	paneSessions := make(map[string]map[string]bool)
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		parts := strings.SplitN(line, " ", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		sessionName, windowName := parts[0], parts[1]
-		if windowSessions[windowName] == nil {
-			windowSessions[windowName] = make(map[string]bool)
+		sessionName := parts[0]
+		// Strip the "%" prefix from pane IDs to match the database format
+		paneID := strings.TrimPrefix(parts[1], "%")
+		if paneSessions[paneID] == nil {
+			paneSessions[paneID] = make(map[string]bool)
 		}
-		windowSessions[windowName][sessionName] = true
+		paneSessions[paneID][sessionName] = true
 	}
 
-	// A window is "linked" if it appears in any session besides agenc-pool
+	// A pane is "linked" if it appears in any session besides agenc-pool
 	linked := make(map[string]bool)
-	for windowName, sessions := range windowSessions {
+	for paneID, sessions := range paneSessions {
 		for sessionName := range sessions {
 			if sessionName != poolSessionName {
-				linked[windowName] = true
+				linked[paneID] = true
 				break
 			}
 		}

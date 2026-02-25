@@ -51,7 +51,7 @@ func (s *Server) runIdleTimeoutCycle() {
 		return
 	}
 
-	linkedMissionIDs := getLinkedMissionIDs()
+	linkedPaneIDs := getLinkedPaneIDs()
 
 	now := time.Now()
 	for _, m := range missions {
@@ -64,8 +64,8 @@ func (s *Server) runIdleTimeoutCycle() {
 			continue
 		}
 
-		// Skip missions whose pool window is linked into a user session
-		if linkedMissionIDs[database.ShortID(m.ID)] {
+		// Skip missions whose tmux pane is linked into a user session
+		if m.TmuxPane != nil && linkedPaneIDs[*m.TmuxPane] {
 			s.logger.Printf("Idle timeout: skipping mission %s (linked into user session, idle for %s)", database.ShortID(m.ID), idleDuration.Round(time.Second))
 			continue
 		}

@@ -734,10 +734,10 @@ func (s *Server) handleUnarchiveMission(w http.ResponseWriter, r *http.Request) 
 // UpdateMissionRequest is the JSON body for PATCH /missions/{id}.
 // All fields are optional; only non-nil fields are applied.
 type UpdateMissionRequest struct {
-	ConfigCommit   *string `json:"config_commit,omitempty"`
-	SessionName    *string `json:"session_name,omitempty"`
-	Prompt         *string `json:"prompt,omitempty"`
-	TmuxPane       *string `json:"tmux_pane,omitempty"`
+	ConfigCommit    *string `json:"config_commit,omitempty"`
+	SessionName     *string `json:"session_name,omitempty"`
+	Prompt          *string `json:"prompt,omitempty"`
+	TmuxPane        *string `json:"tmux_pane,omitempty"`
 	TmuxWindowTitle *string `json:"tmux_window_title,omitempty"`
 }
 
