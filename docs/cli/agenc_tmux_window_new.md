@@ -21,7 +21,7 @@ command from agenc flags.
 Example:
   agenc tmux window new -- agenc mission new mieubrisse/agenc
   agenc tmux window new -a -d -- agenc mission new mieubrisse/agenc
-  agenc tmux window new --name "🦀 Quick Claude" -- agenc mission new --blank
+  agenc tmux window new --name "🦀" -- agenc mission new --blank
 
 ```
 agenc tmux window new -- <command> [args...] [flags]

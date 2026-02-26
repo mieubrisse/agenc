@@ -96,7 +96,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"quickClaude": {
 		Title:       "🦀  Quick Claude",
 		Description: "Creates a blank mission in a new window",
-		Command:     "agenc tmux window new -a --name '🦀 Quick Claude' -- agenc mission new --blank",
+		Command:     "agenc tmux window new -a --name '🦀' -- agenc mission new --blank",
 	},
 	"talkToAgenc": {
 		Title:       "🤖  Adjutant",
