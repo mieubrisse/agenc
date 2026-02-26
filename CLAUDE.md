@@ -123,6 +123,8 @@ Do not run GoReleaser manually — CI handles the build and publish when it sees
 
 **Listing existing tags:** Use `git tag --sort=-v:refname` to list tags in descending semantic-version order. Do not use unsorted `git tag` output.
 
+**Verifying the release:** After pushing the tag, watch the GitHub Release Action to confirm it completes successfully. Use `gh run list --workflow=release.yml --limit=1` (or the appropriate workflow name) to check the status, and `gh run watch` to stream logs if needed. The release is not finished until the action reports success. If it fails, investigate and resolve the issue before telling the user the release is done.
+
 Database Functions
 ------------------
 
