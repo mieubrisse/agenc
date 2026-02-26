@@ -13,7 +13,7 @@ NOTION_TOKEN=op://Personal/Notion API Token/credential
 TODOIST_API_KEY=op://Personal/Todoist/api_key
 ```
 
-When AgenC detects this file, it automatically wraps the Claude invocation with `op run`, which resolves secret references and injects the values as environment variables.
+When AgenC detects this file, it resolves all secret references via `op inject` before starting Claude, then passes the resolved values as environment variables. The secrets are resolved upfront (rather than wrapping Claude with `op run`) because `op run` does not support TUI applications — it breaks terminal passthrough.
 
 Example: MCP servers with secrets
 ----------------------------------

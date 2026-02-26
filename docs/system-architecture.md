@@ -494,9 +494,9 @@ Missions are denied Read/Glob/Grep/Write/Edit access to the repo library directo
 
 ### 1Password secret injection
 
-When a mission's `agent/.claude/secrets.env` file exists, Claude is launched via `op run --env-file secrets.env --no-masking -- claude [args]`. The 1Password CLI resolves vault references (e.g., `op://vault/item/field`) into actual secret values and injects them as environment variables. If `secrets.env` is absent, Claude launches directly without `op`.
+When a mission's `agent/.claude/secrets.env` file exists, secret references are resolved via `op inject` before Claude starts. The 1Password CLI resolves vault references (e.g., `op://vault/item/field`) into actual secret values, which are then passed as environment variables to Claude directly. If `secrets.env` is absent, Claude launches without `op`. Secrets are resolved upfront (rather than wrapping Claude with `op run`) because `op run` does not support TUI applications — it breaks terminal passthrough.
 
-Implemented in `internal/mission/mission.go:buildClaudeCmd` and `internal/wrapper/wrapper.go:buildHeadlessClaudeCmd`.
+Implemented in `internal/mission/mission.go:BuildClaudeCmd` and `internal/mission/mission.go:resolveOnePasswordSecrets`.
 
 ### Config auto-sync
 
