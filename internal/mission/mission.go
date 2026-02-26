@@ -1,7 +1,6 @@
 package mission
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -71,12 +70,8 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 
 // BuildClaudeCmd constructs an exec.Cmd for running Claude in the given agent
 // directory. If a secrets.env file exists at .claude/secrets.env within the
-// agent directory, secret references are resolved via `op inject` and added
-// as environment variables. Otherwise, Claude is invoked directly.
-//
-// The secrets are resolved before starting Claude (not via `op run` wrapping)
-// because `op run` does not support TUI applications — it interferes with
-// terminal (TTY) passthrough, causing interactive apps like Claude to hang.
+// agent directory, the command is wrapped with `op run` to inject 1Password
+// secrets. Otherwise, Claude is invoked directly.
 //
 // The returned command has its working directory, environment variables
 // (CLAUDE_CONFIG_DIR, AGENC_MISSION_UUID, CLAUDE_CODE_OAUTH_TOKEN), set but
@@ -95,22 +90,41 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
 
-	cmd := exec.Command(claudeBinary, claudeArgs...)
+	secretsEnvFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, config.SecretsEnvFilename)
+
+	var cmd *exec.Cmd
+	if _, statErr := os.Stat(secretsEnvFilepath); statErr == nil {
+		// secrets.env exists — wrap with op run
+		opBinary, err := exec.LookPath("op")
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "'op' (1Password CLI) not found in PATH; required because '%s' exists", secretsEnvFilepath)
+		}
+
+		// Verify 1Password desktop app connectivity before building the
+		// command. The IPC socket is intermittently flaky, so retry on failure.
+		if err := ensureOpConnectivity(opBinary); err != nil {
+			return nil, err
+		}
+
+		opArgs := []string{
+			"run",
+			"--env-file", secretsEnvFilepath,
+			"--no-masking",
+			"--",
+			claudeBinary,
+		}
+		opArgs = append(opArgs, claudeArgs...)
+		cmd = exec.Command(opBinary, opArgs...)
+	} else {
+		// No secrets.env — run claude directly
+		cmd = exec.Command(claudeBinary, claudeArgs...)
+	}
+
 	cmd.Dir = agentDirpath
 	cmd.Env = append(os.Environ(),
 		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
 		config.MissionUUIDEnvVar+"="+missionID,
 	)
-
-	// Resolve 1Password secrets if secrets.env exists
-	secretsEnvFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, config.SecretsEnvFilename)
-	if _, statErr := os.Stat(secretsEnvFilepath); statErr == nil {
-		resolvedSecrets, err := resolveOnePasswordSecrets(secretsEnvFilepath)
-		if err != nil {
-			return nil, stacktrace.Propagate(err, "failed to resolve 1Password secrets from '%s'", secretsEnvFilepath)
-		}
-		cmd.Env = append(cmd.Env, resolvedSecrets...)
-	}
 
 	// Read the OAuth token — callers must ensure it exists (via
 	// config.SetupOAuthToken) before entering the wrapper.
@@ -130,83 +144,6 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 	return cmd, nil
-}
-
-// resolveOnePasswordSecrets reads a secrets.env file and resolves all 1Password
-// secret references using `op inject`. Each line should be KEY=op://... format.
-// Returns resolved environment variables as KEY=value strings.
-//
-// Uses `op inject` rather than `op run` because `op run` does not support TUI
-// applications — it breaks terminal (TTY) passthrough.
-func resolveOnePasswordSecrets(secretsEnvFilepath string) ([]string, error) {
-	opBinary, err := exec.LookPath("op")
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "'op' (1Password CLI) not found in PATH; required because '%s' exists", secretsEnvFilepath)
-	}
-
-	// Verify 1Password desktop app connectivity before resolving secrets.
-	// The IPC socket is intermittently flaky, so retry on failure.
-	if err := ensureOpConnectivity(opBinary); err != nil {
-		return nil, err
-	}
-
-	// Read the secrets.env file to build an op inject template.
-	// Each line is KEY=op://vault/item/field — we convert to KEY={{ op://vault/item/field }}
-	// so op inject can resolve them.
-	data, err := os.ReadFile(secretsEnvFilepath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to read secrets.env file")
-	}
-
-	var templateLines []string
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		eqIdx := strings.IndexByte(line, '=')
-		if eqIdx < 0 {
-			continue
-		}
-		key := line[:eqIdx]
-		value := line[eqIdx+1:]
-		// Wrap the value in {{ }} for op inject template syntax
-		templateLines = append(templateLines, fmt.Sprintf("%s={{ %s }}", key, value))
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, stacktrace.Propagate(err, "failed to parse secrets.env file")
-	}
-
-	if len(templateLines) == 0 {
-		return nil, nil
-	}
-
-	template := strings.Join(templateLines, "\n")
-
-	// Run op inject to resolve all secret references at once
-	cmd := exec.Command(opBinary, "inject")
-	cmd.Stdin = strings.NewReader(template)
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, stacktrace.NewError("'op inject' failed: %s\n%s", exitErr.Error(), string(exitErr.Stderr))
-		}
-		return nil, stacktrace.Propagate(err, "'op inject' failed")
-	}
-
-	// Parse resolved output back into KEY=value pairs
-	var resolved []string
-	scanner = bufio.NewScanner(strings.NewReader(string(output)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		resolved = append(resolved, line)
-	}
-
-	return resolved, nil
 }
 
 // SpawnClaude starts claude as a child process in the given agent directory.
