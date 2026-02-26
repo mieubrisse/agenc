@@ -14,7 +14,7 @@ func TestInjectUninjectRoundtrip(t *testing.T) {
 
 	// Test case 1: inject into non-existent file, then uninject
 	t.Run("inject creates file and uninject removes block", func(t *testing.T) {
-		displayPath := "~/.agenc/tmux/keybindings.conf"
+		displayPath := "~/.agenc/tmux-keybindings.conf"
 
 		// Inject should create the file
 		if err := injectTmuxConfSourceLine(displayPath); err != nil {
@@ -33,7 +33,7 @@ func TestInjectUninjectRoundtrip(t *testing.T) {
 		}
 
 		// Manually inject a sentinel block (simulating what inject does)
-		displayPath := "~/.agenc/tmux/keybindings.conf"
+		displayPath := "~/.agenc/tmux-keybindings.conf"
 		sentinelBlock := buildSentinelBlock(displayPath)
 		content, _ := os.ReadFile(tmuxConfFilepath)
 		injectedContent := string(content) + "\n" + sentinelBlock + "\n"
@@ -144,13 +144,13 @@ func TestBuildSentinelBlock(t *testing.T) {
 	}{
 		{
 			name:        "standard path with tilde",
-			displayPath: "~/.agenc/tmux/keybindings.conf",
-			want:        "# >>> AgenC keybindings >>>\nsource-file ~/.agenc/tmux/keybindings.conf\n# <<< AgenC keybindings <<<",
+			displayPath: "~/.agenc/tmux-keybindings.conf",
+			want:        "# >>> AgenC keybindings >>>\nsource-file ~/.agenc/tmux-keybindings.conf\n# <<< AgenC keybindings <<<",
 		},
 		{
 			name:        "absolute path",
-			displayPath: "/Users/test/.agenc/tmux/keybindings.conf",
-			want:        "# >>> AgenC keybindings >>>\nsource-file /Users/test/.agenc/tmux/keybindings.conf\n# <<< AgenC keybindings <<<",
+			displayPath: "/Users/test/.agenc/tmux-keybindings.conf",
+			want:        "# >>> AgenC keybindings >>>\nsource-file /Users/test/.agenc/tmux-keybindings.conf\n# <<< AgenC keybindings <<<",
 		},
 	}
 
@@ -177,8 +177,8 @@ func TestContractHomePath(t *testing.T) {
 	}{
 		{
 			name: "path starts with home directory",
-			path: filepath.Join(homeDir, ".agenc", "tmux", "keybindings.conf"),
-			want: "~/.agenc/tmux/keybindings.conf",
+			path: filepath.Join(homeDir, ".agenc", "tmux-keybindings.conf"),
+			want: "~/.agenc/tmux-keybindings.conf",
 		},
 		{
 			name: "path does not start with home directory",
