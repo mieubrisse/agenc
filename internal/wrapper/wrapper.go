@@ -2,6 +2,7 @@ package wrapper
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
 	"github.com/odyssey/agenc/internal/server"
 )
@@ -172,7 +174,12 @@ func (w *Wrapper) Run(isResume bool) error {
 		return stacktrace.Propagate(err, "failed to open wrapper log file")
 	}
 	defer logFile.Close()
-	w.logger = slog.New(slog.NewTextHandler(logFile, nil))
+	w.logger = slog.New(slog.NewJSONHandler(logFile, nil))
+	w.logger.Info("Wrapper started",
+		"mission_id", database.ShortID(w.missionID),
+		"repo", w.gitRepoName,
+		"is_resume", isResume,
+	)
 
 	// Write wrapper PID
 	pidFilepath := config.GetMissionPIDFilepath(w.agencDirpath, w.missionID)
@@ -275,6 +282,10 @@ func (w *Wrapper) Run(isResume bool) error {
 			// signal from the terminal (same process group). Just wait for it
 			// to exit. Forward the signal in case Claude is in a different
 			// process group on some platform.
+			w.logger.Info("Wrapper exiting",
+				"reason", "signal",
+				"signal", sig.String(),
+			)
 			if w.claudeCmd != nil && w.claudeCmd.Process != nil {
 				_ = w.claudeCmd.Process.Signal(sig)
 			}
@@ -285,7 +296,7 @@ func (w *Wrapper) Run(isResume bool) error {
 			resp := w.handleCommand(cmdResp.cmd)
 			cmdResp.responseCh <- resp
 
-		case <-w.claudeExited:
+		case exitErr := <-w.claudeExited:
 			if w.state == stateRestarting {
 				// Wrapper-initiated restart: respawn Claude
 				w.logger.Info("Claude exited for restart, respawning")
@@ -313,6 +324,19 @@ func (w *Wrapper) Run(isResume bool) error {
 				w.logger.Info("Claude respawned successfully", "pid", w.claudeCmd.Process.Pid)
 			} else {
 				// Natural exit — wrapper exits
+				exitCode := 0
+				if exitErr != nil {
+					if ee, ok := exitErr.(*exec.ExitError); ok {
+						exitCode = ee.ExitCode()
+					} else {
+						exitCode = -1
+					}
+				}
+				w.logger.Info("Wrapper exiting",
+					"reason", "claude_exited",
+					"exit_code", exitCode,
+					"exit_error", fmt.Sprintf("%v", exitErr),
+				)
 				return nil
 			}
 		}
