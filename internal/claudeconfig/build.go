@@ -792,82 +792,24 @@ func GetCredentialExpiresAt() float64 {
 	return ExtractExpiresAtFromJSON([]byte(credential))
 }
 
-// GetLastSessionID returns the most recent session ID for a mission.
-// It first checks the lastSessionId field in the mission's .claude.json.
-// If that field is absent (e.g. the session is still active, or .claude.json
-// was rebuilt by a config update), it falls back to scanning the filesystem
-// for the most recently modified JSONL session file.
+// GetLastSessionID returns the most recent session ID for a mission by
+// scanning the filesystem for JSONL session files sorted by modification
+// time (most recent first). This is reliable for both active and completed
+// sessions, unlike .claude.json's lastSessionId field which is only
+// populated at session close.
 // Returns empty string if no session is found.
 func GetLastSessionID(agencDirpath string, missionID string) string {
-	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
-	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
+	claudeConfigDirpath := filepath.Join(
+		config.GetMissionDirpath(agencDirpath, missionID),
+		MissionClaudeConfigDirname,
+	)
 
-	// Try .claude.json first (fast path — works for completed sessions)
-	if sessionID := getSessionIDFromClaudeJSON(claudeConfigDirpath, agencDirpath, missionID); sessionID != "" {
-		return sessionID
-	}
-
-	// Fallback: scan filesystem for the most recent JSONL session file.
-	// This works for active sessions where lastSessionId hasn't been
-	// written yet, and for sessions whose .claude.json was overwritten
-	// by a config rebuild.
 	sessionIDs := session.ListSessionIDs(claudeConfigDirpath, missionID)
 	if len(sessionIDs) > 0 {
 		return sessionIDs[0]
 	}
 
 	return ""
-}
-
-// getSessionIDFromClaudeJSON reads the lastSessionId for a mission's agent
-// directory from the mission's .claude.json file. Returns empty string if
-// not found or if the file cannot be read.
-func getSessionIDFromClaudeJSON(claudeConfigDirpath string, agencDirpath string, missionID string) string {
-	claudeJSONFilepath := filepath.Join(claudeConfigDirpath, ".claude.json")
-
-	data, err := os.ReadFile(claudeJSONFilepath)
-	if err != nil {
-		return ""
-	}
-
-	var claudeJSON map[string]json.RawMessage
-	if err := json.Unmarshal(data, &claudeJSON); err != nil {
-		return ""
-	}
-
-	projectsRaw, ok := claudeJSON["projects"]
-	if !ok {
-		return ""
-	}
-
-	var projects map[string]json.RawMessage
-	if err := json.Unmarshal(projectsRaw, &projects); err != nil {
-		return ""
-	}
-
-	// Look up the project by the mission's agent directory path
-	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
-	projectDataRaw, ok := projects[agentDirpath]
-	if !ok {
-		return ""
-	}
-
-	var projectData map[string]json.RawMessage
-	if err := json.Unmarshal(projectDataRaw, &projectData); err != nil {
-		return ""
-	}
-
-	sessionIDRaw, ok := projectData["lastSessionId"]
-	if !ok {
-		return ""
-	}
-
-	var sessionID string
-	if err := json.Unmarshal(sessionIDRaw, &sessionID); err != nil {
-		return ""
-	}
-
-	return sessionID
 }
 
 // ProjectDirectoryExists checks whether Claude Code has created a project
