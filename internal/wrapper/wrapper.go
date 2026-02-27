@@ -615,14 +615,16 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		return stacktrace.Propagate(err, "failed to open wrapper log file")
 	}
 	defer logFile.Close()
-	w.logger = slog.New(slog.NewTextHandler(logFile, nil))
+	w.logger = slog.New(slog.NewJSONHandler(logFile, nil))
 
-	w.logger.Info("Starting headless mission",
-		"missionID", w.missionID,
-		"timeout", cfg.Timeout,
-		"cronID", cfg.CronID,
-		"cronName", cfg.CronName,
-		"isResume", isResume,
+	w.logger.Info("Wrapper started",
+		"mission_id", database.ShortID(w.missionID),
+		"repo", w.gitRepoName,
+		"is_resume", isResume,
+		"headless", true,
+		"timeout", cfg.Timeout.String(),
+		"cron_id", cfg.CronID,
+		"cron_name", cfg.CronName,
 	)
 
 	// Write wrapper PID

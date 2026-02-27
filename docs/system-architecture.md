@@ -78,8 +78,10 @@ The server is a long-running HTTP API process that listens on a unix socket. It 
 - Process management: `internal/server/process.go` (PID file, fork, stop)
 - HTTP client: `internal/server/client.go` (CLI-side HTTP client for unix socket communication)
 - Error/JSON helpers: `internal/server/errors.go`
+- Request logging middleware: `internal/server/middleware.go`
 - PID file: `$AGENC_DIRPATH/server/server.pid`
 - Log file: `$AGENC_DIRPATH/server/server.log`
+- Request log: `$AGENC_DIRPATH/server/requests.log` (structured JSON, one line per HTTP request)
 - Socket: `$AGENC_DIRPATH/server/server.sock` (mode 0600)
 
 Current endpoints:
@@ -295,6 +297,7 @@ $AGENC_DIRPATH/
 ├── server/
 │   ├── server.pid                         # Server process ID
 │   ├── server.log                         # Server log
+│   ├── requests.log                       # Structured HTTP request log (JSON lines)
 │   └── server.sock                        # Unix socket for HTTP API (mode 0600)
 │
 └── daemon/                                    # Deprecated (kept for cleanup of existing installs)
