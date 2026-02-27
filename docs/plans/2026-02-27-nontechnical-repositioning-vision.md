@@ -194,6 +194,7 @@ This is the compounding engine — the thing that makes the system get exponenti
 - **Friction surfacing**: the system should proactively scan agent sessions for friction points — places where the agent got stuck, made wrong assumptions, asked for help, or produced subpar results — and surface these to the user as improvement opportunities.
 - **Easy review and approval**: the user sees a suggestion ("Agent X struggled with invoicing because it didn't know your payment terms are Net 30. Add this to your knowledge base?") and approves or rejects with one tap. The system handles the plumbing.
 - **Instant visible improvement**: when the user provides feedback or approves a refinement, they should see it take effect immediately in subsequent agent behavior. This is what Dan described: "When I deliver feedback, see that it really DID action on the feedback." Trust is built through visible, instant results.
+- **Response markup**: the user needs to be able to mark up agent responses directly — highlight sections, add annotations, flag problems. This is the natural feedback gesture: you see something wrong, you point at it and say what's wrong. The system should capture these markups and translate them into durable improvements. This is far more intuitive than asking users to write abstract feedback after the fact.
 - **Durable refinements**: improvements persist across sessions and across agents. Dan's key framing: "How do you make your AI agents a DURABLE team?" vs. chat interfaces where context rots and refinements evaporate.
 - **Background learning**: the system should be able to do proactive learning — scanning completed sessions, identifying patterns of friction, and queuing up suggested improvements — without requiring the user to manually review every session.
 
@@ -223,6 +224,28 @@ From the 2026-02-26 market research session with Dan (marketer, autonomous drivi
 These are good anchor use cases because they're concrete, relatable, and demonstrate the full loop (capture → organize → delegate → learn).
 
 
+Example Workflows
+-----------------
+
+Concrete workflows that demonstrate the full loop in action for the target user. Each of these should feel achievable, relatable, and immediately valuable.
+
+### Voice note → Personal CRM update
+
+The user meets someone at an event. They pull out their phone, record a 30-second voice note: "Just met Arjun Patel at the fintech meetup. He's a PM at Stripe, interested in our product, has a dog named Baxter. Said he'd intro me to his head of partnerships." The system transcribes the note, identifies it as a CRM entry, categorizes it under Arjun (creating a new contact if needed), tags the interaction with the event and date, extracts the follow-up commitment (intro to head of partnerships), and adds it to the Waiting For list. Next time the user pulls up Arjun, they see the full interaction history.
+
+### Todoist inbox processing
+
+The user's Todoist inbox has accumulated 30 items over the past few days — quick captures, forwarded emails, voice note dumps. They open the product and say "process my inbox." An agent drains the inbox: categorizing items by project, asking clarifying questions when items are vague ("You wrote 'fix the thing' — which thing? The landing page copy or the signup flow?"), defining next actions, identifying items that can be delegated to other agents immediately, and flagging items that need the user's judgment. The user reviews the organized output, approves the categorization, and kicks off the delegatable work.
+
+### AI-powered daily routine
+
+The user sets up a recurring routine: every morning at 7am, agents execute a sequence. One agent pulls overnight emails and Slack messages, triaging them into "needs response," "FYI," and "ignorable." Another agent reviews the user's calendar and prepares briefing notes for any meetings. A third checks the user's project dashboards and flags anything that's off-track. By the time the user sits down with coffee, they have a morning briefing ready — and it gets better every day as the agents learn what the user actually cares about.
+
+### Research handoff with permission isolation
+
+The user wants to evaluate CRM tools for their business. They launch a research agent with internet access but no access to their internal systems. The research agent surveys the market, compares features, reads reviews, and produces a structured comparison. The user reviews the research, marks up the agent's output with annotations ("We need Zapier integration, weight this higher"), and hands it off to a second agent that DOES have access to internal systems. The second agent takes the annotated research plus internal context (current tool costs, team size, workflow requirements) and produces a recommendation with a migration plan. The research agent never saw internal data; the internal agent benefited from the research. Permissions stayed clean throughout.
+
+
 Key Tensions to Resolve
 ------------------------
 
@@ -235,6 +258,20 @@ Key Tensions to Resolve
 4. **Depth vs. breadth**: Dan's advice is to niche down and get "supergood at one specific workflow" for non-technical users. But the vision is a general-purpose AI work factory. These may not be contradictory — you can go deep on one use case to prove the model, then expand — but the tension needs conscious management.
 
 5. **Dan's value/pain gap**: Dan sees the value clearly but hasn't tried any agentic tools. "I don't want it enough to face the pain of setting it up." The product must close this gap, likely through: (a) dramatically simpler onboarding, (b) off-the-shelf agent templates that work immediately, and (c) visible value within the first session.
+
+
+Investor Pitch (Skeleton)
+-------------------------
+
+Based on Dan's framing from the 2026-02-26 market research session:
+
+- **The imagination exists.** The general public — even non-technical people — can immediately picture how a team of AI agents working for them would be valuable. Everyone has the imagination for this.
+- **But they're not convinced.** Nobody has seen one agent that solves a problem really deeply. People intuit the value but don't have the problems top-of-mind that they'd actually task agents for. The gap between imagination and action is enormous.
+- **This is a prompting/context problem.** AI can do the work. The reason it doesn't feel trustworthy is that the agents lack the context, assumptions, and hidden knowledge that lives in the user's head. The base state of AI agents isn't good, and it's hard to improve.
+- **The product closes that gap.** It helps users build actually useful, durable AI agent teams by: (a) extracting context from the user's head into agent-consumable form, (b) providing an easy way to delegate and manage parallel agent work, and (c) making the system learn and compound — every correction makes all future work better.
+- **The moat is the learning loop.** Competing products let you run agents. This product makes agents durably better over time. "With OpenClaw, you haven't made your AI agents better — you've just added more contexts." This product produces agents that improve to exactly your style.
+
+*To be expanded with: market size, competitive landscape, business model, traction metrics.*
 
 
 Packaging & Marketing (Future)
