@@ -100,21 +100,20 @@ func toMissionResponses(missions []*database.Mission) []MissionResponse {
 // Query params:
 //   - include_archived=true — include archived missions
 //   - tmux_pane=<id> — return the single mission running in the given tmux pane
-func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) error {
 	// If tmux_pane is specified, return the single mission for that pane
 	tmuxPane := r.URL.Query().Get("tmux_pane")
 	if tmuxPane != "" {
 		mission, err := s.db.GetMissionByTmuxPane(tmuxPane)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+			return newHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		if mission == nil {
 			writeJSON(w, http.StatusOK, []MissionResponse{})
-			return
+			return nil
 		}
 		writeJSON(w, http.StatusOK, []MissionResponse{toMissionResponse(mission)})
-		return
+		return nil
 	}
 
 	params := database.ListMissionsParams{
@@ -126,34 +125,32 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) {
 
 	missions, err := s.db.ListMissions(params)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	writeJSON(w, http.StatusOK, toMissionResponses(missions))
+	return nil
 }
 
 // handleGetMission handles GET /missions/{id}.
-func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	mission, err := s.db.GetMission(resolvedID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if mission == nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	writeJSON(w, http.StatusOK, toMissionResponse(mission))
+	return nil
 }
 
 // CreateMissionRequest is the JSON body for POST /missions.
@@ -172,11 +169,10 @@ type CreateMissionRequest struct {
 // handleCreateMission handles POST /missions.
 // Creates a mission record, sets up the mission directory, and spawns the
 // wrapper process in the caller's tmux session (or headless).
-func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) error {
 	var req CreateMissionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-		return
+		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
 	// Build creation params
@@ -193,8 +189,7 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
 
 	// Handle clone-from request
 	if req.CloneFrom != "" {
-		s.handleCreateClonedMission(w, req, createParams)
-		return
+		return s.handleCreateClonedMission(w, req, createParams)
 	}
 
 	// Determine git repo name and clone source
@@ -207,21 +202,18 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
 	// Create database record
 	missionRecord, err := s.db.CreateMission(gitRepoName, createParams)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create mission: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission: %s", err.Error())
 	}
 
 	// For adjutant missions, write marker file before creating mission dir
 	if req.Adjutant {
 		missionDirpath := config.GetMissionDirpath(s.agencDirpath, missionRecord.ID)
 		if err := os.MkdirAll(missionDirpath, 0755); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create mission directory: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission directory: %s", err.Error())
 		}
 		markerFilepath := config.GetMissionAdjutantMarkerFilepath(s.agencDirpath, missionRecord.ID)
 		if err := os.WriteFile(markerFilepath, []byte{}, 0644); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to write adjutant marker: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to write adjutant marker: %s", err.Error())
 		}
 		// Adjutant missions have no repo
 		gitRepoName = ""
@@ -230,8 +222,7 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
 
 	// Create mission directory structure
 	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create mission directory: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission directory: %s", err.Error())
 	}
 
 	// Spawn wrapper process
@@ -242,39 +233,35 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, toMissionResponse(missionRecord))
+	return nil
 }
 
 // handleCreateClonedMission creates a mission by cloning the agent directory
 // from an existing mission. The source mission's git_repo carries over.
-func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMissionRequest, createParams *database.CreateMissionParams) {
+func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMissionRequest, createParams *database.CreateMissionParams) error {
 	sourceID, err := s.db.ResolveMissionID(req.CloneFrom)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "source mission not found: "+req.CloneFrom)
-		return
+		return newHTTPError(http.StatusNotFound, "source mission not found: "+req.CloneFrom)
 	}
 	sourceMission, err := s.db.GetMission(sourceID)
 	if err != nil || sourceMission == nil {
-		writeError(w, http.StatusNotFound, "source mission not found: "+req.CloneFrom)
-		return
+		return newHTTPError(http.StatusNotFound, "source mission not found: "+req.CloneFrom)
 	}
 
 	missionRecord, err := s.db.CreateMission(sourceMission.GitRepo, createParams)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create mission: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission: %s", err.Error())
 	}
 
 	// Create empty mission dir structure, then copy agent dir from source
 	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, "", ""); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create mission directory: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission directory: %s", err.Error())
 	}
 
 	srcAgentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, sourceMission.ID)
 	dstAgentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, missionRecord.ID)
 	if err := mission.CopyAgentDir(srcAgentDirpath, dstAgentDirpath); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to copy agent directory: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to copy agent directory: %s", err.Error())
 	}
 
 	// Spawn wrapper (may fail for interactive missions without tmux_session — that's OK)
@@ -283,6 +270,7 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	}
 
 	writeJSON(w, http.StatusCreated, toMissionResponse(missionRecord))
+	return nil
 }
 
 // spawnWrapper launches the wrapper process for a newly created mission.
@@ -368,34 +356,31 @@ const (
 
 // handleStopMission handles POST /missions/{id}/stop.
 // Sends SIGTERM to the wrapper process, polls for exit, falls back to SIGKILL.
-func (s *Server) handleStopMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStopMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	missionRecord, err := s.db.GetMission(resolvedID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if missionRecord == nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if err := s.stopWrapper(resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to stop wrapper: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to stop wrapper: %s", err.Error())
 	}
 
 	// Clean up pool window (may already be gone if wrapper exited cleanly)
 	s.destroyPoolWindow(resolvedID)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+	return nil
 }
 
 // stopWrapper gracefully stops a mission's wrapper process. Idempotent — if the
@@ -438,23 +423,20 @@ func (s *Server) stopWrapper(missionID string) error {
 
 // handleDeleteMission handles DELETE /missions/{id}.
 // Stops the wrapper, removes the mission directory, and deletes the DB record.
-func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	missionRecord, err := s.db.GetMission(resolvedID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if missionRecord == nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	// Stop the wrapper if running and clean up pool window
@@ -473,18 +455,17 @@ func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) {
 	missionDirpath := config.GetMissionDirpath(s.agencDirpath, resolvedID)
 	if _, statErr := os.Stat(missionDirpath); statErr == nil {
 		if err := os.RemoveAll(missionDirpath); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to remove mission directory: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to remove mission directory: %s", err.Error())
 		}
 	}
 
 	// Delete from database
 	if err := s.db.DeleteMission(resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete mission: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to delete mission: %s", err.Error())
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	return nil
 }
 
 // ReloadMissionRequest is the optional JSON body for POST /missions/{id}/reload.
@@ -494,53 +475,47 @@ type ReloadMissionRequest struct {
 
 // handleReloadMission handles POST /missions/{id}/reload.
 // Rebuilds the per-mission config directory and restarts the wrapper.
-func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	missionRecord, err := s.db.GetMission(resolvedID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if missionRecord == nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if missionRecord.Status == "archived" {
-		writeError(w, http.StatusBadRequest, "cannot reload archived mission")
-		return
+		return newHTTPError(http.StatusBadRequest, "cannot reload archived mission")
 	}
 
 	// Check for old-format mission (no agent/ subdirectory)
 	agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, resolvedID)
 	if _, statErr := os.Stat(agentDirpath); os.IsNotExist(statErr) {
-		writeError(w, http.StatusBadRequest, "mission uses old directory format; archive and create a new mission")
-		return
+		return newHTTPError(http.StatusBadRequest, "mission uses old directory format; archive and create a new mission")
 	}
 
 	// Detect tmux context and reload approach
 	if missionRecord.TmuxPane != nil && *missionRecord.TmuxPane != "" {
 		paneID := *missionRecord.TmuxPane
 		if err := s.reloadMissionInTmux(missionRecord, paneID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to reload mission: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to reload mission: %s", err.Error())
 		}
 	} else {
 		// Non-tmux: just stop the wrapper (CLI will handle resume)
 		if err := s.stopWrapper(resolvedID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to stop wrapper: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to stop wrapper: %s", err.Error())
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
+	return nil
 }
 
 // AttachRequest is the JSON body for POST /missions/{id}/attach.
@@ -551,55 +526,48 @@ type AttachRequest struct {
 // handleAttachMission handles POST /missions/{id}/attach.
 // Ensures the mission's wrapper is running in the pool (lazy start), then links
 // the pool window into the caller's tmux session.
-func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	var req AttachRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-		return
+		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 	if req.TmuxSession == "" {
-		writeError(w, http.StatusBadRequest, "tmux_session is required")
-		return
+		return newHTTPError(http.StatusBadRequest, "tmux_session is required")
 	}
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	missionRecord, err := s.db.GetMission(resolvedID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if missionRecord == nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if missionRecord.Status == "archived" {
-		writeError(w, http.StatusBadRequest, "cannot attach to archived mission")
-		return
+		return newHTTPError(http.StatusBadRequest, "cannot attach to archived mission")
 	}
 
 	// Lazy start: ensure wrapper is running in the pool
 	if err := s.ensureWrapperInPool(missionRecord); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start wrapper: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to start wrapper: %s", err.Error())
 	}
 
 	// Link the pool window into the caller's tmux session
 	poolWindowTarget := fmt.Sprintf("%s:%s", poolSessionName, database.ShortID(resolvedID))
 	if err := linkPoolWindow(poolWindowTarget, req.TmuxSession); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to link window: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to link window: %s", err.Error())
 	}
 
 	s.logger.Printf("Attached mission %s to session %s", database.ShortID(resolvedID), req.TmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "attached"})
+	return nil
 }
 
 // DetachRequest is the JSON body for POST /missions/{id}/detach.
@@ -610,32 +578,29 @@ type DetachRequest struct {
 // handleDetachMission handles POST /missions/{id}/detach.
 // Unlinks the mission's window from the caller's tmux session. The wrapper
 // keeps running in the pool.
-func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	var req DetachRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-		return
+		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 	if req.TmuxSession == "" {
-		writeError(w, http.StatusBadRequest, "tmux_session is required")
-		return
+		return newHTTPError(http.StatusBadRequest, "tmux_session is required")
 	}
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if err := unlinkPoolWindow(req.TmuxSession, resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to unlink window: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to unlink window: %s", err.Error())
 	}
 
 	s.logger.Printf("Detached mission %s from session %s", database.ShortID(resolvedID), req.TmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
+	return nil
 }
 
 // ensureWrapperInPool checks if the mission's wrapper is running in the pool.
@@ -674,28 +639,25 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 
 // handleArchiveMission handles POST /missions/{id}/archive.
 // Stops the wrapper, cleans up the pool window, and marks the mission archived.
-func (s *Server) handleArchiveMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleArchiveMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	missionRecord, err := s.db.GetMission(resolvedID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if missionRecord == nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if missionRecord.Status == "archived" {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "archived"})
-		return
+		return nil
 	}
 
 	// Stop wrapper and clean up pool window
@@ -705,30 +667,29 @@ func (s *Server) handleArchiveMission(w http.ResponseWriter, r *http.Request) {
 	s.destroyPoolWindow(resolvedID)
 
 	if err := s.db.ArchiveMission(resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to archive mission: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to archive mission: %s", err.Error())
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "archived"})
+	return nil
 }
 
 // handleUnarchiveMission handles POST /missions/{id}/unarchive.
 // Sets the mission status back to active.
-func (s *Server) handleUnarchiveMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUnarchiveMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if err := s.db.UnarchiveMission(resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to unarchive mission: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to unarchive mission: %s", err.Error())
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "active"})
+	return nil
 }
 
 // UpdateMissionRequest is the JSON body for PATCH /missions/{id}.
@@ -743,103 +704,93 @@ type UpdateMissionRequest struct {
 
 // handleUpdateMission handles PATCH /missions/{id}.
 // Updates specific mission fields without replacing the whole record.
-func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	var req UpdateMissionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-		return
+		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if req.ConfigCommit != nil {
 		if err := s.db.UpdateMissionConfigCommit(resolvedID, *req.ConfigCommit); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update config_commit: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to update config_commit: %s", err.Error())
 		}
 	}
 	if req.SessionName != nil {
 		if err := s.db.UpdateMissionSessionName(resolvedID, *req.SessionName); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update session_name: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to update session_name: %s", err.Error())
 		}
 	}
 	if req.Prompt != nil {
 		if err := s.db.UpdateMissionPrompt(resolvedID, *req.Prompt); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update prompt: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to update prompt: %s", err.Error())
 		}
 	}
 	if req.TmuxPane != nil {
 		if *req.TmuxPane == "" {
 			if err := s.db.ClearTmuxPane(resolvedID); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to clear tmux_pane: "+err.Error())
-				return
+				return newHTTPErrorf(http.StatusInternalServerError, "failed to clear tmux_pane: %s", err.Error())
 			}
 		} else {
 			if err := s.db.SetTmuxPane(resolvedID, *req.TmuxPane); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to set tmux_pane: "+err.Error())
-				return
+				return newHTTPErrorf(http.StatusInternalServerError, "failed to set tmux_pane: %s", err.Error())
 			}
 		}
 	}
 	if req.TmuxWindowTitle != nil {
 		if err := s.db.SetMissionTmuxWindowTitle(resolvedID, *req.TmuxWindowTitle); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to set tmux_window_title: "+err.Error())
-			return
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to set tmux_window_title: %s", err.Error())
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	return nil
 }
 
 // handleHeartbeat handles POST /missions/{id}/heartbeat.
 // Updates the mission's last_heartbeat timestamp.
-func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if err := s.db.UpdateHeartbeat(resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update heartbeat: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to update heartbeat: %s", err.Error())
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // handleRecordPrompt handles POST /missions/{id}/prompt.
 // Updates last_active and increments the prompt count.
-func (s *Server) handleRecordPrompt(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRecordPrompt(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "mission not found: "+id)
-		return
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
 	if err := s.db.UpdateLastActive(resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update last_active: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to update last_active: %s", err.Error())
 	}
 
 	if err := s.db.IncrementPromptCount(resolvedID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to increment prompt_count: "+err.Error())
-		return
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to increment prompt_count: %s", err.Error())
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // reloadMissionInTmux performs an in-place reload using tmux primitives.

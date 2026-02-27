@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -18,12 +19,13 @@ import (
 
 // Server is the AgenC HTTP server that manages missions and background loops.
 type Server struct {
-	agencDirpath string
-	socketPath   string
-	logger       *log.Logger
-	httpServer   *http.Server
-	listener     net.Listener
-	db           *database.DB
+	agencDirpath  string
+	socketPath    string
+	logger        *log.Logger
+	requestLogger *slog.Logger
+	httpServer    *http.Server
+	listener      net.Listener
+	db            *database.DB
 
 	// Background loop state (formerly in the Daemon struct)
 	repoUpdateCycleCount int
@@ -51,6 +53,15 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.db = db
 	defer s.db.Close()
+
+	// Open structured request log
+	requestsLogFilepath := config.GetServerRequestsLogFilepath(s.agencDirpath)
+	requestsLogFile, err := os.OpenFile(requestsLogFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to open requests log file")
+	}
+	defer requestsLogFile.Close()
+	s.requestLogger = slog.New(slog.NewJSONHandler(requestsLogFile, nil))
 
 	// Clean up stale socket file from a previous run
 	os.Remove(s.socketPath)
@@ -171,27 +182,28 @@ func (s *Server) syncCronsOnStartup() {
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /health", s.handleHealth)
-	mux.HandleFunc("GET /missions", s.handleListMissions)
-	mux.HandleFunc("POST /missions", s.handleCreateMission)
-	mux.HandleFunc("GET /missions/{id}", s.handleGetMission)
-	mux.HandleFunc("POST /missions/{id}/attach", s.handleAttachMission)
-	mux.HandleFunc("POST /missions/{id}/detach", s.handleDetachMission)
-	mux.HandleFunc("POST /missions/{id}/stop", s.handleStopMission)
-	mux.HandleFunc("DELETE /missions/{id}", s.handleDeleteMission)
-	mux.HandleFunc("POST /missions/{id}/reload", s.handleReloadMission)
-	mux.HandleFunc("POST /missions/{id}/archive", s.handleArchiveMission)
-	mux.HandleFunc("POST /missions/{id}/unarchive", s.handleUnarchiveMission)
-	mux.HandleFunc("POST /missions/{id}/heartbeat", s.handleHeartbeat)
-	mux.HandleFunc("POST /missions/{id}/prompt", s.handleRecordPrompt)
-	mux.HandleFunc("PATCH /missions/{id}", s.handleUpdateMission)
+	mux.Handle("GET /health", appHandler(s.requestLogger, s.handleHealth))
+	mux.Handle("GET /missions", appHandler(s.requestLogger, s.handleListMissions))
+	mux.Handle("POST /missions", appHandler(s.requestLogger, s.handleCreateMission))
+	mux.Handle("GET /missions/{id}", appHandler(s.requestLogger, s.handleGetMission))
+	mux.Handle("POST /missions/{id}/attach", appHandler(s.requestLogger, s.handleAttachMission))
+	mux.Handle("POST /missions/{id}/detach", appHandler(s.requestLogger, s.handleDetachMission))
+	mux.Handle("POST /missions/{id}/stop", appHandler(s.requestLogger, s.handleStopMission))
+	mux.Handle("DELETE /missions/{id}", appHandler(s.requestLogger, s.handleDeleteMission))
+	mux.Handle("POST /missions/{id}/reload", appHandler(s.requestLogger, s.handleReloadMission))
+	mux.Handle("POST /missions/{id}/archive", appHandler(s.requestLogger, s.handleArchiveMission))
+	mux.Handle("POST /missions/{id}/unarchive", appHandler(s.requestLogger, s.handleUnarchiveMission))
+	mux.Handle("POST /missions/{id}/heartbeat", appHandler(s.requestLogger, s.handleHeartbeat))
+	mux.Handle("POST /missions/{id}/prompt", appHandler(s.requestLogger, s.handleRecordPrompt))
+	mux.Handle("PATCH /missions/{id}", appHandler(s.requestLogger, s.handleUpdateMission))
 	// Push-event uses a catch-all prefix since repo names contain slashes
-	mux.HandleFunc("POST /repos/", s.handlePushEvent)
+	mux.Handle("POST /repos/", appHandler(s.requestLogger, s.handlePushEvent))
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "ok",
 		"version": version.Version,
 	})
+	return nil
 }

@@ -30,8 +30,8 @@ const (
 	DaemonVersionFilename = "daemon.version"
 	ServerDirname         = "server"
 	ServerPIDFilename     = "server.pid"
-	ServerLogFilename      = "server.log"
-	RequestsLogFilename    = "requests.log"
+	ServerLogFilename     = "server.log"
+	RequestsLogFilename   = "requests.log"
 	ServerSocketFilename  = "server.sock"
 	ConfigFilename        = "config.yml"
 
