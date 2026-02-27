@@ -166,6 +166,7 @@ This is the core engine — where leverage actually happens. The user's ability 
 - **Background work**: agents should be able to work while the user is away, including on recurring schedules (cron-like). "Generate a daily report at 9am," "process my inbox every morning," "do a weekly review of my CRM."
 - **Sub-delegation**: agents should be able to spawn sub-agents when useful, without the user having to manually orchestrate every step. The user sets the goal; the system figures out the decomposition.
 - **Overflow management**: when you have 10+ agents running, the UX must not become overwhelming. The system needs to surface what needs attention and let the rest run quietly.
+- **Conversation provenance**: as missions spawn sub-missions, side-chats, and follow-up work, users need to see where each conversation came from — which conversation spawned it, and why. This is a tree/graph view showing the lineage of any given mission back to its progenitor. Without this, a user with 15 active missions quickly loses track of "why am I even in this conversation?" Provenance also helps with cleanup: when a root mission is done, the user can see all the branches it spawned and decide what to archive. This ties directly into the side-chat learning mechanism in the Learn & Refine subsystem — those side-chats are missions too, and provenance tracking lets the user trace from a learning conversation back to the friction that triggered it.
 
 ### Key insight
 
