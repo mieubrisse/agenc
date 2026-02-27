@@ -81,6 +81,8 @@ The user's workflow is a cycle. Each rotation makes the system smarter and more 
 
 Each phase of the loop maps to a subsystem. The product's job is to make every phase as frictionless as possible so the loop spins fast. The faster the loop, the faster the user's AI organization compounds in capability.
 
+A fifth subsystem — Education — sits outside the loop. It teaches the user how to operate the loop effectively: how to think about delegating to agents, when to intervene, how to correct errors productively, and how to build the mental model of "CEO of a robot organization." Without this, users have the tool but not the mindset to use it well.
+
 
 Subsystem: Capture & Organize Work
 -----------------------------------
@@ -210,6 +212,44 @@ Dan's comparison to OpenClaw is instructive: "With OpenClaw, you haven't made yo
 - What's the abstraction layer over Claude skills/config for non-technical users? A natural language interface? A settings page?
 - How do you prevent the learning system from accumulating contradictory or stale knowledge?
 - How does rollback work when a "learning" makes things worse?
+
+
+Subsystem: Education
+--------------------
+
+### What it does
+
+Teaches users how to think about and operate their AI organization. This is the meta-layer — not a phase of the loop, but the operating manual that makes the loop work.
+
+### Why it matters
+
+The target users have never managed an AI workforce. They don't have mental models for: what work is suitable for delegation vs. what requires their judgment, how to evaluate agent output, how to correct errors productively (Inputs Not Outputs vs. just redoing the work yourself), or how to think about permissions and trust boundaries. Without education, users will either under-delegate (using the product as a fancy chatbot) or over-delegate (throwing work at agents without enough context, getting bad results, and losing trust).
+
+This is not optional supplementary content. It's a core subsystem because the product is asking users to adopt a fundamentally new way of working. The tool alone isn't enough — users need the mindset shift too.
+
+### What users need to learn
+
+- **The CEO mindset**: you're not doing the work anymore. You're setting direction, providing context, reviewing output, and refining the system. Your job is to be the bottleneck on judgment, taste, and decisions — everything else gets delegated.
+- **Work triage**: how to decide what enters the factory. Not everything should be delegated. Some work is too nuanced, too sensitive, or too fast to do yourself. Users need a framework for making this call quickly.
+- **Context extraction**: how to get what's in your head into a form agents can use. This is a skill — most people don't realize how much implicit knowledge they carry. The product can help, but the user needs to understand why "just do the thing" isn't a good enough prompt.
+- **Output evaluation**: how to review agent work effectively. Not line-by-line proofreading (that defeats the purpose), but calibrated trust — knowing when to spot-check, when to approve wholesale, and when to dig deeper.
+- **Error correction as system improvement**: the Inputs Not Outputs principle applied. When an agent does something wrong, the instinct is to fix the output. The learned behavior is to fix the system so it doesn't happen again. This is the single most important mental model shift.
+- **Incremental trust building**: how to start with tight permissions and gradually expand as you build confidence. Don't give agents access to everything on day one. Start small, verify, expand.
+- **Parallel work management**: how to think about running multiple agents without getting overwhelmed. When to check in, when to let things run, how to prioritize your attention across active work streams.
+
+### Design principles
+
+- **Embedded, not separate**: education should be woven into the product experience, not siloed in a docs site the user never visits. Tooltips, guided workflows, contextual suggestions ("You've been manually rewriting agent drafts — would you like to teach the agent your style instead?").
+- **Progressive**: teach concepts when they become relevant. Don't front-load a 30-minute onboarding tutorial. Introduce work triage when the user first tries to delegate, introduce error correction when the user first encounters a mistake.
+- **Opinionated**: this is a system with a philosophy. Don't present "here are 5 ways to manage agent work." Present "here's how to do it, and here's why." GTD works because it's prescriptive. This should be too.
+- **Show the payoff**: every educational moment should connect to a visible benefit. "If you add this context now, your agents will get this right automatically next time" — then show them it working.
+
+### Open questions
+
+- What's the format? In-app guided experiences? A companion course? Content marketing (blog/Substack) that doubles as education? All of the above?
+- How much education can be automated? Can the product itself detect when the user is operating suboptimally and suggest better patterns?
+- Is there a community/cohort angle? Users learning from each other's agent configurations and workflows?
+- How does this relate to the eventual business model? Is education a free acquisition channel, a paid tier, or built into the product itself?
 
 
 Dan's Use Cases (Reference)
