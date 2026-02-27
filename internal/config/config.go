@@ -30,7 +30,8 @@ const (
 	DaemonVersionFilename = "daemon.version"
 	ServerDirname         = "server"
 	ServerPIDFilename     = "server.pid"
-	ServerLogFilename     = "server.log"
+	ServerLogFilename      = "server.log"
+	RequestsLogFilename    = "requests.log"
 	ServerSocketFilename  = "server.sock"
 	ConfigFilename        = "config.yml"
 
@@ -165,6 +166,11 @@ func GetServerLogFilepath(agencDirpath string) string {
 // GetServerSocketFilepath returns the path to the server unix socket file.
 func GetServerSocketFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ServerDirname, ServerSocketFilename)
+}
+
+// GetServerRequestsLogFilepath returns the path to the server HTTP request log file.
+func GetServerRequestsLogFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ServerDirname, RequestsLogFilename)
 }
 
 // GetDatabaseFilepath returns the path to the SQLite database file.
