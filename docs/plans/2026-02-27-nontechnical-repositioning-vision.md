@@ -241,9 +241,33 @@ The user's Todoist inbox has accumulated 30 items over the past few days — qui
 
 The user sets up a recurring routine: every morning at 7am, agents execute a sequence. One agent pulls overnight emails and Slack messages, triaging them into "needs response," "FYI," and "ignorable." Another agent reviews the user's calendar and prepares briefing notes for any meetings. A third checks the user's project dashboards and flags anything that's off-track. By the time the user sits down with coffee, they have a morning briefing ready — and it gets better every day as the agents learn what the user actually cares about.
 
+### Email inbox processing and reply drafting
+
+The user connects their email via MCP. They say "process my inbox from today." An agent reads the unread messages, categorizes them (action required, FYI, spam/promotional, personal), and drafts replies for the action-required ones. The drafts match the user's voice and tone because the learning subsystem has captured their communication style from past corrections. The user reviews the drafts, marks up anything that's off ("too formal for this person" or "add the project deadline"), approves, and the agent sends. Over time the drafts get better — fewer markups needed per session. The agent also extracts commitments and follow-ups from the emails and routes them into the work management system.
+
 ### Research handoff with permission isolation
 
 The user wants to evaluate CRM tools for their business. They launch a research agent with internet access but no access to their internal systems. The research agent surveys the market, compares features, reads reviews, and produces a structured comparison. The user reviews the research, marks up the agent's output with annotations ("We need Zapier integration, weight this higher"), and hands it off to a second agent that DOES have access to internal systems. The second agent takes the annotated research plus internal context (current tool costs, team size, workflow requirements) and produces a recommendation with a migration plan. The research agent never saw internal data; the internal agent benefited from the research. Permissions stayed clean throughout.
+
+
+Trust as the Fundamental Resource
+---------------------------------
+
+The fundamental resource this product operates on is **trust**. Every feature, every subsystem, every design decision is ultimately about building and maintaining the user's trust that their agent team won't do insane things — and giving them the tools to correct it when it does.
+
+This insight comes from direct experience building AgenC. One of the original motivations was avoiding `--dangerously-skip-permissions` — the nuclear option that gives an agent carte blanche. Instead, the approach was the long, grindy climb of slowly allowing the right permissions while blocking the wrong ones. That process is tedious but it builds genuine trust: the user knows exactly what each agent can and cannot do.
+
+Trust is built through three mechanisms:
+
+1. **Visibility** — the user can see what agents are doing, what they've done, and what they're about to do. No black boxes. If an agent is about to send an email, the user sees the draft first. If an agent modified a file, the user can see the diff.
+
+2. **Control** — the user can intervene at any point. Stop an agent, roll back a change, revoke a permission, override a decision. The system never takes irreversible actions without explicit approval. Permissions are granular and incrementally expandable — the user opens doors one at a time as trust grows.
+
+3. **Correctability** — when agents do wrong things (and they will), the user has clear, fast tools to correct both the immediate output and the underlying system. Response markup, learning capture, permission adjustment. The correction loop is tight enough that mistakes feel manageable rather than catastrophic.
+
+**Potential competitive wedge:** "An agent team you can trust" could be a strong positioning angle against Cowork and OpenClaw. Most agent products optimize for capability (what agents CAN do). This product optimizes for trust (what agents SHOULD do, and what happens when they shouldn't have). For non-technical users especially — people who can't read code diffs or audit agent behavior at the terminal level — trust infrastructure may matter more than raw capability.
+
+This also connects back to Dan's activation energy problem. Part of why people don't try agentic tools is fear — fear of agents doing something wrong, sending the wrong email, deleting the wrong file, sharing private data. A product that foregrounds trust and control lowers that fear threshold, which lowers the activation energy to start.
 
 
 Key Tensions to Resolve
