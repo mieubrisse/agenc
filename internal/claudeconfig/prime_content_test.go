@@ -28,7 +28,7 @@ func TestGetPrimeContent(t *testing.T) {
 			"agenc repo",
 			"agenc config",
 			"agenc cron",
-			"agenc daemon",
+			"agenc server",
 			"Key Concepts",
 			"Palette commands",
 			"Repo Formats",

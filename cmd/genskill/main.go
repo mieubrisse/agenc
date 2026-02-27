@@ -55,7 +55,7 @@ var topLevelOrder = []string{
 	"repo",
 	"config",
 	"cron",
-	"daemon",
+	"server",
 }
 
 // buildCommandGroups walks the Cobra command tree and organizes commands

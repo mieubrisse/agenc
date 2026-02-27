@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -156,10 +157,16 @@ func (p *Plist) WriteToDisk(targetPath string) error {
 	return nil
 }
 
+// specialCharsRegexp matches characters that are not alphanumeric, dash, or underscore.
+var specialCharsRegexp = regexp.MustCompile(`[^a-zA-Z0-9\-_]`)
+
 // CronToPlistFilename converts a cron name to a plist filename.
-// The cron name must already be validated (alphanumeric, dash, underscore only).
+// Spaces are replaced with hyphens and special characters (anything that is not
+// alphanumeric, dash, or underscore) are stripped.
 func CronToPlistFilename(cronName string) string {
-	return fmt.Sprintf("agenc-cron-%s.plist", cronName)
+	sanitized := strings.ReplaceAll(cronName, " ", "-")
+	sanitized = specialCharsRegexp.ReplaceAllString(sanitized, "")
+	return fmt.Sprintf("agenc-cron-%s.plist", sanitized)
 }
 
 // PlistDirpath returns the path to the LaunchAgents directory.
