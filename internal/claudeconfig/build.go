@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -173,105 +172,49 @@ func GetMissionClaudeConfigDirpath(agencDirpath string, missionID string) string
 	return config.GetGlobalClaudeDirpath(agencDirpath)
 }
 
-// computeConfigCacheKey generates a cache key based on the shadow repo commit
-// hash and the content hash of the agenc-modifications directory.
-func computeConfigCacheKey(shadowDirpath string, agencModsDirpath string) (string, error) {
-	// Get shadow repo commit hash
-	commitHash := ResolveConfigCommitHash(shadowDirpath)
-	if commitHash == "" {
-		// No git repo or no commits — use empty hash
-		commitHash = "no-commit"
-	}
+// buildMergedClaudeMd reads user CLAUDE.md from shadow repo and agenc
+// modifications, merges them, applies path rewriting, and writes to the
+// destination config directory.
+func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
+	destFilepath := filepath.Join(destDirpath, "CLAUDE.md")
 
-	// Compute hash of agenc-modifications directory content
-	modsHash, err := hashDirectoryContent(agencModsDirpath)
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to hash agenc-modifications directory")
-	}
-
-	return fmt.Sprintf("%s:%s", commitHash, modsHash), nil
-}
-
-// hashDirectoryContent computes a SHA-256 hash of all files in a directory.
-// Returns a hex-encoded hash string. Returns "empty" if directory doesn't exist.
-func hashDirectoryContent(dirpath string) (string, error) {
-	if _, err := os.Stat(dirpath); os.IsNotExist(err) {
-		return "empty", nil
-	}
-
-	hasher := sha256.New()
-
-	// Walk directory and hash all files in deterministic order
-	err := filepath.Walk(dirpath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-
-		// Read file content
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return stacktrace.Propagate(readErr, "failed to read file '%s'", path)
-		}
-
-		// Include relative path and content in hash
-		relPath, relErr := filepath.Rel(dirpath, path)
-		if relErr != nil {
-			return stacktrace.Propagate(relErr, "failed to compute relative path")
-		}
-
-		hasher.Write([]byte(relPath))
-		hasher.Write(data)
-		return nil
-	})
-
-	if err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(hasher.Sum(nil)), nil
-}
-
-// getMergedConfigFromCache retrieves cached merged configuration or computes
-// it if not cached. Returns the merged CLAUDE.md and settings.json content
-// before mission-specific transformations (path rewriting, statusline injection).
-func getMergedConfigFromCache(shadowDirpath string, agencModsDirpath string, agencDirpath string, claudeConfigDirpath string) (*cachedMergedConfig, error) {
-	// Compute cache key
-	cacheKey, err := computeConfigCacheKey(shadowDirpath, agencModsDirpath)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to compute cache key")
-	}
-
-	// Check cache
-	if cached := getCachedMergedConfig(cacheKey); cached != nil {
-		return cached, nil
-	}
-
-	// Cache miss — compute merged config
-	cached := &cachedMergedConfig{}
-
-	// Merge CLAUDE.md
 	userClaudeContent, err := os.ReadFile(filepath.Join(shadowDirpath, "CLAUDE.md"))
 	if err != nil && !os.IsNotExist(err) {
-		return nil, stacktrace.Propagate(err, "failed to read user CLAUDE.md from shadow repo")
+		return stacktrace.Propagate(err, "failed to read user CLAUDE.md from shadow repo")
 	}
 
 	modsClaudeContent, err := os.ReadFile(filepath.Join(agencModsDirpath, "CLAUDE.md"))
 	if err != nil && !os.IsNotExist(err) {
-		return nil, stacktrace.Propagate(err, "failed to read agenc modifications CLAUDE.md")
+		return stacktrace.Propagate(err, "failed to read agenc modifications CLAUDE.md")
 	}
 
-	cached.MergedClaudeMd = MergeClaudeMd(userClaudeContent, modsClaudeContent)
+	mergedClaudeMd := MergeClaudeMd(userClaudeContent, modsClaudeContent)
 
-	// Merge settings.json
+	if mergedClaudeMd == nil {
+		// Both empty — remove destination if it exists
+		os.Remove(destFilepath)
+		return nil
+	}
+
+	// Apply mission-specific path rewriting
+	rewrittenBytes := RewriteClaudePaths(mergedClaudeMd, destDirpath)
+
+	return WriteIfChanged(destFilepath, rewrittenBytes)
+}
+
+// buildMergedSettings reads user settings from shadow repo and agenc
+// modifications, deep-merges them, adds agenc hooks/deny, injects the
+// statusline wrapper, then selectively rewrites paths (preserving permission
+// entries). Writes to dest.
+func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string, missionID string) error {
+	destFilepath := filepath.Join(destDirpath, "settings.json")
+
 	userSettingsData, err := os.ReadFile(filepath.Join(shadowDirpath, "settings.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			userSettingsData = []byte("{}")
 		} else {
-			return nil, stacktrace.Propagate(err, "failed to read user settings from shadow repo")
+			return stacktrace.Propagate(err, "failed to read user settings from shadow repo")
 		}
 	}
 
@@ -280,62 +223,14 @@ func getMergedConfigFromCache(shadowDirpath string, agencModsDirpath string, age
 		if os.IsNotExist(err) {
 			modsSettingsData = []byte("{}")
 		} else {
-			return nil, stacktrace.Propagate(err, "failed to read agenc modifications settings")
+			return stacktrace.Propagate(err, "failed to read agenc modifications settings")
 		}
 	}
 
-	cached.MergedSettings, err = MergeSettings(userSettingsData, modsSettingsData, agencDirpath, claudeConfigDirpath)
+	mergedData, err := MergeSettings(userSettingsData, modsSettingsData, agencDirpath, destDirpath)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to merge settings")
+		return stacktrace.Propagate(err, "failed to merge settings")
 	}
-
-	// Store in cache
-	setCachedMergedConfig(cacheKey, cached)
-
-	return cached, nil
-}
-
-// buildMergedClaudeMd reads user CLAUDE.md from shadow repo and agenc
-// modifications, applies path expansion, merges them, and writes to the
-// destination config directory. Uses caching to avoid re-merging when
-// shadow repo and modifications haven't changed.
-func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
-	destFilepath := filepath.Join(destDirpath, "CLAUDE.md")
-
-	// Get merged config from cache
-	cached, err := getMergedConfigFromCache(shadowDirpath, agencModsDirpath, agencDirpath, destDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get merged config from cache")
-	}
-
-	if cached.MergedClaudeMd == nil {
-		// Both empty — remove destination if it exists
-		os.Remove(destFilepath)
-		return nil
-	}
-
-	// Apply mission-specific path rewriting
-	rewrittenBytes := RewriteClaudePaths(cached.MergedClaudeMd, destDirpath)
-
-	return WriteIfChanged(destFilepath, rewrittenBytes)
-}
-
-// buildMergedSettings reads user settings from shadow repo and agenc
-// modifications, deep-merges them, adds agenc hooks/deny, injects the
-// statusline wrapper, then selectively rewrites paths (preserving permission
-// entries). Writes to dest. Uses caching to avoid re-merging when shadow
-// repo and modifications haven't changed.
-func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string, missionID string) error {
-	destFilepath := filepath.Join(destDirpath, "settings.json")
-
-	// Get merged config from cache
-	cached, err := getMergedConfigFromCache(shadowDirpath, agencModsDirpath, agencDirpath, destDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get merged config from cache")
-	}
-
-	// Start with cached merged settings
-	mergedData := cached.MergedSettings
 
 	// Inject the statusline wrapper so per-mission messages override the
 	// user's original statusLine command

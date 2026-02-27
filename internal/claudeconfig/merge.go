@@ -5,52 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/mieubrisse/stacktrace"
 )
-
-// mergedConfigCache stores merged configuration results keyed by cache key.
-// The cache key is derived from shadow repo commit hash and modifications hash.
-var mergedConfigCache = struct {
-	sync.RWMutex
-	entries map[string]*cachedMergedConfig
-}{
-	entries: make(map[string]*cachedMergedConfig),
-}
-
-// cachedMergedConfig stores the result of merging user settings with
-// agenc modifications, before mission-specific operations like path
-// rewriting and statusline injection.
-type cachedMergedConfig struct {
-	// Merged settings JSON (user + modifications + agenc overrides)
-	MergedSettings []byte
-	// Merged CLAUDE.md content (user + modifications)
-	MergedClaudeMd []byte
-}
-
-// getCachedMergedConfig retrieves a cached merged config if available.
-// Returns nil if not found in cache.
-func getCachedMergedConfig(cacheKey string) *cachedMergedConfig {
-	mergedConfigCache.RLock()
-	defer mergedConfigCache.RUnlock()
-	return mergedConfigCache.entries[cacheKey]
-}
-
-// setCachedMergedConfig stores a merged config in the cache.
-func setCachedMergedConfig(cacheKey string, config *cachedMergedConfig) {
-	mergedConfigCache.Lock()
-	defer mergedConfigCache.Unlock()
-	mergedConfigCache.entries[cacheKey] = config
-}
-
-// InvalidateMergedConfigCache clears all cached merged configurations.
-// This should be called when the shadow repo is updated.
-func InvalidateMergedConfigCache() {
-	mergedConfigCache.Lock()
-	defer mergedConfigCache.Unlock()
-	mergedConfigCache.entries = make(map[string]*cachedMergedConfig)
-}
 
 // MergeCredentialJSON merges two Claude Code credential JSON blobs. The base
 // is typically the global Keychain entry and overlay is the per-mission entry.
