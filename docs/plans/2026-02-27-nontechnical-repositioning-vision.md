@@ -21,6 +21,8 @@ To build an effective infinite-leverage system, the product must:
 
 The product that solves all three becomes the operating system for a personal AI organization.
 
+**The flywheel property:** this system has a compounding characteristic where ALL work driven through it makes the system more valuable. Not just learning-loop corrections — all work. A casual conversation with a friend sparks a curiosity → you kick off a research mission → the research mission produces findings and links them back to a work item (bead) referencing its own mission UUID for future context → next time any agent touches that topic, the research is already there. Once missions can launch other missions, this compounds further: a mission discovers it needs background knowledge, spawns a research sub-mission, the sub-mission produces findings and links them into the knowledge graph, and all downstream work benefits automatically. Every hour of use deposits value into the system. This is a critical property for retention and defensibility — the longer someone uses it, the harder it is to leave because the accumulated context and learnings are deeply personalized.
+
 
 The Target User
 ---------------
@@ -355,6 +357,8 @@ This section will be built out in the future to cover messaging, positioning, de
 - "AI work factory" → too specific, requires the reader to share the same mental model
 - Lead with WHAT the product is, then WHY — especially for the devtools-adjacent audience ("With devtools, people respond better to 'here's PRECISELY what the thing is' before going into the value")
 - Dan's framing that resonated: "durable team of AI agents," "agents that improve to exactly your style"
+
+**Flywheel messaging challenge:** The system has a powerful compounding property — every hour of use deposits value that makes the system smarter and more capable (see "The flywheel property" in The Central Idea). This is a strong retention and defensibility story, and also a strong investor pitch ("the product gets harder to leave the more you use it"). But it's a hard property to communicate to new users because the payoff is delayed — you don't feel the compounding until you've used it for a while. Messaging needs to make this tangible upfront, maybe through a "your system's IQ" dashboard or visible knowledge graph that grows as you use it. The demo should show a before/after: "here's what your factory knows after one week vs. one month."
 
 **Demo note:** Current demo is too long. Needs to show value in under 2 minutes, ideally 30 seconds.
 
