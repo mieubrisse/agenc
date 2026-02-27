@@ -212,7 +212,8 @@ Directory Structure
 ```
 .
 ├── main.go                       # CLI entry point
-├── Makefile                      # Build with version injection via ldflags
+├── Makefile                      # Build, check, and setup targets with version injection via ldflags
+├── .githooks/                    # Git hooks (pre-commit runs make check; others delegate to beads)
 ├── go.mod / go.sum
 ├── README.md
 ├── CLAUDE.md                     # Agent instructions for working on this codebase

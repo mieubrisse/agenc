@@ -30,20 +30,27 @@ When the user refers to "tmux keybindings," they are talking about the tmux keyb
 
 This refers to the command palette feature within AgenC that provides tmux-style keyboard shortcuts for executing commands and navigating the interface. All related code, configuration, and functionality exists within this repository.
 
-Building the Binary
--------------------
+Building and Checking
+---------------------
 
 Always build via the Makefile — never run `go build` directly. The Makefile injects the version string via ldflags based on git state.
 
 ```
-# Correct
+# Full build (genskill + docs + setup + check + compile)
 make build
+
+# Quality checks only (formatting, vet, tests — no binary)
+make check
 
 # Wrong — version will show "unknown"
 go build -o agenc .
 ```
 
-**Sandbox:** The `make build` command requires access to the Go build cache (typically at `~/.cache/go-build`), which is outside the default sandbox permissions. When running `make build`, you must disable the sandbox by setting `dangerouslyDisableSandbox: true` in the Bash tool call. This is safe because the Makefile and Go toolchain are trusted build tools.
+`make setup` is run automatically by `make build` on first invocation. It configures `core.hooksPath` to `.githooks/`, which activates the pre-commit hook. The pre-commit hook runs `make check` on every `git commit`, so quality gates are enforced structurally — not by convention.
+
+Do NOT use `--no-verify` to skip hooks.
+
+**Sandbox:** The `make build` and `make check` commands require access to the Go build cache (typically at `~/.cache/go-build`), which is outside the default sandbox permissions. When running these, you must disable the sandbox by setting `dangerouslyDisableSandbox: true` in the Bash tool call. This is safe because the Makefile and Go toolchain are trusted build tools.
 
 Running the Binary
 ------------------

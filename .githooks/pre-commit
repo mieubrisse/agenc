@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run quality checks (formatting, vet, tests)
+make check
+
+# Chain to beads pre-commit hook if bd is available
+if command -v bd >/dev/null 2>&1; then
+    bd hook pre-commit "$@"
+fi

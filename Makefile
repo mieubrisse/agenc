@@ -20,9 +20,19 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
-.PHONY: build clean docs genskill test
+.PHONY: build check clean docs genskill setup test
 
-build: genskill docs
+setup:
+	@if git rev-parse --git-dir >/dev/null 2>&1; then \
+		current=$$(git config core.hooksPath 2>/dev/null); \
+		if [ "$$current" != ".githooks" ]; then \
+			git config core.hooksPath .githooks; \
+			echo "Git hooks configured (.githooks/)"; \
+		fi; \
+	fi
+
+check:
+	@test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md
 	@echo "Checking code formatting..."
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
@@ -33,15 +43,14 @@ build: genskill docs
 		exit 1; \
 	fi
 	@echo "✓ Formatting OK"
-
 	@echo "Running go vet..."
 	@go vet ./...
 	@echo "✓ Static analysis OK"
-
 	@echo "Running tests..."
 	@go test ./...
 	@echo "✓ Tests passed"
 
+build: genskill docs setup check
 	@echo "Building agenc..."
 	@go build -ldflags "$(LDFLAGS)" -o agenc .
 	@echo "✓ Build complete"
