@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_mission_id ON sessions(mission_id);
 
 - `id` — session UUID, matches the JSONL filename
 - `custom_title` — set via `/rename`, extracted from `{"type":"custom-title"}` JSONL entries
-- `auto_summary` — extracted from `{"type":"summary"}` JSONL entries
+- `auto_summary` — auto-generated session description. Initially populated from `{"type":"summary"}` JSONL entries (written by Claude Code). Later, the AgenC AI summarizer will also write to this field on the active session, unifying the two summary sources into one per-session field. This ensures summaries survive session switches — each session carries its own summary.
 - `last_scanned_offset` — byte offset for incremental scanning (JSONL files are append-only)
 
 The JSONL filepath is not stored — it can be derived from the mission ID and session ID via the existing `findProjectDirpath()` function. The path follows the pattern `<agencDirpath>/missions/<missionID>/claude-config/projects/<encoded-path>/<sessionID>.jsonl`.
@@ -57,22 +57,25 @@ A new background goroutine `runSessionScannerLoop`, running every 3 seconds:
 
 The mission ID is extracted from the JSONL filepath (the UUID directory under `missions/`).
 
-### Server: tmux window rename
+### Server: tmux window title reconciliation
 
-When the session scanner detects a new or changed `custom_title`:
+A single idempotent function `reconcileTmuxWindowTitle(missionID)` examines all available data and converges the tmux window to the correct title. It is called whenever the scanner detects a change, but can also be called from other contexts (e.g., the AI summarizer after generating a new summary, or a future mission-switch handler).
 
-1. Query the `missions` table for the mission's `tmux_pane`
-2. If no pane registered, skip (mission not running in tmux)
-3. Check sole-pane guard: `tmux display-message -p -t %<pane> "#{window_panes}"` — skip if > 1
-4. Check user-override guard: compare current window name against `tmux_window_title` in DB
-5. Call `tmux rename-window -t %<pane> <truncated-title>`
-6. Update `tmux_window_title` in the missions table
+The function:
 
-Title priority for tmux window (highest to lowest):
-1. `custom_title` from the most recently modified session for this mission
-2. `ai_summary` from the missions table (existing summarizer)
-3. `auto_summary` from the most recently modified session
-4. Existing `renameWindowForTmux()` logic in the wrapper (repo name, mission ID) — retained for initial window naming at startup
+1. Query the `sessions` table for the **active session** (most recently modified) for this mission — get `custom_title` and `auto_summary`
+2. Query the `missions` table for `tmux_pane`, `tmux_window_title`, and `git_repo`
+3. Determine the best title using the priority chain (highest to lowest):
+   - Active session's `custom_title` (from `/rename`)
+   - Active session's `auto_summary` (from Claude or AgenC summarizer)
+   - Repo short name (from `git_repo`)
+   - Mission short ID (fallback)
+4. If no `tmux_pane` registered, skip (mission not running in tmux)
+5. Check sole-pane guard: `tmux display-message -p -t %<pane> "#{window_panes}"` — skip if > 1
+6. Check user-override guard: compare current window name against `tmux_window_title` in DB — if they differ, the user has manually renamed the window, so skip
+7. If the best title differs from what's currently set, call `tmux rename-window -t %<pane> <truncated-title>` and update `tmux_window_title` in the DB
+
+Because the function is idempotent, it can be called as often as needed without side effects. It always converges to the correct state regardless of what triggered it.
 
 ### Wrapper simplification
 
@@ -85,7 +88,7 @@ Title priority for tmux window (highest to lowest):
 ### Future work (separate beads)
 
 - **Tmux rename on mission switch** — when the user switches between missions in the same tmux window, rename the window to match the new mission's session name. Not addressed in this design.
-- **Refactor AI summarizer** — the mission summarizer currently scans JSONL independently. Refactor it to read from the `sessions` table instead, reusing the scanner's data.
+- **Refactor AI summarizer** — the mission summarizer currently scans JSONL independently and writes `ai_summary` to the missions table. Refactor it to write `auto_summary` to the active session in the `sessions` table instead, unifying the two summary sources. Then drop `ai_summary` from the missions table.
 
 ### Scope
 
