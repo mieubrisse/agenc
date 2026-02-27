@@ -39,6 +39,7 @@ var AgencDenyPermissionTools = []string{
 	"Grep",
 	"Write",
 	"Edit",
+	"NotebookEdit",
 }
 
 // BuildRepoLibraryDenyEntries constructs permission deny entries that prevent
