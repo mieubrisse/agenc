@@ -27,7 +27,9 @@ func init() {
 }
 
 func runServerStart(cmd *cobra.Command, args []string) error {
-	if _, err := getAgencContext(); err != nil {
+	// Use ensureConfigured directly — skip the version check that
+	// getAgencContext performs, since we're starting/managing the server ourselves.
+	if _, err := ensureConfigured(); err != nil {
 		return err
 	}
 	if server.IsServerProcess() {
