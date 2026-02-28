@@ -158,6 +158,11 @@ func (s *Server) Run(ctx context.Context) error {
 		s.runIdleTimeoutLoop(ctx)
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runSessionScannerLoop(ctx)
+	}()
 	// Wait for context cancellation, then gracefully shut down
 	<-ctx.Done()
 	s.logger.Println("Server shutting down...")
