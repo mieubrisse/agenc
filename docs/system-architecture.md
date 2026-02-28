@@ -105,7 +105,7 @@ The server is forked by `agenc server start` (or auto-started by CLI commands vi
 
 ### Background loops
 
-The server runs seven concurrent background goroutines (formerly the daemon):
+The server runs eight concurrent background goroutines (formerly the daemon):
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs every 60 seconds
@@ -148,6 +148,15 @@ The server runs seven concurrent background goroutines (formerly the daemon):
 - If HEAD changed (or first clone), reads the repo's `postUpdateHook` from config and runs it via `sh -c` in the repo library directory
 - Hook timeout: 30-minute hard limit, WARN logs emitted every 5 minutes after the first 5 minutes
 - Hook failures are logged but non-fatal — they do not block subsequent updates
+
+**8. Session scanner loop** (`internal/server/session_scanner.go`)
+- Runs every 3 seconds
+- Globs for JSONL files under `missions/*/claude-config/projects/*/*.jsonl`
+- For each discovered file, creates or looks up a row in the `sessions` table
+- Incrementally scans from the last byte offset (`last_scanned_offset`), avoiding re-reading data that was already processed
+- Extracts `custom-title` and `summary` metadata entries from new JSONL lines using a quick string-match filter before JSON parsing
+- Updates the session row with any new `custom_title`, `auto_summary`, and the new byte offset
+- When `custom_title` or `auto_summary` changes, triggers tmux window title reconciliation for the session's mission (see "Tmux title reconciliation" under Key Architectural Patterns)
 
 ### Tmux pool
 
@@ -257,7 +266,7 @@ Directory Structure
 
 ```
 $AGENC_DIRPATH/
-├── database.sqlite                        # SQLite: missions table
+├── database.sqlite                        # SQLite: missions and sessions tables
 ├── statusline-wrapper.sh                  # Shared statusline wrapper script
 ├── statusline-original-cmd                # User's original statusLine.command (saved on first build)
 │
@@ -368,12 +377,15 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo and triggers cron sync)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
 - `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
+- `session_scanner.go` — session scanner loop (3-second interval, incrementally scans JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
+- `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > auto_summary > repo name > short ID), with sole-pane and user-override guards
 
 ### `internal/database/`
 
 SQLite mission tracking with auto-migration.
 
 - `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, cron association tracking. Idempotent migrations handle schema evolution.
+- `sessions.go` — `Session` struct, CRUD operations (`CreateSession`, `GetSession`, `UpdateSessionScanResults`, `GetActiveSession`). The `GetActiveSession` query returns the most recently updated session for a mission, used by tmux title reconciliation to determine the current display title.
 
 ### `internal/launchd/`
 
@@ -490,6 +502,26 @@ The resolution flow:
 4. For direct keybindings: mission-scoped keybindings (those whose command contains `AGENC_CALLING_MISSION_UUID`) include a guard that skips execution when the UUID is empty
 
 Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — no special placeholder syntax. The palette detects mission-scoped commands by checking whether the command string contains the env var name (`ResolvedPaletteCommand.IsMissionScoped()`).
+
+### Tmux title reconciliation
+
+The server provides an idempotent function (`internal/server/tmux.go`) that examines all available data for a mission and converges the tmux window to the correct title. It can be called from any context — the session scanner, the mission summarizer, or a mission switch — and always produces the same result for the same input state.
+
+**Title priority chain** (highest to lowest):
+
+1. Active session's `custom_title` (from `/rename`, stored in the `sessions` table)
+2. Active session's `auto_summary` (from Claude's conversation summary, stored in the `sessions` table)
+3. Repo short name (extracted from the mission's `git_repo` field)
+4. Mission short ID (fallback)
+
+The "active session" is the most recently updated session for the mission, determined by `GetActiveSession` which queries by `mission_id` ordered by `updated_at DESC`.
+
+**Guards:**
+
+- **Sole-pane check** — only renames the window if the mission's tmux pane is the sole pane in its window. Avoids renaming shared windows (e.g., when the user has split panes).
+- **User-override detection** — if AgenC previously set a title (recorded in `missions.tmux_window_title`) and the current window name differs, the user has manually renamed the window. AgenC respects that and skips the rename.
+
+Titles are truncated to 30 characters (with ellipsis) before applying. The function records each applied title in `missions.tmux_window_title` so it can detect user overrides on subsequent calls.
 
 ### Heartbeat system
 
@@ -622,6 +654,7 @@ Database Schema
 | `cron_id` | TEXT | UUID of the cron that spawned this mission (nullable) |
 | `cron_name` | TEXT | Name of the cron job (nullable, used for orphan tracking) |
 | `tmux_pane` | TEXT | Tmux pane ID where the mission wrapper is running (nullable, cleared on exit) |
+| `tmux_window_title` | TEXT | Last window title that AgenC applied via tmux rename-window, used for user-override detection |
 | `prompt_count` | INTEGER | Total number of user prompt submissions, incremented by `UserPromptSubmit` hook |
 | `last_summary_prompt_count` | INTEGER | Value of `prompt_count` when the AI summary was last generated. The server re-summarizes when `prompt_count - last_summary_prompt_count >= 10` |
 | `ai_summary` | TEXT | AI-generated short description of what the user is working on, produced by the server's mission summarizer via Claude Haiku |
@@ -636,5 +669,23 @@ Database Schema
 | `idx_missions_activity` | `last_active DESC, last_heartbeat DESC` | Optimizes activity-based sorting for mission listings |
 | `idx_missions_tmux_pane` | `tmux_pane` (partial, WHERE tmux_pane IS NOT NULL) | Speeds up pane-to-mission resolution for tmux keybindings |
 | `idx_missions_summary` | `status, prompt_count, last_summary_prompt_count` | Improves performance of server's summary eligibility query |
+
+### `sessions` table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT (PK) | Session UUID (matches the JSONL filename stem) |
+| `mission_id` | TEXT (FK) | References `missions(id)` with `ON DELETE CASCADE` |
+| `custom_title` | TEXT | User-assigned title from `/rename`, extracted from JSONL `custom-title` entries |
+| `auto_summary` | TEXT | Claude-generated conversation summary, extracted from JSONL `summary` entries |
+| `last_scanned_offset` | INTEGER | Byte offset into the JSONL file up to which the scanner has read. Enables incremental scanning — the scanner seeks to this offset and only parses new data. |
+| `created_at` | TEXT | Session creation timestamp (RFC3339) |
+| `updated_at` | TEXT | Last update timestamp (RFC3339) |
+
+**Indices:**
+
+| Index | Columns | Description |
+|-------|---------|-------------|
+| `idx_sessions_mission_id` | `mission_id` | Enables efficient lookup of all sessions belonging to a mission |
 
 SQLite is opened with max connections = 1 (`SetMaxOpenConns(1)`) due to its single-writer limitation. Only the server process opens the database; the CLI and wrapper access data exclusively through the server's HTTP API. Migrations are idempotent and run on every database open.
