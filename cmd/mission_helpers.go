@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -171,6 +173,26 @@ func lookupWindowTitle(agencDirpath string, gitRepoName string) string {
 		return ""
 	}
 	return cfg.GetWindowTitle(gitRepoName)
+}
+
+// getCurrentTmuxSessionName returns the name of the tmux session the caller
+// is running in. Returns an empty string if not inside tmux.
+func getCurrentTmuxSessionName() string {
+	if os.Getenv("TMUX") == "" {
+		return ""
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "#{session_name}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// focusMissionWindow switches the tmux focus to the window for the given
+// mission short ID in the specified session.
+func focusMissionWindow(shortID string, tmuxSession string) {
+	target := fmt.Sprintf("%s:%s", tmuxSession, shortID)
+	exec.Command("tmux", "select-window", "-t", target).Run()
 }
 
 // readConfig centralizes the config reading boilerplate. It returns the config
