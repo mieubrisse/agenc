@@ -2,18 +2,17 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
-	"github.com/odyssey/agenc/internal/wrapper"
 )
+
+var resumeFocusFlag bool
 
 var missionResumeCmd = &cobra.Command{
 	Use:   resumeCmdStr + " [mission-id]",
@@ -28,6 +27,7 @@ With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 
 func init() {
 	missionCmd.AddCommand(missionResumeCmd)
+	missionResumeCmd.Flags().BoolVar(&resumeFocusFlag, focusFlagName, false, "focus the mission's tmux window after attaching")
 }
 
 func runMissionResume(cmd *cobra.Command, args []string) error {
@@ -85,9 +85,15 @@ func runMissionResume(cmd *cobra.Command, args []string) error {
 	return resumeMission(client, result.Items[0].MissionID)
 }
 
-// resumeMission handles the per-mission resume logic: unarchive if needed,
-// check wrapper state, validate directory format, and launch claude --continue.
+// resumeMission handles the per-mission resume logic: unarchive if needed
+// and attach via the server (which ensures the wrapper is running in the
+// tmux pool and links the window into the caller's session).
 func resumeMission(client *server.Client, missionID string) error {
+	tmuxSession := getCurrentTmuxSessionName()
+	if tmuxSession == "" {
+		return stacktrace.NewError("mission resume requires tmux; run inside a tmux session")
+	}
+
 	missionRecord, err := client.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
@@ -105,43 +111,15 @@ func resumeMission(client *server.Client, missionID string) error {
 		return stacktrace.Propagate(err, "failed to migrate assistant marker")
 	}
 
-	// Check if the wrapper is already running for this mission
-	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
-	pid, err := server.ReadPID(pidFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read mission PID file")
-	}
-	if server.IsProcessRunning(pid) {
-		return stacktrace.NewError("mission '%s' is already running (wrapper PID %d)", missionID, pid)
-	}
-
-	// Check for old-format mission (no agent/ subdirectory)
-	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
-	if _, err := os.Stat(agentDirpath); os.IsNotExist(err) {
-		return stacktrace.NewError(
-			"mission '%s' uses the old directory format (no agent/ subdirectory); "+
-				"please archive it with '%s %s %s %s' and create a new mission",
-			missionID, agencCmdStr, missionCmdStr, archiveCmdStr, missionID,
-		)
-	}
-
-	// Check if a conversation actually exists for this mission.
-	hasConversation := missionHasConversation(agencDirpath, missionID)
-
 	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 
-	windowTitle := lookupWindowTitle(agencDirpath, missionRecord.GitRepo)
-	if config.IsMissionAdjutant(agencDirpath, missionID) {
-		windowTitle = "🤖  Adjutant"
+	if err := client.AttachMission(missionID, tmuxSession); err != nil {
+		return stacktrace.Propagate(err, "failed to attach mission")
 	}
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, "")
-	return w.Run(hasConversation)
-}
 
-// missionHasConversation checks whether a Claude conversation exists for the
-// given mission by reading the lastSessionId from .claude.json. Returns true
-// if a valid session ID exists, false otherwise.
-func missionHasConversation(agencDirpath string, missionID string) bool {
-	sessionID := claudeconfig.GetLastSessionID(agencDirpath, missionID)
-	return sessionID != ""
+	if resumeFocusFlag {
+		focusMissionWindow(missionRecord.ShortID, tmuxSession)
+	}
+
+	return nil
 }
