@@ -98,7 +98,8 @@ const (
 	dirFlagName = "dir"
 
 	// session/mission print flags
-	tailFlagName = "tail"
+	tailFlagName   = "tail"
+	formatFlagName = "format"
 
 	// mission nuke flags
 	forceFlagName = "force"
