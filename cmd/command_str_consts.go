@@ -119,6 +119,9 @@ const (
 	repoConfigDefaultModelFlagName      = "default-model"
 	repoConfigPostUpdateHookFlagName    = "post-update-hook"
 
+	// mission resume flags (internal)
+	runWrapperFlagName = "run-wrapper"
+
 	// cron flags
 	headlessFlagName    = "headless"
 	timeoutFlagName     = "timeout"

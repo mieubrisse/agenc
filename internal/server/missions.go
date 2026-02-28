@@ -282,8 +282,10 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
 	}
 
-	// Build the resume command for the pool window
-	resumeCmd := fmt.Sprintf("'%s' mission resume %s", agencBinpath, missionRecord.ID)
+	// Build the wrapper command for the pool window.
+	// --run-wrapper tells the resume command to run the wrapper directly
+	// in the current process rather than going through the attach flow.
+	resumeCmd := fmt.Sprintf("'%s' mission resume --run-wrapper %s", agencBinpath, missionRecord.ID)
 	if req.Prompt != "" {
 		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(req.Prompt, "'", "'\\''"))
 	}
@@ -597,7 +599,7 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
 	}
 
-	resumeCmd := fmt.Sprintf("'%s' mission resume %s", agencBinpath, missionRecord.ID)
+	resumeCmd := fmt.Sprintf("'%s' mission resume --run-wrapper %s", agencBinpath, missionRecord.ID)
 	poolWindowTarget, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create pool window: %w", err)
@@ -805,7 +807,7 @@ func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID str
 		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
 	}
 
-	resumeCommand := fmt.Sprintf("'%s' mission resume %s", agencBinpath, missionRecord.ID)
+	resumeCommand := fmt.Sprintf("'%s' mission resume --run-wrapper %s", agencBinpath, missionRecord.ID)
 	respawnCmd := exec.Command("tmux", "respawn-pane", "-k", "-t", targetPane, resumeCommand)
 	if output, err := respawnCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux respawn-pane failed: %v (output: %s)", err, string(output))

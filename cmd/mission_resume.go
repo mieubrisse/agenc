@@ -2,17 +2,22 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
+	"github.com/odyssey/agenc/internal/wrapper"
 )
 
 var resumeFocusFlag bool
+var runWrapperFlag bool
+var resumePromptFlag string
 
 var missionResumeCmd = &cobra.Command{
 	Use:   resumeCmdStr + " [mission-id]",
@@ -28,9 +33,22 @@ With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 func init() {
 	missionCmd.AddCommand(missionResumeCmd)
 	missionResumeCmd.Flags().BoolVar(&resumeFocusFlag, focusFlagName, false, "focus the mission's tmux window after attaching")
+	missionResumeCmd.Flags().BoolVar(&runWrapperFlag, runWrapperFlagName, false, "run the wrapper process directly (internal use)")
+	missionResumeCmd.Flags().StringVar(&resumePromptFlag, promptFlagName, "", "initial prompt (internal use)")
+	missionResumeCmd.Flags().MarkHidden(runWrapperFlagName)
+	missionResumeCmd.Flags().MarkHidden(promptFlagName)
 }
 
 func runMissionResume(cmd *cobra.Command, args []string) error {
+	// Internal mode: run the wrapper directly in the current process.
+	// Used by the server when spawning wrapper processes in tmux pool windows.
+	if runWrapperFlag {
+		if len(args) != 1 {
+			return stacktrace.NewError("--run-wrapper requires exactly one mission ID argument")
+		}
+		return runWrapperDirect(args[0], resumePromptFlag)
+	}
+
 	client, err := serverClient()
 	if err != nil {
 		return err
@@ -122,4 +140,49 @@ func resumeMission(client *server.Client, missionID string) error {
 	}
 
 	return nil
+}
+
+// runWrapperDirect runs the wrapper process directly in the current process.
+// This is the code path used by tmux pool windows to actually start the
+// wrapper that manages the Claude child process. The missionID must be a
+// full UUID. The initialPrompt is optional; if non-empty, it is passed to
+// Claude when starting a new conversation.
+func runWrapperDirect(missionID string, initialPrompt string) error {
+	client, err := serverClient()
+	if err != nil {
+		return err
+	}
+
+	missionRecord, err := client.GetMission(missionID)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get mission")
+	}
+
+	// Check if the wrapper is already running for this mission
+	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
+	pid, err := server.ReadPID(pidFilepath)
+	if err == nil && server.IsProcessRunning(pid) {
+		return stacktrace.NewError("mission '%s' is already running (wrapper PID %d)", missionID, pid)
+	}
+
+	// Check for old-format mission (no agent/ subdirectory)
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+	if _, err := os.Stat(agentDirpath); os.IsNotExist(err) {
+		return stacktrace.NewError(
+			"mission '%s' uses the old directory format (no agent/ subdirectory); "+
+				"please archive it with '%s %s %s %s' and create a new mission",
+			missionID, agencCmdStr, missionCmdStr, archiveCmdStr, missionID,
+		)
+	}
+
+	// Determine if this is a resume (existing conversation) or a fresh start
+	hasConversation := claudeconfig.GetLastSessionID(agencDirpath, missionID) != ""
+
+	windowTitle := lookupWindowTitle(agencDirpath, missionRecord.GitRepo)
+	if config.IsMissionAdjutant(agencDirpath, missionID) {
+		windowTitle = "🤖  Adjutant"
+	}
+
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, initialPrompt)
+	return w.Run(hasConversation)
 }
