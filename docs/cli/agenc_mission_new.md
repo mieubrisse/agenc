@@ -23,6 +23,7 @@ agenc mission new [repo] [flags]
       --adjutant         create an Adjutant mission
       --blank            create a blank mission with no repo (skip picker)
       --clone string     mission UUID to clone agent directory from
+      --focus            focus the new mission's tmux window after creation
       --headless         run in headless mode (no terminal, outputs to log)
   -h, --help             help for new
       --prompt string    initial prompt to start Claude with

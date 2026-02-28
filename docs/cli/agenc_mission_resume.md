@@ -16,7 +16,8 @@ agenc mission resume [mission-id] [flags]
 ### Options
 
 ```
-  -h, --help   help for resume
+      --focus   focus the mission's tmux window after attaching
+  -h, --help    help for resume
 ```
 
 ### SEE ALSO

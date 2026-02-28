@@ -13,6 +13,7 @@ Examples:
   agenc config repoConfig set github.com/owner/repo --always-synced=true
   agenc config repoConfig set github.com/owner/repo --window-title="my-repo"
   agenc config repoConfig set github.com/owner/repo --always-synced=true --window-title="my-repo"
+  agenc config repoConfig set github.com/owner/repo --post-update-hook="make setup"
 
 
 ```
@@ -25,6 +26,7 @@ agenc config repoConfig set <repo> [flags]
       --always-synced                keep this repo continuously synced by the daemon
       --default-model string         default Claude model for missions using this repo (e.g., "opus", "sonnet")
   -h, --help                         help for set
+      --post-update-hook string      shell command to run after repo updates (e.g., "make setup"); empty to clear
       --trusted-mcp-servers string   MCP server trust: "all", comma-separated server names, or "" to clear
       --window-title string          custom tmux window title for missions using this repo
 ```
