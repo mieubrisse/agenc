@@ -22,6 +22,7 @@ Examples:
   agenc config repoConfig set github.com/owner/repo --always-synced=true
   agenc config repoConfig set github.com/owner/repo --window-title="my-repo"
   agenc config repoConfig set github.com/owner/repo --always-synced=true --window-title="my-repo"
+  agenc config repoConfig set github.com/owner/repo --post-update-hook="make setup"
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigRepoConfigSet,
@@ -33,6 +34,7 @@ func init() {
 	configRepoConfigSetCmd.Flags().String(repoConfigWindowTitleFlagName, "", "custom tmux window title for missions using this repo")
 	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
 	configRepoConfigSetCmd.Flags().String(repoConfigDefaultModelFlagName, "", `default Claude model for missions using this repo (e.g., "opus", "sonnet")`)
+	configRepoConfigSetCmd.Flags().String(repoConfigPostUpdateHookFlagName, "", `shell command to run after repo updates (e.g., "make setup"); empty to clear`)
 }
 
 func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
@@ -46,10 +48,11 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
 	trustedChanged := cmd.Flags().Changed(repoConfigTrustedMcpServersFlagName)
 	defaultModelChanged := cmd.Flags().Changed(repoConfigDefaultModelFlagName)
+	postUpdateHookChanged := cmd.Flags().Changed(repoConfigPostUpdateHookFlagName)
 
-	if !alwaysSyncedChanged && !windowTitleChanged && !trustedChanged && !defaultModelChanged {
-		return stacktrace.NewError("at least one of --%s, --%s, --%s, or --%s must be provided",
-			repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName)
+	if !alwaysSyncedChanged && !windowTitleChanged && !trustedChanged && !defaultModelChanged && !postUpdateHookChanged {
+		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, or --%s must be provided",
+			repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName)
 	}
 
 	cfg, cm, err := readConfigWithComments()
@@ -105,6 +108,14 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigDefaultModelFlagName)
 		}
 		rc.DefaultModel = model
+	}
+
+	if postUpdateHookChanged {
+		hook, err := cmd.Flags().GetString(repoConfigPostUpdateHookFlagName)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigPostUpdateHookFlagName)
+		}
+		rc.PostUpdateHook = hook
 	}
 
 	cfg.SetRepoConfig(repoName, rc)

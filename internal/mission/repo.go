@@ -49,6 +49,21 @@ func ForceUpdateRepo(repoDirpath string) error {
 	return nil
 }
 
+// GetHEAD returns the current HEAD commit SHA for a repository.
+// Returns an empty string and an error if the repo has no commits or is invalid.
+func GetHEAD(repoDirpath string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+	cmd.Dir = repoDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to get HEAD for '%s'", repoDirpath)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // GetDefaultBranch returns the default branch name for a repository by reading
 // origin/HEAD. Returns just the branch name (e.g. "main", "master").
 func GetDefaultBranch(repoDirpath string) (string, error) {

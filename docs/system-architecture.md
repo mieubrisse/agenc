@@ -99,18 +99,19 @@ Current endpoints:
 - `POST /missions/{id}/unarchive` — set a mission back to active
 - `POST /missions/{id}/heartbeat` — update a mission's last_heartbeat timestamp
 - `POST /missions/{id}/prompt` — update last_active and increment prompt_count
-- `POST /repos/{name}/push-event` — force-update a repo library after push
+- `POST /repos/{name}/push-event` — enqueue a repo library update (returns 202 Accepted)
 
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file. The `agenc daemon` subcommand is deprecated and delegates to `agenc server`.
 
 ### Background loops
 
-The server runs six concurrent background goroutines (formerly the daemon):
+The server runs seven concurrent background goroutines (formerly the daemon):
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs every 60 seconds
-- Fetches and fast-forwards all repos in the synced set: `config.yml` `repoConfig` entries with `alwaysSynced: true` + repos from missions with a recent heartbeat (< 5 minutes)
-- Refreshes `origin/HEAD` every 10 cycles (~10 minutes) via `git remote set-head origin --auto`
+- Collects repos to sync: `config.yml` `repoConfig` entries with `alwaysSynced: true` + repos from missions with a recent heartbeat (< 5 minutes)
+- Enqueues update requests to the repo update worker channel (does not call git directly)
+- Sets `refreshDefaultBranch` flag every 10 cycles (~10 minutes)
 
 **2. Config auto-commit loop** (`internal/server/config_auto_commit.go`)
 - Runs every 10 minutes (first cycle delayed by 10 minutes after startup)
@@ -140,6 +141,13 @@ The server runs six concurrent background goroutines (formerly the daemon):
 - Uses `last_active` (user prompt timestamp), `last_heartbeat`, or `created_at` to determine idle duration
 - Stops wrappers idle longer than 30 minutes and destroys their pool windows
 - Wrappers are automatically re-spawned on the next attach (lazy start)
+
+**7. Repo update worker** (`internal/server/repo_update_worker.go`)
+- Processes update requests from a buffered channel (fed by the repo update loop and push-event handler)
+- For each request: captures HEAD before update, runs `ForceUpdateRepo`, compares HEAD after
+- If HEAD changed (or first clone), reads the repo's `postUpdateHook` from config and runs it via `sh -c` in the repo library directory
+- Hook timeout: 30-minute hard limit, WARN logs emitted every 5 minutes after the first 5 minutes
+- Hook failures are logged but non-fatal — they do not block subsequent updates
 
 ### Tmux pool
 
@@ -351,9 +359,10 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `IsProcessRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)
 - `client.go` — `Client` struct with `Get`, `Post`, `Delete`, `Patch` methods for CLI-to-server and wrapper-to-server communication over the unix socket. High-level API: `ListMissions`, `GetMission`, `CreateMission`, `UpdateMission`, `StopMission`, `DeleteMission`, `ArchiveMission`, `UnarchiveMission`, `Heartbeat`, `RecordPrompt`, `ReloadMission`
 - `missions.go` — mission CRUD endpoints, wrapper process management (stop/reload/delete), tmux in-place reload
-- `repos.go` — push-event endpoint for triggering repo library updates
+- `repos.go` — push-event endpoint (enqueues repo update, returns 202 Accepted)
+- `repo_update_worker.go` — centralized repo update worker goroutine: processes update requests, runs `ForceUpdateRepo`, executes `postUpdateHook` when HEAD changes
 - `errors.go` — `writeError`, `writeJSON` helper functions for consistent JSON responses
-- `template_updater.go` — repo update loop (60-second interval, fetches synced + active-mission repos)
+- `template_updater.go` — repo update loop (60-second interval, collects synced + active-mission repos, enqueues update requests)
 - `config_auto_commit.go` — config auto-commit loop (10-minute interval, git add/commit/push)
 - `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo and triggers cron sync)

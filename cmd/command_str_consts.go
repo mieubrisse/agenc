@@ -116,6 +116,7 @@ const (
 	repoConfigWindowTitleFlagName       = "window-title"
 	repoConfigTrustedMcpServersFlagName = "trusted-mcp-servers"
 	repoConfigDefaultModelFlagName      = "default-model"
+	repoConfigPostUpdateHookFlagName    = "post-update-hook"
 
 	// cron flags
 	headlessFlagName    = "headless"

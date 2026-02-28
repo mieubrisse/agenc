@@ -96,7 +96,14 @@ func (s *Server) runRepoUpdateCycle(ctx context.Context) {
 			continue
 		}
 
-		s.updateRepo(ctx, repoName, refreshDefaultBranch)
+		select {
+		case s.repoUpdateCh <- repoUpdateRequest{
+			repoName:             repoName,
+			refreshDefaultBranch: refreshDefaultBranch,
+		}:
+		default:
+			s.logger.Printf("Repo update: channel full, skipping '%s'", repoName)
+		}
 	}
 }
 
@@ -124,22 +131,16 @@ func (s *Server) ensureRepoCloned(ctx context.Context, repoName string, cloneURL
 	}
 
 	s.logger.Printf("Repo update: cloned '%s' from %s", repoName, cloneURL)
+
+	// Enqueue a forceRunHook request so the postUpdateHook runs after first clone
+	select {
+	case s.repoUpdateCh <- repoUpdateRequest{
+		repoName:     repoName,
+		forceRunHook: true,
+	}:
+	default:
+		s.logger.Printf("Repo update: channel full, skipping first-clone hook for '%s'", repoName)
+	}
+
 	return nil
-}
-
-func (s *Server) updateRepo(ctx context.Context, repoName string, refreshDefaultBranch bool) {
-	repoDirpath := config.GetRepoDirpath(s.agencDirpath, repoName)
-
-	// Periodically refresh origin/HEAD so we track the remote's default branch
-	if refreshDefaultBranch {
-		setHeadCmd := exec.CommandContext(ctx, "git", "remote", "set-head", "origin", "--auto")
-		setHeadCmd.Dir = repoDirpath
-		if output, err := setHeadCmd.CombinedOutput(); err != nil {
-			s.logger.Printf("Repo update: git remote set-head failed for '%s': %v\n%s", repoName, err, string(output))
-		}
-	}
-
-	if err := mission.ForceUpdateRepo(repoDirpath); err != nil {
-		s.logger.Printf("Repo update: failed to update '%s': %v", repoName, err)
-	}
 }

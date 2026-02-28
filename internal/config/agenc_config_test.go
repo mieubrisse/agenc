@@ -1452,6 +1452,72 @@ func TestDefaultModel_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPostUpdateHook_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {PostUpdateHook: "make setup"},
+			"github.com/owner/repo2": {},
+		},
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	rc1 := got.RepoConfigs["github.com/owner/repo1"]
+	if rc1.PostUpdateHook != "make setup" {
+		t.Errorf("expected repo1 postUpdateHook 'make setup', got '%s'", rc1.PostUpdateHook)
+	}
+
+	rc2 := got.RepoConfigs["github.com/owner/repo2"]
+	if rc2.PostUpdateHook != "" {
+		t.Errorf("expected empty postUpdateHook for repo2, got '%s'", rc2.PostUpdateHook)
+	}
+}
+
+func TestPostUpdateHook_FromYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	yamlContent := `
+repoConfig:
+  github.com/owner/repo:
+    alwaysSynced: true
+    postUpdateHook: "npm install && npm run build"
+`
+	configFilepath := filepath.Join(configDirpath, ConfigFilename)
+	if err := os.WriteFile(configFilepath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	rc := cfg.RepoConfigs["github.com/owner/repo"]
+	if !rc.AlwaysSynced {
+		t.Error("expected alwaysSynced=true")
+	}
+	if rc.PostUpdateHook != "npm install && npm run build" {
+		t.Errorf("expected postUpdateHook 'npm install && npm run build', got '%s'", rc.PostUpdateHook)
+	}
+}
+
 func TestDefaultModel_FromYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `

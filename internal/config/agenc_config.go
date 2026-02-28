@@ -306,13 +306,15 @@ func IsCanonicalRepoName(name string) bool {
 }
 
 // RepoConfig represents per-repo configuration in the repoConfig map.
-// Both fields are optional: alwaysSynced controls whether the daemon keeps
-// the repo continuously fetched, and windowTitle overrides the tmux window name.
+// All fields are optional: alwaysSynced controls whether the daemon keeps
+// the repo continuously fetched, windowTitle overrides the tmux window name,
+// and postUpdateHook specifies a shell command to run after repo updates.
 type RepoConfig struct {
 	AlwaysSynced      bool               `yaml:"alwaysSynced,omitempty"`
 	WindowTitle       string             `yaml:"windowTitle,omitempty"`
 	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
 	DefaultModel      string             `yaml:"defaultModel,omitempty"`
+	PostUpdateHook    string             `yaml:"postUpdateHook,omitempty"`
 }
 
 // TrustedMcpServers configures MCP server trust for a repository.

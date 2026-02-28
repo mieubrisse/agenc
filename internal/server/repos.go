@@ -2,14 +2,14 @@ package server
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/mission"
 )
 
 // handlePushEvent handles POST /repos/{name...}/push-event.
-// Triggers a force-update of the repo library clone so it matches the remote.
+// Enqueues a force-update of the repo library clone and returns 202 Accepted.
 func (s *Server) handlePushEvent(w http.ResponseWriter, r *http.Request) error {
 	// The repo name includes slashes (e.g., "github.com/owner/repo"), so we
 	// need to extract it from the full path. The route is registered as
@@ -21,13 +21,19 @@ func (s *Server) handlePushEvent(w http.ResponseWriter, r *http.Request) error {
 		return newHTTPError(http.StatusBadRequest, "repo name is required")
 	}
 
+	// Verify the repo library directory exists
 	repoDirpath := config.GetRepoDirpath(s.agencDirpath, repoName)
-	if err := mission.ForceUpdateRepo(repoDirpath); err != nil {
-		s.logger.Printf("Push event: failed to update repo '%s': %v", repoName, err)
-		return newHTTPErrorf(http.StatusInternalServerError, "failed to update repo: %s", err.Error())
+	if _, err := os.Stat(repoDirpath); os.IsNotExist(err) {
+		return newHTTPError(http.StatusNotFound, "repo not found: "+repoName)
 	}
 
-	s.logger.Printf("Push event: updated repo '%s'", repoName)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	select {
+	case s.repoUpdateCh <- repoUpdateRequest{repoName: repoName}:
+		s.logger.Printf("Push event: enqueued update for '%s'", repoName)
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+	default:
+		s.logger.Printf("Push event: channel full, could not enqueue '%s'", repoName)
+		return newHTTPError(http.StatusServiceUnavailable, "update queue full")
+	}
 	return nil
 }

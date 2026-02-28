@@ -30,6 +30,9 @@ type Server struct {
 	// Background loop state (formerly in the Daemon struct)
 	repoUpdateCycleCount int
 	cronSyncer           *CronSyncer
+
+	// Repo update worker
+	repoUpdateCh chan repoUpdateRequest
 }
 
 // NewServer creates a new Server instance.
@@ -39,6 +42,7 @@ func NewServer(agencDirpath string, socketPath string, logger *log.Logger) *Serv
 		socketPath:   socketPath,
 		logger:       logger,
 		cronSyncer:   NewCronSyncer(agencDirpath),
+		repoUpdateCh: make(chan repoUpdateRequest, repoUpdateChannelSize),
 	}
 }
 
@@ -112,6 +116,12 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	// Start background loops
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runRepoUpdateWorker(ctx)
+	}()
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

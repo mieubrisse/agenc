@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Clear git environment variables that leak into child processes.
+# When git invokes this hook, it sets GIT_DIR, GIT_INDEX_FILE, etc.
+# These cause go test to fail when tests run their own git commands
+# (e.g., git init in temp directories inherits the parent git context).
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+
 # Run quality checks (formatting, vet, tests)
 make check
 

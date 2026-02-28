@@ -1,8 +1,57 @@
 package mission
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 )
+
+func TestGetHEAD(t *testing.T) {
+	tmpDir := t.TempDir()
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = tmpDir
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %s: %v", args, output, err)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "file.txt")
+	runGit("commit", "-m", "initial commit")
+
+	head, err := GetHEAD(tmpDir)
+	if err != nil {
+		t.Fatalf("GetHEAD failed: %v", err)
+	}
+
+	if len(head) != 40 {
+		t.Errorf("expected 40-char SHA, got %d chars: %s", len(head), head)
+	}
+
+	head2, err := GetHEAD(tmpDir)
+	if err != nil {
+		t.Fatalf("second GetHEAD failed: %v", err)
+	}
+	if head != head2 {
+		t.Errorf("expected same HEAD, got %s then %s", head, head2)
+	}
+}
+
+func TestGetHEAD_InvalidRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+	_, err := GetHEAD(tmpDir)
+	if err == nil {
+		t.Error("expected error for non-git directory")
+	}
+}
 
 func TestParseRepoReference(t *testing.T) {
 	tests := []struct {
