@@ -236,6 +236,13 @@ func (c *Client) ReloadMission(id string, tmuxSession string) error {
 	return c.Post("/missions/"+id+"/reload", body, nil)
 }
 
+// AttachMission ensures the mission's wrapper is running in the pool and links
+// the pool window into the given tmux session.
+func (c *Client) AttachMission(id string, tmuxSession string) error {
+	body := AttachRequest{TmuxSession: tmuxSession}
+	return c.Post("/missions/"+id+"/attach", body, nil)
+}
+
 // CreateMission creates a new mission via the server.
 func (c *Client) CreateMission(req CreateMissionRequest) (*database.Mission, error) {
 	var resp MissionResponse
