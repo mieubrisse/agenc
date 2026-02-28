@@ -273,48 +273,16 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	return nil
 }
 
-// spawnWrapper launches the wrapper process for a newly created mission.
-// For interactive missions, it spawns the wrapper in the agenc-pool tmux session
-// and links the window into the caller's session.
-// For headless missions, it runs the wrapper in the background.
+// spawnWrapper launches the wrapper process for a mission.
+// All missions run in a pool window. If TmuxSession is provided,
+// the pool window is also linked into the caller's tmux session.
 func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMissionRequest) error {
 	agencBinpath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
 	}
 
-	if req.Headless {
-		// Build headless command args
-		args := []string{"mission", "resume", "--headless", missionRecord.ID}
-		if req.Prompt != "" {
-			args = append(args, "--prompt", req.Prompt)
-		}
-		timeout := req.Timeout
-		if timeout == "" {
-			timeout = "1h"
-		}
-		args = append(args, "--timeout", timeout)
-		if req.CronID != "" {
-			args = append(args, "--cron-id", req.CronID)
-		}
-		if req.CronName != "" {
-			args = append(args, "--cron-name", req.CronName)
-		}
-
-		cmd := exec.Command(agencBinpath, args...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		if err := cmd.Start(); err != nil {
-			return fmt.Errorf("failed to start headless wrapper: %w", err)
-		}
-		return cmd.Process.Release()
-	}
-
-	// Interactive: spawn wrapper in the pool, then link into caller's session
-	tmuxSession := req.TmuxSession
-	if tmuxSession == "" {
-		return fmt.Errorf("tmux_session is required for interactive missions")
-	}
-
+	// Build the resume command for the pool window
 	resumeCmd := fmt.Sprintf("'%s' mission resume %s", agencBinpath, missionRecord.ID)
 	if req.Prompt != "" {
 		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(req.Prompt, "'", "'\\''"))
@@ -326,11 +294,13 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		return fmt.Errorf("failed to create pool window: %w", err)
 	}
 
-	// Link the pool window into the caller's session
-	if err := linkPoolWindow(poolWindowTarget, tmuxSession); err != nil {
-		// Window was created in pool but linking failed — clean up
-		s.destroyPoolWindow(missionRecord.ID)
-		return fmt.Errorf("failed to link pool window: %w", err)
+	// Link the pool window into the caller's session (if provided)
+	tmuxSession := req.TmuxSession
+	if tmuxSession != "" {
+		if err := linkPoolWindow(poolWindowTarget, tmuxSession); err != nil {
+			s.destroyPoolWindow(missionRecord.ID)
+			return fmt.Errorf("failed to link pool window: %w", err)
+		}
 	}
 
 	return nil
