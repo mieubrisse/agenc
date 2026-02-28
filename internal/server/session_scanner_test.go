@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/odyssey/agenc/internal/database"
@@ -159,6 +160,34 @@ func TestScanJSONLFromOffset_LastValueWins(t *testing.T) {
 	}
 	if autoSummary != "Second summary" {
 		t.Errorf("autoSummary = %q, want %q", autoSummary, "Second summary")
+	}
+}
+
+func TestScanJSONLFromOffset_OversizedLines(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")
+
+	// Build a file with: small metadata, then a huge line (>10KB), then more metadata.
+	// The scanner must read past the huge line without aborting.
+	hugeLine := `{"type":"message","role":"assistant","content":"` + strings.Repeat("x", 20*1024) + "\"}\n"
+
+	content := `{"type":"summary","summary":"Before huge line"}` + "\n" +
+		hugeLine +
+		`{"type":"custom-title","customTitle":"After huge line"}` + "\n"
+
+	if err := os.WriteFile(jsonlFilepath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	customTitle, autoSummary, err := scanJSONLFromOffset(jsonlFilepath, 0)
+	if err != nil {
+		t.Fatalf("scanJSONLFromOffset failed: %v", err)
+	}
+	if customTitle != "After huge line" {
+		t.Errorf("customTitle = %q, want %q (metadata after oversized line must be found)", customTitle, "After huge line")
+	}
+	if autoSummary != "Before huge line" {
+		t.Errorf("autoSummary = %q, want %q", autoSummary, "Before huge line")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,9 +157,16 @@ type jsonlMetadataEntry struct {
 	CustomTitle string `json:"customTitle"`
 }
 
+// maxMetadataLineLen is the maximum line length we bother inspecting for
+// metadata. Metadata entries (custom-title, summary) are well under 1 KB.
+// Conversation message lines can exceed 5 MB — skip those immediately rather
+// than searching for substrings in megabytes of JSON.
+const maxMetadataLineLen = 10 * 1024 // 10 KB
+
 // scanJSONLFromOffset reads a JSONL file starting at the given byte offset and
-// returns any custom-title and summary values found in the new data. Uses quick
-// string matching before JSON parsing to avoid parsing every line.
+// returns any custom-title and summary values found in the new data. Uses
+// bufio.Reader (not Scanner) to handle arbitrarily long lines without aborting,
+// and quick string matching before JSON parsing to avoid parsing every line.
 func scanJSONLFromOffset(jsonlFilepath string, offset int64) (customTitle string, autoSummary string, err error) {
 	file, err := os.Open(jsonlFilepath)
 	if err != nil {
@@ -172,39 +180,39 @@ func scanJSONLFromOffset(jsonlFilepath string, offset int64) (customTitle string
 		}
 	}
 
-	scanner := bufio.NewScanner(file)
-	// JSONL lines can be large (full conversation messages)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	reader := bufio.NewReaderSize(file, 64*1024) // 64 KB read buffer
 
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Quick string check: skip lines that cannot contain metadata
-		hasCustomTitle := strings.Contains(line, `"custom-title"`)
-		hasSummary := strings.Contains(line, `"type":"summary"`)
-		if !hasCustomTitle && !hasSummary {
-			continue
-		}
-
-		var entry jsonlMetadataEntry
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-
-		switch entry.Type {
-		case "custom-title":
-			if entry.CustomTitle != "" {
-				customTitle = entry.CustomTitle
-			}
-		case "summary":
-			if entry.Summary != "" {
-				autoSummary = entry.Summary
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			// Skip oversized lines — metadata entries are always small
+			if len(line) <= maxMetadataLineLen {
+				// Quick string check: skip lines that cannot contain metadata
+				hasCustomTitle := strings.Contains(line, `"custom-title"`)
+				hasSummary := strings.Contains(line, `"type":"summary"`)
+				if hasCustomTitle || hasSummary {
+					var entry jsonlMetadataEntry
+					if jsonErr := json.Unmarshal([]byte(line), &entry); jsonErr == nil {
+						switch entry.Type {
+						case "custom-title":
+							if entry.CustomTitle != "" {
+								customTitle = entry.CustomTitle
+							}
+						case "summary":
+							if entry.Summary != "" {
+								autoSummary = entry.Summary
+							}
+						}
+					}
+				}
 			}
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return customTitle, autoSummary, err
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return customTitle, autoSummary, err
+		}
 	}
 
 	return customTitle, autoSummary, nil
