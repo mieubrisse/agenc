@@ -131,6 +131,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Open a shell in a new window",
 		Command:     "agenc tmux window new -a -- $SHELL",
 	},
+	"copyMissionUuid": {
+		Title:       "📋  Copy Mission ID",
+		Description: "Copy the focused mission's UUID to the clipboard",
+		Command:     "printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy",
+	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
 		Description:    "Stop the mission in the focused pane",
@@ -184,6 +189,7 @@ var builtinPaletteCommandOrder = []string{
 	"resumeMission",
 	"sideShell",
 	"shell",
+	"copyMissionUuid",
 	"stopMission",
 	"reconfigMission",
 	"reloadMission",
