@@ -91,18 +91,28 @@ func forkServer() error {
 		return stacktrace.Propagate(err, "failed to fork server")
 	}
 
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	if err := server.WaitForReady(socketFilepath); err != nil {
+		return stacktrace.Propagate(err, "server process started but failed to become ready")
+	}
+
 	newPID, _ := server.ReadPID(pidFilepath)
 	fmt.Printf("Server started (PID %d).\n", newPID)
 
 	return nil
 }
 
-// ensureServerRunning idempotently starts the server if not already running.
+// ensureServerRunning idempotently starts the server if not already running,
+// and waits for it to be ready to accept connections.
 func ensureServerRunning(agencDirpath string) {
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 	if server.IsRunning(pidFilepath) {
 		return
 	}
 	logFilepath := config.GetServerLogFilepath(agencDirpath)
-	_ = server.ForkServer(logFilepath, pidFilepath)
+	if err := server.ForkServer(logFilepath, pidFilepath); err != nil {
+		return
+	}
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	_ = server.WaitForReady(socketFilepath)
 }

@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -13,9 +16,11 @@ import (
 )
 
 const (
-	serverEnvVar    = "AGENC_SERVER_PROCESS"
-	stopPollTimeout = 3 * time.Second
-	stopPollTick    = 100 * time.Millisecond
+	serverEnvVar     = "AGENC_SERVER_PROCESS"
+	stopPollTimeout  = 3 * time.Second
+	stopPollTick     = 100 * time.Millisecond
+	readyPollTimeout = 5 * time.Second
+	readyPollTick    = 100 * time.Millisecond
 )
 
 // IsServerProcess returns true if this process was launched as the server child.
@@ -151,4 +156,31 @@ func StopServer(pidFilepath string) error {
 	os.Remove(pidFilepath)
 
 	return nil
+}
+
+// WaitForReady polls the server's /health endpoint on the given unix socket
+// until it responds successfully or the timeout expires.
+func WaitForReady(socketFilepath string) error {
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return net.DialTimeout("unix", socketFilepath, 1*time.Second)
+			},
+		},
+		Timeout: 2 * time.Second,
+	}
+
+	deadline := time.Now().Add(readyPollTimeout)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get("http://agenc/health")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(readyPollTick)
+	}
+
+	return stacktrace.NewError("server did not become ready within %s", readyPollTimeout)
 }

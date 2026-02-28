@@ -78,5 +78,11 @@ func restartServer(agencDirpath string, oldVersion string, newVersion string) {
 		return
 	}
 
+	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	if err := server.WaitForReady(socketFilepath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: server started but did not become ready: %v\n", err)
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "Server restarted: %s → %s\n", oldVersion, newVersion)
 }
