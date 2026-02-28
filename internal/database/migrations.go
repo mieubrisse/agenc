@@ -26,6 +26,18 @@ const (
 	addLastSummaryPromptCountColumnSQL = `ALTER TABLE missions ADD COLUMN last_summary_prompt_count INTEGER NOT NULL DEFAULT 0;`
 	addAISummaryColumnSQL              = `ALTER TABLE missions ADD COLUMN ai_summary TEXT NOT NULL DEFAULT '';`
 	addTmuxWindowTitleColumnSQL        = `ALTER TABLE missions ADD COLUMN tmux_window_title TEXT NOT NULL DEFAULT '';`
+
+	createSessionsTableSQL = `CREATE TABLE IF NOT EXISTS sessions (
+	id TEXT PRIMARY KEY,
+	mission_id TEXT NOT NULL,
+	custom_title TEXT NOT NULL DEFAULT '',
+	auto_summary TEXT NOT NULL DEFAULT '',
+	last_scanned_offset INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY (mission_id) REFERENCES missions(id) ON DELETE CASCADE
+);`
+	createSessionsMissionIDIndexSQL = `CREATE INDEX IF NOT EXISTS idx_sessions_mission_id ON sessions(mission_id);`
 )
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
@@ -296,4 +308,16 @@ func migrateAddTmuxWindowTitle(conn *sql.DB) error {
 
 	_, err = conn.Exec(addTmuxWindowTitleColumnSQL)
 	return err
+}
+
+// migrateCreateSessionsTable idempotently creates the sessions table and its
+// mission_id index for tracking per-session metadata from JSONL files.
+func migrateCreateSessionsTable(conn *sql.DB) error {
+	if _, err := conn.Exec(createSessionsTableSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create sessions table")
+	}
+	if _, err := conn.Exec(createSessionsMissionIDIndexSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create sessions mission_id index")
+	}
+	return nil
 }

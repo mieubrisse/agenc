@@ -94,6 +94,11 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to add query performance indices")
 	}
 
+	if err := migrateCreateSessionsTable(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to create sessions table")
+	}
+
 	// Backfill: strip "%" prefix from tmux_pane values stored by older builds
 	if _, err := conn.Exec(stripTmuxPanePercentSQL); err != nil {
 		conn.Close()
