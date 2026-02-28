@@ -15,7 +15,7 @@ import (
 	"github.com/odyssey/agenc/internal/wrapper"
 )
 
-var resumeFocusFlag bool
+var resumeNoFocusFlag bool
 var runWrapperFlag bool
 var resumePromptFlag string
 
@@ -32,7 +32,7 @@ With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 
 func init() {
 	missionCmd.AddCommand(missionResumeCmd)
-	missionResumeCmd.Flags().BoolVar(&resumeFocusFlag, focusFlagName, false, "focus the mission's tmux window after attaching")
+	missionResumeCmd.Flags().BoolVar(&resumeNoFocusFlag, noFocusFlagName, false, "don't focus the mission's tmux window after attaching")
 	missionResumeCmd.Flags().BoolVar(&runWrapperFlag, runWrapperFlagName, false, "run the wrapper process directly (internal use)")
 	missionResumeCmd.Flags().StringVar(&resumePromptFlag, promptFlagName, "", "initial prompt (internal use)")
 	missionResumeCmd.Flags().MarkHidden(runWrapperFlagName)
@@ -135,7 +135,7 @@ func resumeMission(client *server.Client, missionID string) error {
 		return stacktrace.Propagate(err, "failed to attach mission")
 	}
 
-	if resumeFocusFlag {
+	if !resumeNoFocusFlag {
 		focusMissionWindow(missionRecord.ShortID, tmuxSession)
 	}
 

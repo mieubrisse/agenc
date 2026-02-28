@@ -20,7 +20,7 @@ var cloneFlag string
 var promptFlag string
 var blankFlag bool
 var adjutantFlag bool
-var focusFlag bool
+var noFocusFlag bool
 var headlessFlag bool
 var timeoutFlag string
 var cronIDFlag string
@@ -48,7 +48,7 @@ func init() {
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
 	missionNewCmd.Flags().BoolVar(&blankFlag, blankFlagName, false, "create a blank mission with no repo (skip picker)")
 	missionNewCmd.Flags().BoolVar(&adjutantFlag, adjutantFlagName, false, "create an Adjutant mission")
-	missionNewCmd.Flags().BoolVar(&focusFlag, focusFlagName, false, "focus the new mission's tmux window after creation")
+	missionNewCmd.Flags().BoolVar(&noFocusFlag, noFocusFlagName, false, "don't focus the new mission's tmux window after creation")
 	missionNewCmd.Flags().BoolVar(&headlessFlag, headlessFlagName, false, "run in headless mode (no terminal, outputs to log)")
 	missionNewCmd.Flags().StringVar(&timeoutFlag, timeoutFlagName, "1h", "max runtime for headless missions (e.g., '1h', '30m')")
 	missionNewCmd.Flags().StringVar(&cronIDFlag, cronIDFlagName, "", "cron job ID (internal use)")
@@ -163,7 +163,7 @@ func runMissionNewWithClone() error {
 
 	if tmuxSession != "" {
 		fmt.Println("Launched in tmux pool")
-		if focusFlag {
+		if !noFocusFlag {
 			focusMissionWindow(missionRecord.ShortID, tmuxSession)
 		}
 	} else {
@@ -261,7 +261,7 @@ func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) e
 
 	if tmuxSession != "" {
 		fmt.Println("Launched in tmux pool")
-		if focusFlag {
+		if !noFocusFlag {
 			focusMissionWindow(missionRecord.ShortID, tmuxSession)
 		}
 	} else {
@@ -399,7 +399,7 @@ func createAndLaunchMission(
 
 	if tmuxSession != "" {
 		fmt.Println("Launched in tmux pool")
-		if focusFlag {
+		if !noFocusFlag {
 			focusMissionWindow(missionRecord.ShortID, tmuxSession)
 		}
 	} else {

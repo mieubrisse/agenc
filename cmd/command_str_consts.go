@@ -89,7 +89,7 @@ const (
 	promptFlagName   = "prompt"
 	blankFlagName    = "blank"
 	adjutantFlagName = "adjutant"
-	focusFlagName    = "focus"
+	noFocusFlagName  = "no-focus"
 
 	// mission ls flags
 	allFlagName = "all"
