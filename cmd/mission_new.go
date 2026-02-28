@@ -14,13 +14,13 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/server"
-	"github.com/odyssey/agenc/internal/wrapper"
 )
 
 var cloneFlag string
 var promptFlag string
 var blankFlag bool
 var adjutantFlag bool
+var focusFlag bool
 var headlessFlag bool
 var timeoutFlag string
 var cronIDFlag string
@@ -48,6 +48,7 @@ func init() {
 	missionNewCmd.Flags().StringVar(&promptFlag, promptFlagName, "", "initial prompt to start Claude with")
 	missionNewCmd.Flags().BoolVar(&blankFlag, blankFlagName, false, "create a blank mission with no repo (skip picker)")
 	missionNewCmd.Flags().BoolVar(&adjutantFlag, adjutantFlagName, false, "create an Adjutant mission")
+	missionNewCmd.Flags().BoolVar(&focusFlag, focusFlagName, false, "focus the new mission's tmux window after creation")
 	missionNewCmd.Flags().BoolVar(&headlessFlag, headlessFlagName, false, "run in headless mode (no terminal, outputs to log)")
 	missionNewCmd.Flags().StringVar(&timeoutFlag, timeoutFlagName, "1h", "max runtime for headless missions (e.g., '1h', '30m')")
 	missionNewCmd.Flags().StringVar(&cronIDFlag, cronIDFlagName, "", "cron job ID (internal use)")
@@ -142,10 +143,16 @@ func runMissionNewWithClone() error {
 		return stacktrace.Propagate(err, "failed to get source mission")
 	}
 
+	tmuxSession := ""
+	if !headlessFlag {
+		tmuxSession = getCurrentTmuxSessionName()
+	}
+
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
-		Repo:      sourceMission.GitRepo,
-		Prompt:    promptFlag,
-		CloneFrom: sourceMission.ID,
+		Repo:        sourceMission.GitRepo,
+		Prompt:      promptFlag,
+		CloneFrom:   sourceMission.ID,
+		TmuxSession: tmuxSession,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
@@ -153,11 +160,17 @@ func runMissionNewWithClone() error {
 
 	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
 	fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
-	fmt.Println("Launching claude...")
 
-	windowTitle := lookupWindowTitle(agencDirpath, sourceMission.GitRepo)
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, sourceMission.GitRepo, windowTitle, promptFlag)
-	return w.Run(false)
+	if tmuxSession != "" {
+		fmt.Println("Launched in tmux pool")
+		if focusFlag {
+			focusMissionWindow(missionRecord.ShortID, tmuxSession)
+		}
+	} else {
+		fmt.Println("Running in background (pool window)")
+	}
+
+	return nil
 }
 
 // runMissionNewWithPicker shows an fzf picker over the repo library, or resolves
@@ -222,27 +235,40 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 	return createAndLaunchMission(agencDirpath, selection.RepoName, promptFlag)
 }
 
-// createAndLaunchAdjutantMission creates an Adjutant mission via the server
-// and launches the wrapper in the current process.
+// createAndLaunchAdjutantMission creates an Adjutant mission via the server,
+// which spawns a wrapper in a tmux pool window.
 func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) error {
 	client, err := serverClient()
 	if err != nil {
 		return err
 	}
 
+	tmuxSession := ""
+	if !headlessFlag {
+		tmuxSession = getCurrentTmuxSessionName()
+	}
+
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
-		Adjutant: true,
-		Prompt:   initialPrompt,
+		Adjutant:    true,
+		Prompt:      initialPrompt,
+		TmuxSession: tmuxSession,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create adjutant mission")
 	}
 
 	fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
-	fmt.Println("Launching Adjutant...")
 
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, "", "🤖  Adjutant", initialPrompt)
-	return w.Run(false)
+	if tmuxSession != "" {
+		fmt.Println("Launched in tmux pool")
+		if focusFlag {
+			focusMissionWindow(missionRecord.ShortID, tmuxSession)
+		}
+	} else {
+		fmt.Println("Running in background (pool window)")
+	}
+
+	return nil
 }
 
 // listRepoLibrary scans $AGENC_DIRPATH/repos/ three levels deep
@@ -337,7 +363,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 }
 
 // createAndLaunchMission creates the mission record and directory via the
-// server, and launches the wrapper process in the current terminal.
+// server, which spawns a wrapper in a tmux pool window.
 // gitRepoName is the canonical repo name stored in the DB (e.g.
 // "github.com/owner/repo"); empty when no git repo is involved.
 // initialPrompt is optional; if non-empty, it will be sent to Claude.
@@ -351,13 +377,19 @@ func createAndLaunchMission(
 		return err
 	}
 
+	// Detect tmux session — omit if headless flag is set
+	tmuxSession := ""
+	if !headlessFlag {
+		tmuxSession = getCurrentTmuxSessionName()
+	}
+
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
-		Repo:     gitRepoName,
-		Prompt:   initialPrompt,
-		Headless: headlessFlag,
-		CronID:   cronIDFlag,
-		CronName: cronNameFlag,
-		Timeout:  timeoutFlag,
+		Repo:        gitRepoName,
+		Prompt:      initialPrompt,
+		TmuxSession: tmuxSession,
+		CronID:      cronIDFlag,
+		CronName:    cronNameFlag,
+		Timeout:     timeoutFlag,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
@@ -365,17 +397,16 @@ func createAndLaunchMission(
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
-	if headlessFlag {
-		// Server already spawned the wrapper in headless mode
-		fmt.Printf("Running in headless mode...\n")
-		return nil
+	if tmuxSession != "" {
+		fmt.Println("Launched in tmux pool")
+		if focusFlag {
+			focusMissionWindow(missionRecord.ShortID, tmuxSession)
+		}
+	} else {
+		fmt.Println("Running in background (pool window)")
 	}
 
-	// Interactive mode: run the wrapper in the current process
-	fmt.Println("Launching claude...")
-	windowTitle := lookupWindowTitle(agencDirpath, gitRepoName)
-	w := wrapper.NewWrapper(agencDirpath, missionRecord.ID, gitRepoName, windowTitle, initialPrompt)
-	return w.Run(false)
+	return nil
 }
 
 // promptForRepoLocator interactively prompts the user for a repo locator,
