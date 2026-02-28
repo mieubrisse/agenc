@@ -111,9 +111,9 @@ func (s *Server) runSessionScannerCycle() {
 			continue
 		}
 
-		// Log when display-relevant data changes (tmux reconciliation wired in Task 4)
+		// Reconcile tmux window title when display-relevant data changes
 		if customTitleChanged || autoSummaryChanged {
-			s.logger.Printf("Session scanner: title/summary changed for mission %s, session %s", missionID, sessionID)
+			s.reconcileTmuxWindowTitle(missionID)
 		}
 	}
 }
