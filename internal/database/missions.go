@@ -27,7 +27,6 @@ type Mission struct {
 	PromptCount            int
 	LastSummaryPromptCount int
 	AISummary              string
-	TmuxWindowTitle        string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 }
@@ -100,7 +99,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 // Returns (nil, error) only for actual database failures.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -119,7 +118,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 // to check if there is a running mission for the cron (for double-fire prevention).
 func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
 		cronName,
 	)
 
@@ -137,7 +136,7 @@ func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
 // tmux pane ID, or nil if no active mission is running in that pane.
 func (db *DB) GetMissionByTmuxPane(paneID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
 		paneID,
 	)
 
@@ -326,41 +325,12 @@ func (db *DB) GetMissionAISummary(id string) (string, error) {
 	return summary, nil
 }
 
-// GetMissionTmuxWindowTitle returns the tmux window title that AgenC last set
-// for this mission. Returns "" if never set. Used to detect user renames
-// before applying automatic title updates.
-func (db *DB) GetMissionTmuxWindowTitle(id string) (string, error) {
-	var title string
-	err := db.conn.QueryRow("SELECT tmux_window_title FROM missions WHERE id = ?", id).Scan(&title)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to get tmux window title for mission '%s'", id)
-	}
-	return title, nil
-}
-
-// SetMissionTmuxWindowTitle records the exact string AgenC sent to
-// tmux rename-window for this mission. Called after every successful rename
-// so the wrapper can detect if the user has changed the title themselves.
-func (db *DB) SetMissionTmuxWindowTitle(id string, title string) error {
-	_, err := db.conn.Exec(
-		"UPDATE missions SET tmux_window_title = ? WHERE id = ?",
-		title, id,
-	)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to set tmux window title for mission '%s'", id)
-	}
-	return nil
-}
-
 // ListMissionsNeedingSummary returns active missions where the number of new
 // prompts since the last summarization meets or exceeds the given threshold.
 func (db *DB) ListMissionsNeedingSummary(threshold int) ([]*Mission, error) {
 	query := `SELECT id, short_id, prompt, status, git_repo, last_heartbeat,
 		session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane,
-		prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at
+		prompt_count, last_summary_prompt_count, ai_summary, created_at, updated_at
 		FROM missions WHERE status = 'active' AND (prompt_count - last_summary_prompt_count) >= ?`
 	rows, err := db.conn.Query(query, threshold)
 	if err != nil {

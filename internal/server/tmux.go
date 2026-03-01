@@ -31,7 +31,7 @@ func (s *Server) reconcileTmuxWindowTitle(missionID string) {
 		return
 	}
 
-	// Step 2: Get mission data for tmux_pane, tmux_window_title, git_repo
+	// Step 2: Get mission data for tmux_pane and git_repo
 	mission, err := s.db.GetMission(missionID)
 	if err != nil || mission == nil {
 		return
@@ -40,12 +40,11 @@ func (s *Server) reconcileTmuxWindowTitle(missionID string) {
 	// Step 3: Determine the best title
 	bestTitle := determineBestTitle(activeSession, mission)
 
-	s.logger.Printf("Tmux reconcile [%s]: bestTitle=%q (custom=%q, agencCustom=%q, auto=%q, stored=%q)",
+	s.logger.Printf("Tmux reconcile [%s]: bestTitle=%q (custom=%q, agencCustom=%q, auto=%q)",
 		mission.ShortID, bestTitle,
 		sessionField(activeSession, func(s *database.Session) string { return s.CustomTitle }),
 		sessionField(activeSession, func(s *database.Session) string { return s.AgencCustomTitle }),
 		sessionField(activeSession, func(s *database.Session) string { return s.AutoSummary }),
-		mission.TmuxWindowTitle,
 	)
 
 	// Step 4: Apply the title to tmux
@@ -82,7 +81,7 @@ func determineBestTitle(activeSession *database.Session, mission *database.Missi
 }
 
 // applyTmuxTitle applies a title to the tmux window for a mission, subject to
-// guards (sole pane, user override detection).
+// a sole-pane guard.
 func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 	// No tmux pane registered -- mission is not running in tmux
 	if mission.TmuxPane == nil || *mission.TmuxPane == "" {
@@ -100,29 +99,10 @@ func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 		return
 	}
 
-	// Guard: if we previously set a title and the current window name differs,
-	// the user has manually renamed the window -- respect that
-	if mission.TmuxWindowTitle != "" {
-		currentName := queryTmuxWindowName(paneID)
-		if currentName != mission.TmuxWindowTitle {
-			s.logger.Printf("Tmux reconcile [%s]: skipping — window was manually renamed (stored=%q, current=%q)", mission.ShortID, mission.TmuxWindowTitle, currentName)
-			return
-		}
-	}
-
 	truncatedTitle := truncateTitle(title, maxTmuxWindowTitleLen)
-
-	// Skip if the title has not actually changed
-	if truncatedTitle == mission.TmuxWindowTitle {
-		return
-	}
 
 	if err := exec.Command("tmux", "rename-window", "-t", paneID, truncatedTitle).Run(); err != nil {
 		s.logger.Printf("Tmux reconcile [%s]: tmux rename-window failed for pane %s: %v", mission.ShortID, paneID, err)
-	}
-
-	if err := s.db.SetMissionTmuxWindowTitle(mission.ID, truncatedTitle); err != nil {
-		s.logger.Printf("Tmux reconcile [%s]: failed to save window title: %v", mission.ShortID, err)
 	}
 }
 

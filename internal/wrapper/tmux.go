@@ -172,29 +172,12 @@ func currentWindowName(paneID string) string {
 }
 
 // applyWindowTitle renames the tmux window for this pane to title, subject to
-// two guards:
-//  1. The window must contain only this pane (no split panes).
-//  2. If AgenC has previously set a title, the current window name must still
-//     match it — if it doesn't, the user has manually renamed the window and
-//     we respect that.
-//
-// After a successful rename, the new title is stored in the database so future
-// calls can detect user renames.
+// one guard: the window must contain only this pane (no split panes).
 func (w *Wrapper) applyWindowTitle(paneID string, title string) {
 	if !isSolePaneInWindow(paneID) {
 		return
 	}
 
-	// Respect user renames: if AgenC set a title before and the window no
-	// longer shows it, the user has renamed the window manually.
-	if missionRecord, err := w.client.GetMission(w.missionID); err == nil && missionRecord.TmuxWindowTitle != "" {
-		if current := currentWindowName(paneID); current != missionRecord.TmuxWindowTitle {
-			return
-		}
-	}
-
 	//nolint:errcheck // best-effort; failure is not critical
 	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
-	//nolint:errcheck // best-effort; failure is not critical
-	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{TmuxWindowTitle: &title})
 }

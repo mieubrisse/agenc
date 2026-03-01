@@ -33,7 +33,6 @@ type MissionResponse struct {
 	PromptCount            int        `json:"prompt_count"`
 	LastSummaryPromptCount int        `json:"last_summary_prompt_count"`
 	AISummary              string     `json:"ai_summary"`
-	TmuxWindowTitle        string     `json:"tmux_window_title"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
@@ -56,7 +55,6 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		PromptCount:            mr.PromptCount,
 		LastSummaryPromptCount: mr.LastSummaryPromptCount,
 		AISummary:              mr.AISummary,
-		TmuxWindowTitle:        mr.TmuxWindowTitle,
 		CreatedAt:              mr.CreatedAt,
 		UpdatedAt:              mr.UpdatedAt,
 	}
@@ -79,7 +77,6 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		PromptCount:            m.PromptCount,
 		LastSummaryPromptCount: m.LastSummaryPromptCount,
 		AISummary:              m.AISummary,
-		TmuxWindowTitle:        m.TmuxWindowTitle,
 		CreatedAt:              m.CreatedAt,
 		UpdatedAt:              m.UpdatedAt,
 	}
@@ -664,11 +661,10 @@ func (s *Server) handleUnarchiveMission(w http.ResponseWriter, r *http.Request) 
 // UpdateMissionRequest is the JSON body for PATCH /missions/{id}.
 // All fields are optional; only non-nil fields are applied.
 type UpdateMissionRequest struct {
-	ConfigCommit    *string `json:"config_commit,omitempty"`
-	SessionName     *string `json:"session_name,omitempty"`
-	Prompt          *string `json:"prompt,omitempty"`
-	TmuxPane        *string `json:"tmux_pane,omitempty"`
-	TmuxWindowTitle *string `json:"tmux_window_title,omitempty"`
+	ConfigCommit *string `json:"config_commit,omitempty"`
+	SessionName  *string `json:"session_name,omitempty"`
+	Prompt       *string `json:"prompt,omitempty"`
+	TmuxPane     *string `json:"tmux_pane,omitempty"`
 }
 
 // handleUpdateMission handles PATCH /missions/{id}.
@@ -712,12 +708,6 @@ func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) err
 			}
 		}
 	}
-	if req.TmuxWindowTitle != nil {
-		if err := s.db.SetMissionTmuxWindowTitle(resolvedID, *req.TmuxWindowTitle); err != nil {
-			return newHTTPErrorf(http.StatusInternalServerError, "failed to set tmux_window_title: %s", err.Error())
-		}
-	}
-
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 	return nil
 }

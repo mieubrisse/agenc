@@ -25,6 +25,7 @@ const (
 	addLastSummaryPromptCountColumnSQL = `ALTER TABLE missions ADD COLUMN last_summary_prompt_count INTEGER NOT NULL DEFAULT 0;`
 	addAISummaryColumnSQL              = `ALTER TABLE missions ADD COLUMN ai_summary TEXT NOT NULL DEFAULT '';`
 	addTmuxWindowTitleColumnSQL        = `ALTER TABLE missions ADD COLUMN tmux_window_title TEXT NOT NULL DEFAULT '';`
+	clearTmuxWindowTitleColumnSQL      = `UPDATE missions SET tmux_window_title = '' WHERE tmux_window_title != '';`
 
 	createSessionsTableSQL = `CREATE TABLE IF NOT EXISTS sessions (
 	id TEXT PRIMARY KEY,
@@ -292,6 +293,14 @@ func migrateAddTmuxWindowTitle(conn *sql.DB) error {
 	}
 
 	_, err = conn.Exec(addTmuxWindowTitleColumnSQL)
+	return err
+}
+
+// migrateClearTmuxWindowTitle blanks out all tmux_window_title values.
+// This column is being retired; clearing it ensures no stale data remains
+// while the column still exists in the schema.
+func migrateClearTmuxWindowTitle(conn *sql.DB) error {
+	_, err := conn.Exec(clearTmuxWindowTitleColumnSQL)
 	return err
 }
 
