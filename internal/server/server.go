@@ -236,6 +236,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /repos/", appHandler(s.requestLogger, s.handleRemoveRepo))
 	// Push-event uses a catch-all prefix since repo names contain slashes
 	mux.Handle("POST /repos/", appHandler(s.requestLogger, s.handlePushEvent))
+
+	// Claude-modifications config file endpoints
+	mux.Handle("GET /config/claude-md", appHandler(s.requestLogger, s.handleGetClaudeMd))
+	mux.Handle("PUT /config/claude-md", appHandler(s.requestLogger, s.handleUpdateClaudeMd))
+	mux.Handle("GET /config/settings-json", appHandler(s.requestLogger, s.handleGetSettingsJson))
+	mux.Handle("PUT /config/settings-json", appHandler(s.requestLogger, s.handleUpdateSettingsJson))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) error {
