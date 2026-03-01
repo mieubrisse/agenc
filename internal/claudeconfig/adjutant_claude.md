@@ -28,10 +28,7 @@ Operating Rules
 Launching and Resuming Missions
 -------------------------------
 
-Check the `$TMUX` environment variable to determine whether you are running inside a tmux session.
-
-- **`$TMUX` is set** — you are inside tmux. You can launch and resume missions directly by running `agenc tmux window new -- agenc mission new <args>` or `agenc tmux window new -- agenc mission resume <args>`. This opens a new tmux window for the mission.
-- **`$TMUX` is not set** — you are outside tmux. You cannot launch missions yourself because there is no tmux session to create windows in. Instead, give the user the command they need to run (e.g., `agenc mission new <args>` or `agenc mission resume <args>`) and let them execute it.
+Use `agenc mission new` and `agenc mission resume` directly. The server handles creating tmux windows automatically — you do not need to wrap these commands with `agenc tmux window new`.
 
 Tmux Configuration Changes
 --------------------------

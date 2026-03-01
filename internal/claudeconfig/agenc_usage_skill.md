@@ -26,11 +26,10 @@ Choose the spawning method based on who will drive the new mission's agent:
 agenc mission new github.com/owner/repo --headless --prompt "Your task here"
 ```
 
-**When the user drives (interactive)** — open the mission in a new tmux window (preferred) or pane so the user can interact with it:
+**When the user drives (interactive)** — create a mission that the user can interact with:
 
 ```
-# New tmux window
-agenc tmux window new -- agenc mission new github.com/owner/repo --prompt "Your task here"
+agenc mission new github.com/owner/repo --prompt "Your task here"
 ```
 
 
