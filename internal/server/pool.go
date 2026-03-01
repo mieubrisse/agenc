@@ -62,9 +62,10 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, err
 }
 
 // linkPoolWindow links a window from the agenc-pool session into the target
-// tmux session. The window appears in the target session as a shared window.
+// tmux session. The window appears adjacent to the caller's current window
+// (-a) without stealing focus (-d).
 func linkPoolWindow(poolWindowTarget string, targetSession string) error {
-	cmd := exec.Command("tmux", "link-window", "-d", "-s", poolWindowTarget, "-t", targetSession+":")
+	cmd := exec.Command("tmux", "link-window", "-d", "-a", "-s", poolWindowTarget, "-t", targetSession+":")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return stacktrace.NewError("failed to link window: %v (output: %s)", err, string(output))
