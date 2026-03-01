@@ -165,6 +165,42 @@ func (c *Client) GetRaw(path string) ([]byte, error) {
 	return body, nil
 }
 
+// Put sends a PUT request with a JSON body and decodes the response into result.
+func (c *Client) Put(path string, body any, result any) error {
+	var bodyReader io.Reader
+	if body != nil {
+		pr, pw := io.Pipe()
+		go func() {
+			pw.CloseWithError(json.NewEncoder(pw).Encode(body))
+		}()
+		bodyReader = pr
+	}
+
+	req, err := http.NewRequest(http.MethodPut, c.baseURL+path, bodyReader)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to create request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to connect to server")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return c.decodeError(resp)
+	}
+
+	if result != nil {
+		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+			return stacktrace.Propagate(err, "failed to decode server response")
+		}
+	}
+
+	return nil
+}
+
 // ============================================================================
 // High-level mission API methods
 // ============================================================================
