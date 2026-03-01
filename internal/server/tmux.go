@@ -75,7 +75,9 @@ func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 		return
 	}
 
-	paneID := *mission.TmuxPane
+	// Database stores pane IDs without the "%" prefix (e.g. "3043"), but tmux
+	// commands require it (e.g. "%3043") to identify panes.
+	paneID := "%" + *mission.TmuxPane
 
 	// Guard: only rename if this pane is the sole pane in its window
 	if !isSolePaneInTmuxWindow(paneID) {
