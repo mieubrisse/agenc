@@ -144,6 +144,27 @@ func (c *Client) Patch(path string, body any, result any) error {
 	return nil
 }
 
+// GetRaw sends a GET request and returns the raw response body as bytes.
+// Unlike Get, it does not JSON-decode the response.
+func (c *Client) GetRaw(path string) ([]byte, error) {
+	resp, err := c.httpClient.Get(c.baseURL + path)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to connect to server")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, c.decodeError(resp)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read response body")
+	}
+
+	return body, nil
+}
+
 // ============================================================================
 // High-level mission API methods
 // ============================================================================
@@ -304,6 +325,20 @@ func (c *Client) AddRepo(req AddRepoRequest) (*AddRepoResponse, error) {
 // RemoveRepo removes a repo via the server.
 func (c *Client) RemoveRepo(repoName string) error {
 	return c.Delete("/repos/" + repoName)
+}
+
+// ============================================================================
+// High-level server API methods
+// ============================================================================
+
+// GetServerLogs fetches server log content from the server.
+// source is "server" or "requests"; if all is true, returns the entire file.
+func (c *Client) GetServerLogs(source string, all bool) ([]byte, error) {
+	path := "/server/logs?source=" + source
+	if all {
+		path += "&mode=all"
+	}
+	return c.GetRaw(path)
 }
 
 func (c *Client) decodeError(resp *http.Response) error {
