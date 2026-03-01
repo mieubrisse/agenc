@@ -228,11 +228,7 @@ func (w *Wrapper) Run(isResume bool) error {
 		w.hasConversation = true
 	}
 
-	// Record which tmux pane this mission's wrapper is running in, and clear
-	// it on exit so the pane→mission mapping stays accurate. Reset the window
-	// tab style on exit so it doesn't stay colored after the mission ends.
-	w.registerTmuxPane()
-	defer w.clearTmuxPane()
+	// Reset the window tab style on exit so it doesn't stay colored after the mission ends.
 	defer w.resetWindowTabStyle()
 
 	// Change the wrapper's working directory to the agent directory so that
@@ -633,11 +629,6 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		return stacktrace.Propagate(err, "failed to write wrapper PID file")
 	}
 	defer os.Remove(pidFilepath)
-
-	// Record which tmux pane this mission's wrapper is running in, and clear
-	// it on exit so the pane→mission mapping stays accurate.
-	w.registerTmuxPane()
-	defer w.clearTmuxPane()
 
 	// Set up context with timeout if specified
 	ctx, cancel := context.WithCancel(context.Background())

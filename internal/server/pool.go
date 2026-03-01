@@ -41,24 +41,29 @@ func poolSessionExists() bool {
 // createPoolWindow creates a new window in the agenc-pool session for the given
 // mission. The window runs the specified command and is named with the short
 // mission ID for easy identification.
-func (s *Server) createPoolWindow(missionID string, command string) (string, error) {
+func (s *Server) createPoolWindow(missionID string, command string) (string, string, error) {
 	if err := s.ensurePoolSession(); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	windowName := database.ShortID(missionID)
 	target := fmt.Sprintf("%s:", poolSessionName)
 
-	cmd := exec.Command("tmux", "new-window", "-d", "-t", target, "-n", windowName, command)
+	cmd := exec.Command("tmux", "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", target, "-n", windowName, command)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", stacktrace.NewError("failed to create pool window: %v (output: %s)", err, string(output))
+		return "", "", stacktrace.NewError("failed to create pool window: %v (output: %s)", err, string(output))
 	}
+
+	// Parse pane ID from output (e.g. "%42") and strip the "%" prefix
+	// to match the DB convention (database stores "42", not "%42").
+	paneID := strings.TrimSpace(string(output))
+	paneID = strings.TrimPrefix(paneID, "%")
 
 	// Return the full target for linking: "agenc-pool:<windowName>"
 	windowTarget := fmt.Sprintf("%s:%s", poolSessionName, windowName)
-	s.logger.Printf("Created pool window %s for mission %s", windowTarget, database.ShortID(missionID))
-	return windowTarget, nil
+	s.logger.Printf("Created pool window %s (pane %s) for mission %s", windowTarget, paneID, database.ShortID(missionID))
+	return windowTarget, paneID, nil
 }
 
 // linkPoolWindow links a window from the agenc-pool session into the target

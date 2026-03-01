@@ -4,8 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/odyssey/agenc/internal/server"
 )
 
 // isSolePaneInWindow returns true if the given pane is the only pane in its window.
@@ -17,29 +15,6 @@ func isSolePaneInWindow(paneID string) bool {
 	}
 	paneCount := strings.TrimSpace(string(out))
 	return paneCount == "1"
-}
-
-// registerTmuxPane records the current tmux pane ID in the database so that
-// keybindings can resolve which mission is focused. No-ops when not inside tmux
-// (e.g. headless mode).
-//
-// The pane number is stored WITHOUT the "%" prefix that $TMUX_PANE includes,
-// since tmux format variables like #{pane_id} omit it. Stripping the prefix
-// here keeps the database representation canonical; callers that need the
-// tmux-native form (e.g. tmux rename-window -t) should prepend "%" themselves.
-func (w *Wrapper) registerTmuxPane() {
-	paneID := os.Getenv("TMUX_PANE")
-	if paneID == "" {
-		return
-	}
-	pane := strings.TrimPrefix(paneID, "%")
-	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{TmuxPane: &pane})
-}
-
-// clearTmuxPane removes the tmux pane association for this mission.
-func (w *Wrapper) clearTmuxPane() {
-	empty := ""
-	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{TmuxPane: &empty})
 }
 
 // setWindowBusy sets the tmux window tab to the busy colors, indicating

@@ -323,10 +323,16 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	}
 
 	// Create the wrapper window in the pool
-	poolWindowTarget, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
+	poolWindowTarget, paneID, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create pool window: %w", err)
 	}
+
+	// Store the pane ID and trigger title reconciliation
+	if err := s.db.SetTmuxPane(missionRecord.ID, paneID); err != nil {
+		s.logger.Printf("Warning: failed to store pane ID for mission %s: %v", missionRecord.ShortID, err)
+	}
+	s.reconcileTmuxWindowTitle(missionRecord.ID)
 
 	// Link the pool window into the caller's session (if provided)
 	tmuxSession := req.TmuxSession
@@ -619,10 +625,16 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 	}
 
 	resumeCmd := fmt.Sprintf("'%s' mission resume --run-wrapper %s", agencBinpath, missionRecord.ID)
-	poolWindowTarget, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
+	poolWindowTarget, paneID, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create pool window: %w", err)
 	}
+
+	// Store the pane ID and trigger title reconciliation
+	if err := s.db.SetTmuxPane(missionRecord.ID, paneID); err != nil {
+		s.logger.Printf("Warning: failed to store pane ID for mission %s: %v", database.ShortID(missionRecord.ID), err)
+	}
+	s.reconcileTmuxWindowTitle(missionRecord.ID)
 
 	s.logger.Printf("Started wrapper in pool window %s for mission %s", poolWindowTarget, database.ShortID(missionRecord.ID))
 	return nil
@@ -689,7 +701,6 @@ type UpdateMissionRequest struct {
 	ConfigCommit *string `json:"config_commit,omitempty"`
 	SessionName  *string `json:"session_name,omitempty"`
 	Prompt       *string `json:"prompt,omitempty"`
-	TmuxPane     *string `json:"tmux_pane,omitempty"`
 }
 
 // handleUpdateMission handles PATCH /missions/{id}.
@@ -720,21 +731,6 @@ func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) err
 	if req.Prompt != nil {
 		if err := s.db.UpdateMissionPrompt(resolvedID, *req.Prompt); err != nil {
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to update prompt: %s", err.Error())
-		}
-	}
-	if req.TmuxPane != nil {
-		if *req.TmuxPane == "" {
-			if err := s.db.ClearTmuxPane(resolvedID); err != nil {
-				return newHTTPErrorf(http.StatusInternalServerError, "failed to clear tmux_pane: %s", err.Error())
-			}
-		} else {
-			if err := s.db.SetTmuxPane(resolvedID, *req.TmuxPane); err != nil {
-				return newHTTPErrorf(http.StatusInternalServerError, "failed to set tmux_pane: %s", err.Error())
-			}
-			// Trigger initial tmux window title reconciliation now that the pane
-			// is registered. This replaces the wrapper-side window rename that was
-			// removed — the server is the sole owner of window titles.
-			s.reconcileTmuxWindowTitle(resolvedID)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
