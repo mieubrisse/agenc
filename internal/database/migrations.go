@@ -305,14 +305,16 @@ func migrateDropLastActive(conn *sql.DB) error {
 		return nil
 	}
 
+	// Drop the index first — SQLite refuses to drop a column that is
+	// referenced by an existing index.
+	if _, err := conn.Exec("DROP INDEX IF EXISTS idx_missions_activity"); err != nil {
+		return stacktrace.Propagate(err, "failed to drop old activity index")
+	}
+
 	if _, err := conn.Exec("ALTER TABLE missions DROP COLUMN last_active"); err != nil {
 		return stacktrace.Propagate(err, "failed to drop last_active column")
 	}
 
-	// Recreate the activity index without last_active
-	if _, err := conn.Exec("DROP INDEX IF EXISTS idx_missions_activity"); err != nil {
-		return stacktrace.Propagate(err, "failed to drop old activity index")
-	}
 	if _, err := conn.Exec("CREATE INDEX IF NOT EXISTS idx_missions_activity ON missions(last_heartbeat DESC)"); err != nil {
 		return stacktrace.Propagate(err, "failed to create new activity index")
 	}
