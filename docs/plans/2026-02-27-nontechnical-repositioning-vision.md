@@ -334,6 +334,7 @@ From the 2026-02-27 product sync with Khan (friend/advisor, Palantir background,
 - "You need to build a data asset that can't be replicated" — by having a product and a distribution channel to drive people through it
 - Palantir's moats: connections inside government (distribution), reputation (trust), accumulated organizational memory from working with clients
 - Khan frames this as "ontology" — a structured model that makes agent interactions useful. Counterpoint: people want to "take the best, leave the rest" from experts, not be governed by a single universal model. The resolution may be: shared knowledge structures as default starting points, heavy customization as the user experience.
+- **Domain expertise as moat** — an Anthropic hackathon proved this: three non-developers (a lawyer, a cardiologist, a road technician) beat 500 competitors by bringing deep domain knowledge to boring, invisible problems. The boringness itself is the moat — VCs ignore these sectors and AI entrepreneurs skip them, but the users are desperate. This reinforces Khan's data-asset framing: the accumulated domain context that lives in users' heads (and that this product helps extract) is itself an unreplicable asset. See journal entry: `ai-domain-expertise-beats-coding~2026-03-01_15-00-00~ai,strategy,insight.md`
 
 **On niching down:**
 - "Platform isn't the thing you sell. You sell a niche solution, and then the platform lets you scale quickly across verticals."
