@@ -121,6 +121,16 @@ func promptForTitle() (string, error) {
 			fmt.Print("\r\n")
 			return strings.TrimSpace(string(runes)), nil
 
+		case b == 0x15: // Ctrl+U — clear entire line
+			if len(runes) > 0 {
+				totalWidth := 0
+				for _, r := range runes {
+					totalWidth += runewidth.RuneWidth(r)
+				}
+				runes = runes[:0]
+				fmt.Print(strings.Repeat("\b", totalWidth) + strings.Repeat(" ", totalWidth) + strings.Repeat("\b", totalWidth))
+			}
+
 		case b == 0x7F || b == 0x08: // Backspace
 			if len(runes) > 0 {
 				removed := runes[len(runes)-1]
