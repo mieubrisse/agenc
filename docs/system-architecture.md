@@ -151,7 +151,8 @@ The server runs eight concurrent background goroutines (formerly the daemon):
 
 **8. Session scanner loop** (`internal/server/session_scanner.go`)
 - Runs every 3 seconds
-- Globs for JSONL files under `missions/*/claude-config/projects/*/*.jsonl`
+- Queries the tmux pool for live pane IDs via `listPoolPaneIDs()`, then resolves each pane to a mission via the database (`GetMissionByTmuxPane`)
+- For each running mission, computes the project directory path directly using `ComputeProjectDirpath` and lists JSONL files in that single directory (no glob across all missions)
 - For each discovered file, creates or looks up a row in the `sessions` table
 - Incrementally scans from the last byte offset (`last_scanned_offset`), avoiding re-reading data that was already processed
 - Extracts `custom-title` and `summary` metadata entries from new JSONL lines using a quick string-match filter before JSON parsing
@@ -377,7 +378,7 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo and triggers cron sync)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
 - `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
-- `session_scanner.go` — session scanner loop (3-second interval, incrementally scans JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
+- `session_scanner.go` — session scanner loop (3-second interval, queries tmux pool for running missions then incrementally scans their JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
 - `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > auto_summary > repo name > short ID), with sole-pane and user-override guards
 
 ### `internal/database/`
