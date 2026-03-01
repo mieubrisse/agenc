@@ -137,9 +137,10 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     "printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy",
 	},
 	"renameSession": {
-		Title:       "✨  Rename Session",
-		Description: "Rename the focused mission's window",
-		Command:     "agenc mission rename $AGENC_CALLING_MISSION_UUID",
+		Title:          "✨  Rename Session",
+		Description:    "Rename the focused mission's window",
+		Command:        "agenc mission rename $AGENC_CALLING_MISSION_UUID",
+		TmuxKeybinding: "-n C-,",
 	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
