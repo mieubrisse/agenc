@@ -77,7 +77,7 @@ func (s *Server) processRepoUpdate(ctx context.Context, req repoUpdateRequest) {
 	// because fetch+reset never triggers git's built-in auto-gc.
 	headChanged := headBefore != headAfter && headAfter != ""
 	if headChanged {
-		gcCmd := exec.CommandContext(ctx, "git", "gc")
+		gcCmd := exec.CommandContext(ctx, "git", "gc", "--prune=now")
 		gcCmd.Dir = repoDirpath
 		if output, err := gcCmd.CombinedOutput(); err != nil {
 			s.logger.Printf("Repo update: git gc failed for '%s': %v\n%s", req.repoName, err, string(output))
