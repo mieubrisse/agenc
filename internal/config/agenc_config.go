@@ -136,6 +136,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Copy the focused mission's UUID to the clipboard",
 		Command:     "printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy",
 	},
+	"renameSession": {
+		Title:       "✨  Rename Session",
+		Description: "Rename the focused mission's window",
+		Command:     "agenc mission rename $AGENC_CALLING_MISSION_UUID",
+	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
 		Description:    "Stop the mission in the focused pane",
@@ -195,6 +200,7 @@ var builtinPaletteCommandOrder = []string{
 	"sideShell",
 	"shell",
 	"copyMissionUuid",
+	"renameSession",
 	"stopMission",
 	"reconfigMission",
 	"reloadMission",
