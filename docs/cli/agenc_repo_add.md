@@ -21,7 +21,7 @@ from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
 Use --always-synced to keep the repo continuously synced by the daemon.
-Use --window-title to set a custom tmux window title.
+Use --emoji to set an emoji for the repo.
 
 ```
 agenc repo add <repo> [flags]
@@ -30,9 +30,9 @@ agenc repo add <repo> [flags]
 ### Options
 
 ```
-      --always-synced         keep this repo continuously synced by the daemon
-  -h, --help                  help for add
-      --window-title string   custom tmux window title for missions using this repo
+      --always-synced   keep this repo continuously synced by the daemon
+      --emoji string    emoji to display for missions using this repo
+  -h, --help            help for add
 ```
 
 ### SEE ALSO

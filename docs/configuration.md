@@ -18,7 +18,7 @@ The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file
 repoConfig:
   github.com/owner/repo:
     alwaysSynced: true                # daemon fetches every 60s (optional, default: false)
-    windowTitle: "my-repo"            # custom tmux window name (optional)
+    emoji: "🔥"                       # emoji prepended to tmux window titles and shown in repo ls (optional)
     trustedMcpServers: all            # pre-approve MCP servers: "all" or list of names (optional)
 
 <!--
@@ -81,10 +81,10 @@ paletteCommands:
 repoConfig
 ----------
 
-Per-repo configuration, keyed by canonical repo name (`github.com/owner/repo`). Each entry supports two optional settings:
+Per-repo configuration, keyed by canonical repo name (`github.com/owner/repo`). Each entry supports these optional settings:
 
 - **alwaysSynced** — when `true`, the daemon keeps the repo continuously fetched and fast-forwarded (every 60 seconds). Defaults to `false`.
-- **windowTitle** — custom tmux window name for missions using this repo. When set, missions display this title instead of the default repo name.
+- **emoji** — emoji prepended to tmux window titles (with fixed-column padding) and shown in `repo ls` and the `mission new` fzf picker. When absent, no emoji prefix is applied.
 - **trustedMcpServers** — pre-approves MCP servers from `.mcp.json` so missions skip the Claude Code consent prompt. Accepts `all` (trust every server) or a list of named servers (e.g., `[github, sentry]`). When absent, Claude Code prompts for consent as usual.
 
 ```yaml
@@ -93,7 +93,7 @@ repoConfig:
     alwaysSynced: true
   github.com/owner/other-repo:
     alwaysSynced: true
-    windowTitle: "other"
+    emoji: "🔥"
     trustedMcpServers: all
 ```
 
@@ -102,7 +102,7 @@ Manage via the CLI:
 ```
 agenc config repoConfig ls                                                  # list all repo configs
 agenc config repoConfig set github.com/owner/repo --always-synced=true      # enable auto-sync
-agenc config repoConfig set github.com/owner/repo --window-title="my-repo"  # set window title
+agenc config repoConfig set github.com/owner/repo --emoji="🔥"             # set repo emoji
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers all       # trust all servers
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers "github,sentry"  # trust specific
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers ""         # clear setting

@@ -7,7 +7,7 @@ Remove per-repo configuration
 Remove the configuration entry for a repository from config.yml.
 
 This removes the entire repoConfig entry for the repo, including alwaysSynced
-and windowTitle settings. The cloned repo itself is not deleted (use 'agenc repo rm'
+and emoji settings. The cloned repo itself is not deleted (use 'agenc repo rm'
 for that).
 
 
