@@ -138,6 +138,34 @@ agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=""
 
 **Repo name format:** Always use the canonical form `github.com/owner/repo`. You can check existing repos with `agenc repo ls`.
 
+Claude Modifications Directory
+------------------------------
+
+The directory at `~/.agenc/config/claude-modifications/` contains AgenC-specific overrides to Claude Code configuration. It has two files:
+
+- **`CLAUDE.md`** — additional instructions appended after the user's `~/.claude/CLAUDE.md`
+- **`settings.json`** — additional settings deep-merged over the user's `~/.claude/settings.json`
+
+These overrides apply to every mission. They are the right place for instructions or permissions that should apply across all AgenC missions but should not clutter the user's standard `~/.claude/` config (which also affects Claude Code outside of AgenC).
+
+**How merging works:**
+
+- **CLAUDE.md:** User content comes first, then claude-modifications content is appended (separated by a blank line).
+- **settings.json:** Deep-merge with claude-modifications as the overlay — objects merge recursively, arrays are concatenated, and scalar values from claude-modifications win over the user's values.
+
+AgenC then adds its own operational overrides (hooks, allow/deny permissions) on top of the merged result.
+
+**Editing these files:** Edit them directly — there are no `agenc config` commands for claude-modifications. You have write access to the AgenC data directory. Example paths:
+
+```
+~/.agenc/config/claude-modifications/CLAUDE.md
+~/.agenc/config/claude-modifications/settings.json
+```
+
+**When changes take effect:** Only new missions pick up changes automatically. Existing missions keep their config snapshot from creation time. To propagate changes to existing missions, run `agenc mission reconfig` (or `agenc mission update-config`). Running missions must be restarted after reconfig to pick up the new config.
+
+**Part of the config repo:** This directory lives inside `~/.agenc/config/`, which the server auto-commits and pushes. Changes are version-controlled automatically.
+
 Sandbox Rules
 -------------
 
