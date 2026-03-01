@@ -26,9 +26,9 @@ import (
 
 const (
 	repoRefDebouncePeriod = 5 * time.Second
-	// Heartbeat interval: 60s keeps server request volume low while maintaining
-	// adequate liveness detection.
-	heartbeatInterval = 60 * time.Second
+	// Heartbeat interval: 10s provides responsive activity tracking for mission
+	// sorting while keeping server request volume manageable.
+	heartbeatInterval = 10 * time.Second
 )
 
 // wrapperState tracks the wrapper's position in the restart state machine.
