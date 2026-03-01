@@ -85,7 +85,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 		}
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,
-			LastActive: formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+			LastActive: formatLastActive(m.LastHeartbeat, m.CreatedAt),
 			ShortID:    m.ShortID,
 			Status:     colorizeStatus(status),
 			Session:    truncatePrompt(sessionName, sessionMaxLen),

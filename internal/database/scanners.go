@@ -12,18 +12,14 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	var missions []*Mission
 	for rows.Next() {
 		var m Mission
-		var lastHeartbeat, lastActive, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
+		var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastActive, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &m.LastSummaryPromptCount, &m.AISummary, &m.TmuxWindowTitle, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &m.LastSummaryPromptCount, &m.AISummary, &m.TmuxWindowTitle, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
 			t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
 			m.LastHeartbeat = &t
-		}
-		if lastActive.Valid {
-			t, _ := time.Parse(time.RFC3339, lastActive.String)
-			m.LastActive = &t
 		}
 		if sessionNameUpdatedAt.Valid {
 			t, _ := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
@@ -54,18 +50,14 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 // scanMission scans a single mission row from a query result.
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
-	var lastHeartbeat, lastActive, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
+	var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastActive, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &m.LastSummaryPromptCount, &m.AISummary, &m.TmuxWindowTitle, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &m.LastSummaryPromptCount, &m.AISummary, &m.TmuxWindowTitle, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
 		t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
 		m.LastHeartbeat = &t
-	}
-	if lastActive.Valid {
-		t, _ := time.Parse(time.RFC3339, lastActive.String)
-		m.LastActive = &t
 	}
 	if sessionNameUpdatedAt.Valid {
 		t, _ := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)

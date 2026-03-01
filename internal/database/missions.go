@@ -18,7 +18,6 @@ type Mission struct {
 	Status                 string
 	GitRepo                string
 	LastHeartbeat          *time.Time
-	LastActive             *time.Time
 	SessionName            string
 	SessionNameUpdatedAt   *time.Time
 	CronID                 *string
@@ -81,7 +80,7 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 }
 
 // ListMissions returns missions ordered by the most recent activity timestamp
-// (newest of last_active, last_heartbeat, or created_at) descending.
+// (newest of last_heartbeat or created_at) descending.
 // If params.IncludeArchived is true, all missions are returned; otherwise archived missions are excluded.
 // If params.CronID is set, only missions with that cron_id are returned.
 func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
@@ -101,7 +100,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 // Returns (nil, error) only for actual database failures.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -120,7 +119,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 // to check if there is a running mission for the cron (for double-fire prevention).
 func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
 		cronName,
 	)
 
@@ -138,7 +137,7 @@ func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
 // tmux pane ID, or nil if no active mission is running in that pane.
 func (db *DB) GetMissionByTmuxPane(paneID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
 		paneID,
 	)
 
@@ -234,20 +233,6 @@ func (db *DB) UpdateHeartbeat(id string) error {
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update heartbeat for mission '%s'", id)
-	}
-	return nil
-}
-
-// UpdateLastActive sets the last_active timestamp to the current time for
-// the given mission. Called by the wrapper when the user submits a prompt.
-func (db *DB) UpdateLastActive(id string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.conn.Exec(
-		"UPDATE missions SET last_active = ? WHERE id = ?",
-		now, id,
-	)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to update last_active for mission '%s'", id)
 	}
 	return nil
 }
@@ -373,7 +358,7 @@ func (db *DB) SetMissionTmuxWindowTitle(id string, title string) error {
 // ListMissionsNeedingSummary returns active missions where the number of new
 // prompts since the last summarization meets or exceeds the given threshold.
 func (db *DB) ListMissionsNeedingSummary(threshold int) ([]*Mission, error) {
-	query := `SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_active,
+	query := `SELECT id, short_id, prompt, status, git_repo, last_heartbeat,
 		session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane,
 		prompt_count, last_summary_prompt_count, ai_summary, tmux_window_title, created_at, updated_at
 		FROM missions WHERE status = 'active' AND (prompt_count - last_summary_prompt_count) >= ?`

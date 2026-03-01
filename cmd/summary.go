@@ -135,9 +135,9 @@ func gatherDailyStats(missions []*database.Mission, dayStart, dayEnd time.Time) 
 				stats.FirstActivity = &m.CreatedAt
 			}
 		}
-		if m.LastActive != nil && m.LastActive.After(dayStart) && m.LastActive.Before(dayEnd) {
-			if stats.LastActivity == nil || m.LastActive.After(*stats.LastActivity) {
-				stats.LastActivity = m.LastActive
+		if m.LastHeartbeat != nil && m.LastHeartbeat.After(dayStart) && m.LastHeartbeat.Before(dayEnd) {
+			if stats.LastActivity == nil || m.LastHeartbeat.After(*stats.LastActivity) {
+				stats.LastActivity = m.LastHeartbeat
 			}
 		}
 	}

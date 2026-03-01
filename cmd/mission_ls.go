@@ -107,7 +107,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			}
 			if lsGitStatusFlag {
 				tbl.AddRow(
-					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					formatLastActive(m.LastHeartbeat, m.CreatedAt),
 					m.ShortID,
 					colorizeStatus(status),
 					pane,
@@ -118,7 +118,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				)
 			} else {
 				tbl.AddRow(
-					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					formatLastActive(m.LastHeartbeat, m.CreatedAt),
 					m.ShortID,
 					colorizeStatus(status),
 					pane,
@@ -130,7 +130,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		} else {
 			if lsGitStatusFlag {
 				tbl.AddRow(
-					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					formatLastActive(m.LastHeartbeat, m.CreatedAt),
 					m.ShortID,
 					colorizeStatus(status),
 					gitStatus,
@@ -139,7 +139,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				)
 			} else {
 				tbl.AddRow(
-					formatLastActive(m.LastActive, m.LastHeartbeat, m.CreatedAt),
+					formatLastActive(m.LastHeartbeat, m.CreatedAt),
 					m.ShortID,
 					colorizeStatus(status),
 					truncatePrompt(sessionName, defaultPromptMaxLen),
@@ -175,13 +175,8 @@ func displayGitRepo(gitRepo string) string {
 }
 
 // formatLastActive returns a human-readable timestamp of the mission's last
-// activity. Uses the newest of: LastActive (user prompt submission),
-// LastHeartbeat (wrapper liveness), or CreatedAt (mission creation).
-// This matches the COALESCE sorting used in database.ListMissions.
-func formatLastActive(lastActive *time.Time, lastHeartbeat *time.Time, createdAt time.Time) string {
-	if lastActive != nil {
-		return lastActive.Local().Format("2006-01-02 15:04")
-	}
+// activity. Uses the newest of: LastHeartbeat (wrapper liveness) or CreatedAt.
+func formatLastActive(lastHeartbeat *time.Time, createdAt time.Time) string {
 	if lastHeartbeat != nil {
 		return lastHeartbeat.Local().Format("2006-01-02 15:04")
 	}

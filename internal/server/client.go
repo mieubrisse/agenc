@@ -222,7 +222,7 @@ func (c *Client) Heartbeat(id string) error {
 	return c.Post("/missions/"+id+"/heartbeat", nil, nil)
 }
 
-// RecordPrompt updates last_active and increments prompt_count for a mission.
+// RecordPrompt increments prompt_count for a mission.
 func (c *Client) RecordPrompt(id string) error {
 	return c.Post("/missions/"+id+"/prompt", nil, nil)
 }

@@ -21,7 +21,6 @@ const (
 	addCronNameColumnSQL               = `ALTER TABLE missions ADD COLUMN cron_name TEXT;`
 	addConfigCommitColumnSQL           = `ALTER TABLE missions ADD COLUMN config_commit TEXT;`
 	addTmuxPaneColumnSQL               = `ALTER TABLE missions ADD COLUMN tmux_pane TEXT;`
-	addLastActiveColumnSQL             = `ALTER TABLE missions ADD COLUMN last_active TEXT;`
 	addPromptCountColumnSQL            = `ALTER TABLE missions ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0;`
 	addLastSummaryPromptCountColumnSQL = `ALTER TABLE missions ADD COLUMN last_summary_prompt_count INTEGER NOT NULL DEFAULT 0;`
 	addAISummaryColumnSQL              = `ALTER TABLE missions ADD COLUMN ai_summary TEXT NOT NULL DEFAULT '';`
@@ -212,22 +211,6 @@ func migrateAddTmuxPane(conn *sql.DB) error {
 	return err
 }
 
-// migrateAddLastActive idempotently adds the last_active column for tracking
-// when a user last submitted a prompt to a mission's Claude session.
-func migrateAddLastActive(conn *sql.DB) error {
-	columns, err := getColumnNames(conn)
-	if err != nil {
-		return err
-	}
-
-	if columns["last_active"] {
-		return nil
-	}
-
-	_, err = conn.Exec(addLastActiveColumnSQL)
-	return err
-}
-
 // migrateAddAISummary idempotently adds the prompt_count,
 // last_summary_prompt_count, and ai_summary columns for daemon-driven
 // AI mission summarization.
@@ -263,7 +246,7 @@ func migrateAddAISummary(conn *sql.DB) error {
 // cron job lookups, and summary eligibility checks.
 func migrateAddQueryIndices(conn *sql.DB) error {
 	indices := []string{
-		"CREATE INDEX IF NOT EXISTS idx_missions_activity ON missions(last_active DESC, last_heartbeat DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_missions_activity ON missions(last_heartbeat DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_missions_tmux_pane ON missions(tmux_pane) WHERE tmux_pane IS NOT NULL",
 		"CREATE INDEX IF NOT EXISTS idx_missions_summary ON missions(status, prompt_count, last_summary_prompt_count)",
 		"CREATE INDEX IF NOT EXISTS idx_missions_cron_name ON missions(cron_name) WHERE cron_name IS NOT NULL",
@@ -308,6 +291,33 @@ func migrateAddTmuxWindowTitle(conn *sql.DB) error {
 
 	_, err = conn.Exec(addTmuxWindowTitleColumnSQL)
 	return err
+}
+
+// migrateDropLastActive idempotently drops the last_active column and
+// recreates the activity index to cover only last_heartbeat.
+func migrateDropLastActive(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if !columns["last_active"] {
+		return nil
+	}
+
+	if _, err := conn.Exec("ALTER TABLE missions DROP COLUMN last_active"); err != nil {
+		return stacktrace.Propagate(err, "failed to drop last_active column")
+	}
+
+	// Recreate the activity index without last_active
+	if _, err := conn.Exec("DROP INDEX IF EXISTS idx_missions_activity"); err != nil {
+		return stacktrace.Propagate(err, "failed to drop old activity index")
+	}
+	if _, err := conn.Exec("CREATE INDEX IF NOT EXISTS idx_missions_activity ON missions(last_heartbeat DESC)"); err != nil {
+		return stacktrace.Propagate(err, "failed to create new activity index")
+	}
+
+	return nil
 }
 
 // migrateCreateSessionsTable idempotently creates the sessions table and its

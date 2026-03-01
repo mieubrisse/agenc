@@ -24,7 +24,6 @@ type MissionResponse struct {
 	Status                 string     `json:"status"`
 	GitRepo                string     `json:"git_repo"`
 	LastHeartbeat          *time.Time `json:"last_heartbeat"`
-	LastActive             *time.Time `json:"last_active"`
 	SessionName            string     `json:"session_name"`
 	SessionNameUpdatedAt   *time.Time `json:"session_name_updated_at"`
 	CronID                 *string    `json:"cron_id"`
@@ -48,7 +47,6 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		Status:                 mr.Status,
 		GitRepo:                mr.GitRepo,
 		LastHeartbeat:          mr.LastHeartbeat,
-		LastActive:             mr.LastActive,
 		SessionName:            mr.SessionName,
 		SessionNameUpdatedAt:   mr.SessionNameUpdatedAt,
 		CronID:                 mr.CronID,
@@ -72,7 +70,6 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		Status:                 m.Status,
 		GitRepo:                m.GitRepo,
 		LastHeartbeat:          m.LastHeartbeat,
-		LastActive:             m.LastActive,
 		SessionName:            m.SessionName,
 		SessionNameUpdatedAt:   m.SessionNameUpdatedAt,
 		CronID:                 m.CronID,
@@ -744,17 +741,13 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) error {
 }
 
 // handleRecordPrompt handles POST /missions/{id}/prompt.
-// Updates last_active and increments the prompt count.
+// Increments the prompt count for the mission.
 func (s *Server) handleRecordPrompt(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
 		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
-	}
-
-	if err := s.db.UpdateLastActive(resolvedID); err != nil {
-		return newHTTPErrorf(http.StatusInternalServerError, "failed to update last_active: %s", err.Error())
 	}
 
 	if err := s.db.IncrementPromptCount(resolvedID); err != nil {

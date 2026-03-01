@@ -186,7 +186,6 @@ func TestGetMissionByTmuxPane_OnlyActiveReturned(t *testing.T) {
 func TestListMissions_SortsByNewestActivity(t *testing.T) {
 	db := openTestDB(t)
 
-	// Create three missions with different activity patterns
 	m1, err := db.CreateMission("github.com/owner/repo1", nil)
 	if err != nil {
 		t.Fatalf("failed to create mission 1: %v", err)
@@ -202,20 +201,23 @@ func TestListMissions_SortsByNewestActivity(t *testing.T) {
 		t.Fatalf("failed to create mission 3: %v", err)
 	}
 
-	// m1: has only last_active (most recent)
-	if err := db.UpdateLastActive(m1.ID); err != nil {
-		t.Fatalf("failed to update last_active for m1: %v", err)
+	// m1: has last_heartbeat (most recent)
+	if err := db.UpdateHeartbeat(m1.ID); err != nil {
+		t.Fatalf("failed to update heartbeat for m1: %v", err)
 	}
 
-	// m2: has only last_heartbeat (older than m1, newer than m3)
-	if err := db.UpdateHeartbeat(m2.ID); err != nil {
-		t.Fatalf("failed to update heartbeat for m2: %v", err)
+	// m2: has older heartbeat
+	oldHeartbeat := "2026-01-01T12:00:00Z"
+	if _, err := db.conn.Exec("UPDATE missions SET last_heartbeat = ? WHERE id = ?", oldHeartbeat, m2.ID); err != nil {
+		t.Fatalf("failed to set old heartbeat for m2: %v", err)
 	}
 
-	// m3: has neither (only created_at, oldest)
-	// No updates needed - it keeps NULL for both timestamps
+	// m3: no heartbeat, backdate created_at to ensure it's oldest
+	oldCreated := "2025-01-01T00:00:00Z"
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", oldCreated, m3.ID); err != nil {
+		t.Fatalf("failed to backdate m3: %v", err)
+	}
 
-	// List missions
 	missions, err := db.ListMissions(ListMissionsParams{IncludeArchived: false})
 	if err != nil {
 		t.Fatalf("failed to list missions: %v", err)
@@ -225,15 +227,14 @@ func TestListMissions_SortsByNewestActivity(t *testing.T) {
 		t.Fatalf("expected 3 missions, got %d", len(missions))
 	}
 
-	// Verify sort order: m1 (last_active), m2 (last_heartbeat), m3 (created_at only)
 	if missions[0].ID != m1.ID {
-		t.Errorf("expected first mission to be m1 (has last_active), got %s", missions[0].ID)
+		t.Errorf("expected first mission to be m1 (recent heartbeat), got %s", missions[0].ID)
 	}
 	if missions[1].ID != m2.ID {
-		t.Errorf("expected second mission to be m2 (has last_heartbeat), got %s", missions[1].ID)
+		t.Errorf("expected second mission to be m2 (old heartbeat), got %s", missions[1].ID)
 	}
 	if missions[2].ID != m3.ID {
-		t.Errorf("expected third mission to be m3 (has only created_at), got %s", missions[2].ID)
+		t.Errorf("expected third mission to be m3 (only created_at), got %s", missions[2].ID)
 	}
 }
 
@@ -258,7 +259,7 @@ func TestListMissions_BrandNewMissionAppearsFirst(t *testing.T) {
 		t.Fatalf("failed to set old heartbeat: %v", err)
 	}
 
-	// Create a brand new mission (no heartbeat, no last_active)
+	// Create a brand new mission (no heartbeat)
 	newer, err := db.CreateMission("github.com/owner/new-repo", nil)
 	if err != nil {
 		t.Fatalf("failed to create newer mission: %v", err)

@@ -74,11 +74,6 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to add tmux_pane column")
 	}
 
-	if err := migrateAddLastActive(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add last_active column")
-	}
-
 	if err := migrateAddAISummary(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to add AI summary columns")
@@ -97,6 +92,11 @@ func Open(dbFilepath string) (*DB, error) {
 	if err := migrateCreateSessionsTable(conn); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to create sessions table")
+	}
+
+	if err := migrateDropLastActive(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to drop last_active column")
 	}
 
 	// Backfill: strip "%" prefix from tmux_pane values stored by older builds
