@@ -32,6 +32,11 @@ func (s *Server) runSessionScannerLoop(ctx context.Context) {
 		s.runSessionScannerCycle()
 	}
 
+	// One-time reconciliation pass: ensure all pool missions have correct
+	// tmux window titles. This catches stale state from a previous server
+	// version where reconciliation may have failed silently.
+	s.reconcileAllPoolTitles()
+
 	ticker := time.NewTicker(sessionScannerInterval)
 	defer ticker.Stop()
 
@@ -70,11 +75,19 @@ func (s *Server) runSessionScannerCycle() {
 		}
 
 		s.scanMissionJSONLFiles(mission.ID, projectDirpath)
+	}
+}
 
-		// Always reconcile tmux window title — the DB may already have the
-		// correct title from a previous scan but the tmux window might be
-		// stale (e.g. after a server restart or a prior rename failure).
-		// reconcileTmuxWindowTitle is idempotent and skips when already correct.
+// reconcileAllPoolTitles reconciles the tmux window title for every mission
+// currently running in the pool. Called once on server startup to catch any
+// stale tmux state from a previous server version.
+func (s *Server) reconcileAllPoolTitles() {
+	paneIDs := listPoolPaneIDs()
+	for _, paneID := range paneIDs {
+		mission, err := s.db.GetMissionByTmuxPane(paneID)
+		if err != nil || mission == nil {
+			continue
+		}
 		s.reconcileTmuxWindowTitle(mission.ID)
 	}
 }
@@ -128,9 +141,18 @@ func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) 
 			continue
 		}
 
+		// Track whether display-relevant data changed (for tmux reconciliation)
+		customTitleChanged := customTitle != "" && customTitle != sess.CustomTitle
+		autoSummaryChanged := autoSummary != "" && autoSummary != sess.AutoSummary
+
 		if err := s.db.UpdateSessionScanResults(sessionID, customTitle, autoSummary, fileSize); err != nil {
 			s.logger.Printf("Session scanner: failed to update session '%s': %v", sessionID, err)
 			continue
+		}
+
+		// Reconcile tmux window title when display-relevant data changes
+		if customTitleChanged || autoSummaryChanged {
+			s.reconcileTmuxWindowTitle(missionID)
 		}
 	}
 }
