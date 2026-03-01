@@ -32,11 +32,6 @@ func (s *Server) runSessionScannerLoop(ctx context.Context) {
 		s.runSessionScannerCycle()
 	}
 
-	// One-time reconciliation pass: ensure all pool missions have correct
-	// tmux window titles. This catches stale state from a previous server
-	// version where reconciliation may have failed silently.
-	s.reconcileAllPoolTitles()
-
 	ticker := time.NewTicker(sessionScannerInterval)
 	defer ticker.Stop()
 
@@ -75,20 +70,6 @@ func (s *Server) runSessionScannerCycle() {
 		}
 
 		s.scanMissionJSONLFiles(mission.ID, projectDirpath)
-	}
-}
-
-// reconcileAllPoolTitles reconciles the tmux window title for every mission
-// currently running in the pool. Called once on server startup to catch any
-// stale tmux state from a previous server version.
-func (s *Server) reconcileAllPoolTitles() {
-	paneIDs := listPoolPaneIDs()
-	for _, paneID := range paneIDs {
-		mission, err := s.db.GetMissionByTmuxPane(paneID)
-		if err != nil || mission == nil {
-			continue
-		}
-		s.reconcileTmuxWindowTitle(mission.ID)
 	}
 }
 
