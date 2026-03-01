@@ -6,11 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/mission"
 	"github.com/odyssey/agenc/internal/repo"
 )
@@ -40,20 +38,27 @@ func init() {
 }
 
 func runRepoRm(cmd *cobra.Command, args []string) error {
-	cfg, cm, err := readConfigWithComments()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
 
-	reposDirpath := config.GetReposDirpath(agencDirpath)
-	repos, err := repo.FindReposOnDisk(reposDirpath)
+	repoResponses, err := client.ListRepos()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to scan repos directory")
+		return stacktrace.Propagate(err, "failed to list repos")
 	}
 
-	if len(repos) == 0 {
+	if len(repoResponses) == 0 {
 		fmt.Println("No repositories in the repo library.")
 		return nil
+	}
+
+	// Build lookup map for synced status
+	syncedMap := make(map[string]bool, len(repoResponses))
+	var repoNames []string
+	for _, r := range repoResponses {
+		repoNames = append(repoNames, r.Name)
+		syncedMap[r.Name] = r.Synced
 	}
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
@@ -66,12 +71,10 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return "", false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)
 			}
-			// Note: canonical resolution returns the parsed name even if not in repos list
-			// The actual validation happens in removeSingleRepo
 			return name, true, nil
 		},
-		GetItems:          func() ([]string, error) { return repos, nil },
-		FormatRow:         func(repo string) []string { return []string{displayGitRepo(repo)} },
+		GetItems:          func() ([]string, error) { return repoNames, nil },
+		FormatRow:         func(repoName string) []string { return []string{displayGitRepo(repoName)} },
 		FzfPrompt:         "Select repos to remove (TAB to multi-select): ",
 		FzfHeaders:        []string{"REPO"},
 		MultiSelect:       true,
@@ -86,56 +89,24 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, repoName := range result.Items {
-		if err := removeSingleRepo(cfg, cm, repoName); err != nil {
-			return err
+		if syncedMap[repoName] {
+			fmt.Printf("'%s' is a synced repo. Remove it? [y/N] ", repoName)
+			reader := bufio.NewReader(os.Stdin)
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				return stacktrace.Propagate(err, "failed to read confirmation")
+			}
+			if strings.TrimSpace(input) != "y" {
+				fmt.Printf("Skipped '%s'\n", repoName)
+				continue
+			}
 		}
-	}
-	return nil
-}
 
-func removeSingleRepo(cfg *config.AgencConfig, cm yaml.CommentMap, repoName string) error {
-	// Check whether the repo exists (on disk or in config) before removing
-	repoDirpath := config.GetRepoDirpath(agencDirpath, repoName)
-	_, statErr := os.Stat(repoDirpath)
-	existsOnDisk := statErr == nil
-	isSynced := cfg.IsAlwaysSynced(repoName)
-	_, hasRepoConfig := cfg.GetRepoConfig(repoName)
-
-	if !existsOnDisk && !hasRepoConfig {
-		fmt.Printf("'%s' not found\n", repoName)
-		return nil
-	}
-
-	// Synced repos get an extra confirmation since the daemon actively
-	// maintains them and removing one is a more significant action.
-	if isSynced {
-		fmt.Printf("'%s' is a synced repo. Remove it? [y/N] ", repoName)
-		reader := bufio.NewReader(os.Stdin)
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read confirmation")
+		if err := client.RemoveRepo(repoName); err != nil {
+			return stacktrace.Propagate(err, "failed to remove repo '%s'", repoName)
 		}
-		if strings.TrimSpace(input) != "y" {
-			fmt.Printf("Skipped '%s'\n", repoName)
-			return nil
-		}
+		fmt.Printf("Removed '%s'\n", repoName)
 	}
 
-	if hasRepoConfig {
-		cfg.RemoveRepoConfig(repoName)
-
-		if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-			return stacktrace.Propagate(err, "failed to write config")
-		}
-	}
-
-	// Remove cloned repo from disk
-	if existsOnDisk {
-		if err := os.RemoveAll(repoDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to remove repo directory '%s'", repoDirpath)
-		}
-	}
-
-	fmt.Printf("Removed '%s'\n", repoName)
 	return nil
 }

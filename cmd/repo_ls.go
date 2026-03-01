@@ -6,8 +6,6 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/repo"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -22,26 +20,25 @@ func init() {
 }
 
 func runRepoLs(cmd *cobra.Command, args []string) error {
-	cfg, err := readConfig()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
 
-	reposDirpath := config.GetReposDirpath(agencDirpath)
-	repoNames, err := repo.FindReposOnDisk(reposDirpath)
+	repos, err := client.ListRepos()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to scan repos directory")
+		return stacktrace.Propagate(err, "failed to list repos")
 	}
 
-	if len(repoNames) == 0 {
+	if len(repos) == 0 {
 		fmt.Println("No repositories in the repo library.")
 		return nil
 	}
 
 	tbl := tableprinter.NewTable("REPO", "SYNCED")
-	for _, repoName := range repoNames {
-		synced := formatCheckmark(cfg.IsAlwaysSynced(repoName))
-		tbl.AddRow(displayGitRepo(repoName), synced)
+	for _, r := range repos {
+		synced := formatCheckmark(r.Synced)
+		tbl.AddRow(displayGitRepo(r.Name), synced)
 	}
 	tbl.Print()
 
