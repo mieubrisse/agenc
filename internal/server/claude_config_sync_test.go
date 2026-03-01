@@ -8,6 +8,7 @@ import (
 )
 
 const testAgencDirpath = "/tmp/test-agenc"
+const testAgentDirpath = "/tmp/test-agenc/missions/test-mission/agent"
 const testClaudeConfigDirpath = "/tmp/test-agenc/missions/test-mission/claude-config"
 
 func TestMergeSettingsWithAgencOverrides(t *testing.T) {
@@ -17,12 +18,13 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 		checkMerged func(t *testing.T, settings map[string]json.RawMessage)
 	}{
 		{
-			name:      "empty settings gets agenc hooks and deny permissions",
+			name:      "empty settings gets agenc hooks and allow/deny permissions",
 			inputJSON: `{}`,
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
 				hooks := parseHooksMap(t, settings)
 				assertHookArrayLen(t, hooks, "Stop", 1)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
+				assertAllowContainsAgentDirEntries(t, settings)
 				assertDenyContainsAgencEntries(t, settings)
 			},
 		},
@@ -59,7 +61,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 			},
 		},
 		{
-			name: "non-hooks fields are preserved and deny permissions added",
+			name: "non-hooks fields are preserved and allow/deny permissions added",
 			inputJSON: `{
 				"permissions": {"allow": ["Read(./**)"]},
 				"enabledPlugins": {"foo": true}
@@ -71,11 +73,10 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 				hooks := parseHooksMap(t, settings)
 				assertHookArrayLen(t, hooks, "Stop", 1)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
-				// permissions.allow should be preserved
-				perms := parsePermsMap(t, settings)
-				if _, ok := perms["allow"]; !ok {
-					t.Error("permissions.allow was lost")
-				}
+				// existing permissions.allow should be preserved alongside agenc entries
+				allow := parseAllowArray(t, settings)
+				assertAllowContains(t, allow, "Read(./**)")
+				assertAllowContainsAgentDirEntries(t, settings)
 				assertDenyContainsAgencEntries(t, settings)
 			},
 		},
@@ -125,7 +126,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath, testClaudeConfigDirpath)
+			result, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath, testAgentDirpath, testClaudeConfigDirpath)
 			if err != nil {
 				t.Fatalf("claudeconfig.MergeSettingsWithAgencOverrides returned error: %v", err)
 			}
@@ -141,7 +142,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 }
 
 func TestMergeSettingsWithAgencOverrides_InvalidJSON(t *testing.T) {
-	_, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath, testClaudeConfigDirpath)
+	_, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath, testAgentDirpath, testClaudeConfigDirpath)
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}
@@ -300,6 +301,20 @@ func parsePermsMap(t *testing.T, settings map[string]json.RawMessage) map[string
 	return perms
 }
 
+func parseAllowArray(t *testing.T, settings map[string]json.RawMessage) []string {
+	t.Helper()
+	perms := parsePermsMap(t, settings)
+	allowRaw, ok := perms["allow"]
+	if !ok {
+		t.Fatal("permissions missing 'allow' key")
+	}
+	var allow []string
+	if err := json.Unmarshal(allowRaw, &allow); err != nil {
+		t.Fatalf("failed to parse allow array: %v", err)
+	}
+	return allow
+}
+
 func parseDenyArray(t *testing.T, settings map[string]json.RawMessage) []string {
 	t.Helper()
 	perms := parsePermsMap(t, settings)
@@ -312,6 +327,24 @@ func parseDenyArray(t *testing.T, settings map[string]json.RawMessage) []string 
 		t.Fatalf("failed to parse deny array: %v", err)
 	}
 	return deny
+}
+
+func assertAllowContains(t *testing.T, allow []string, entry string) {
+	t.Helper()
+	for _, a := range allow {
+		if a == entry {
+			return
+		}
+	}
+	t.Errorf("allow array does not contain expected entry %q", entry)
+}
+
+func assertAllowContainsAgentDirEntries(t *testing.T, settings map[string]json.RawMessage) {
+	t.Helper()
+	allow := parseAllowArray(t, settings)
+	for _, expected := range claudeconfig.BuildAgentDirAllowEntries(testAgentDirpath) {
+		assertAllowContains(t, allow, expected)
+	}
 }
 
 func assertDenyContains(t *testing.T, deny []string, entry string) {

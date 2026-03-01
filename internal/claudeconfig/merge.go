@@ -218,10 +218,11 @@ func MergeClaudeMd(userContent []byte, modsContent []byte) []byte {
 }
 
 // MergeSettings reads user settings and agenc-modifications settings, deep-merges
-// them, and appends agenc operational overrides (hooks + deny permissions). Returns
-// the final merged JSON bytes. claudeConfigDirpath is the per-mission config
+// them, and appends agenc operational overrides (hooks + allow/deny permissions).
+// Returns the final merged JSON bytes. agentDirpath is the mission's working
+// directory to allow access to. claudeConfigDirpath is the per-mission config
 // directory that should be denied from agent access.
-func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string, claudeConfigDirpath string) ([]byte, error) {
+func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string) ([]byte, error) {
 	// Default to empty objects if nil
 	if userSettingsData == nil {
 		userSettingsData = []byte("{}")
@@ -253,8 +254,8 @@ func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpat
 		return nil, stacktrace.Propagate(err, "failed to marshal merged settings base")
 	}
 
-	// Append agenc operational overrides (hooks + deny permissions)
-	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath, claudeConfigDirpath)
+	// Append agenc operational overrides (hooks + allow/deny permissions)
+	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath, agentDirpath, claudeConfigDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to merge settings with agenc overrides")
 	}
@@ -263,10 +264,11 @@ func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpat
 }
 
 // MergeSettingsWithAgencOverrides takes raw JSON bytes of settings, merges in
-// agenc-specific hooks and deny permissions, and returns the merged JSON bytes.
-// The existing hooks and permissions are preserved; agenc entries are appended.
+// agenc-specific hooks and allow/deny permissions, and returns the merged JSON
+// bytes. The existing hooks and permissions are preserved; agenc entries are
+// appended. agentDirpath is the mission's working directory to allow access to.
 // claudeConfigDirpath is the per-mission config directory to deny agent access to.
-func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, claudeConfigDirpath string) ([]byte, error) {
+func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string) ([]byte, error) {
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal(settingsData, &settings); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse settings JSON")
@@ -310,7 +312,7 @@ func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, c
 	}
 	settings["hooks"] = json.RawMessage(hooksData)
 
-	// --- Permissions (deny) ---
+	// --- Permissions ---
 
 	var permsMap map[string]json.RawMessage
 	if existingPerms, ok := settings["permissions"]; ok {
@@ -321,6 +323,22 @@ func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, c
 		permsMap = make(map[string]json.RawMessage)
 	}
 
+	// Allow: grant agents full access to their own working directory
+	var existingAllow []string
+	if allowData, ok := permsMap["allow"]; ok {
+		if err := json.Unmarshal(allowData, &existingAllow); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse existing allow array")
+		}
+	}
+
+	mergedAllow := append(existingAllow, BuildAgentDirAllowEntries(agentDirpath)...)
+	allowBytes, err := json.Marshal(mergedAllow)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal merged allow array")
+	}
+	permsMap["allow"] = json.RawMessage(allowBytes)
+
+	// Deny: block access to shared repos and the mission's own claude-config
 	var existingDeny []string
 	if denyData, ok := permsMap["deny"]; ok {
 		if err := json.Unmarshal(denyData, &existingDeny); err != nil {

@@ -31,15 +31,47 @@ func init() {
 	}
 }
 
-// AgencDenyPermissionTools lists the Claude Code tools to deny access for
-// on the repo library directory.
-var AgencDenyPermissionTools = []string{
+// AgencFilePermissionTools lists the Claude Code file-access tools used to
+// construct both allow and deny permission entries.
+var AgencFilePermissionTools = []string{
 	"Read",
 	"Glob",
 	"Grep",
 	"Write",
 	"Edit",
 	"NotebookEdit",
+}
+
+// AgencDenyPermissionTools is an alias preserved for readability in deny-specific
+// contexts. It references the same tool list as AgencFilePermissionTools.
+var AgencDenyPermissionTools = AgencFilePermissionTools
+
+// BuildAgentDirAllowEntries returns permission allow entries that grant agents
+// full read/write access to their own working directory. Generates entries
+// using both relative paths (./**) and absolute path variants (absolute,
+// tilde, ${HOME}) to ensure the sandbox filesystem allowlist includes the
+// agent directory regardless of how paths are resolved.
+func BuildAgentDirAllowEntries(agentDirpath string) []string {
+	// Relative entries cover tool-level access from the working directory
+	relativePattern := "./**"
+
+	// Absolute entries ensure the Bash sandbox filesystem allowlist includes
+	// the agent directory by its full path
+	absolutePatterns := buildPathVariants(agentDirpath)
+
+	allPatterns := make([]string, 0, 1+len(absolutePatterns))
+	allPatterns = append(allPatterns, relativePattern)
+	for _, p := range absolutePatterns {
+		allPatterns = append(allPatterns, p+"/**")
+	}
+
+	entries := make([]string, 0, len(AgencFilePermissionTools)*len(allPatterns))
+	for _, tool := range AgencFilePermissionTools {
+		for _, pattern := range allPatterns {
+			entries = append(entries, tool+"("+pattern+")")
+		}
+	}
+	return entries
 }
 
 // BuildRepoLibraryDenyEntries constructs permission deny entries that prevent
