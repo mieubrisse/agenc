@@ -40,6 +40,14 @@ func (s *Server) reconcileTmuxWindowTitle(missionID string) {
 	// Step 3: Determine the best title
 	bestTitle := determineBestTitle(activeSession, mission)
 
+	s.logger.Printf("Tmux reconcile [%s]: bestTitle=%q (custom=%q, agencCustom=%q, auto=%q, stored=%q)",
+		mission.ShortID, bestTitle,
+		sessionField(activeSession, func(s *database.Session) string { return s.CustomTitle }),
+		sessionField(activeSession, func(s *database.Session) string { return s.AgencCustomTitle }),
+		sessionField(activeSession, func(s *database.Session) string { return s.AutoSummary }),
+		mission.TmuxWindowTitle,
+	)
+
 	// Step 4: Apply the title to tmux
 	s.applyTmuxTitle(mission, bestTitle)
 }
@@ -78,6 +86,7 @@ func determineBestTitle(activeSession *database.Session, mission *database.Missi
 func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 	// No tmux pane registered -- mission is not running in tmux
 	if mission.TmuxPane == nil || *mission.TmuxPane == "" {
+		s.logger.Printf("Tmux reconcile [%s]: skipping — no tmux pane registered", mission.ShortID)
 		return
 	}
 
@@ -87,6 +96,7 @@ func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 
 	// Guard: only rename if this pane is the sole pane in its window
 	if !isSolePaneInTmuxWindow(paneID) {
+		s.logger.Printf("Tmux reconcile [%s]: skipping — pane %s is not the sole pane in its window", mission.ShortID, paneID)
 		return
 	}
 
@@ -95,6 +105,7 @@ func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 	if mission.TmuxWindowTitle != "" {
 		currentName := queryTmuxWindowName(paneID)
 		if currentName != mission.TmuxWindowTitle {
+			s.logger.Printf("Tmux reconcile [%s]: skipping — window was manually renamed (stored=%q, current=%q)", mission.ShortID, mission.TmuxWindowTitle, currentName)
 			return
 		}
 	}
@@ -106,11 +117,12 @@ func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 		return
 	}
 
-	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "rename-window", "-t", paneID, truncatedTitle).Run()
+	if err := exec.Command("tmux", "rename-window", "-t", paneID, truncatedTitle).Run(); err != nil {
+		s.logger.Printf("Tmux reconcile [%s]: tmux rename-window failed for pane %s: %v", mission.ShortID, paneID, err)
+	}
 
 	if err := s.db.SetMissionTmuxWindowTitle(mission.ID, truncatedTitle); err != nil {
-		s.logger.Printf("Tmux reconcile: failed to save window title for %s: %v", mission.ShortID, err)
+		s.logger.Printf("Tmux reconcile [%s]: failed to save window title: %v", mission.ShortID, err)
 	}
 }
 
@@ -143,6 +155,15 @@ func truncateTitle(title string, maxLen int) string {
 	}
 	runes := []rune(collapsed)
 	return string(runes[:maxLen-1]) + "…"
+}
+
+// sessionField safely extracts a string field from a session, returning ""
+// if the session is nil.
+func sessionField(s *database.Session, fn func(*database.Session) string) string {
+	if s == nil {
+		return ""
+	}
+	return fn(s)
 }
 
 // extractRepoShortName extracts just the repository name from a canonical repo
