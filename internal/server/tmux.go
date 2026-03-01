@@ -19,9 +19,10 @@ const (
 //
 // Title priority (highest to lowest):
 //  1. Active session's custom_title (from /rename)
-//  2. Active session's auto_summary (from Claude or AgenC summarizer)
-//  3. Repo short name (from git_repo)
-//  4. Mission short ID (fallback)
+//  2. Active session's agenc_custom_title (user-set via CLI)
+//  3. Active session's auto_summary (from Claude or AgenC summarizer)
+//  4. Repo short name (from git_repo)
+//  5. Mission short ID (fallback)
 func (s *Server) reconcileTmuxWindowTitle(missionID string) {
 	// Step 1: Get the active session's metadata
 	activeSession, err := s.db.GetActiveSession(missionID)
@@ -50,12 +51,17 @@ func determineBestTitle(activeSession *database.Session, mission *database.Missi
 		return activeSession.CustomTitle
 	}
 
-	// Priority 2: auto_summary
+	// Priority 2: agenc_custom_title from user rename
+	if activeSession != nil && activeSession.AgencCustomTitle != "" {
+		return activeSession.AgencCustomTitle
+	}
+
+	// Priority 3: auto_summary
 	if activeSession != nil && activeSession.AutoSummary != "" {
 		return activeSession.AutoSummary
 	}
 
-	// Priority 3: repo short name
+	// Priority 4: repo short name
 	if mission.GitRepo != "" {
 		repoName := extractRepoShortName(mission.GitRepo)
 		if repoName != "" {
@@ -63,7 +69,7 @@ func determineBestTitle(activeSession *database.Session, mission *database.Missi
 		}
 	}
 
-	// Priority 4: mission short ID
+	// Priority 5: mission short ID
 	return mission.ShortID
 }
 
