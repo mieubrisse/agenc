@@ -86,6 +86,7 @@ The server is a long-running HTTP API process that listens on a unix socket. It 
 
 Current endpoints:
 - `GET /health` — returns `{"status": "ok", "version": "<version>"}`
+- `GET /server/logs` — returns server log content as plain text (supports `source` and `mode` query params)
 - `GET /missions` — lists all missions (supports `include_archived` and `cron_id` query params)
 - `GET /missions/{id}` — get a single mission by ID (supports short ID resolution)
 - `POST /missions` — create a new mission (DB record, directory, wrapper spawn in pool)
