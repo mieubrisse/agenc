@@ -328,13 +328,14 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		return fmt.Errorf("failed to create pool window: %w", err)
 	}
 
-	// Store the pane ID and trigger title reconciliation
+	// Store the pane ID
 	if err := s.db.SetTmuxPane(missionRecord.ID, paneID); err != nil {
 		s.logger.Printf("Warning: failed to store pane ID for mission %s: %v", missionRecord.ShortID, err)
 	}
-	s.reconcileTmuxWindowTitle(missionRecord.ID)
 
-	// Link the pool window into the caller's session (if provided)
+	// Link the pool window into the caller's session (if provided).
+	// This must happen BEFORE title reconciliation because reconciliation
+	// renames the window, and linkPoolWindow resolves by the original name.
 	tmuxSession := req.TmuxSession
 	if tmuxSession != "" {
 		if err := linkPoolWindow(poolWindowTarget, tmuxSession); err != nil {
@@ -342,6 +343,8 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 			return fmt.Errorf("failed to link pool window: %w", err)
 		}
 	}
+
+	s.reconcileTmuxWindowTitle(missionRecord.ID)
 
 	return nil
 }
@@ -562,6 +565,10 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to link window: %s", err.Error())
 	}
 
+	// Reconcile window title after linking (reconciliation renames the window,
+	// so it must happen after linkPoolWindow which resolves by the original name).
+	s.reconcileTmuxWindowTitle(resolvedID)
+
 	s.logger.Printf("Attached mission %s to session %s", database.ShortID(resolvedID), req.TmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "attached"})
 	return nil
@@ -630,11 +637,11 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 		return fmt.Errorf("failed to create pool window: %w", err)
 	}
 
-	// Store the pane ID and trigger title reconciliation
+	// Store the pane ID (don't reconcile title here — the caller links the
+	// window by name after this returns, and reconciliation renames it).
 	if err := s.db.SetTmuxPane(missionRecord.ID, paneID); err != nil {
 		s.logger.Printf("Warning: failed to store pane ID for mission %s: %v", database.ShortID(missionRecord.ID), err)
 	}
-	s.reconcileTmuxWindowTitle(missionRecord.ID)
 
 	s.logger.Printf("Started wrapper in pool window %s for mission %s", poolWindowTarget, database.ShortID(missionRecord.ID))
 	return nil
