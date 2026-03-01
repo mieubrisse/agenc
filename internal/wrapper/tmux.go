@@ -25,8 +25,7 @@ func isSolePaneInWindow(paneID string) bool {
 //  2. repo short name
 //  3. mission ID
 //
-// Only renames the window if this pane is the sole pane in the window and the
-// user has not manually renamed the window since the last AgenC-managed rename.
+// Only renames the window if this pane is the sole pane in the window.
 // In regular tmux sessions or outside tmux, this is a no-op.
 func (w *Wrapper) renameWindowForTmux() {
 	if os.Getenv("TMUX") == "" {
@@ -158,17 +157,6 @@ func extractRepoName(gitRepoName string) string {
 		return ""
 	}
 	return parts[len(parts)-1]
-}
-
-// currentWindowName returns the current name of the tmux window containing
-// paneID, by querying tmux directly. Returns "" if the query fails or we are
-// not inside tmux.
-func currentWindowName(paneID string) string {
-	out, err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "#{window_name}").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // applyWindowTitle renames the tmux window for this pane to title, subject to

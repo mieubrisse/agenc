@@ -116,16 +116,6 @@ func isSolePaneInTmuxWindow(paneID string) bool {
 	return strings.TrimSpace(string(out)) == "1"
 }
 
-// queryTmuxWindowName returns the current name of the tmux window containing
-// paneID. Returns "" if the query fails.
-func queryTmuxWindowName(paneID string) string {
-	out, err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "#{window_name}").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // truncateTitle truncates a string to maxLen runes, appending an ellipsis if
 // truncation occurs. Collapses internal whitespace first.
 func truncateTitle(title string, maxLen int) string {
