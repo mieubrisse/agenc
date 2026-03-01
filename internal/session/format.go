@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -173,14 +174,19 @@ func formatUserEntry(rawMessage json.RawMessage) string {
 		return "[USER]\n" + textContent + "\n"
 	}
 
-	// Array content — look for tool_result blocks with errors.
+	// Array content — look for user text and tool_result blocks with errors.
 	var blocks []contentBlock
 	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
 		return ""
 	}
 
 	var parts []string
+	hasUserText := false
 	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			hasUserText = true
+			parts = append(parts, b.Text)
+		}
 		if b.Type == "tool_result" && b.IsError {
 			errMsg := extractToolResultError(b)
 			if errMsg != "" {
@@ -193,7 +199,10 @@ func formatUserEntry(rawMessage json.RawMessage) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "[USER]\n" + strings.Join(parts, "\n") + "\n"
+	if hasUserText {
+		return "[USER]\n" + strings.Join(parts, "\n") + "\n"
+	}
+	return strings.Join(parts, "\n") + "\n"
 }
 
 // formatAssistantEntry formats an assistant message entry. Text blocks are
@@ -292,10 +301,16 @@ func formatToolCall(toolName string, input map[string]interface{}) string {
 }
 
 // formatMCPToolCall formats a tool call for an MCP tool by using the first
-// string-valued field from the input map.
+// string-valued field (in alphabetical key order) from the input map.
 func formatMCPToolCall(toolName string, input map[string]interface{}) string {
-	for _, val := range input {
-		if strVal, ok := val.(string); ok && strVal != "" {
+	keys := make([]string, 0, len(input))
+	for k := range input {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		if strVal, ok := input[k].(string); ok && strVal != "" {
 			return fmt.Sprintf("  > %s(%q)", toolName, truncate(strVal, maxToolParamLen))
 		}
 	}
