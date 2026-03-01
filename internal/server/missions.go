@@ -731,6 +731,10 @@ func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) err
 			if err := s.db.SetTmuxPane(resolvedID, *req.TmuxPane); err != nil {
 				return newHTTPErrorf(http.StatusInternalServerError, "failed to set tmux_pane: %s", err.Error())
 			}
+			// Trigger initial tmux window title reconciliation now that the pane
+			// is registered. This replaces the wrapper-side window rename that was
+			// removed — the server is the sole owner of window titles.
+			s.reconcileTmuxWindowTitle(resolvedID)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
