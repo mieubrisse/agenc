@@ -197,6 +197,20 @@ The ` + "`agenc`" + ` binary is in your PATH. Your current mission's UUID is in 
 {{ $maxLen := maxUsageLen .Commands }}{{ range .Commands }}{{ padRight .Usage $maxLen }}  # {{ .Description }}
 {{ end }}` + "```" + `
 {{ end }}{{ end }}
+Common Patterns
+---------------
+
+` + "```" + `bash
+# Launch a mission with an initial prompt
+agenc mission new <repo> --prompt "Fix the failing CI tests"
+
+# Launch a headless mission (no terminal, runs in background)
+agenc mission new <repo> --prompt "Run the nightly report" --headless
+
+# Launch an Adjutant mission with a prompt
+agenc mission new --adjutant --prompt "Add a cron job for daily cleanup"
+` + "```" + `
+
 Key Concepts
 ------------
 

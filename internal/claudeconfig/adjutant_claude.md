@@ -30,6 +30,13 @@ Launching and Resuming Missions
 
 Use `agenc mission new` and `agenc mission resume` directly. The server handles creating tmux windows automatically.
 
+To send an initial prompt to a new mission, use the `--prompt` flag:
+
+```bash
+agenc mission new <repo> --prompt "Your instructions here"
+agenc mission new --adjutant --prompt "Help with cron setup"
+```
+
 Tmux Configuration Changes
 --------------------------
 
