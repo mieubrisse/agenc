@@ -9,55 +9,6 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 )
 
-func TestExtractSessionAndMissionID(t *testing.T) {
-	agencDirpath := "/home/user/.agenc"
-
-	tests := []struct {
-		name          string
-		jsonlFilepath string
-		wantSession   string
-		wantMission   string
-		wantOK        bool
-	}{
-		{
-			name:          "standard path",
-			jsonlFilepath: "/home/user/.agenc/missions/abc-123/claude-config/projects/encoded-path/session-uuid.jsonl",
-			wantSession:   "session-uuid",
-			wantMission:   "abc-123",
-			wantOK:        true,
-		},
-		{
-			name:          "too few path components",
-			jsonlFilepath: "/home/user/.agenc/missions/abc-123/some.jsonl",
-			wantSession:   "",
-			wantMission:   "",
-			wantOK:        false,
-		},
-		{
-			name:          "path adjacent to missions dir has too few components",
-			jsonlFilepath: "/home/user/.agenc/other/session.jsonl",
-			wantSession:   "",
-			wantMission:   "",
-			wantOK:        false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sessionID, missionID, ok := extractSessionAndMissionID(agencDirpath, tt.jsonlFilepath)
-			if ok != tt.wantOK {
-				t.Errorf("ok = %v, want %v", ok, tt.wantOK)
-			}
-			if sessionID != tt.wantSession {
-				t.Errorf("sessionID = %q, want %q", sessionID, tt.wantSession)
-			}
-			if missionID != tt.wantMission {
-				t.Errorf("missionID = %q, want %q", missionID, tt.wantMission)
-			}
-		})
-	}
-}
-
 func TestScanJSONLFromOffset(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")

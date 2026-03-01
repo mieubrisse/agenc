@@ -12,25 +12,13 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 const (
 	// sessionScannerInterval is how often the scanner checks for JSONL changes.
 	sessionScannerInterval = 3 * time.Second
 )
-
-// buildJSONLGlobPattern returns the glob pattern for discovering all JSONL session
-// files across all missions.
-func buildJSONLGlobPattern(agencDirpath string) string {
-	return filepath.Join(
-		config.GetMissionsDirpath(agencDirpath),
-		"*",
-		claudeconfig.MissionClaudeConfigDirname,
-		"projects",
-		"*",
-		"*.jsonl",
-	)
-}
 
 // runSessionScannerLoop polls for JSONL file changes every 3 seconds and
 // updates the sessions table with any newly discovered custom titles or
@@ -57,21 +45,52 @@ func (s *Server) runSessionScannerLoop(ctx context.Context) {
 	}
 }
 
-// runSessionScannerCycle performs a single scan pass over all JSONL files.
+// runSessionScannerCycle scans JSONL files for missions currently running in
+// the tmux pool. For each running mission, it computes the project directory
+// path directly (no glob), lists JSONL files in that directory, and
+// incrementally scans for metadata changes.
 func (s *Server) runSessionScannerCycle() {
-	matches, err := filepath.Glob(buildJSONLGlobPattern(s.agencDirpath))
-	if err != nil {
-		s.logger.Printf("Session scanner: glob failed: %v", err)
-		return
-	}
+	paneIDs := listPoolPaneIDs()
 
-	for _, jsonlFilepath := range matches {
-		sessionID, missionID, ok := extractSessionAndMissionID(s.agencDirpath, jsonlFilepath)
-		if !ok {
+	for _, paneID := range paneIDs {
+		mission, err := s.db.GetMissionByTmuxPane(paneID)
+		if err != nil {
+			s.logger.Printf("Session scanner: failed to resolve pane '%s': %v", paneID, err)
+			continue
+		}
+		if mission == nil {
 			continue
 		}
 
-		fileInfo, err := os.Stat(jsonlFilepath)
+		agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, mission.ID)
+		projectDirpath, err := claudeconfig.ComputeProjectDirpath(agentDirpath)
+		if err != nil {
+			s.logger.Printf("Session scanner: failed to compute project dir for mission '%s': %v", database.ShortID(mission.ID), err)
+			continue
+		}
+
+		s.scanMissionJSONLFiles(mission.ID, projectDirpath)
+	}
+}
+
+// scanMissionJSONLFiles scans all JSONL files in a mission's project directory
+// for metadata changes (custom titles, auto summaries).
+func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) {
+	entries, err := os.ReadDir(projectDirpath)
+	if err != nil {
+		// Directory may not exist yet (mission hasn't started a session)
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+
+		sessionID := strings.TrimSuffix(entry.Name(), ".jsonl")
+		jsonlFilepath := filepath.Join(projectDirpath, entry.Name())
+
+		fileInfo, err := entry.Info()
 		if err != nil {
 			continue
 		}
@@ -117,36 +136,6 @@ func (s *Server) runSessionScannerCycle() {
 			s.reconcileTmuxWindowTitle(missionID)
 		}
 	}
-}
-
-// extractSessionAndMissionID extracts the session UUID and mission UUID from a
-// JSONL filepath. The expected path structure is:
-//
-//	<agencDirpath>/missions/<missionID>/claude-config/projects/<encoded-path>/<sessionID>.jsonl
-//
-// Returns (sessionID, missionID, true) on success, or ("", "", false) if the
-// path does not match the expected structure.
-func extractSessionAndMissionID(agencDirpath string, jsonlFilepath string) (sessionID string, missionID string, ok bool) {
-	missionsDirpath := config.GetMissionsDirpath(agencDirpath)
-
-	// Strip the missions directory prefix to get: <missionID>/claude-config/projects/<encoded-path>/<sessionID>.jsonl
-	relPath, err := filepath.Rel(missionsDirpath, jsonlFilepath)
-	if err != nil {
-		return "", "", false
-	}
-
-	parts := strings.Split(relPath, string(filepath.Separator))
-	// Expected: [missionID, "claude-config", "projects", encodedPath, "sessionID.jsonl"]
-	// Minimum 5 parts
-	if len(parts) < 5 {
-		return "", "", false
-	}
-
-	missionID = parts[0]
-	filename := parts[len(parts)-1]
-	sessionID = strings.TrimSuffix(filename, ".jsonl")
-
-	return sessionID, missionID, true
 }
 
 // jsonlMetadataEntry represents a metadata line in a session JSONL file.
