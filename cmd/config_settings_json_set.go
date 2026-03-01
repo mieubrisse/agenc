@@ -54,15 +54,9 @@ func runConfigSettingsJsonSet(cmd *cobra.Command, args []string) error {
 
 	resp, err := client.UpdateSettingsJson(string(content), contentHash)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "modified since last read") {
-			fmt.Fprintln(os.Stderr, "Error: settings.json has been modified since last read.")
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "To resolve:")
-			fmt.Fprintf(os.Stderr, "  1. agenc config %s %s    (fetch current content and hash)\n", settingsJsonCmdStr, getCmdStr)
-			fmt.Fprintln(os.Stderr, "  2. Re-apply your changes to the new content")
-			fmt.Fprintf(os.Stderr, "  3. agenc config %s %s --content-hash=<new-hash>\n", settingsJsonCmdStr, setCmdStr)
-			return stacktrace.NewError("settings.json has been modified since last read")
+		if strings.Contains(err.Error(), "modified since last read") {
+			return fmt.Errorf("settings.json has been modified since last read\n\nTo resolve:\n  1. agenc config %s %s    (fetch current content and hash)\n  2. Re-apply your changes to the new content\n  3. agenc config %s %s --content-hash=<new-hash>",
+				settingsJsonCmdStr, getCmdStr, settingsJsonCmdStr, setCmdStr)
 		}
 		return stacktrace.Propagate(err, "failed to update settings.json")
 	}
