@@ -19,6 +19,7 @@ Manage agent missions
 * [agenc mission print](agenc_mission_print.md)	 - Print a mission's current session transcript (human-readable text by default)
 * [agenc mission reconfig](agenc_mission_reconfig.md)	 - Apply your latest ~/.claude config to a mission
 * [agenc mission reload](agenc_mission_reload.md)	 - Reload one or more missions in-place (preserves tmux pane)
+* [agenc mission rename](agenc_mission_rename.md)	 - Rename the active session's window title for a mission
 * [agenc mission resume](agenc_mission_resume.md)	 - Unarchive (if needed) and resume a mission with claude --continue
 * [agenc mission rm](agenc_mission_rm.md)	 - Stop and permanently remove one or more missions
 * [agenc mission send](agenc_mission_send.md)	 - Send messages to a running mission wrapper
