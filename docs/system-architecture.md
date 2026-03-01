@@ -344,6 +344,14 @@ Path management and YAML configuration. All path construction flows from `GetAge
 - `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation, `defaultModel` for specifying the default Claude model), `RepoConfig` struct (per-repo settings: `alwaysSynced`, `windowTitle`, `trustedMcpServers`, `defaultModel`), `TrustedMcpServers` struct (custom YAML marshal/unmarshal supporting `all` string or a list of named servers), `CronConfig` struct, `PaletteCommandConfig` struct (user-defined and builtin palette entries with optional tmux keybindings), `PaletteTmuxKeybinding` (configurable key for the command palette, defaults to `k`), `BuiltinPaletteCommands` defaults map, `GetResolvedPaletteCommands` merge logic, validation functions for repo format, cron names, palette command names, schedules, timeouts, and overlap policies. Cron expression evaluation via the `gronx` library.
 - `first_run.go` — `IsFirstRun()` detection
 
+### `internal/repo/`
+
+Repo library operations and resolution logic. Used by the server for repo API endpoints and by CLI commands that resolve repo input (e.g., `mission new`, `cron new`).
+
+- `repo.go` — `FindReposOnDisk` (filesystem walk of `repos/<host>/<owner>/<repo>/`), `listSubdirs` helper
+- `resolution.go` — `ResolveAsRepoReference` (resolves URLs, shorthand, and local paths to canonical repo names with cloning), `LooksLikeRepoReference` (input classification), `GetProtocolPreference` (non-interactive SSH/HTTPS detection via gh config and existing repos), `GetOriginRemoteURL`
+- `gh_config.go` — GitHub CLI config reading (`~/.config/gh/hosts.yml`): `GetGhConfig`, `GetGhConfigProtocol`, `GetGhLoggedInUser`, `GetDefaultGitHubUser`
+
 ### `internal/mission/`
 
 Mission lifecycle: directory creation, repo copying, and Claude process spawning.
@@ -369,9 +377,9 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 
 - `server.go` — `Server` struct, `NewServer`, `Run` (starts HTTP listener, background loops, graceful shutdown on context cancellation), `registerRoutes`, `handleHealth`
 - `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `IsProcessRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)
-- `client.go` — `Client` struct with `Get`, `Post`, `Delete`, `Patch` methods for CLI-to-server and wrapper-to-server communication over the unix socket. High-level API: `ListMissions`, `GetMission`, `CreateMission`, `UpdateMission`, `StopMission`, `DeleteMission`, `ArchiveMission`, `UnarchiveMission`, `Heartbeat`, `RecordPrompt`, `ReloadMission`
+- `client.go` — `Client` struct with `Get`, `Post`, `Delete`, `Patch` methods for CLI-to-server and wrapper-to-server communication over the unix socket. High-level API: `ListMissions`, `GetMission`, `CreateMission`, `UpdateMission`, `StopMission`, `DeleteMission`, `ArchiveMission`, `UnarchiveMission`, `Heartbeat`, `RecordPrompt`, `ReloadMission`, `ListRepos`, `AddRepo`, `RemoveRepo`
 - `missions.go` — mission CRUD endpoints, wrapper process management (stop/reload/delete), tmux in-place reload
-- `repos.go` — push-event endpoint (enqueues repo update, returns 202 Accepted)
+- `repos.go` — repo management endpoints (`GET /repos` list with synced status, `POST /repos` clone and configure, `DELETE /repos/` remove from disk and config) and push-event endpoint (enqueues repo update, returns 202 Accepted)
 - `repo_update_worker.go` — centralized repo update worker goroutine: processes update requests, runs `ForceUpdateRepo`, executes `postUpdateHook` when HEAD changes
 - `errors.go` — `writeError`, `writeJSON` helper functions for consistent JSON responses
 - `template_updater.go` — repo update loop (60-second interval, collects synced + active-mission repos, enqueues update requests)
