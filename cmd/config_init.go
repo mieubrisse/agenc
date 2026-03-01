@@ -16,6 +16,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/mission"
+	"github.com/odyssey/agenc/internal/repo"
 )
 
 const gitOperationTimeout = 30 * time.Second
@@ -195,7 +196,7 @@ func offerCreateConfigRepo(reader *bufio.Reader, configDirpath string) (bool, er
 // then clones it into the config directory.
 func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
 	// Validate the repo reference parses correctly
-	defaultOwner := getDefaultGitHubUser()
+	defaultOwner := repo.GetDefaultGitHubUser()
 	_, _, err := mission.ParseRepoReference(repoRef, false, defaultOwner)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo name")
@@ -225,7 +226,7 @@ func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
 func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 	// Parse the repo reference. On first setup there may be no existing repos
 	// to detect protocol from, so shorthand defaults to HTTPS.
-	defaultOwner := getDefaultGitHubUser()
+	defaultOwner := repo.GetDefaultGitHubUser()
 	_, cloneURL, err := mission.ParseRepoReference(repoRef, false, defaultOwner)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo reference")
@@ -312,7 +313,7 @@ func printRepoFormatHelp() {
 	fmt.Println("Accepted formats:")
 
 	// Check if default GitHub user is available (from gh CLI)
-	if defaultUser := getDefaultGitHubUser(); defaultUser != "" {
+	if defaultUser := repo.GetDefaultGitHubUser(); defaultUser != "" {
 		fmt.Printf("  repo                               shorthand (expands to %s/repo via your `gh auth login`)\n", defaultUser)
 	}
 
@@ -322,7 +323,7 @@ func printRepoFormatHelp() {
 	fmt.Println("  git@github.com:owner/repo.git      SSH URL")
 
 	// Hint about logging into gh if no default user
-	if getDefaultGitHubUser() == "" {
+	if repo.GetDefaultGitHubUser() == "" {
 		fmt.Println()
 		fmt.Println("Tip: Single-word shorthand works automatically if you're logged into gh:")
 		fmt.Println("  gh auth login")

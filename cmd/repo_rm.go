@@ -12,6 +12,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/mission"
+	"github.com/odyssey/agenc/internal/repo"
 )
 
 var repoRmCmd = &cobra.Command{
@@ -44,7 +45,8 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	repos, err := findReposOnDisk(agencDirpath)
+	reposDirpath := config.GetReposDirpath(agencDirpath)
+	repos, err := repo.FindReposOnDisk(reposDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to scan repos directory")
 	}
@@ -56,10 +58,10 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
 		TryCanonical: func(input string) (string, bool, error) {
-			if !looksLikeRepoReference(agencDirpath, input) {
+			if !repo.LooksLikeRepoReference(input) {
 				return "", false, nil
 			}
-			defaultOwner := getDefaultGitHubUser()
+			defaultOwner := repo.GetDefaultGitHubUser()
 			name, _, err := mission.ParseRepoReference(input, false, defaultOwner)
 			if err != nil {
 				return "", false, stacktrace.Propagate(err, "invalid repo reference '%s'", input)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/repo"
 	"github.com/odyssey/agenc/internal/server"
 )
 
@@ -190,8 +191,7 @@ func runMissionNewWithPicker(args []string) error {
 	}
 
 	// Try to resolve as a git reference (URL, path, shorthand)
-	// looksLikeRepoReference will lazily fetch defaultGitHubUser only if needed
-	if looksLikeRepoReference(agencDirpath, input) {
+	if repo.LooksLikeRepoReference(input) {
 		result, err := ResolveRepoInput(agencDirpath, input, "Select repo: ")
 		if err != nil {
 			return err
@@ -412,7 +412,7 @@ func createAndLaunchMission(
 // promptForRepoLocator interactively prompts the user for a repo locator,
 // printing the accepted formats and looping on invalid input. Returns the
 // resolved repo result ready for mission creation.
-func promptForRepoLocator(agencDirpath string) (*RepoResolutionResult, error) {
+func promptForRepoLocator(agencDirpath string) (*repo.RepoResolutionResult, error) {
 	fmt.Println()
 	printRepoFormatHelp()
 
@@ -430,14 +430,14 @@ func promptForRepoLocator(agencDirpath string) (*RepoResolutionResult, error) {
 			continue
 		}
 
-		if !looksLikeRepoReference(agencDirpath, input) {
+		if !repo.LooksLikeRepoReference(input) {
 			fmt.Println("Not a valid repo reference. Please try again.")
 			continue
 		}
 
 		// Get default GitHub user now that we know we need to resolve a repo reference
-		defaultGitHubUser := getDefaultGitHubUser()
-		result, err := resolveAsRepoReference(agencDirpath, input, defaultGitHubUser)
+		defaultGitHubUser := repo.GetDefaultGitHubUser()
+		result, err := repo.ResolveAsRepoReference(agencDirpath, input, defaultGitHubUser)
 		if err != nil {
 			fmt.Printf("Invalid repo: %v\n", err)
 			fmt.Println("Please try again.")

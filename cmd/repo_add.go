@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/repo"
 )
 
 var repoAddCmd = &cobra.Command{
@@ -58,7 +59,7 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 
 	// Validate all args are repo references (not search terms)
 	for _, arg := range args {
-		if !looksLikeRepoReference(agencDirpath, arg) {
+		if !repo.LooksLikeRepoReference(arg) {
 			return stacktrace.NewError("'%s' is not a valid repo reference; expected owner/repo, a URL, or a local path", arg)
 		}
 	}
@@ -67,10 +68,10 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
 
 	// Get default GitHub user now that we've validated we have repo references to resolve
-	defaultGitHubUser := getDefaultGitHubUser()
+	defaultGitHubUser := repo.GetDefaultGitHubUser()
 
 	for _, arg := range args {
-		result, err := resolveAsRepoReference(agencDirpath, arg, defaultGitHubUser)
+		result, err := repo.ResolveAsRepoReference(agencDirpath, arg, defaultGitHubUser)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve repo '%s'", arg)
 		}
