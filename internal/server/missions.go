@@ -334,8 +334,6 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	}
 
 	// Link the pool window into the caller's session (if provided).
-	// This must happen BEFORE title reconciliation because reconciliation
-	// renames the window, and linkPoolWindow resolves by the original name.
 	tmuxSession := req.TmuxSession
 	if tmuxSession != "" {
 		if err := linkPoolWindow(poolWindowTarget, tmuxSession); err != nil {
@@ -344,7 +342,11 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		}
 	}
 
-	s.reconcileTmuxWindowTitle(missionRecord.ID)
+	// Title reconciliation is NOT called here. Both linkPoolWindow (above)
+	// and the CLI's focusMissionWindow resolve the window by its original
+	// short-ID name. Reconciliation renames the window, which would break
+	// those lookups. The periodic reconciliation loop will rename it on its
+	// next pass once the pane ID is in the DB.
 
 	return nil
 }
@@ -564,10 +566,6 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 	if err := linkPoolWindow(poolWindowTarget, req.TmuxSession); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to link window: %s", err.Error())
 	}
-
-	// Reconcile window title after linking (reconciliation renames the window,
-	// so it must happen after linkPoolWindow which resolves by the original name).
-	s.reconcileTmuxWindowTitle(resolvedID)
 
 	s.logger.Printf("Attached mission %s to session %s", database.ShortID(resolvedID), req.TmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "attached"})
