@@ -1,6 +1,6 @@
 ---
 name: agenc-self-usage
-description: AgenC CLI quick reference for managing missions, repos, config, cron jobs, and the daemon from within a mission.
+description: AgenC CLI quick reference for managing missions, repos, config, cron jobs, and the server from within a mission.
 ---
 
 AgenC CLI Quick Reference
@@ -44,10 +44,13 @@ agenc mission new [repo]                                              # Create a
 agenc mission new [repo] --prompt "task"                              # Create a mission with an initial prompt
 agenc mission new [repo] --headless --prompt "task"                   # Run a headless mission (no terminal; logs to file)
 agenc mission nuke                                                    # Stop and permanently remove ALL missions
+agenc mission print [mission-id|search-terms...]                      # Print a mission's current session transcript
+agenc mission reconfig [mission-id|search-terms...]                   # Rebuild a mission's Claude config from the shadow repo
+agenc mission reload [mission-id|search-terms...]                     # Reload missions in-place
 agenc mission resume [mission-id|search-terms...]                     # Unarchive (if needed) and resume a mission with claude --continue
 agenc mission rm [mission-id|search-terms...]                         # Stop and permanently remove one or more missions
+agenc mission send                                                    # Send messages to a running mission wrapper
 agenc mission stop [mission-id|search-terms...]                       # Stop one or more mission wrapper processes
-agenc mission update-config [mission-id|search-terms...]              # Rebuild a mission's Claude config from the shadow repo
 ```
 
 Manage the repo library
@@ -55,21 +58,22 @@ Manage the repo library
 
 ```
 agenc repo add <repo>              # Add a repository to the repo library
-agenc repo edit [search-terms...]  # Edit a repo via a new mission with a repo copy
 agenc repo ls                      # List repositories in the repo library
 agenc repo rm [repo...]            # Remove a repository from the repo library
-agenc repo update [repo...]        # Fetch and reset repos to match their remote
 ```
 
 Manage agenc configuration
 --------------------------
 
 ```
-agenc config edit               # Open config.yml in your editor ($EDITOR)
-agenc config get <key>          # Get a config value
-agenc config init               # Initialize agenc configuration (interactive)
-agenc config palette-command    # Manage palette commands
-agenc config set <key> <value>  # Set a config value
+agenc config cron              # Manage cron job configuration (add, ls, update, rm)
+agenc config edit              # Open config.yml in your editor ($EDITOR)
+agenc config get <key>         # Get a config value
+agenc config init              # Initialize agenc configuration (interactive)
+agenc config paletteCommand    # Manage palette commands (add, ls, update, rm)
+agenc config repoConfig        # Manage per-repo configuration (set, ls, rm)
+agenc config set <key> <value> # Set a config value
+agenc config unset <key>       # Unset a config value (revert to default)
 ```
 
 Manage scheduled cron jobs
@@ -86,14 +90,13 @@ agenc cron rm <name>       # Remove a cron job from config
 agenc cron run <name>      # Manually trigger a cron job (runs headless, untracked by cron_id)
 ```
 
-Manage the background daemon
+Manage the background server
 ----------------------------
 
 ```
-agenc daemon restart  # Restart the background daemon
-agenc daemon start    # Start the background daemon
-agenc daemon status   # Show daemon status
-agenc daemon stop     # Stop the background daemon
+agenc server start    # Start the AgenC server
+agenc server status   # Show server status
+agenc server stop     # Stop the AgenC server
 ```
 
 Manage the AgenC tmux session
@@ -103,6 +106,7 @@ Manage the AgenC tmux session
 agenc tmux attach                     # Attach to the AgenC tmux session, creating it if needed
 agenc tmux detach                     # Detach from the AgenC tmux session
 agenc tmux inject                     # Install AgenC tmux keybindings
+agenc tmux uninject                   # Remove AgenC tmux keybindings
 agenc tmux palette                    # Open the AgenC command palette (runs inside a tmux display-popup)
 agenc tmux pane                       # Manage tmux panes in the AgenC session
 agenc tmux resolve-mission <pane-id>  # Resolve a tmux pane to its mission UUID
@@ -115,8 +119,16 @@ Other commands
 --------------
 
 ```
+agenc attach       # Alias for agenc tmux attach
+agenc detach       # Alias for agenc tmux detach
+agenc discord      # Open AgenC Discord community
 agenc doctor       # Check for common configuration issues
+agenc feedback     # Launch a feedback mission with Adjutant
 agenc login        # Log in to Claude and update credentials for all missions
+agenc prime        # Print CLI quick reference for AI agent context
+agenc session      # Manage Claude Code sessions
+agenc star         # Open AgenC GitHub repo in browser
+agenc summary      # Show a daily summary of AgenC activity
 agenc version      # Print the agenc version
 ```
 

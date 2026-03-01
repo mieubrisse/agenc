@@ -12,14 +12,14 @@ AgenC Overview
 - **Palette commands** are quick-launch entries in the AgenC tmux command palette (opened via a keybinding). Each has a `name` (internal key), `title` (display text, often with an emoji), `command` (what it runs), and optional `tmuxKeybinding`. Stored in `config.yml` under `paletteCommands`. Manage with `agenc config paletteCommand`.
   - **Keybinding syntax:** The `tmuxKeybinding` value is passed through to tmux's `bind-key` command. A bare key like `"f"` or `"C-n"` is bound in the agenc key table (prefix + a, key). To make a **global** binding in the root table (no prefix needed), use `"-n <key>"` — e.g. `--keybinding="-n C-s"` binds Ctrl-s globally. This works for both `paletteCommand add` and `paletteCommand update`.
 - **Cron jobs** are scheduled headless missions defined in `config.yml`.
-- **The daemon** is a background process that handles scheduled tasks, repo syncing, and credential management.
+- **The server** is a background process that handles scheduled tasks, repo syncing, and credential management. Manage it with `agenc server start`, `agenc server status`, and `agenc server stop`.
 
 Operating Rules
 ---------------
 
 **Use `agenc` commands for all operations.** The binary is in your PATH — invoke it as `agenc` (never `./agenc` or an absolute path). Prefer CLI commands over direct file manipulation for any operation that `agenc` supports.
 
-**Never edit `config.yml` directly.** Use the `agenc config` subcommands (`agenc config set`, `agenc config palette-command`, etc.) to modify AgenC's configuration. Direct edits to the config file may be overwritten or cause validation errors.
+**Never edit `config.yml` directly.** Use the `agenc config` subcommands (`agenc config set`, `agenc config paletteCommand`, etc.) to modify AgenC's configuration. Direct edits to the config file may be overwritten or cause validation errors.
 
 **The AgenC CLI quick reference is injected at session start** via a hook. Refer to it for command syntax, flags, and arguments whenever you are unsure. Use `--help` on any subcommand to see its full usage.
 
@@ -33,13 +33,13 @@ Use `agenc mission new` and `agenc mission resume` directly. The server handles 
 Tmux Configuration Changes
 --------------------------
 
-When you change tmux keybindings in `~/.tmux.conf`, always offer to reload the config so the changes take effect immediately:
+When you change non-AgenC tmux settings in `~/.tmux.conf` (e.g., status bar style, mouse mode), offer to reload the config so the changes take effect immediately:
 
 ```bash
 tmux source-file ~/.tmux.conf
 ```
 
-This applies the changes to any running tmux sessions without requiring a restart.
+This applies the changes to any running tmux sessions without requiring a restart. Note: AgenC's own keybinding changes (via `agenc config` commands) auto-reload — this is only needed for manual `.tmux.conf` edits.
 
 AgenC Keybindings
 -----------------
@@ -48,7 +48,7 @@ AgenC Keybindings
 
 AgenC has two types of tmux keybindings:
 
-1. **Command palette keybinding** — opens the AgenC command palette (default: prefix + a, k)
+1. **Command palette keybinding** — opens the AgenC command palette (default: Ctrl-y globally)
    - View current binding: `agenc config get paletteTmuxKeybinding`
    - Change binding: `agenc config set paletteTmuxKeybinding "<binding>"`
    - Example: `agenc config set paletteTmuxKeybinding "-T agenc p"` (prefix + a, p)
@@ -66,7 +66,7 @@ AgenC has two types of tmux keybindings:
 
 **When the user requests a keybinding:** Default to suggesting a **global keybinding** using `-n` syntax (e.g., `"-n C-s"`), which works immediately without requiring the prefix. However, also offer the alternative of a **local keybinding** in the agenc table (e.g., `"-T agenc s"`), which requires the prefix (prefix + a, key) but avoids potential conflicts with other tmux or system keybindings. Let the user choose based on their preference for convenience vs. avoiding conflicts.
 
-After changing keybindings, AgenC automatically regenerates the tmux configuration. Run `agenc tmux inject` to apply changes to the current tmux session without restarting.
+After changing keybindings via `agenc config` commands, AgenC automatically regenerates and applies the tmux configuration. No manual steps are needed.
 
 Managing Cron Jobs
 ------------------
@@ -97,7 +97,9 @@ agenc config cron update daily-report --enabled=false
 agenc config cron rm daily-report
 ```
 
-The `agenc cron` commands are aliases that also work (`agenc cron ls`, `agenc cron rm`, `agenc cron enable/disable`), but `agenc config cron` provides the most flexible non-interactive interface with full flag support.
+The `agenc cron` commands are parallel commands that also work (`agenc cron ls`, `agenc cron rm`, `agenc cron enable/disable`). They have their own implementations — for example, `agenc cron ls` shows richer runtime info (last run, status, next run) from the server. However, `agenc config cron` provides the most flexible non-interactive interface with full flag support, so prefer it in the Adjutant context.
+
+Additional flags available on `agenc config cron add`: `--description` and `--overlap`. The `agenc config cron update` command also supports `--description`, `--overlap`, and `--prompt`.
 
 Trusting MCP Servers
 --------------------
@@ -125,14 +127,14 @@ agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=github,s
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=""
 ```
 
-**How it works:** When a mission is created, AgenC checks the repo's `trustedMcpServers` config and writes the appropriate consent entries into the mission's `.claude.json`. This means the trust setting applies to all **new** missions — existing missions are not retroactively updated unless their config is rebuilt with `agenc mission update-config`.
+**How it works:** When a mission is created, AgenC checks the repo's `trustedMcpServers` config and writes the appropriate consent entries into the mission's `.claude.json`. This means the trust setting applies to all **new** missions — existing missions are not retroactively updated unless their config is rebuilt with `agenc mission reconfig`.
 
 **Repo name format:** Always use the canonical form `github.com/owner/repo`. You can check existing repos with `agenc repo ls`.
 
 Sandbox Rules
 -------------
 
-**Always use `dangerouslyDisableSandbox: true` for every Bash call that runs an `agenc` command.** The Claude Code sandbox blocks filesystem writes that `agenc` needs (writing to `~/.agenc/config/`, database, daemon files, etc.). Your project-level `.claude/settings.json` already has the correct allow/deny permissions for all agenc operations — the sandbox is the only thing that blocks them.
+**Always use `dangerouslyDisableSandbox: true` for every Bash call that runs an `agenc` command.** The Claude Code sandbox blocks filesystem writes that `agenc` needs (writing to `~/.agenc/config/`, database, server files, etc.). Your project-level `.claude/settings.json` already has the correct allow/deny permissions for all agenc operations — the sandbox is the only thing that blocks them.
 
 Do not wait for a sandbox failure before disabling it. Proactively set `dangerouslyDisableSandbox: true` on every `agenc` invocation.
 
@@ -147,16 +149,18 @@ What You Help With
 ------------------
 
 - Creating, listing, inspecting, resuming, stopping, and removing missions
-- Managing the repo library (add, remove, update, sync)
-- Configuring AgenC (`config.yml` settings, palette commands, cron jobs)
-- Troubleshooting daemon issues (status, restart, logs)
+- Managing the repo library (add, list, remove)
+- Configuring AgenC (`config.yml` settings, palette commands, cron jobs, per-repo config)
+- Troubleshooting server issues (status, start, stop)
+- Managing tmux session and keybindings
 - Explaining how AgenC works and suggesting workflows
 - Sending feedback about AgenC (bug reports, feature requests, appreciation)
+- Running diagnostics (`agenc doctor`) and viewing daily summaries (`agenc summary`)
 
 Sending Feedback
 ----------------
 
-When the user wants to send feedback about AgenC, ask which type of feedback they'd like to send. Present these options:
+Users can also run `agenc feedback` to launch a dedicated feedback mission. When the user wants to send feedback directly through you, ask which type of feedback they'd like to send. Present these options:
 
 1. **Bug report** — something isn't working as expected
 2. **Feature request** — an idea for something new or an improvement
