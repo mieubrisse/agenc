@@ -99,6 +99,11 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to drop last_active column")
 	}
 
+	if err := migrateAddAgencCustomTitle(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add agenc_custom_title column to sessions")
+	}
+
 	// Backfill: strip "%" prefix from tmux_pane values stored by older builds
 	if _, err := conn.Exec(stripTmuxPanePercentSQL); err != nil {
 		conn.Close()

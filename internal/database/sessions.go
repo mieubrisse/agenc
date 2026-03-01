@@ -12,6 +12,7 @@ type Session struct {
 	ID                string
 	MissionID         string
 	CustomTitle       string
+	AgencCustomTitle  string
 	AutoSummary       string
 	LastScannedOffset int64
 	CreatedAt         time.Time
@@ -41,7 +42,7 @@ func (db *DB) CreateSession(missionID string, sessionID string) (*Session, error
 // GetSession returns a single session by ID, or (nil, nil) if not found.
 func (db *DB) GetSession(sessionID string) (*Session, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, mission_id, custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE id = ?",
+		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE id = ?",
 		sessionID,
 	)
 
@@ -76,11 +77,25 @@ func (db *DB) UpdateSessionScanResults(sessionID string, customTitle string, aut
 	return nil
 }
 
+// UpdateSessionAgencCustomTitle sets the agenc_custom_title for a session.
+// An empty title clears the custom title.
+func (db *DB) UpdateSessionAgencCustomTitle(sessionID string, title string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.conn.Exec(
+		"UPDATE sessions SET agenc_custom_title = ?, updated_at = ? WHERE id = ?",
+		title, now, sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update agenc_custom_title for session '%s'", sessionID)
+	}
+	return nil
+}
+
 // ListSessionsByMission returns all sessions for a given mission,
 // ordered by updated_at descending (most recently modified first).
 func (db *DB) ListSessionsByMission(missionID string) ([]*Session, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, mission_id, custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC",
+		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC",
 		missionID,
 	)
 	if err != nil {
@@ -95,7 +110,7 @@ func (db *DB) ListSessionsByMission(missionID string) ([]*Session, error) {
 // or (nil, nil) if the mission has no sessions.
 func (db *DB) GetActiveSession(missionID string) (*Session, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, mission_id, custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC LIMIT 1",
+		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC LIMIT 1",
 		missionID,
 	)
 
@@ -113,7 +128,7 @@ func (db *DB) GetActiveSession(missionID string) (*Session, error) {
 func scanSession(row *sql.Row) (*Session, error) {
 	var s Session
 	var createdAt, updatedAt string
-	if err := row.Scan(&s.ID, &s.MissionID, &s.CustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&s.ID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	s.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
@@ -127,7 +142,7 @@ func scanSessions(rows *sql.Rows) ([]*Session, error) {
 	for rows.Next() {
 		var s Session
 		var createdAt, updatedAt string
-		if err := rows.Scan(&s.ID, &s.MissionID, &s.CustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan session row")
 		}
 		s.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)

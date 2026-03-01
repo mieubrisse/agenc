@@ -203,6 +203,46 @@ func TestGetActiveSession_NoSessions(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionAgencCustomTitle(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	_, err = db.CreateSession(mission.ID, "s-rename-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Set agenc_custom_title
+	if err := db.UpdateSessionAgencCustomTitle("s-rename-1", "My Custom Name"); err != nil {
+		t.Fatalf("UpdateSessionAgencCustomTitle failed: %v", err)
+	}
+
+	got, err := db.GetSession("s-rename-1")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.AgencCustomTitle != "My Custom Name" {
+		t.Errorf("expected agenc_custom_title %q, got %q", "My Custom Name", got.AgencCustomTitle)
+	}
+
+	// Clear agenc_custom_title with empty string
+	if err := db.UpdateSessionAgencCustomTitle("s-rename-1", ""); err != nil {
+		t.Fatalf("UpdateSessionAgencCustomTitle (clear) failed: %v", err)
+	}
+
+	got, err = db.GetSession("s-rename-1")
+	if err != nil {
+		t.Fatalf("GetSession (after clear) failed: %v", err)
+	}
+	if got.AgencCustomTitle != "" {
+		t.Errorf("expected empty agenc_custom_title after clear, got %q", got.AgencCustomTitle)
+	}
+}
+
 func TestSessionsCascadeDeleteWithMission(t *testing.T) {
 	db := openTestDB(t)
 
