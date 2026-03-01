@@ -23,7 +23,8 @@
             "Bash(rm:*)",
             "Bash(cp:*)",
             "Bash(mv:*)",
-            "Bash(tmux list-panes:*)"
+            "Bash(tmux list-panes:*)",
+            "Bash(tmux display-message:*)"
         ],
         "deny": [
             "Read(./.env)",
