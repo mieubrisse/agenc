@@ -6,7 +6,7 @@ before:
   hooks:
     - go mod tidy
     - sh -c "test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md"
-    - go run ./cmd/genskill
+    - go run ./cmd/genprime
 
 builds:
   - id: agenc

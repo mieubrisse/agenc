@@ -1,6 +1,6 @@
-// cmd/genskill generates the AgenC CLI quick reference content by introspecting
+// cmd/genprime generates the AgenC CLI quick reference content by introspecting
 // the Cobra command tree. The output is embedded into the binary via go:embed
-// at compile time and printed by `agenc prime`. Run via: go run ./cmd/genskill
+// at compile time and printed by `agenc prime`. Run via: go run ./cmd/genprime
 package main
 
 import (
@@ -25,7 +25,7 @@ type commandGroup struct {
 	Commands    []commandEntry
 }
 
-// commandEntry represents a single command in the skill reference.
+// commandEntry represents a single command in the prime reference.
 type commandEntry struct {
 	Usage       string
 	Description string
@@ -36,9 +36,9 @@ func main() {
 
 	groups := buildCommandGroups(rootCmd)
 
-	content, err := renderSkill(groups)
+	content, err := renderPrimeContent(groups)
 	if err != nil {
-		log.Fatalf("failed to render skill: %v", err)
+		log.Fatalf("failed to render prime content: %v", err)
 	}
 
 	if err := os.WriteFile(outputFilepath, []byte(content), 0644); err != nil {
@@ -141,8 +141,8 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-// renderSkill renders the SKILL.md content from the command groups.
-func renderSkill(groups []commandGroup) (string, error) {
+// renderPrimeContent renders the prime content from the command groups.
+func renderPrimeContent(groups []commandGroup) (string, error) {
 	funcMap := template.FuncMap{
 		"padRight":  padRight,
 		"sectionH2": func(s string) string { return s + "\n" + strings.Repeat("-", len(s)) },
@@ -157,7 +157,7 @@ func renderSkill(groups []commandGroup) (string, error) {
 		},
 	}
 
-	tmpl, err := template.New("skill").Funcs(funcMap).Parse(skillTemplate)
+	tmpl, err := template.New("prime").Funcs(funcMap).Parse(primeTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
@@ -170,10 +170,10 @@ func renderSkill(groups []commandGroup) (string, error) {
 	return sb.String(), nil
 }
 
-// skillTemplate is the Go text/template for the SKILL.md content.
+// primeTemplate is the Go text/template for the prime content.
 // The static preamble provides context for agents; the dynamic sections
 // are populated from the Cobra command tree.
-var skillTemplate = `AgenC CLI Quick Reference
+var primeTemplate = `AgenC CLI Quick Reference
 =========================
 
 You are running inside an **AgenC mission** — an isolated sandbox managed by the ` + "`agenc`" + ` CLI. You can use ` + "`agenc`" + ` to manage the system you are running in: spawn new missions, manage repos, configure cron jobs, check status, and update config.

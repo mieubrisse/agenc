@@ -12,7 +12,7 @@ Test Coverage
 | github.com/odyssey/agenc | 0.0% |
 | github.com/odyssey/agenc/cmd | 0.0% |
 | github.com/odyssey/agenc/cmd/gendocs | 0.0% |
-| github.com/odyssey/agenc/cmd/genskill | 0.0% |
+| github.com/odyssey/agenc/cmd/genprime | 0.0% |
 | github.com/odyssey/agenc/internal/claudeconfig | 35.5% |
 | github.com/odyssey/agenc/internal/config | 38.7% (FAILING TESTS) |
 | github.com/odyssey/agenc/internal/daemon | 14.6% |

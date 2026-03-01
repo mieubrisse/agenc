@@ -20,7 +20,7 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
-.PHONY: build check clean docs genskill setup test
+.PHONY: build check clean docs genprime setup test
 
 setup:
 	@if git rev-parse --git-dir >/dev/null 2>&1; then \
@@ -31,7 +31,7 @@ setup:
 		fi; \
 	fi
 
-check: genskill
+check: genprime
 	@echo "Checking code formatting..."
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
@@ -49,18 +49,18 @@ check: genskill
 	@go test ./...
 	@echo "✓ Tests passed"
 
-build: genskill docs setup check
+build: genprime docs setup check
 	@echo "Building agenc..."
 	@go build -ldflags "$(LDFLAGS)" -o agenc .
 	@echo "✓ Build complete"
 
-docs: genskill
+docs: genprime
 	go run ./cmd/gendocs
 
-genskill:
+genprime:
 	@# Ensure embed placeholder exists before Go compilation (fresh checkout)
 	@test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md
-	go run ./cmd/genskill
+	go run ./cmd/genprime
 
 test:
 	@echo "Running tests..."

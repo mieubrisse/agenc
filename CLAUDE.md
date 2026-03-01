@@ -36,7 +36,7 @@ Building and Checking
 Always build via the Makefile — never run `go build` directly. The Makefile injects the version string via ldflags based on git state.
 
 ```
-# Full build (genskill + docs + setup + check + compile)
+# Full build (genprime + docs + setup + check + compile)
 make build
 
 # Quality checks only (formatting, vet, tests — no binary)
