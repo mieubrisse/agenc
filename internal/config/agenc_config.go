@@ -123,13 +123,13 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"sideShell": {
 		Title:          "🐚  Side Shell",
 		Description:    "Split pane and open a shell in the current mission's workspace",
-		Command:        "tmux split-window -h -c '#{pane_current_path}' $SHELL",
+		Command:        `tmux split-window -h -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`,
 		TmuxKeybinding: "-n C-p",
 	},
 	"shell": {
 		Title:       "🐚  Shell",
 		Description: "Open a shell in a new window",
-		Command:     "agenc tmux window new -a -- $SHELL",
+		Command:     `tmux new-window -a -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`,
 	},
 	"copyMissionUuid": {
 		Title:       "📋  Copy Mission ID",
@@ -155,12 +155,12 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"removeMission": {
 		Title:       "❌  Remove Mission",
 		Description: "Remove a mission and its directory",
-		Command:     "agenc tmux window new -a -- agenc mission rm",
+		Command:     "tmux new-window -a agenc mission rm",
 	},
 	"nukeMissions": {
 		Title:       "💥  Nuke Missions",
 		Description: "Remove all archived missions",
-		Command:     "agenc tmux window new -a -- agenc mission nuke",
+		Command:     "tmux new-window -a agenc mission nuke",
 	},
 	"sendFeedback": {
 		Title:       "💬  Send Feedback",
