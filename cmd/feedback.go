@@ -15,24 +15,18 @@ var feedbackCmd = &cobra.Command{
 	Short: "Launch a feedback mission with Adjutant",
 	Long: `Launches a new tmux window with an Adjutant mission for sending feedback about AgenC.
 This is a shorthand for:
-  agenc tmux window new -a -- agenc mission new --adjutant --prompt "I'd like to send feedback about AgenC"`,
+  tmux new-window -a agenc mission new --adjutant --prompt "I'd like to send feedback about AgenC"`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cmdArgs := []string{
-			tmuxCmdStr,
-			windowCmdStr,
-			newCmdStr,
-			"-a",
-			"--",
-			agencCmdStr,
-			missionCmdStr,
-			newCmdStr,
+		tmuxCmd := exec.Command("tmux", "new-window", "-a",
+			"agenc", "mission", "new",
 			"--adjutant",
-			"--prompt",
-			feedbackPrompt,
-		}
+			"--prompt", feedbackPrompt,
+		)
+		tmuxCmd.Stdout = os.Stdout
+		tmuxCmd.Stderr = os.Stderr
 
-		if err := exec.Command(os.Args[0], cmdArgs...).Run(); err != nil {
+		if err := tmuxCmd.Run(); err != nil {
 			return stacktrace.Propagate(err, "failed to launch feedback mission")
 		}
 		return nil
