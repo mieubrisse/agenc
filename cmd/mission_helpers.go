@@ -125,6 +125,8 @@ func filterRunningMissions(missions []*database.Mission) []*database.Mission {
 var (
 	agencCtxOnce sync.Once
 	agencCtxErr  error
+	agencDirOnce sync.Once
+	agencDirErr  error
 )
 
 // getAgencContext lazily ensures agenc is fully configured. It runs
@@ -143,18 +145,39 @@ func getAgencContext() (string, error) {
 	return agencDirpath, agencCtxErr
 }
 
+// resolveAgencDirpath lazily resolves the agenc directory path without running
+// the full ensureConfigured() init. This is read-only — it does not create
+// directories, write files, or run the interactive setup wizard. Use this for
+// commands that delegate all work to the server and don't need local filesystem
+// setup.
+func resolveAgencDirpath() (string, error) {
+	agencDirOnce.Do(func() {
+		dirpath, err := config.GetAgencDirpath()
+		if err != nil {
+			agencDirErr = stacktrace.Propagate(err, "failed to get agenc directory path")
+			return
+		}
+		agencDirpath = dirpath
+	})
+	return agencDirpath, agencDirErr
+}
+
 // ============================================================================
 // Server client helpers
 // ============================================================================
 
 // serverClient returns an HTTP client connected to the AgenC server. All CLI
-// commands use this instead of opening the database directly.
+// commands that delegate work to the server use this. It only resolves the
+// agenc directory (read-only) and ensures the server is running — it does NOT
+// call ensureConfigured() or EnsureDirStructure(), so it is safe to call from
+// sandboxed environments that cannot write to ~/.agenc.
 func serverClient() (*server.Client, error) {
-	if _, err := getAgencContext(); err != nil {
+	dirpath, err := resolveAgencDirpath()
+	if err != nil {
 		return nil, err
 	}
-	ensureServerRunning(agencDirpath)
-	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
+	ensureServerRunning(dirpath)
+	socketFilepath := config.GetServerSocketFilepath(dirpath)
 	return server.NewClient(socketFilepath), nil
 }
 
