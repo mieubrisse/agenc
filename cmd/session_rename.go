@@ -2,15 +2,24 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
+	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/odyssey/agenc/internal/server"
 )
+
+// errPromptCancelled is returned when the user presses ESC or Ctrl+C
+// during an interactive prompt.
+var errPromptCancelled = errors.New("prompt cancelled")
 
 var sessionRenameCmd = &cobra.Command{
 	Use:   renameCmdStr + " <session-id> [title]",
@@ -46,6 +55,9 @@ func runSessionRename(cmd *cobra.Command, args []string) error {
 	} else {
 		title, err = promptForTitle()
 		if err != nil {
+			if errors.Is(err, errPromptCancelled) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -65,9 +77,125 @@ func runSessionRename(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// promptForTitle reads a title from stdin. Returns the trimmed input.
+// promptForTitle reads a title interactively from the terminal. The user can
+// press Enter to submit, or ESC/Ctrl+C to cancel. Returns errPromptCancelled
+// when the user cancels. Falls back to simple line reading for non-terminal stdin.
 func promptForTitle() (string, error) {
-	fmt.Print("New title (empty to clear): ")
+	fmt.Print("New title (empty to clear, ESC to cancel): ")
+
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return readLineFromStdin()
+	}
+
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return readLineFromStdin()
+	}
+	defer term.Restore(fd, oldState)
+
+	var runes []rune
+	buf := make([]byte, 4) // max UTF-8 sequence length
+
+	for {
+		if _, err := os.Stdin.Read(buf[:1]); err != nil {
+			fmt.Print("\r\n")
+			return "", stacktrace.Propagate(err, "failed to read input")
+		}
+
+		b := buf[0]
+
+		switch {
+		case b == 0x1B: // ESC byte
+			if isStandaloneEsc() {
+				fmt.Print("\r\n")
+				return "", errPromptCancelled
+			}
+			// Escape sequence (arrow key, etc.) consumed — ignore
+
+		case b == 0x03: // Ctrl+C
+			fmt.Print("\r\n")
+			return "", errPromptCancelled
+
+		case b == 0x0D: // Enter (carriage return in raw mode)
+			fmt.Print("\r\n")
+			return strings.TrimSpace(string(runes)), nil
+
+		case b == 0x7F || b == 0x08: // Backspace
+			if len(runes) > 0 {
+				removed := runes[len(runes)-1]
+				runes = runes[:len(runes)-1]
+				w := runewidth.RuneWidth(removed)
+				fmt.Print(strings.Repeat("\b", w) + strings.Repeat(" ", w) + strings.Repeat("\b", w))
+			}
+
+		case b >= 0xC0: // UTF-8 multi-byte leading byte
+			seqLen := utf8LeadByteLen(b)
+			buf[0] = b
+			for i := 1; i < seqLen; i++ {
+				if _, err := os.Stdin.Read(buf[i : i+1]); err != nil {
+					break
+				}
+			}
+			if r, _ := utf8.DecodeRune(buf[:seqLen]); r != utf8.RuneError {
+				runes = append(runes, r)
+				os.Stdout.Write(buf[:seqLen])
+			}
+
+		case b >= 0x20 && b < 0x7F: // Printable ASCII
+			runes = append(runes, rune(b))
+			os.Stdout.Write(buf[:1])
+		}
+	}
+}
+
+// isStandaloneEsc is called after reading an ESC byte (0x1B). It waits briefly
+// to see if more bytes follow (indicating an escape sequence like an arrow key).
+// Returns true for a standalone ESC press, false if an escape sequence was consumed.
+func isStandaloneEsc() bool {
+	ch := make(chan byte, 1)
+	go func() {
+		var b [1]byte
+		if _, err := os.Stdin.Read(b[:]); err == nil {
+			ch <- b[0]
+		}
+	}()
+
+	select {
+	case next := <-ch:
+		if next == '[' {
+			// CSI sequence (arrow keys, etc.) — consume until the final byte (0x40–0x7E)
+			for {
+				var b [1]byte
+				if _, err := os.Stdin.Read(b[:]); err != nil {
+					break
+				}
+				if b[0] >= 0x40 && b[0] <= 0x7E {
+					break
+				}
+			}
+		}
+		return false
+	case <-time.After(50 * time.Millisecond):
+		return true
+	}
+}
+
+// utf8LeadByteLen returns the expected total length of a UTF-8 sequence
+// given its leading byte.
+func utf8LeadByteLen(b byte) int {
+	switch {
+	case b < 0xE0:
+		return 2
+	case b < 0xF0:
+		return 3
+	default:
+		return 4
+	}
+}
+
+// readLineFromStdin is the simple fallback for non-terminal stdin (e.g. piped input).
+func readLineFromStdin() (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {

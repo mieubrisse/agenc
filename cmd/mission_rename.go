@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -64,6 +65,9 @@ func runMissionRename(cmd *cobra.Command, args []string) error {
 	} else {
 		title, err = promptForTitle()
 		if err != nil {
+			if errors.Is(err, errPromptCancelled) {
+				return nil
+			}
 			return err
 		}
 	}
