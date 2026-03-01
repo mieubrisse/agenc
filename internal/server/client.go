@@ -279,6 +279,33 @@ func (c *Client) UpdateSession(sessionID string, req UpdateSessionRequest) error
 	return c.Patch("/sessions/"+sessionID, req, nil)
 }
 
+// ============================================================================
+// High-level repo API methods
+// ============================================================================
+
+// ListRepos fetches all repos from the server.
+func (c *Client) ListRepos() ([]RepoResponse, error) {
+	var repos []RepoResponse
+	if err := c.Get("/repos", &repos); err != nil {
+		return nil, err
+	}
+	return repos, nil
+}
+
+// AddRepo adds a repo via the server.
+func (c *Client) AddRepo(req AddRepoRequest) (*AddRepoResponse, error) {
+	var resp AddRepoResponse
+	if err := c.Post("/repos", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// RemoveRepo removes a repo via the server.
+func (c *Client) RemoveRepo(repoName string) error {
+	return c.Delete("/repos/" + repoName)
+}
+
 func (c *Client) decodeError(resp *http.Response) error {
 	var errResp errorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
