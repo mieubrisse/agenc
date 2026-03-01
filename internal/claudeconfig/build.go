@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -707,6 +708,25 @@ func GetLastSessionID(agencDirpath string, missionID string) string {
 	return ""
 }
 
+// ComputeProjectDirpath returns the absolute path to the Claude Code project
+// directory for the given agent directory path. Claude Code transforms absolute
+// paths into project directory names by converting both slashes and dots to
+// hyphens.
+// For example: /Users/name/.config/path -> ~/.claude/projects/-Users-name--config-path
+func ComputeProjectDirpath(agentDirpath string) (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("getting user home directory: %w", err)
+	}
+
+	// Claude Code converts both "/" and "." to "-"
+	// So "/Users/odyssey/.agenc" becomes "-Users-odyssey--agenc"
+	projectDirName := strings.ReplaceAll(strings.ReplaceAll(agentDirpath, "/", "-"), ".", "-")
+	projectDirpath := filepath.Join(homeDir, ".claude", "projects", projectDirName)
+
+	return projectDirpath, nil
+}
+
 // ProjectDirectoryExists checks whether Claude Code has created a project
 // directory for the given agent directory path. Claude Code transforms
 // absolute paths into project directory names by converting both slashes
@@ -717,16 +737,10 @@ func GetLastSessionID(agencDirpath string, missionID string) string {
 // attempting resume — Claude Code won't have session data if the project
 // directory doesn't exist yet.
 func ProjectDirectoryExists(agentDirpath string) bool {
-	homeDir, err := os.UserHomeDir()
+	projectDirpath, err := ComputeProjectDirpath(agentDirpath)
 	if err != nil {
 		return false
 	}
-
-	// Transform the agent dirpath into a project directory name
-	// Claude Code converts both "/" and "." to "-"
-	// So "/Users/odyssey/.agenc" becomes "-Users-odyssey--agenc"
-	projectDirName := strings.ReplaceAll(strings.ReplaceAll(agentDirpath, "/", "-"), ".", "-")
-	projectDirpath := filepath.Join(homeDir, ".claude", "projects", projectDirName)
 
 	_, err = os.Stat(projectDirpath)
 	return err == nil

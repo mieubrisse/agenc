@@ -155,6 +155,19 @@ func TestCopyAndPatchClaudeJSON_TrustList(t *testing.T) {
 	}
 }
 
+func TestComputeProjectDirpath(t *testing.T) {
+	result, err := ComputeProjectDirpath("/Users/odyssey/.agenc/missions/abc-123/agent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	homeDir, _ := os.UserHomeDir()
+	expected := filepath.Join(homeDir, ".claude", "projects", "-Users-odyssey--agenc-missions-abc-123-agent")
+	if result != expected {
+		t.Errorf("got %q, want %q", result, expected)
+	}
+}
+
 // setupFakeHome creates a temp dir and overrides HOME so os.UserHomeDir() returns it.
 func setupFakeHome(t *testing.T) string {
 	t.Helper()
