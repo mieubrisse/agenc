@@ -211,6 +211,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /missions/{id}/heartbeat", appHandler(s.requestLogger, s.handleHeartbeat))
 	mux.Handle("POST /missions/{id}/prompt", appHandler(s.requestLogger, s.handleRecordPrompt))
 	mux.Handle("PATCH /missions/{id}", appHandler(s.requestLogger, s.handleUpdateMission))
+	mux.Handle("GET /sessions", appHandler(s.requestLogger, s.handleListSessions))
+	mux.Handle("PATCH /sessions/{id}", appHandler(s.requestLogger, s.handleUpdateSession))
 	// Push-event uses a catch-all prefix since repo names contain slashes
 	mux.Handle("POST /repos/", appHandler(s.requestLogger, s.handlePushEvent))
 }
