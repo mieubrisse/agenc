@@ -21,10 +21,9 @@ func isSolePaneInWindow(paneID string) bool {
 
 // renameWindowForTmux renames the current tmux window when running inside
 // any tmux session. Priority order (highest to lowest):
-//  1. AGENC_WINDOW_NAME env var (from `agenc tmux window new --name`)
-//  2. windowTitle from config.yml
-//  3. repo short name
-//  4. mission ID
+//  1. windowTitle from config.yml
+//  2. repo short name
+//  3. mission ID
 //
 // Only renames the window if this pane is the sole pane in the window and the
 // user has not manually renamed the window since the last AgenC-managed rename.
@@ -48,10 +47,6 @@ func (w *Wrapper) renameWindowForTmux() {
 	}
 	if w.windowTitle != "" {
 		title = w.windowTitle
-	}
-	// Explicit --name from tmux window new takes highest priority
-	if explicitName := os.Getenv("AGENC_WINDOW_NAME"); explicitName != "" {
-		title = explicitName
 	}
 
 	w.applyWindowTitle(paneID, title)
