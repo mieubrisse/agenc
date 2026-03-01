@@ -264,6 +264,16 @@ func ListSessionIDs(claudeConfigDirpath string, missionID string) []string {
 			continue
 		}
 		sessionID := strings.TrimSuffix(entry.Name(), ".jsonl")
+
+		// Skip session files that don't contain actual conversation data.
+		// A session file may exist with only metadata records (e.g.,
+		// file-history-snapshot) if the wrapper was killed before any
+		// conversation started. Claude rejects these with "No conversation
+		// found" when passed to claude -r.
+		if !hasConversationData(filepath.Join(projectDirpath, entry.Name())) {
+			continue
+		}
+
 		sessions = append(sessions, sessionEntry{
 			id:      sessionID,
 			modTime: info.ModTime().UnixMilli(),
@@ -279,6 +289,33 @@ func ListSessionIDs(claudeConfigDirpath string, missionID string) []string {
 		result[i] = s.id
 	}
 	return result
+}
+
+// hasConversationData checks whether a session JSONL file contains at least one
+// user or assistant message record. Files that only contain metadata records
+// (like file-history-snapshot) are not valid conversations.
+func hasConversationData(jsonlFilepath string) bool {
+	file, err := os.Open(jsonlFilepath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+
+	for scanner.Scan() {
+		var record struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
+			continue
+		}
+		if record.Type == "user" || record.Type == "assistant" {
+			return true
+		}
+	}
+	return false
 }
 
 // TailJSONLFile reads the last N lines from a JSONL file and writes them to
