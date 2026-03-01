@@ -64,6 +64,12 @@ func TestFormatToolCall(t *testing.T) {
 			want:     "  > mcp__todoist__list-tasks()",
 		},
 		{
+			name:     "MCP tool with multiple string fields picks alphabetically first",
+			toolName: "mcp__server__do-thing",
+			input:    map[string]interface{}{"zebra": "last", "alpha": "first", "middle": "mid"},
+			want:     `  > mcp__server__do-thing("first")`,
+		},
+		{
 			name:     "Edit with file_path",
 			toolName: "Edit",
 			input:    map[string]interface{}{"file_path": "/tmp/edit.go"},
@@ -191,14 +197,14 @@ func TestFormatConversation(t *testing.T) {
 			jsonlContent: `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"abc","is_error":true,"content":"Command failed: exit code 1"}]}}
 `,
 			n:    0,
-			want: "[USER]\n  > ERROR: Command failed: exit code 1\n",
+			want: "  > ERROR: Command failed: exit code 1\n",
 		},
 		{
 			name: "user with tool_result error as array content",
 			jsonlContent: `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"abc","is_error":true,"content":[{"type":"text","text":"error detail here"}]}]}}
 `,
 			n:    0,
-			want: "[USER]\n  > ERROR: error detail here\n",
+			want: "  > ERROR: error detail here\n",
 		},
 		{
 			name: "user with successful tool_result skipped",
@@ -272,7 +278,7 @@ func TestFormatConversation(t *testing.T) {
 			jsonlContent: `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"abc","is_error":true,"content":"` + strings.Repeat("E", 250) + `"}]}}
 `,
 			n:    0,
-			want: "[USER]\n  > ERROR: " + strings.Repeat("E", 200) + "...\n",
+			want: "  > ERROR: " + strings.Repeat("E", 200) + "...\n",
 		},
 	}
 
