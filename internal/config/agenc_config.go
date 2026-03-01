@@ -177,6 +177,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Open the AgenC GitHub repo in your browser",
 		Command:     "agenc star",
 	},
+	"exitTmux": {
+		Title:       "🚪  Exit Tmux",
+		Description: "Detach from tmux (session stays running; reattach anytime)",
+		Command:     "tmux detach",
+	},
 }
 
 // builtinPaletteCommandOrder controls the display order of builtin commands
@@ -195,6 +200,7 @@ var builtinPaletteCommandOrder = []string{
 	"reloadMission",
 	"removeMission",
 	"nukeMissions",
+	"exitTmux",
 	"sendFeedback",
 	"joinDiscord",
 	"starAgenc",
