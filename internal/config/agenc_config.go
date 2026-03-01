@@ -83,7 +83,6 @@ type PaletteCommandConfig struct {
 	Description    string `yaml:"description,omitempty"`
 	Command        string `yaml:"command,omitempty"`
 	TmuxKeybinding string `yaml:"tmuxKeybinding,omitempty"`
-	DisplayPopup   bool   `yaml:"-"` // internal: direct keybinding opens a tmux popup for interactive input
 }
 
 // IsEmpty returns true if all fields are empty (used to detect disable entries).
@@ -144,7 +143,6 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description:    "Rename the focused mission's window",
 		Command:        "agenc mission rename $AGENC_CALLING_MISSION_UUID",
 		TmuxKeybinding: "-n C-.",
-		DisplayPopup:   true,
 	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
@@ -192,6 +190,12 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Detach from tmux (session stays running; reattach anytime)",
 		Command:     "tmux detach",
 	},
+}
+
+// builtinDisplayPopupCommands lists builtin commands whose direct keybinding
+// should open a tmux display-popup for interactive input instead of run-shell.
+var builtinDisplayPopupCommands = map[string]bool{
+	"renameSession": true,
 }
 
 // builtinPaletteCommandOrder controls the display order of builtin commands
@@ -677,7 +681,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Command:        builtin.Command,
 			TmuxKeybinding: builtin.TmuxKeybinding,
 			IsBuiltin:      true,
-			DisplayPopup:   builtin.DisplayPopup,
+			DisplayPopup:   builtinDisplayPopupCommands[name],
 		}
 
 		// Apply overrides — non-empty fields replace defaults
@@ -720,7 +724,6 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Command:        cmdCfg.Command,
 			TmuxKeybinding: cmdCfg.TmuxKeybinding,
 			IsBuiltin:      false,
-			DisplayPopup:   cmdCfg.DisplayPopup,
 		}
 		result = append(result, resolved)
 	}
