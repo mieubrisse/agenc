@@ -41,45 +41,6 @@ func ResolveRepoInput(agencDirpath string, input string, fzfPrompt string) (*rep
 	return resolveAsSearchTerms(agencDirpath, input, fzfPrompt)
 }
 
-// ResolveRepoInputs handles multiple inputs, where each input can be a repo
-// reference or search terms. Returns the resolved repos in order.
-func ResolveRepoInputs(agencDirpath string, inputs []string, fzfPrompt string) ([]*repo.RepoResolutionResult, error) {
-	if len(inputs) == 0 {
-		return nil, nil
-	}
-
-	// If there's only one input, resolve it directly
-	if len(inputs) == 1 {
-		result, err := ResolveRepoInput(agencDirpath, inputs[0], fzfPrompt)
-		if err != nil {
-			return nil, err
-		}
-		return []*repo.RepoResolutionResult{result}, nil
-	}
-
-	// Multiple inputs: first check if they should be joined as search terms
-	// If the first input doesn't look like a repo reference, join all as search terms
-	if !repo.LooksLikeRepoReference(inputs[0]) {
-		joined := strings.Join(inputs, " ")
-		result, err := ResolveRepoInput(agencDirpath, joined, fzfPrompt)
-		if err != nil {
-			return nil, err
-		}
-		return []*repo.RepoResolutionResult{result}, nil
-	}
-
-	// Each input is a separate repo reference
-	var results []*repo.RepoResolutionResult
-	for _, input := range inputs {
-		result, err := ResolveRepoInput(agencDirpath, input, fzfPrompt)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result)
-	}
-	return results, nil
-}
-
 // resolveAsRepoReferenceWithPrompt resolves a repo reference, prompting for
 // protocol preference interactively if no preference can be determined.
 func resolveAsRepoReferenceWithPrompt(agencDirpath string, input string, defaultGitHubUser string) (*repo.RepoResolutionResult, error) {
