@@ -108,14 +108,12 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description:    "Create a new mission and launch Claude",
 		Command:        "agenc mission new",
 		TmuxKeybinding: "-n C-n",
-		DisplayPopup:   true,
 	},
 	"switchMission": {
 		Title:          "🔀  Switch Mission",
 		Description:    "Switch to a running mission's tmux window",
 		Command:        "agenc tmux switch",
 		TmuxKeybinding: "-n C-m",
-		DisplayPopup:   true,
 	},
 	"resumeMission": {
 		Title:       "🟢  Resume Mission",
@@ -195,6 +193,8 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 // builtinDisplayPopupCommands lists builtin commands whose direct keybinding
 // should open a tmux display-popup for interactive input instead of run-shell.
 var builtinDisplayPopupCommands = map[string]bool{
+	"newMission":    true,
+	"switchMission": true,
 	"renameSession": true,
 }
 
