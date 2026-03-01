@@ -364,6 +364,67 @@ func (c *Client) RemoveRepo(repoName string) error {
 }
 
 // ============================================================================
+// High-level claude-modifications API methods
+// ============================================================================
+
+// ClaudeModsFileResponse is the response from GET /config/claude-md
+// and GET /config/settings-json.
+type ClaudeModsFileResponse = claudeModsFileResponse
+
+// ClaudeModsFileUpdateRequest is the request body for PUT /config/claude-md
+// and PUT /config/settings-json.
+type ClaudeModsFileUpdateRequest = claudeModsFileUpdateRequest
+
+// ClaudeModsFileUpdateResponse is the response from successful PUT operations.
+type ClaudeModsFileUpdateResponse = claudeModsFileUpdateResponse
+
+// GetClaudeMd reads the AgenC-specific CLAUDE.md content and its content hash.
+func (c *Client) GetClaudeMd() (*ClaudeModsFileResponse, error) {
+	var resp ClaudeModsFileResponse
+	if err := c.Get("/config/claude-md", &resp); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get claude-md")
+	}
+	return &resp, nil
+}
+
+// UpdateClaudeMd writes new content to the AgenC-specific CLAUDE.md.
+// Returns the new content hash on success.
+func (c *Client) UpdateClaudeMd(content string, expectedHash string) (*ClaudeModsFileUpdateResponse, error) {
+	var resp ClaudeModsFileUpdateResponse
+	req := ClaudeModsFileUpdateRequest{
+		Content:      content,
+		ExpectedHash: expectedHash,
+	}
+	if err := c.Put("/config/claude-md", req, &resp); err != nil {
+		return nil, err // Preserve HTTP error for conflict detection
+	}
+	return &resp, nil
+}
+
+// GetSettingsJson reads the AgenC-specific settings.json content and its content hash.
+func (c *Client) GetSettingsJson() (*ClaudeModsFileResponse, error) {
+	var resp ClaudeModsFileResponse
+	if err := c.Get("/config/settings-json", &resp); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get settings-json")
+	}
+	return &resp, nil
+}
+
+// UpdateSettingsJson writes new content to the AgenC-specific settings.json.
+// Returns the new content hash on success.
+func (c *Client) UpdateSettingsJson(content string, expectedHash string) (*ClaudeModsFileUpdateResponse, error) {
+	var resp ClaudeModsFileUpdateResponse
+	req := ClaudeModsFileUpdateRequest{
+		Content:      content,
+		ExpectedHash: expectedHash,
+	}
+	if err := c.Put("/config/settings-json", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ============================================================================
 // High-level server API methods
 // ============================================================================
 
@@ -376,7 +437,6 @@ func (c *Client) GetServerLogs(source string, all bool) ([]byte, error) {
 	}
 	return c.GetRaw(path)
 }
-
 func (c *Client) decodeError(resp *http.Response) error {
 	var errResp errorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
