@@ -31,8 +31,7 @@ setup:
 		fi; \
 	fi
 
-check:
-	@test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md
+check: genskill
 	@echo "Checking code formatting..."
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
