@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -51,7 +52,7 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 	detach, _ := cmd.Flags().GetBool(paneNewDetachFlagName)
 
 	// Pass the user's command directly (no shell wrapping) so the shell can
-	// exec into it. See tmux_window_new.go for the rationale.
+	// exec into it.
 	userCommand := buildShellCommand(args)
 
 	// Split the current window to create a new pane.
@@ -77,4 +78,19 @@ func runTmuxPaneNew(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// buildShellCommand joins command arguments into a single shell command string,
+// quoting arguments that contain spaces or special characters.
+func buildShellCommand(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		if strings.ContainsAny(arg, " \t\n\"'\\$`|&;(){}[]<>?*~!#") {
+			// Use single quotes, escaping any existing single quotes
+			quoted[i] = "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
+		} else {
+			quoted[i] = arg
+		}
+	}
+	return strings.Join(quoted, " ")
 }
