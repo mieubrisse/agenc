@@ -30,6 +30,7 @@
             "Read(./secrets/**)",
             "Bash(rm -rf:*)",
             "Bash(sudo:*)",
+            "Bash(git commit --no-verify:*)",
             "Skill(agenc-engineer:*)"
         ]
     }
