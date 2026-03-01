@@ -3,7 +3,7 @@ Nontechnical Repositioning Vision
 
 This is a living planning document for repositioning AgenC toward technology-inclined nontechnical users. It captures the product vision, organized around the user's workflow cycle. It will be built out over time and eventually turned into beads for execution.
 
-Last updated: 2026-02-27
+Last updated: 2026-02-28
 
 
 The Central Idea
@@ -21,7 +21,23 @@ To build an effective infinite-leverage system, the product must:
 
 The product that solves all three becomes the operating system for a personal AI organization.
 
+**Trust is the output of learning.** The only way you can really let agents help you accelerate is if you feel good about them. And the way you feel good about them is: guardrails (you control what they can do) + continued obedience (the agent keeps doing what you trained it to do, and gets better over time). Guardrails + continued obedience = trust. This means the three pillars above aren't just features — they're a trust-building pipeline. Context extraction gives agents the knowledge to act correctly. Execution proves they can deliver. Learning ensures they keep improving and stay aligned. Trust isn't a separate concern bolted on at the end; it's the emergent property of the whole system working together.
+
 **Institutional memory:** real organizations that retain and build on what they learn outperform those that don't. This system builds institutional memory — and it does so from ALL work driven through it, not just explicit learning-loop corrections. A casual conversation with a friend sparks a curiosity → you kick off a research mission → the research mission produces findings and links them back to a work item (bead) referencing its own mission UUID for future context → next time any agent touches that topic, the research is already there. Once missions can launch other missions, this compounds further: a mission discovers it needs background knowledge, spawns a research sub-mission, the sub-mission produces findings and links them into the knowledge graph, and all downstream work benefits automatically. Every hour of use deposits institutional memory into the system. This is the fundamental difference from chat interfaces, which have amnesia — every session starts from scratch, context rots, and refinements evaporate. This system remembers, and the longer someone uses it, the harder it is to leave because the accumulated context and learnings are deeply personalized.
+
+
+The Problem
+-----------
+
+Everybody is stressed, tired, and overwhelmed with things that need doing — in their work and personal lives. They'd like to use AI agents to help. But three things block them:
+
+1. **Uneven experiences.** People have tried chatbots and AI tools. Sometimes they're great; sometimes they hallucinate, miss context, or produce mediocre output. The base state of agents isn't good enough for people to trust them with real work, and there's no clear path to making them better.
+
+2. **No trust.** Even when agents CAN do something, people don't trust them not to do crazy things — send the wrong email, expose private data, make a bad decision. Without guardrails, visibility, and the ability to correct mistakes, people won't hand over meaningful control. And without meaningful control, agents can't deliver meaningful leverage.
+
+3. **No idea how to start.** Even people who see the vision — "I want a team of AI agents working for me" — don't know how they'd build a general-purpose AI assistant. The setup pain exceeds the perceived value. They need something concrete they can download and start using immediately, not a blank canvas.
+
+The product must solve all three. Uneven experiences → the learning loop makes agents durably better. No trust → guardrails + continued obedience build trust incrementally. No idea how to start → pre-built agents for specific use cases, ready to customize.
 
 
 The Target User
@@ -106,6 +122,10 @@ This is the front door of the entire system. If capturing work is painful, peopl
 - **MIRN (Most Important Right Now)**: this is a central concept to the entire system, not just the work management subsystem. At any given moment, the user should know what their Most Important Right Now is — across all projects, all agents, all work streams. MIRN is the answer to "what should I be paying attention to?" in a world where you have dozens of agents running in parallel. The system surfaces MIRN by combining the DAG structure (what's blocking the most downstream work), urgency/deadlines, and the user's stated priorities. MIRN should propagate across subsystems: it influences which agent results get reviewed first, which learning suggestions surface first, and what the daily briefing leads with.
 - **Waiting For tracking**: track commitments from other people (and agents), with follow-up reminders. This is a GTD concept that becomes critical when you're managing a team of agents.
 
+### Trust contribution
+
+Trust starts here: if the system reliably captures what the user dumps into it and organizes it without losing or mischaracterizing anything, the user trusts it enough to keep feeding it. If items disappear, get miscategorized, or feel unreliable, the user stops capturing — and the entire loop dies at the front door.
+
 ### Key insight
 
 Yegge's "beads" concept (a DAG-based work tracker, which the current AgenC already uses) is a good foundation here. But beads is too technical for the target user. The interface needs to feel more like Todoist — simple, fast, intuitive — while preserving the underlying DAG structure and tight integration with the agent system.
@@ -138,6 +158,10 @@ The central thesis is that agents fail because context/prompting isn't good enou
 - **General Reference vs. Project Support**: GTD's distinction applies here. General reference is "stuff I might need someday" (contacts, recipes, tax info). Project support is "stuff I need for active work" (design specs, research for a current project). Agents need to know the difference so they search the right corpus.
 - **Living knowledge**: the knowledge base should grow automatically as agents work. When an agent discovers something useful during a task, that knowledge should flow back into the system — not evaporate when the session ends.
 
+### Trust contribution
+
+Trust that agents have the right context. When an agent makes a decision based on knowledge the user put into the system, that's trust being validated — "it knows what I know, so it acts like I would." When an agent ignores or contradicts stored knowledge, trust erodes. The knowledge subsystem is the foundation for the "continued obedience" half of the trust equation.
+
 ### Key insight
 
 The "context in your head" problem is really a knowledge management problem. Every time a user corrects an agent ("no, we do it THIS way because..."), that's tacit knowledge being surfaced. The product should capture those corrections and route them into durable knowledge that all agents can access going forward.
@@ -169,6 +193,14 @@ This is the core engine — where leverage actually happens. The user's ability 
 - **Sub-delegation**: agents should be able to spawn sub-agents when useful, without the user having to manually orchestrate every step. The user sets the goal; the system figures out the decomposition.
 - **Overflow management**: when you have 10+ agents running, the UX must not become overwhelming. The system needs to surface what needs attention and let the rest run quietly.
 - **Conversation provenance**: as missions spawn sub-missions, side-chats, and follow-up work, users need to see where each conversation came from — which conversation spawned it, and why. This is a tree/graph view showing the lineage of any given mission back to its progenitor. Without this, a user with 15 active missions quickly loses track of "why am I even in this conversation?" Provenance also helps with cleanup: when a root mission is done, the user can see all the branches it spawned and decide what to archive. This ties directly into the side-chat learning mechanism in the Learn & Refine subsystem — those side-chats are missions too, and provenance tracking lets the user trace from a learning conversation back to the friction that triggered it.
+
+### Trust contribution
+
+This is where the "guardrails" half of the trust equation lives. Visibility into what agents are doing, granular permissions that limit what they can do, the ability to intervene at any point — these are the mechanisms that let users gradually release control. Every mission the user monitors without incident is a small deposit into the trust account.
+
+### Note: agent-initiated work
+
+Khan's feedback (2026-02-27) highlighted that agents should be able to initiate, not just wait — e.g., an agent that books time on the user's calendar and walks them through their finances, rather than requiring the user to visit a dashboard. This connects to the "Background work" design principle (cron-like scheduling). Implementation priority: cron/scheduling support is a prerequisite for agent-initiated workflows.
 
 ### Key insight
 
@@ -203,6 +235,10 @@ This is the compounding engine — the thing that makes the system get exponenti
 - **Durable refinements**: improvements persist across sessions and across agents. Dan's key framing: "How do you make your AI agents a DURABLE team?" vs. chat interfaces where context rots and refinements evaporate.
 - **Background learning**: the system should be able to do proactive learning — scanning completed sessions, identifying patterns of friction, and queuing up suggested improvements — without requiring the user to manually review every session.
 - **Side-chat for live learning**: at any point during a conversation where the user hits friction, they should be able to open a side-chat dedicated to analyzing the current conversation and rolling learnings back into the system. Implementation: the user forks the conversation into a new mission, or starts a new mission that references the original mission where friction is happening. The side-chat agent can read the original conversation, identify what went wrong, and propose system improvements. Critically, the side-chat should be a regular mission — not a special-cased feature. This means if the user hits friction in the side conversation itself, they can open a side-side conversation to roll back even more learnings. It's turtles all the way down, and the system handles it naturally because every level is just another mission. This also means side-chats get all the same capabilities as any other mission: learning capture, response markup, background learning, etc.
+
+### Trust contribution
+
+This is the "continued obedience" half of the trust equation, and the engine that converts guardrails into trust. Every time the user corrects the system and sees the correction stick — the agent gets it right next time, and the time after that — trust compounds. The learning loop is what makes trust durable rather than fragile. Without it, trust must be re-established every session (the chat interface problem). With it, trust accumulates.
 
 ### Key insight
 
@@ -259,6 +295,23 @@ This is not optional supplementary content. It's a core subsystem because the pr
 - How does this relate to the eventual business model? Is education a free acquisition channel, a paid tier, or built into the product itself?
 
 
+Beachhead Use Case: Personal CRM
+---------------------------------
+
+Both Dan and Khan independently converged on the same advice: niche down hard on one use case, get supergood at it, then expand. Khan: "Platform isn't the thing you sell. You sell a niche solution, and then the platform lets you scale quickly across verticals."
+
+**Personal CRM is the beachhead.** It was chosen because it satisfies all the criteria:
+
+- **Personal motivation**: this is a problem the founder cares about and uses daily
+- **Broad relevance among nontechnical, tech-inclined users**: multiple people in the target demographic have this problem (managing contacts, remembering interactions, tracking follow-ups)
+- **Exercises the full loop**: capture (voice note after meeting someone) → organize (categorize, extract follow-ups) → delegate (agent processes and stores) → learn (agent gets better at understanding the user's relationship patterns and categorization preferences)
+- **Trust-safe starting point**: CRM data is personal but low-stakes compared to email, finances, or calendar. Users can build trust with the system before granting access to higher-sensitivity domains
+- **Demoable in 30 seconds**: "Record a voice note about someone you met → see it turn into a structured contact record with follow-ups" is immediately compelling
+- **Natural expansion path**: once the user trusts the system with contacts and follow-ups, expanding to email drafting, calendar management, and other domains feels like a natural next step
+
+**The download-and-customize model**: users don't want to build their CRM agent from scratch. They want to download a Good Enough version — essentially a pre-built agent skill/template that knows how to manage contacts, process voice notes, track interactions, and surface follow-ups — and then customize it to their style. "The kicker is, even if it's not doing things quite right, you can tune it to make it work for you" (Dan). The product should ship with this CRM agent as a ready-to-use starting point, and the learning loop handles the customization over time.
+
+
 Dan's Use Cases (Reference)
 ----------------------------
 
@@ -269,6 +322,46 @@ From the 2026-02-26 market research session with Dan (marketer, autonomous drivi
 - **Unfinished projects**: "I'd like to have a team of agents that helps me work on my unfinished projects"
 
 These are good anchor use cases because they're concrete, relatable, and demonstrate the full loop (capture → organize → delegate → learn).
+
+
+Khan's Feedback (Reference)
+----------------------------
+
+From the 2026-02-27 product sync with Khan (friend/advisor, Palantir background, thinks deeply about moats and platform strategy):
+
+**On moats and data assets:**
+- Thinks heavily about moats through a Palantir lens — "atom moats" (physical businesses, robots) and data asset moats (e.g., Notion's accumulated user data)
+- "You need to build a data asset that can't be replicated" — by having a product and a distribution channel to drive people through it
+- Palantir's moats: connections inside government (distribution), reputation (trust), accumulated organizational memory from working with clients
+- Khan frames this as "ontology" — a structured model that makes agent interactions useful. Counterpoint: people want to "take the best, leave the rest" from experts, not be governed by a single universal model. The resolution may be: shared knowledge structures as default starting points, heavy customization as the user experience.
+
+**On niching down:**
+- "Platform isn't the thing you sell. You sell a niche solution, and then the platform lets you scale quickly across verticals."
+- Strongly recommended a concierge test: personally handle 5-10 friends' tasks using AgenC to discover real friction
+- Analysis of the concierge suggestion: full concierge (email, calendar access) faces the exact trust barrier the product aims to solve — friends wouldn't hand that over. But a narrow concierge (Personal CRM management for a few friends) could work and would validate the beachhead use case.
+
+**On trust (recurring theme):**
+- "My default is trust-but-verify, but that contributes to a bunch of cognitive overhead. If I could trust more..."
+- "A properly-curated agent should be MORE trustworthy than humans, theoretically" — noting that even his accountants, trainers, and doctors make mistakes
+- "Trust-but-verify" implicitly requires visibility into what agents are doing + the ability to slowly release control — exactly the product thesis
+- On OpenClaw: "It's not smart enough to get things right, that I would trust it. Why would I trust that it does the right thing?"
+
+**On OpenClaw specifically:**
+- Security concerns — "The things that would be valuable to me, I wouldn't want to open to an agent"
+- Too much friction — "I have to install this, get a Mac mini, get a VPC, connect to my accounts in a secure way... I'm not going to do that"
+- Too general-purpose — "It's not trying to solve one niche well, so therefore it solves a bunch of niches poorly"
+- No accountability structure — "In the case of OpenClaw, there's no accountability structure behind the model"
+- No shared curated context — wants "shared, curated context" with "a bunch of humans in the loop, who've verified this, to ensure that the thing works"
+
+**On agent-as-companion (Monarch Money critique):**
+- "Monarch Money is a sort of bullshit product. The version I actually want is, we're going to sit down on Mondays at this time to talk about your money. And it'd book time on your calendar."
+- "I want an active companion in my life that doesn't feel invasive"
+- "I have to carry the mental load of doing things... all the time. The coordination [overhead is the problem]."
+- Implicit requirements: agent must be able to book calendar, be trusted with financial information, and probably text the user
+
+**On downloading experts:**
+- Both Khan and Dan expressed this independently: they don't want to build agents from scratch, they want to download a Good Enough version and customize
+- "You can't actually discover value until you can articulate problems in a meaningful way" — but people don't want to do the articulation themselves; they want to start from something that already works
 
 
 Example Workflows
@@ -300,9 +393,9 @@ The user wants to evaluate CRM tools for their business. They launch a research 
 Trust as the Fundamental Resource
 ---------------------------------
 
-The fundamental resource this product operates on is **trust**. Every feature, every subsystem, every design decision is ultimately about building and maintaining the user's trust that their agent team won't do insane things — and giving them the tools to correct it when it does.
+The fundamental resource this product operates on is **trust**. Every feature, every subsystem, every design decision is ultimately about building and maintaining the user's trust that their agent team won't do insane things — and giving them the tools to correct it when it does. (See "Trust is the output of learning" in The Central Idea for the causal mechanism: guardrails + continued obedience = trust.)
 
-This insight comes from direct experience building AgenC. One of the original motivations was avoiding `--dangerously-skip-permissions` — the nuclear option that gives an agent carte blanche. Instead, the approach was the long, grindy climb of slowly allowing the right permissions while blocking the wrong ones. That process is tedious but it builds genuine trust: the user knows exactly what each agent can and cannot do.
+This insight comes from direct experience building AgenC. One of the original motivations was avoiding `--dangerously-skip-permissions` — the nuclear option that gives an agent carte blanche. Instead, the approach was the long, grindy climb of slowly allowing the right permissions while blocking the wrong ones. That process is tedious but it builds genuine trust: the user knows exactly what each agent can and cannot do. Khan's framing reinforces this: "My default is trust-but-verify, but that contributes to a bunch of cognitive overhead. If I could trust more..." — the product's job is to earn enough trust that the verification burden decreases over time.
 
 Trust is built through three mechanisms:
 
@@ -326,7 +419,7 @@ Key Tensions to Resolve
 
 3. **Integration vs. ownership**: users' knowledge and work already live in Notion, Google Drive, Todoist, etc. The product can either deeply integrate with these (complex, dependent on third-party APIs) or provide its own tools and ask users to migrate (simpler technically, higher adoption friction).
 
-4. **Depth vs. breadth**: Dan's advice is to niche down and get "supergood at one specific workflow" for non-technical users. But the vision is a general-purpose AI work factory. These may not be contradictory — you can go deep on one use case to prove the model, then expand — but the tension needs conscious management.
+4. **Depth vs. breadth**: *(Resolved: niche first.)* Both Dan (2026-02-26) and Khan (2026-02-27) independently converged on the same advice: niche down hard, get supergood at one use case, then expand. Khan: "Platform isn't the thing you sell. You sell a niche solution, and then the platform lets you scale quickly across verticals." The vision is still a general-purpose AI work factory, but the go-to-market is depth-first. The beachhead use case is Personal CRM (see Beachhead Use Case section).
 
 5. **Dan's value/pain gap**: Dan sees the value clearly but hasn't tried any agentic tools. "I don't want it enough to face the pain of setting it up." The product must close this gap, likely through: (a) dramatically simpler onboarding, (b) off-the-shelf agent templates that work immediately, and (c) visible value within the first session.
 
