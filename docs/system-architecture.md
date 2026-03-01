@@ -89,7 +89,7 @@ Current endpoints:
 - `GET /missions` — lists all missions (supports `include_archived` and `cron_id` query params)
 - `GET /missions/{id}` — get a single mission by ID (supports short ID resolution)
 - `POST /missions` — create a new mission (DB record, directory, wrapper spawn in pool)
-- `PATCH /missions/{id}` — update mission fields (config_commit, session_name, prompt, tmux_pane, tmux_window_title)
+- `PATCH /missions/{id}` — update mission fields (config_commit, session_name, prompt, tmux_pane)
 - `POST /missions/{id}/attach` — ensure wrapper running (lazy start), link pool window into caller's tmux session
 - `POST /missions/{id}/detach` — unlink pool window from caller's tmux session (wrapper keeps running)
 - `POST /missions/{id}/stop` — stop a mission's wrapper process and clean up pool window
@@ -389,7 +389,7 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
 - `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
 - `session_scanner.go` — session scanner loop (3-second interval, queries tmux pool for running missions then incrementally scans their JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
-- `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane and user-override guards
+- `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane guard
 - `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
 
 ### `internal/database/`
@@ -532,9 +532,8 @@ The "active session" is the most recently updated session for the mission, deter
 **Guards:**
 
 - **Sole-pane check** — only renames the window if the mission's tmux pane is the sole pane in its window. Avoids renaming shared windows (e.g., when the user has split panes).
-- **User-override detection** — if AgenC previously set a title (recorded in `missions.tmux_window_title`) and the current window name differs, the user has manually renamed the window. AgenC respects that and skips the rename.
 
-Titles are truncated to 30 characters (with ellipsis) before applying. The function records each applied title in `missions.tmux_window_title` so it can detect user overrides on subsequent calls.
+Titles are truncated to 30 characters (with ellipsis) before applying.
 
 ### Heartbeat system
 
@@ -667,7 +666,6 @@ Database Schema
 | `cron_id` | TEXT | UUID of the cron that spawned this mission (nullable) |
 | `cron_name` | TEXT | Name of the cron job (nullable, used for orphan tracking) |
 | `tmux_pane` | TEXT | Tmux pane ID where the mission wrapper is running (nullable, cleared on exit) |
-| `tmux_window_title` | TEXT | Last window title that AgenC applied via tmux rename-window, used for user-override detection |
 | `prompt_count` | INTEGER | Total number of user prompt submissions, incremented by `UserPromptSubmit` hook |
 | `last_summary_prompt_count` | INTEGER | Value of `prompt_count` when the AI summary was last generated. The server re-summarizes when `prompt_count - last_summary_prompt_count >= 10` |
 | `ai_summary` | TEXT | AI-generated short description of what the user is working on, produced by the server's mission summarizer via Claude Haiku |
