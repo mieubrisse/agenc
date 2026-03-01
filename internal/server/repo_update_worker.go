@@ -72,8 +72,19 @@ func (s *Server) processRepoUpdate(ctx context.Context, req repoUpdateRequest) {
 	// Capture HEAD after update
 	headAfter, _ := mission.GetHEAD(repoDirpath)
 
-	// Run hook if HEAD changed or forceRunHook is set
+	// Run garbage collection when new objects were fetched. This keeps the
+	// library repo compact — without it, loose objects accumulate indefinitely
+	// because fetch+reset never triggers git's built-in auto-gc.
 	headChanged := headBefore != headAfter && headAfter != ""
+	if headChanged {
+		gcCmd := exec.CommandContext(ctx, "git", "gc")
+		gcCmd.Dir = repoDirpath
+		if output, err := gcCmd.CombinedOutput(); err != nil {
+			s.logger.Printf("Repo update: git gc failed for '%s': %v\n%s", req.repoName, err, string(output))
+		}
+	}
+
+	// Run hook if HEAD changed or forceRunHook is set
 	if headChanged || req.forceRunHook {
 		cfg, _, err := config.ReadAgencConfig(s.agencDirpath)
 		if err != nil {
