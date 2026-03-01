@@ -1,6 +1,7 @@
 package wrapper
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
@@ -337,6 +338,14 @@ func (w *Wrapper) Run(isResume bool) error {
 					"exit_code", exitCode,
 					"exit_error", fmt.Sprintf("%v", exitErr),
 				)
+
+				// If Claude exited with an error, pause so the user can see
+				// any error messages Claude printed to the terminal before
+				// the tmux window closes.
+				if exitCode != 0 {
+					fmt.Fprintf(os.Stderr, "\nClaude exited with code %d. Press Enter to close this window.\n", exitCode)
+					bufio.NewReader(os.Stdin).ReadBytes('\n')
+				}
 				return nil
 			}
 		}
