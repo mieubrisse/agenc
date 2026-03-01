@@ -22,7 +22,8 @@
             "Bash(sqlite3:*)",
             "Bash(rm:*)",
             "Bash(cp:*)",
-            "Bash(mv:*)"
+            "Bash(mv:*)",
+            "Bash(tmux list-panes:*)"
         ],
         "deny": [
             "Read(./.env)",
