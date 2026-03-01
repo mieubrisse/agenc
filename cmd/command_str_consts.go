@@ -57,6 +57,7 @@ const (
 	updateConfigCmdStr = "update-config"
 	sendCmdStr         = "send"
 	claudeUpdateCmdStr = "claude-update"
+	renameCmdStr       = "rename"
 
 	// Config subcommands
 	initCmdStr           = "init"
