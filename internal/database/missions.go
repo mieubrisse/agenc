@@ -29,6 +29,11 @@ type Mission struct {
 	AISummary              string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+
+	// ResolvedSessionTitle is a transient field (not stored in the database).
+	// It is populated by the server from the active session's title chain:
+	// custom_title > agenc_custom_title > auto_summary.
+	ResolvedSessionTitle string
 }
 
 // CreateMissionParams holds optional parameters for creating a mission.

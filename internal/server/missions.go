@@ -35,6 +35,10 @@ type MissionResponse struct {
 	AISummary              string     `json:"ai_summary"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+
+	// ResolvedSessionTitle is derived from the active session's title chain:
+	// custom_title > agenc_custom_title > auto_summary. Empty if no session exists.
+	ResolvedSessionTitle string `json:"resolved_session_title"`
 }
 
 // ToMission converts a MissionResponse to a database.Mission.
@@ -57,6 +61,7 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		AISummary:              mr.AISummary,
 		CreatedAt:              mr.CreatedAt,
 		UpdatedAt:              mr.UpdatedAt,
+		ResolvedSessionTitle:   mr.ResolvedSessionTitle,
 	}
 }
 
@@ -79,6 +84,7 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		AISummary:              m.AISummary,
 		CreatedAt:              m.CreatedAt,
 		UpdatedAt:              m.UpdatedAt,
+		ResolvedSessionTitle:   m.ResolvedSessionTitle,
 	}
 }
 
@@ -88,6 +94,32 @@ func toMissionResponses(missions []*database.Mission) []MissionResponse {
 		result[i] = toMissionResponse(m)
 	}
 	return result
+}
+
+// resolveSessionTitle returns the best display title from a session using
+// the same priority chain as tmux reconciliation (custom_title >
+// agenc_custom_title > auto_summary). Returns "" if no title is available.
+func resolveSessionTitle(s *database.Session) string {
+	if s == nil {
+		return ""
+	}
+	if s.CustomTitle != "" {
+		return s.CustomTitle
+	}
+	if s.AgencCustomTitle != "" {
+		return s.AgencCustomTitle
+	}
+	return s.AutoSummary
+}
+
+// enrichMissionWithSessionTitle populates the ResolvedSessionTitle field
+// on a mission by looking up its active session.
+func (s *Server) enrichMissionWithSessionTitle(m *database.Mission) {
+	activeSession, err := s.db.GetActiveSession(m.ID)
+	if err != nil {
+		return
+	}
+	m.ResolvedSessionTitle = resolveSessionTitle(activeSession)
 }
 
 // handleListMissions handles GET /missions.
@@ -106,6 +138,7 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 			writeJSON(w, http.StatusOK, []MissionResponse{})
 			return nil
 		}
+		s.enrichMissionWithSessionTitle(mission)
 		writeJSON(w, http.StatusOK, []MissionResponse{toMissionResponse(mission)})
 		return nil
 	}
@@ -120,6 +153,10 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 	missions, err := s.db.ListMissions(params)
 	if err != nil {
 		return newHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	for _, m := range missions {
+		s.enrichMissionWithSessionTitle(m)
 	}
 
 	writeJSON(w, http.StatusOK, toMissionResponses(missions))
@@ -143,6 +180,7 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
+	s.enrichMissionWithSessionTitle(mission)
 	writeJSON(w, http.StatusOK, toMissionResponse(mission))
 	return nil
 }

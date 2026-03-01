@@ -73,7 +73,7 @@ func getTmuxWindowTitle(paneID string) string {
 func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) []missionPickerEntry {
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
-		sessionName := resolveSessionName(nil, m)
+		sessionName := resolveSessionName(m)
 		status := getMissionStatus(m.ID, m.Status)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAdjutant(agencDirpath, m.ID) {

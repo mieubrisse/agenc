@@ -17,7 +17,6 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/history"
 	"github.com/odyssey/agenc/internal/server"
-	"github.com/odyssey/agenc/internal/session"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -89,7 +88,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status)
-		sessionName := resolveSessionName(nil, m)
+		sessionName := resolveSessionName(m)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAdjutant(agencDirpath, m.ID) {
 			repo = "🤖  Adjutant"
@@ -197,55 +196,25 @@ func colorizeStatus(status string) string {
 
 const defaultPromptMaxLen = 106
 
-// resolveSessionName returns the Claude Code session name for a mission.
-// It uses a cached value from the database when the cache is fresh (i.e. the
-// mission's heartbeat has not advanced past the last cache update). Otherwise
-// it performs the expensive file lookup, caches the result, and returns it.
-// Falls back to the mission's first user prompt if no session name is found.
+// resolveSessionName returns the display name for a mission's active session.
+// It uses the server-provided ResolvedSessionTitle which follows the same
+// priority chain as tmux window title reconciliation:
 //
-// db may be nil (e.g. when using the server path); cache writes are skipped.
+//	custom_title > agenc_custom_title > auto_summary
 //
-// Session data lives in the per-mission claude-config directory (for newer
-// missions) or the global claude directory (for older missions).
-func resolveSessionName(db *database.DB, m *database.Mission) string {
-	if isSessionNameCacheFresh(m) {
-		return m.SessionName
+// Falls back to the mission's first user prompt if no session title is available.
+func resolveSessionName(m *database.Mission) string {
+	if m.ResolvedSessionTitle != "" {
+		return m.ResolvedSessionTitle
 	}
-
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, m.ID)
-	sessionName := session.FindSessionName(claudeConfigDirpath, m.ID)
-	if sessionName != "" {
-		if db != nil {
-			_ = db.UpdateMissionSessionName(m.ID, sessionName)
-		}
-		return sessionName
-	}
-	return resolveMissionPrompt(db, m)
+	return resolveMissionPrompt(m)
 }
 
-// isSessionNameCacheFresh reports whether the cached session name for a
-// mission is still valid. The cache is fresh when it has been populated and
-// the mission's heartbeat has not advanced past the cache timestamp.
-func isSessionNameCacheFresh(m *database.Mission) bool {
-	if m.SessionNameUpdatedAt == nil {
-		return false
-	}
-	if m.LastHeartbeat == nil {
-		// No heartbeat — cache can't be stale from activity.
-		return m.SessionName != ""
-	}
-	return !m.LastHeartbeat.After(*m.SessionNameUpdatedAt)
-}
-
-// resolveMissionPrompt returns the mission's first user prompt, using the DB
-// cache if available, otherwise backfilling from Claude's history.jsonl. The
-// returned string may be empty if no prompt has been recorded yet.
-//
-// db may be nil (e.g. when using the server path); cache writes are skipped.
-//
-// History data lives in the per-mission claude-config directory (for newer
-// missions) or the global claude directory (for older missions).
-func resolveMissionPrompt(db *database.DB, m *database.Mission) string {
+// resolveMissionPrompt returns the mission's first user prompt, using the
+// server-cached value if available, otherwise reading from Claude's
+// history.jsonl. The returned string may be empty if no prompt has been
+// recorded yet.
+func resolveMissionPrompt(m *database.Mission) string {
 	if m.Prompt != "" {
 		return m.Prompt
 	}
@@ -257,10 +226,6 @@ func resolveMissionPrompt(db *database.DB, m *database.Mission) string {
 		return ""
 	}
 
-	// Cache in DB for future reads; ignore errors since this is best-effort.
-	if db != nil {
-		_ = db.UpdateMissionPrompt(m.ID, prompt)
-	}
 	m.Prompt = prompt
 	return prompt
 }

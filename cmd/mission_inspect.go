@@ -111,12 +111,12 @@ func inspectMission(missionID string) error {
 	} else if mission.GitRepo != "" {
 		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
 	}
-	sessionName := resolveSessionName(nil, mission)
+	sessionName := resolveSessionName(mission)
 	if sessionName == "" {
 		sessionName = "--"
 	}
 	fmt.Printf("Session:     %s\n", sessionName)
-	prompt := resolveMissionPrompt(nil, mission)
+	prompt := resolveMissionPrompt(mission)
 	if prompt == "" {
 		prompt = "--"
 	}
