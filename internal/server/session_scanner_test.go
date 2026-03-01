@@ -180,6 +180,26 @@ func TestExtractRepoShortName(t *testing.T) {
 	}
 }
 
+func TestPrependEmoji(t *testing.T) {
+	tests := []struct {
+		emoji string
+		title string
+		want  string
+	}{
+		{"", "my-title", "my-title"},
+		{"🔥", "my-title", "🔥  my-title"},
+		{"🤖", "my-title", "🤖  my-title"},
+		{"A", "my-title", "A   my-title"},
+	}
+
+	for _, tt := range tests {
+		got := prependEmoji(tt.emoji, tt.title)
+		if got != tt.want {
+			t.Errorf("prependEmoji(%q, %q) = %q, want %q", tt.emoji, tt.title, got, tt.want)
+		}
+	}
+}
+
 func TestDetermineBestTitle(t *testing.T) {
 	mission := &database.Mission{
 		ShortID: "abc12345",

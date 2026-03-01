@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -80,6 +82,40 @@ func determineBestTitle(activeSession *database.Session, mission *database.Missi
 	return mission.ShortID
 }
 
+// resolveEmojiForMission returns the emoji to prepend to the tmux window title
+// for a mission. Returns empty string if no emoji applies.
+//
+// Priority:
+//  1. Adjutant missions → 🤖
+//  2. Repo with configured emoji → that emoji
+//  3. Blank missions (no repo, not adjutant) → 🦀
+//  4. Repo without configured emoji → "" (no prefix)
+func resolveEmojiForMission(agencDirpath string, mission *database.Mission, cfg *config.AgencConfig) string {
+	if config.IsMissionAdjutant(agencDirpath, mission.ID) {
+		return "🤖"
+	}
+	if mission.GitRepo != "" {
+		return cfg.GetRepoEmoji(mission.GitRepo)
+	}
+	// Blank mission (no repo, not adjutant)
+	return "🦀"
+}
+
+// prependEmoji prepends an emoji with fixed-column-4 padding to a title.
+// The title text always starts at column 4 (minimum 1 space after emoji).
+// Returns the original title unchanged if emoji is empty.
+func prependEmoji(emoji string, title string) string {
+	if emoji == "" {
+		return title
+	}
+	emojiWidth := runewidth.StringWidth(emoji)
+	padding := 4 - emojiWidth
+	if padding < 1 {
+		padding = 1
+	}
+	return emoji + strings.Repeat(" ", padding) + title
+}
+
 // applyTmuxTitle applies a title to the tmux window for a mission, subject to
 // a sole-pane guard.
 func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
@@ -99,7 +135,11 @@ func (s *Server) applyTmuxTitle(mission *database.Mission, title string) {
 		return
 	}
 
-	truncatedTitle := truncateTitle(title, maxTmuxWindowTitleLen)
+	// Prepend emoji if configured
+	emoji := resolveEmojiForMission(s.agencDirpath, mission, s.getConfig())
+	fullTitle := prependEmoji(emoji, title)
+
+	truncatedTitle := truncateTitle(fullTitle, maxTmuxWindowTitleLen)
 
 	if err := exec.Command("tmux", "rename-window", "-t", paneID, truncatedTitle).Run(); err != nil {
 		s.logger.Printf("Tmux reconcile [%s]: tmux rename-window failed for pane %s: %v", mission.ShortID, paneID, err)
