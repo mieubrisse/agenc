@@ -99,6 +99,8 @@ Current endpoints:
 - `POST /missions/{id}/unarchive` — set a mission back to active
 - `POST /missions/{id}/heartbeat` — update a mission's last_heartbeat timestamp
 - `POST /missions/{id}/prompt` — update last_active and increment prompt_count
+- `GET /sessions?mission_id={id}` — list sessions for a mission (ordered by updated_at descending)
+- `PATCH /sessions/{id}` — update session fields (agenc_custom_title); triggers tmux window title reconciliation
 - `POST /repos/{name}/push-event` — enqueue a repo library update (returns 202 Accepted)
 
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file. The `agenc daemon` subcommand is deprecated and delegates to `agenc server`.
@@ -379,7 +381,8 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
 - `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
 - `session_scanner.go` — session scanner loop (3-second interval, queries tmux pool for running missions then incrementally scans their JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
-- `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > auto_summary > repo name > short ID), with sole-pane and user-override guards
+- `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane and user-override guards
+- `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
 
 ### `internal/database/`
 
@@ -510,10 +513,11 @@ The server provides an idempotent function (`internal/server/tmux.go`) that exam
 
 **Title priority chain** (highest to lowest):
 
-1. Active session's `custom_title` (from `/rename`, stored in the `sessions` table)
-2. Active session's `auto_summary` (from Claude's conversation summary, stored in the `sessions` table)
-3. Repo short name (extracted from the mission's `git_repo` field)
-4. Mission short ID (fallback)
+1. Active session's `custom_title` (from Claude's `/rename`, stored in the `sessions` table)
+2. Active session's `agenc_custom_title` (user-set via `agenc mission rename` CLI, stored in the `sessions` table)
+3. Active session's `auto_summary` (from Claude's conversation summary, stored in the `sessions` table)
+4. Repo short name (extracted from the mission's `git_repo` field)
+5. Mission short ID (fallback)
 
 The "active session" is the most recently updated session for the mission, determined by `GetActiveSession` which queries by `mission_id` ordered by `updated_at DESC`.
 
@@ -677,7 +681,8 @@ Database Schema
 |--------|------|-------------|
 | `id` | TEXT (PK) | Session UUID (matches the JSONL filename stem) |
 | `mission_id` | TEXT (FK) | References `missions(id)` with `ON DELETE CASCADE` |
-| `custom_title` | TEXT | User-assigned title from `/rename`, extracted from JSONL `custom-title` entries |
+| `custom_title` | TEXT | User-assigned title from Claude's `/rename`, extracted from JSONL `custom-title` entries |
+| `agenc_custom_title` | TEXT | User-assigned title from `agenc mission rename` CLI command |
 | `auto_summary` | TEXT | Claude-generated conversation summary, extracted from JSONL `summary` entries |
 | `last_scanned_offset` | INTEGER | Byte offset into the JSONL file up to which the scanner has read. Enables incremental scanning — the scanner seeks to this offset and only parses new data. |
 | `created_at` | TEXT | Session creation timestamp (RFC3339) |
