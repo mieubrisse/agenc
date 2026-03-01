@@ -205,7 +205,7 @@ Key Concepts
 - **Tmux** is the primary interface. Each mission is a tmux window. "Window title" means the tmux window name — the text shown in the status bar. AgenC sets window titles from the repo name or a custom string.
 - **Palette commands** are quick-launch entries in the AgenC tmux command palette. Each has a ` + "`name`" + ` (internal key), ` + "`title`" + ` (display text), ` + "`command`" + ` (what it runs), and optional ` + "`tmuxKeybinding`" + `. Stored in ` + "`config.yml`" + ` under ` + "`paletteCommands`" + `. Manage with ` + "`agenc config paletteCommand`" + `. Keybinding values are passed through to tmux's bind-key: a bare key like ` + "`\"f\"`" + ` binds in the agenc table (prefix + a, f), while ` + "`\"-n C-s\"`" + ` binds globally in the root table (no prefix needed).
 - **Cron jobs** are scheduled headless missions defined in ` + "`config.yml`" + `. Manage with ` + "`agenc cron`" + `.
-- **The daemon** is a background process that handles scheduled tasks, repo syncing, and credential management.
+- **The server** is a background process that handles scheduled tasks, repo syncing, and credential management. Manage it with ` + "`agenc server`" + `.
 
 Repo Formats
 ------------
