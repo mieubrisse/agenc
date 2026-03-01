@@ -5,9 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/server"
-	"github.com/odyssey/agenc/internal/session"
 )
 
 // isSolePaneInWindow returns true if the given pane is the only pane in its window.
@@ -167,64 +165,6 @@ func extractRepoName(gitRepoName string) string {
 	return parts[len(parts)-1]
 }
 
-// updateWindowTitleFromSession updates the tmux window title based on the best
-// available name for this mission. Priority order (highest to lowest):
-//  1. Custom title from Claude's /rename command (beats everything, including --name)
-//  2. AGENC_WINDOW_NAME env var (explicit --name flag — fixed; no AI/session updates)
-//  3. AI-generated summary from daemon (updated every ~10 user prompts)
-//  4. Auto-generated session name from Claude's session metadata
-//
-// Only runs inside a tmux session. Called on each Stop event so the title
-// stays in sync as the session evolves.
-func (w *Wrapper) updateWindowTitleFromSession() {
-	if os.Getenv("TMUX") == "" {
-		return
-	}
-
-	paneID := os.Getenv("TMUX_PANE")
-	if paneID == "" {
-		return
-	}
-
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
-
-	// Custom title from /rename takes highest dynamic priority — beats even an
-	// explicit --name flag so Quick Claude sessions can still be renamed.
-	if customTitle := session.FindCustomTitle(claudeConfigDirpath, w.missionID); customTitle != "" {
-		_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{SessionName: &customTitle})
-		title := truncateWindowTitle(customTitle, maxWindowTitleLen)
-		w.applyWindowTitle(paneID, title)
-		return
-	}
-
-	// If an explicit --name was provided at launch, treat it as a fixed title.
-	// Don't update it with AI summaries or session names (only /rename can override).
-	if os.Getenv("AGENC_WINDOW_NAME") != "" {
-		return
-	}
-
-	// AI-generated summary from the daemon (periodically updated based on
-	// user activity). Preferred over auto-generated session summaries because
-	// it reflects what the user is currently working on.
-	missionRecord, err := w.client.GetMission(w.missionID)
-	if err == nil && missionRecord.AISummary != "" {
-		_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{SessionName: &missionRecord.AISummary})
-		title := truncateWindowTitle(missionRecord.AISummary, maxWindowTitleLen)
-		w.applyWindowTitle(paneID, title)
-		return
-	}
-
-	// Fall back to auto-generated session name from Claude's session metadata
-	sessionName := session.FindSessionName(claudeConfigDirpath, w.missionID)
-	if sessionName == "" {
-		return
-	}
-
-	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{SessionName: &sessionName})
-	title := truncateWindowTitle(sessionName, maxWindowTitleLen)
-	w.applyWindowTitle(paneID, title)
-}
-
 // currentWindowName returns the current name of the tmux window containing
 // paneID, by querying tmux directly. Returns "" if the query fails or we are
 // not inside tmux.
@@ -263,18 +203,3 @@ func (w *Wrapper) applyWindowTitle(paneID string, title string) {
 	//nolint:errcheck // best-effort; failure is not critical
 	_ = w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{TmuxWindowTitle: &title})
 }
-
-// truncateWindowTitle truncates a string to maxLen runes, appending an
-// ellipsis if truncation occurs. Collapses internal whitespace first.
-func truncateWindowTitle(title string, maxLen int) string {
-	collapsed := strings.Join(strings.Fields(title), " ")
-	runes := []rune(collapsed)
-	if len(runes) <= maxLen {
-		return collapsed
-	}
-	return string(runes[:maxLen-1]) + "…"
-}
-
-// maxWindowTitleLen is the maximum character length for tmux window titles
-// derived from session names. Keeps tabs readable without excessive truncation.
-const maxWindowTitleLen = 30
