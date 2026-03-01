@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -31,6 +32,10 @@ type Server struct {
 	repoUpdateCycleCount int
 	cronSyncer           *CronSyncer
 
+	// cachedConfig holds the most recent parsed AgencConfig, updated via fsnotify.
+	// Reads are lock-free via atomic.Pointer; only the config watcher goroutine writes.
+	cachedConfig atomic.Pointer[config.AgencConfig]
+
 	// Repo update worker
 	repoUpdateCh chan repoUpdateRequest
 }
@@ -44,6 +49,16 @@ func NewServer(agencDirpath string, socketPath string, logger *log.Logger) *Serv
 		cronSyncer:   NewCronSyncer(agencDirpath),
 		repoUpdateCh: make(chan repoUpdateRequest, repoUpdateChannelSize),
 	}
+}
+
+// getConfig returns the cached AgencConfig. Returns an empty config if the
+// cache has not been populated yet (should not happen after startup).
+func (s *Server) getConfig() *config.AgencConfig {
+	cfg := s.cachedConfig.Load()
+	if cfg == nil {
+		return &config.AgencConfig{}
+	}
+	return cfg
 }
 
 // Run starts the HTTP server on the unix socket and blocks until ctx is cancelled.
@@ -101,8 +116,8 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Printf("Warning: %v - cron scheduling will not work", err)
 	}
 
-	// Initial cron sync on startup
-	s.syncCronsOnStartup()
+	// Load config and perform initial cron sync on startup
+	s.loadConfigOnStartup()
 
 	var wg sync.WaitGroup
 
@@ -178,13 +193,15 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-// syncCronsOnStartup performs an initial sync of cron jobs to launchd on server startup.
-func (s *Server) syncCronsOnStartup() {
+// loadConfigOnStartup reads the config, caches it, and performs initial cron sync.
+func (s *Server) loadConfigOnStartup() {
 	cfg, _, err := config.ReadAgencConfig(s.agencDirpath)
 	if err != nil {
 		s.logger.Printf("Failed to read config on startup: %v", err)
 		return
 	}
+
+	s.cachedConfig.Store(cfg)
 
 	if len(cfg.Crons) == 0 {
 		s.logger.Println("Cron syncer: no cron jobs configured")

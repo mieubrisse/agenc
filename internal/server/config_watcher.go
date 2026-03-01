@@ -85,7 +85,7 @@ func (s *Server) watchBothConfigs(ctx context.Context, userClaudeDirpath string,
 					agencDebounceTimer.Stop()
 				}
 				agencDebounceTimer = time.AfterFunc(ingestDebounce, func() {
-					s.syncCronsAfterConfigChange()
+					s.reloadConfig()
 				})
 				continue
 			}
@@ -208,13 +208,15 @@ func (s *Server) ingestClaudeConfig(userClaudeDirpath string, shadowDirpath stri
 	}
 }
 
-// syncCronsAfterConfigChange triggers a cron sync after the agenc config changes.
-func (s *Server) syncCronsAfterConfigChange() {
+// reloadConfig re-reads config.yml, updates the cached config, and re-syncs crons.
+func (s *Server) reloadConfig() {
 	cfg, _, err := config.ReadAgencConfig(s.agencDirpath)
 	if err != nil {
 		s.logger.Printf("Config watcher: failed to read config after change: %v", err)
 		return
 	}
+
+	s.cachedConfig.Store(cfg)
 
 	if err := s.cronSyncer.SyncCronsToLaunchd(cfg.Crons, s.logger); err != nil {
 		s.logger.Printf("Config watcher: failed to sync crons: %v", err)
