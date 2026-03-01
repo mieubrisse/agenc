@@ -140,7 +140,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Title:          "✨  Rename Session",
 		Description:    "Rename the focused mission's window",
 		Command:        "agenc mission rename $AGENC_CALLING_MISSION_UUID",
-		TmuxKeybinding: "-n C-,",
+		TmuxKeybinding: "-n C-.",
 	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
