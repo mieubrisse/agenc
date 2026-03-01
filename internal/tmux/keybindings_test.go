@@ -42,7 +42,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
 
 	// Should contain the simple run-shell form
-	if !strings.Contains(content, "run-shell 'exec >/dev/null 2>&1; agenc mission new'") {
+	if !strings.Contains(content, "run-shell 'agenc mission new'") {
 		t.Error("expected non-mission-scoped keybinding to use simple run-shell form")
 	}
 
@@ -186,7 +186,7 @@ func TestGenerateKeybindingsContent_SingleQuotesInCommand(t *testing.T) {
 
 	// The inner single quotes must be escaped as '\'' so tmux parses them correctly.
 	// The full line should be: run-shell 'tmux split-window -h -c '\''#{pane_current_path}'\'' $SHELL'
-	expected := `run-shell 'exec >/dev/null 2>&1; tmux split-window -h -c '\''#{pane_current_path}'\'' $SHELL'`
+	expected := `run-shell 'tmux split-window -h -c '\''#{pane_current_path}'\'' $SHELL'`
 	if !strings.Contains(content, expected) {
 		t.Errorf("expected single quotes to be escaped in run-shell wrapper\nwant substring: %s\ngot content:\n%s", expected, content)
 	}

@@ -103,10 +103,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 			} else {
 				// Mission-scoped: resolve the pane's mission UUID first, skip if empty.
 				// #{pane_id} is expanded by tmux at key-press time.
-				// exec >/dev/null 2>&1 suppresses output so tmux run-shell
-				// doesn't display a message requiring the user to press Enter.
 				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
-					"exec >/dev/null 2>&1; "+
 					"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 					"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
 					"'\n", bindKeyArgs, agencBinary, escapedCommand)
@@ -118,9 +115,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 					"tmux display-popup -E \"%s\""+
 					"'\n", bindKeyArgs, popupCmd)
 			} else {
-				// exec >/dev/null 2>&1 suppresses output so tmux run-shell
-				// doesn't display a message requiring the user to press Enter.
-				fmt.Fprintf(&sb, "bind-key %s run-shell 'exec >/dev/null 2>&1; %s'\n", bindKeyArgs, escapedCommand)
+				fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedCommand)
 			}
 		}
 	}
