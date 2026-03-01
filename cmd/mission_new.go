@@ -321,8 +321,15 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 	var rows [][]string
 	rows = append(rows, []string{"🤖", "Adjutant"})
 	rows = append(rows, []string{"🐙", "Github Repo"})
+	cfg, _, _ := config.ReadAgencConfig(agencDirpath)
 	for _, entry := range entries {
-		rows = append(rows, []string{"📦", displayGitRepo(entry.RepoName)})
+		icon := "📦"
+		if cfg != nil {
+			if e := cfg.GetRepoEmoji(entry.RepoName); e != "" {
+				icon = e
+			}
+		}
+		rows = append(rows, []string{icon, displayGitRepo(entry.RepoName)})
 	}
 
 	// Use sentinel row for NONE option (Blank Mission)
