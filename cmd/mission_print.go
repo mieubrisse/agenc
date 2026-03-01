@@ -12,11 +12,15 @@ import (
 
 var missionPrintTailFlag int
 var missionPrintAllFlag bool
+var missionPrintFormatFlag string
 
 var missionPrintCmd = &cobra.Command{
 	Use:   printCmdStr + " [mission-id]",
-	Short: "Print the JSONL transcript for a mission's current session",
-	Long: `Print the JSONL transcript for a mission's current session.
+	Short: "Print a mission's current session transcript (human-readable text by default)",
+	Long: `Print a mission's current session transcript.
+
+By default, outputs a human-readable text summary. Use --format=jsonl for
+raw JSONL output.
 
 Without arguments, opens an interactive fzf picker to select a mission.
 With arguments, accepts a mission ID (short 8-char hex or full UUID).
@@ -27,6 +31,7 @@ or --all to print the entire session.
 Example:
   agenc mission print
   agenc mission print 2571d5d8
+  agenc mission print 2571d5d8 --format=jsonl
   agenc mission print 2571d5d8 --tail 50
   agenc mission print 2571d5d8 --all`,
 	Args: cobra.ArbitraryArgs,
@@ -36,6 +41,7 @@ Example:
 func init() {
 	missionPrintCmd.Flags().IntVar(&missionPrintTailFlag, tailFlagName, defaultTailLines, "number of lines to print from end of session")
 	missionPrintCmd.Flags().BoolVar(&missionPrintAllFlag, allFlagName, false, "print entire session")
+	missionPrintCmd.Flags().StringVar(&missionPrintFormatFlag, formatFlagName, "text", "output format: text or jsonl")
 	missionCmd.AddCommand(missionPrintCmd)
 }
 
@@ -108,5 +114,5 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "")
 	}
 
-	return printSessionJSONL(jsonlFilepath, missionPrintTailFlag, missionPrintAllFlag)
+	return printSession(jsonlFilepath, missionPrintTailFlag, missionPrintAllFlag, missionPrintFormatFlag)
 }
