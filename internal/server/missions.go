@@ -340,19 +340,6 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	return nil
 }
 
-// lookupRepoEmoji reads the config and returns the emoji for the
-// given repo, or empty string if not configured or on read error.
-func (s *Server) lookupRepoEmoji(gitRepoName string) string {
-	if gitRepoName == "" {
-		return ""
-	}
-	cfg, _, err := config.ReadAgencConfig(s.agencDirpath)
-	if err != nil {
-		return ""
-	}
-	return cfg.GetRepoEmoji(gitRepoName)
-}
-
 const (
 	stopTimeout = 10 * time.Second
 	stopTick    = 100 * time.Millisecond

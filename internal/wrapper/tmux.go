@@ -19,38 +19,6 @@ func isSolePaneInWindow(paneID string) bool {
 	return paneCount == "1"
 }
 
-// renameWindowForTmux renames the current tmux window when running inside
-// any tmux session. Priority order (highest to lowest):
-//  1. windowTitle from config.yml
-//  2. repo short name
-//  3. mission ID
-//
-// Only renames the window if this pane is the sole pane in the window.
-// In regular tmux sessions or outside tmux, this is a no-op.
-func (w *Wrapper) renameWindowForTmux() {
-	if os.Getenv("TMUX") == "" {
-		return
-	}
-
-	paneID := os.Getenv("TMUX_PANE")
-	if paneID == "" {
-		return
-	}
-
-	title := w.missionID
-	if w.gitRepoName != "" {
-		repoName := extractRepoName(w.gitRepoName)
-		if repoName != "" {
-			title = repoName
-		}
-	}
-	if w.windowTitle != "" {
-		title = w.windowTitle
-	}
-
-	w.applyWindowTitle(paneID, title)
-}
-
 // registerTmuxPane records the current tmux pane ID in the database so that
 // keybindings can resolve which mission is focused. No-ops when not inside tmux
 // (e.g. headless mode).
@@ -147,25 +115,4 @@ func resolveWindowID() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// extractRepoName extracts just the repository name from a canonical repo
-// reference like "owner/repo" or "host/owner/repo". Returns just "repo".
-func extractRepoName(gitRepoName string) string {
-	parts := strings.Split(gitRepoName, "/")
-	if len(parts) == 0 {
-		return ""
-	}
-	return parts[len(parts)-1]
-}
-
-// applyWindowTitle renames the tmux window for this pane to title, subject to
-// one guard: the window must contain only this pane (no split panes).
-func (w *Wrapper) applyWindowTitle(paneID string, title string) {
-	if !isSolePaneInWindow(paneID) {
-		return
-	}
-
-	//nolint:errcheck // best-effort; failure is not critical
-	exec.Command("tmux", "rename-window", "-t", paneID, title).Run()
 }

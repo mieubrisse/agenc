@@ -45,7 +45,6 @@ type Wrapper struct {
 	agencDirpath   string
 	missionID      string
 	gitRepoName    string
-	windowTitle    string
 	initialPrompt  string
 	defaultModel   string
 	missionDirpath string
@@ -102,10 +101,8 @@ type Wrapper struct {
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
 // parameter is optional; if non-empty, it will be passed to Claude when
-// starting a new conversation (not used for resumes). The windowTitle
-// parameter is optional; if non-empty, it overrides the default tmux window
-// title derived from the repo name.
-func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windowTitle string, initialPrompt string) *Wrapper {
+// starting a new conversation (not used for resumes).
+func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initialPrompt string) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	var titleCfg *config.TmuxWindowTitleConfig
@@ -121,7 +118,6 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, windo
 		agencDirpath:                   agencDirpath,
 		missionID:                      missionID,
 		gitRepoName:                    gitRepoName,
-		windowTitle:                    windowTitle,
 		initialPrompt:                  initialPrompt,
 		defaultModel:                   defaultModel,
 		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
@@ -248,10 +244,6 @@ func (w *Wrapper) Run(isResume bool) error {
 	if err := os.Chdir(w.agentDirpath); err != nil {
 		w.logger.Warn("Failed to chdir to agent directory", "path", w.agentDirpath, "error", err)
 	}
-
-	// Rename the tmux window to "<short_id> <repo-name>" when inside the
-	// AgenC tmux session.
-	w.renameWindowForTmux()
 
 	// Spawn initial Claude process
 	if isResume {

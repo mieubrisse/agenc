@@ -185,19 +185,6 @@ func serverClient() (*server.Client, error) {
 // Config helpers
 // ============================================================================
 
-// lookupRepoEmoji reads the config and returns the emoji for the
-// given repo, or empty string if not configured or on read error.
-func lookupRepoEmoji(agencDirpath string, gitRepoName string) string {
-	if gitRepoName == "" {
-		return ""
-	}
-	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	if err != nil {
-		return ""
-	}
-	return cfg.GetRepoEmoji(gitRepoName)
-}
-
 // getCurrentTmuxSessionName returns the name of the tmux session the caller
 // is running in. Returns an empty string if not inside tmux.
 func getCurrentTmuxSessionName() string {

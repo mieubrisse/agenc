@@ -149,7 +149,7 @@ func waitForSocket(socketFilepath string, timeout time.Duration) error {
 
 // createTestWrapper creates a wrapper with a logger initialized for testing.
 func createTestWrapper(agencDirpath, missionID, gitRepoName string) *Wrapper {
-	w := NewWrapper(agencDirpath, missionID, gitRepoName, "", "")
+	w := NewWrapper(agencDirpath, missionID, gitRepoName, "")
 	w.logger = slog.Default()
 	return w
 }
