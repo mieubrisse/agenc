@@ -11,5 +11,5 @@ Manage Claude Code sessions
 ### SEE ALSO
 
 * [agenc](agenc.md)	 - The AgenC — agent mission management CLI
-* [agenc session print](agenc_session_print.md)	 - Print the JSONL transcript for a Claude session
+* [agenc session print](agenc_session_print.md)	 - Print a Claude session transcript (human-readable text by default)
 

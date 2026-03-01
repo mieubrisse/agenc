@@ -16,7 +16,7 @@ Manage agent missions
 * [agenc mission ls](agenc_mission_ls.md)	 - List active missions
 * [agenc mission new](agenc_mission_new.md)	 - Create a new mission and launch claude
 * [agenc mission nuke](agenc_mission_nuke.md)	 - Stop and permanently remove ALL missions
-* [agenc mission print](agenc_mission_print.md)	 - Print the JSONL transcript for a mission's current session
+* [agenc mission print](agenc_mission_print.md)	 - Print a mission's current session transcript (human-readable text by default)
 * [agenc mission reconfig](agenc_mission_reconfig.md)	 - Apply your latest ~/.claude config to a mission
 * [agenc mission reload](agenc_mission_reload.md)	 - Reload one or more missions in-place (preserves tmux pane)
 * [agenc mission resume](agenc_mission_resume.md)	 - Unarchive (if needed) and resume a mission with claude --continue
