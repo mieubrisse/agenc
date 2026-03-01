@@ -58,8 +58,41 @@ var topLevelOrder = []string{
 	"server",
 }
 
+// collectLeafCommands recursively walks a command tree and collects all leaf
+// commands (those with a Run/RunE handler or no subcommands). Intermediate
+// group commands that only exist to hold subcommands are skipped.
+func collectLeafCommands(cmd *cobra.Command, prefix string, entries *[]commandEntry) {
+	for _, sub := range cmd.Commands() {
+		if sub.Hidden || !sub.IsAvailableCommand() {
+			continue
+		}
+
+		fullUsage := fmt.Sprintf("%s %s", prefix, sub.Use)
+		children := sub.Commands()
+
+		// If this command has visible children, recurse into them
+		hasVisibleChildren := false
+		for _, child := range children {
+			if !child.Hidden && child.IsAvailableCommand() {
+				hasVisibleChildren = true
+				break
+			}
+		}
+
+		if hasVisibleChildren {
+			collectLeafCommands(sub, fmt.Sprintf("%s %s", prefix, sub.Name()), entries)
+		} else {
+			*entries = append(*entries, commandEntry{
+				Usage:       fullUsage,
+				Description: sub.Short,
+			})
+		}
+	}
+}
+
 // buildCommandGroups walks the Cobra command tree and organizes commands
-// into groups for template rendering.
+// into groups for template rendering. Recursively descends into nested
+// subcommand groups to capture all leaf commands.
 func buildCommandGroups(rootCmd *cobra.Command) []commandGroup {
 	groupMap := make(map[string]*commandGroup)
 
@@ -76,15 +109,7 @@ func buildCommandGroups(rootCmd *cobra.Command) []commandGroup {
 				Name:        name,
 				Description: child.Short,
 			}
-			for _, sub := range subcommands {
-				if sub.Hidden || !sub.IsAvailableCommand() {
-					continue
-				}
-				group.Commands = append(group.Commands, commandEntry{
-					Usage:       fmt.Sprintf("agenc %s %s", name, sub.Use),
-					Description: sub.Short,
-				})
-			}
+			collectLeafCommands(child, fmt.Sprintf("agenc %s", name), &group.Commands)
 			groupMap[name] = group
 		}
 	}
