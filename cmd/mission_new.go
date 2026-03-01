@@ -187,6 +187,9 @@ func runMissionNewWithPicker(args []string) error {
 		if err != nil {
 			return err
 		}
+		if picked == nil {
+			return nil // user cancelled fzf
+		}
 		return launchFromLibrarySelection(picked)
 	}
 
@@ -336,7 +339,7 @@ func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*re
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH; install fzf or pass a repo reference as an argument")
 	}
 	if indices == nil {
-		return nil, stacktrace.NewError("fzf selection cancelled")
+		return nil, nil
 	}
 
 	// Sentinel row returns index -1
