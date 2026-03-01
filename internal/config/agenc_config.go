@@ -74,6 +74,9 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 	return c.Overlap
 }
 
+// boolPtr returns a pointer to the given bool value.
+func boolPtr(b bool) *bool { return &b }
+
 // PaletteCommandConfig represents a palette command entry in config.yml.
 // For custom commands, all fields are user-provided.
 // For builtin overrides, non-empty fields override the builtin defaults.
@@ -83,11 +86,12 @@ type PaletteCommandConfig struct {
 	Description    string `yaml:"description,omitempty"`
 	Command        string `yaml:"command,omitempty"`
 	TmuxKeybinding string `yaml:"tmuxKeybinding,omitempty"`
+	DisplayPopup   *bool  `yaml:"displayPopup,omitempty"` // If true, direct keybinding opens a tmux popup for interactive input
 }
 
 // IsEmpty returns true if all fields are empty (used to detect disable entries).
 func (c *PaletteCommandConfig) IsEmpty() bool {
-	return c.Title == "" && c.Description == "" && c.Command == "" && c.TmuxKeybinding == ""
+	return c.Title == "" && c.Description == "" && c.Command == "" && c.TmuxKeybinding == "" && c.DisplayPopup == nil
 }
 
 // BuiltinPaletteCommands defines the default palette commands shipped with agenc.
@@ -141,6 +145,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description:    "Rename the focused mission's window",
 		Command:        "agenc mission rename $AGENC_CALLING_MISSION_UUID",
 		TmuxKeybinding: "-n C-.",
+		DisplayPopup:   boolPtr(true),
 	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
@@ -233,6 +238,7 @@ type ResolvedPaletteCommand struct {
 	Command        string
 	TmuxKeybinding string
 	IsBuiltin      bool
+	DisplayPopup   bool // If true, direct keybinding opens a tmux popup for interactive input
 }
 
 // IsMissionScoped returns true if the command references the calling mission
@@ -672,6 +678,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Command:        builtin.Command,
 			TmuxKeybinding: builtin.TmuxKeybinding,
 			IsBuiltin:      true,
+			DisplayPopup:   builtin.DisplayPopup != nil && *builtin.DisplayPopup,
 		}
 
 		// Apply overrides — non-empty fields replace defaults
@@ -687,6 +694,9 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			}
 			if override.TmuxKeybinding != "" {
 				resolved.TmuxKeybinding = override.TmuxKeybinding
+			}
+			if override.DisplayPopup != nil {
+				resolved.DisplayPopup = *override.DisplayPopup
 			}
 		}
 
@@ -714,6 +724,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Command:        cmdCfg.Command,
 			TmuxKeybinding: cmdCfg.TmuxKeybinding,
 			IsBuiltin:      false,
+			DisplayPopup:   cmdCfg.DisplayPopup != nil && *cmdCfg.DisplayPopup,
 		}
 		result = append(result, resolved)
 	}

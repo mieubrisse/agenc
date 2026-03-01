@@ -33,6 +33,7 @@ type CustomKeybinding struct {
 	Command         string // full command string
 	Comment         string // human-readable comment for the generated file
 	IsMissionScoped bool   // true if the command requires a focused mission pane
+	DisplayPopup    bool   // true if the keybinding should open a tmux popup for interactive input
 }
 
 // GenerateKeybindingsContent returns the full content of the agenc-managed
@@ -85,15 +86,37 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		}
 
 		escapedCommand := escapeSingleQuotes(kb.Command)
+		usePopup := kb.DisplayPopup && (tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2))
+
 		if kb.IsMissionScoped {
-			// Mission-scoped: resolve the pane's mission UUID first, skip if empty.
-			// #{pane_id} is expanded by tmux at key-press time.
-			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
-				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
-				"'\n", bindKeyArgs, agencBinary, escapedCommand)
+			if usePopup {
+				// Mission-scoped with display-popup: resolve UUID, then open
+				// an interactive popup. Double quotes in the command are escaped
+				// for the inner double-quoted display-popup argument.
+				popupCmd := strings.ReplaceAll(escapedCommand, `"`, `\"`)
+				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
+					"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
+					"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && "+
+					"tmux display-popup -E "+
+					"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s\""+
+					"'\n", bindKeyArgs, agencBinary, popupCmd)
+			} else {
+				// Mission-scoped: resolve the pane's mission UUID first, skip if empty.
+				// #{pane_id} is expanded by tmux at key-press time.
+				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
+					"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
+					"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
+					"'\n", bindKeyArgs, agencBinary, escapedCommand)
+			}
 		} else {
-			fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedCommand)
+			if usePopup {
+				popupCmd := strings.ReplaceAll(escapedCommand, `"`, `\"`)
+				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
+					"tmux display-popup -E \"%s\""+
+					"'\n", bindKeyArgs, popupCmd)
+			} else {
+				fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedCommand)
+			}
 		}
 	}
 
@@ -139,6 +162,7 @@ func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []Cu
 			Command:         cmd.Command,
 			Comment:         comment,
 			IsMissionScoped: cmd.IsMissionScoped(),
+			DisplayPopup:    cmd.DisplayPopup,
 		})
 	}
 	return keybindings
