@@ -32,7 +32,7 @@ binding that works anywhere without the AgenC leader, prefix with "-n":
 Examples:
   agenc config paletteCommand add dotfiles \
     --title="📁 Open dotfiles" \
-    --command="agenc tmux window new -- agenc mission new mieubrisse/dotfiles" \
+    --command="agenc mission new mieubrisse/dotfiles" \
     --keybinding="f"
 
   agenc config paletteCommand add stopThisMission \

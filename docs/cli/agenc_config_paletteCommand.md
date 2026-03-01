@@ -23,7 +23,7 @@ Example config.yml:
     # Custom command with keybinding (in AgenC table: prefix + a, f)
     dotfiles:
       title: "📁 Open dotfiles"
-      command: "agenc tmux window new -- agenc mission new mieubrisse/dotfiles"
+      command: "agenc mission new mieubrisse/dotfiles"
       tmuxKeybinding: "f"
 
     # Global keybinding (root table, no prefix needed: Ctrl-s)

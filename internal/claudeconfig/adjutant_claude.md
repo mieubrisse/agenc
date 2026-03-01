@@ -28,7 +28,7 @@ Operating Rules
 Launching and Resuming Missions
 -------------------------------
 
-Use `agenc mission new` and `agenc mission resume` directly. The server handles creating tmux windows automatically — you do not need to wrap these commands with `agenc tmux window new`.
+Use `agenc mission new` and `agenc mission resume` directly. The server handles creating tmux windows automatically.
 
 Tmux Configuration Changes
 --------------------------

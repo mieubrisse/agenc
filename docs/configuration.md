@@ -50,7 +50,7 @@ paletteCommands:
   dotfiles:
     title: "Open dotfiles"
     description: "Start a dotfiles mission"
-    command: "agenc tmux window new -- agenc mission new mieubrisse/dotfiles"
+    command: "agenc mission new mieubrisse/dotfiles"
     tmuxKeybinding: "f"
 
   # Global keybinding (root table, no prefix needed: Ctrl-s)
@@ -62,7 +62,7 @@ paletteCommands:
   # Custom command, palette only (no keybinding)
   logs:
     title: "Daemon logs"
-    command: "agenc tmux window new -- agenc daemon logs"
+    command: "agenc daemon logs"
 
 # Override the command palette keybinding (default: "-T agenc k")
 # The value is inserted verbatim after "bind-key" in the tmux config.
@@ -141,7 +141,7 @@ Palette commands control what appears in the tmux command palette (prefix + a, k
 Each entry supports four fields:
 - **title** — label shown in the palette picker (entries without a title are keybinding-only)
 - **description** — context shown alongside the title
-- **command** — full shell command to execute (e.g. `agenc tmux window new -- agenc mission new`)
+- **command** — full shell command to execute (e.g. `agenc mission new`)
 - **tmuxKeybinding** — tmux keybinding. By default, a bare key like `"f"` or `"C-n"` is bound in the agenc key table (prefix + a, key). To make a global binding in the root table (no prefix needed), use `"-n C-s"` syntax — the value is passed through to tmux's `bind-key` command
 
 **Merge rules for builtins:**

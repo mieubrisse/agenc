@@ -159,7 +159,7 @@ The hard way to do this is through the [CLI helpdocs](docs/cli/agenc.md) the `ag
 ```
 agenc config paletteCommand add newRepo \
     --title "🆕 New Repo" \
-    --command "agenc tmux window new -a -- agenc mission new \
+    --command "agenc mission new \
         --blank \
         --prompt 'I want to create a new GitHub repository. Please:
             1) Ask me what the repository name should be and whether I want it public or private

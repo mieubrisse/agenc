@@ -19,5 +19,4 @@ Manage the AgenC tmux session
 * [agenc tmux rm](agenc_tmux_rm.md)	 - Destroy the AgenC tmux session, stopping all running missions
 * [agenc tmux switch](agenc_tmux_switch.md)	 - Switch to a running mission's tmux window
 * [agenc tmux uninject](agenc_tmux_uninject.md)	 - Remove AgenC tmux keybindings
-* [agenc tmux window](agenc_tmux_window.md)	 - Manage tmux windows in the AgenC session
 

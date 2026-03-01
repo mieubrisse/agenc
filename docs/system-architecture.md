@@ -410,7 +410,7 @@ Per-mission Claude child process management.
 - `credential_sync.go` — MCP OAuth credential sync goroutines: `initCredentialHash` (baseline hash at spawn), `watchCredentialUpwardSync` (polls per-mission Keychain every 60s; when hash changes, merges to global and writes broadcast timestamp to `global-credentials-expiry`), `watchCredentialDownwardSync` (fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global into per-mission Keychain)
 - `socket.go` — unix socket listener, `Command`/`Response` protocol types (including `Event` and `NotificationType` fields for `claude_update` commands), `commandWithResponse` internal type for synchronous request/response
 - `client.go` — `SendCommand` and `SendCommandWithTimeout` helpers for CLI/server/hook use, `ErrWrapperNotRunning` sentinel error
-- `tmux.go` — tmux window renaming when inside any tmux session (`$TMUX` set) (startup: `AGENC_WINDOW_NAME` > config.yml `windowTitle` > repo short name > mission ID; dynamic on Stop events: custom title from /rename > AI summary from server > auto-generated session name), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing via server client for mission resolution
+- `tmux.go` — tmux window renaming when inside any tmux session (`$TMUX` set) (startup: config.yml `windowTitle` > repo short name > mission ID), pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing via server client for mission resolution
 
 ### Utility packages
 

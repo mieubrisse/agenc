@@ -6,7 +6,7 @@ Launch a feedback mission with Adjutant
 
 Launches a new tmux window with an Adjutant mission for sending feedback about AgenC.
 This is a shorthand for:
-  agenc tmux window new -a -- agenc mission new --adjutant --prompt "I'd like to send feedback about AgenC"
+  tmux new-window -a agenc mission new --adjutant --prompt "I'd like to send feedback about AgenC"
 
 ```
 agenc feedback [flags]
