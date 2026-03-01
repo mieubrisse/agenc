@@ -70,6 +70,12 @@ func (s *Server) runSessionScannerCycle() {
 		}
 
 		s.scanMissionJSONLFiles(mission.ID, projectDirpath)
+
+		// Always reconcile tmux window title — the DB may already have the
+		// correct title from a previous scan but the tmux window might be
+		// stale (e.g. after a server restart or a prior rename failure).
+		// reconcileTmuxWindowTitle is idempotent and skips when already correct.
+		s.reconcileTmuxWindowTitle(mission.ID)
 	}
 }
 
@@ -122,18 +128,9 @@ func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) 
 			continue
 		}
 
-		// Track whether display-relevant data changed (for tmux reconciliation)
-		customTitleChanged := customTitle != "" && customTitle != sess.CustomTitle
-		autoSummaryChanged := autoSummary != "" && autoSummary != sess.AutoSummary
-
 		if err := s.db.UpdateSessionScanResults(sessionID, customTitle, autoSummary, fileSize); err != nil {
 			s.logger.Printf("Session scanner: failed to update session '%s': %v", sessionID, err)
 			continue
-		}
-
-		// Reconcile tmux window title when display-relevant data changes
-		if customTitleChanged || autoSummaryChanged {
-			s.reconcileTmuxWindowTitle(missionID)
 		}
 	}
 }
