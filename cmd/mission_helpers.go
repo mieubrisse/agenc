@@ -177,7 +177,6 @@ func serverClient() (*server.Client, error) {
 		return nil, err
 	}
 	ensureServerRunning(dirpath)
-	checkServerVersion(dirpath)
 	socketFilepath := config.GetServerSocketFilepath(dirpath)
 	return server.NewClient(socketFilepath), nil
 }
