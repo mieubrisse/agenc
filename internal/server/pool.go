@@ -153,3 +153,25 @@ func getLinkedPaneIDs() map[string]bool {
 	}
 	return linked
 }
+
+// listPoolPaneIDs returns the pane IDs (without "%" prefix) of all panes
+// currently running in the agenc-pool tmux session. Returns an empty slice
+// if the pool doesn't exist or tmux is not running.
+func listPoolPaneIDs() []string {
+	cmd := exec.Command("tmux", "list-panes", "-t", poolSessionName, "-F", "#{pane_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	var paneIDs []string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Strip the "%" prefix — DB stores pane IDs without it
+		paneIDs = append(paneIDs, strings.TrimPrefix(line, "%"))
+	}
+	return paneIDs
+}
