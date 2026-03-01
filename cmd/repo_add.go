@@ -29,15 +29,15 @@ from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
 Use --%s to keep the repo continuously synced by the daemon.
-Use --%s to set a custom tmux window title.`,
-		repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName),
+Use --%s to set an emoji for the repo.`,
+		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName),
 	Args: cobra.MinimumNArgs(1),
 	RunE: runRepoAdd,
 }
 
 func init() {
 	repoAddCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the daemon")
-	repoAddCmd.Flags().String(repoConfigWindowTitleFlagName, "", "custom tmux window title for missions using this repo")
+	repoAddCmd.Flags().String(repoConfigEmojiFlagName, "", "emoji to display for missions using this repo")
 	repoCmd.AddCommand(repoAddCmd)
 }
 
@@ -60,12 +60,12 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 			req.AlwaysSynced = &synced
 		}
 
-		if cmd.Flags().Changed(repoConfigWindowTitleFlagName) {
-			title, err := cmd.Flags().GetString(repoConfigWindowTitleFlagName)
+		if cmd.Flags().Changed(repoConfigEmojiFlagName) {
+			emoji, err := cmd.Flags().GetString(repoConfigEmojiFlagName)
 			if err != nil {
-				return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigWindowTitleFlagName)
+				return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigEmojiFlagName)
 			}
-			req.WindowTitle = &title
+			req.Emoji = &emoji
 		}
 
 		resp, err := client.AddRepo(req)

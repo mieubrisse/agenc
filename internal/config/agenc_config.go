@@ -329,11 +329,11 @@ func IsCanonicalRepoName(name string) bool {
 
 // RepoConfig represents per-repo configuration in the repoConfig map.
 // All fields are optional: alwaysSynced controls whether the daemon keeps
-// the repo continuously fetched, windowTitle overrides the tmux window name,
+// the repo continuously fetched, emoji sets the display emoji for the repo,
 // and postUpdateHook specifies a shell command to run after repo updates.
 type RepoConfig struct {
 	AlwaysSynced      bool               `yaml:"alwaysSynced,omitempty"`
-	WindowTitle       string             `yaml:"windowTitle,omitempty"`
+	Emoji             string             `yaml:"emoji,omitempty"`
 	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
 	DefaultModel      string             `yaml:"defaultModel,omitempty"`
 	PostUpdateHook    string             `yaml:"postUpdateHook,omitempty"`
@@ -429,11 +429,10 @@ func (c *AgencConfig) GetAllSyncedRepos() []string {
 	return repos
 }
 
-// GetWindowTitle returns the configured window title for a repo, or empty
-// string if no custom title is set.
-func (c *AgencConfig) GetWindowTitle(repoName string) string {
+// GetRepoEmoji returns the configured emoji for a repo, or empty string if none is set.
+func (c *AgencConfig) GetRepoEmoji(repoName string) string {
 	if rc, ok := c.RepoConfigs[repoName]; ok {
-		return rc.WindowTitle
+		return rc.Emoji
 	}
 	return ""
 }

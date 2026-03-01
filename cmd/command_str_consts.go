@@ -116,7 +116,7 @@ const (
 
 	// repoConfig flags
 	repoConfigAlwaysSyncedFlagName      = "always-synced"
-	repoConfigWindowTitleFlagName       = "window-title"
+	repoConfigEmojiFlagName             = "emoji"
 	repoConfigTrustedMcpServersFlagName = "trusted-mcp-servers"
 	repoConfigDefaultModelFlagName      = "default-model"
 	repoConfigPostUpdateHookFlagName    = "post-update-hook"

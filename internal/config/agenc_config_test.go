@@ -19,7 +19,7 @@ func TestReadWriteAgencConfig(t *testing.T) {
 	cfg := &AgencConfig{
 		RepoConfigs: map[string]RepoConfig{
 			"github.com/owner/repo1": {AlwaysSynced: true},
-			"github.com/owner/repo2": {AlwaysSynced: true, WindowTitle: "Custom"},
+			"github.com/owner/repo2": {AlwaysSynced: true, Emoji: "🔥"},
 		},
 	}
 
@@ -48,8 +48,8 @@ func TestReadWriteAgencConfig(t *testing.T) {
 	if !ok {
 		t.Fatal("expected repo2 to exist in RepoConfigs")
 	}
-	if rc2.WindowTitle != "Custom" {
-		t.Errorf("expected repo2 windowTitle 'Custom', got '%s'", rc2.WindowTitle)
+	if rc2.Emoji != "🔥" {
+		t.Errorf("expected repo2 emoji '🔥', got '%s'", rc2.Emoji)
 	}
 }
 
@@ -193,7 +193,7 @@ repoConfig:
     alwaysSynced: true
   github.com/owner/repo2:
     alwaysSynced: true
-    windowTitle: "My Repo"
+    emoji: "🚀"
 `)
 
 	cfg, _, err := ReadAgencConfig(tmpDir)
@@ -209,34 +209,34 @@ repoConfig:
 	if !rc1.AlwaysSynced {
 		t.Error("expected repo1 to have alwaysSynced=true")
 	}
-	if rc1.WindowTitle != "" {
-		t.Errorf("expected empty window title for repo1, got '%s'", rc1.WindowTitle)
+	if rc1.Emoji != "" {
+		t.Errorf("expected empty emoji for repo1, got '%s'", rc1.Emoji)
 	}
 
 	rc2 := cfg.RepoConfigs["github.com/owner/repo2"]
 	if !rc2.AlwaysSynced {
 		t.Error("expected repo2 to have alwaysSynced=true")
 	}
-	if rc2.WindowTitle != "My Repo" {
-		t.Errorf("expected 'My Repo' window title for repo2, got '%s'", rc2.WindowTitle)
+	if rc2.Emoji != "🚀" {
+		t.Errorf("expected '🚀' emoji for repo2, got '%s'", rc2.Emoji)
 	}
 }
 
-func TestRepoConfig_GetWindowTitle(t *testing.T) {
+func TestRepoConfig_GetRepoEmoji(t *testing.T) {
 	cfg := &AgencConfig{
 		RepoConfigs: map[string]RepoConfig{
-			"github.com/owner/repo1": {WindowTitle: "Custom Title"},
+			"github.com/owner/repo1": {Emoji: "🔥"},
 			"github.com/owner/repo2": {},
 		},
 	}
 
-	if got := cfg.GetWindowTitle("github.com/owner/repo1"); got != "Custom Title" {
-		t.Errorf("expected 'Custom Title', got '%s'", got)
+	if got := cfg.GetRepoEmoji("github.com/owner/repo1"); got != "🔥" {
+		t.Errorf("expected '🔥', got '%s'", got)
 	}
-	if got := cfg.GetWindowTitle("github.com/owner/repo2"); got != "" {
-		t.Errorf("expected empty string for repo without window title, got '%s'", got)
+	if got := cfg.GetRepoEmoji("github.com/owner/repo2"); got != "" {
+		t.Errorf("expected empty string for repo without emoji, got '%s'", got)
 	}
-	if got := cfg.GetWindowTitle("github.com/owner/nonexistent"); got != "" {
+	if got := cfg.GetRepoEmoji("github.com/owner/nonexistent"); got != "" {
 		t.Errorf("expected empty string for nonexistent repo, got '%s'", got)
 	}
 }
@@ -246,7 +246,7 @@ func TestRepoConfig_GetAllSyncedRepos(t *testing.T) {
 		RepoConfigs: map[string]RepoConfig{
 			"github.com/owner/repo1": {AlwaysSynced: true},
 			"github.com/owner/repo2": {AlwaysSynced: false},
-			"github.com/owner/repo3": {AlwaysSynced: true, WindowTitle: "R3"},
+			"github.com/owner/repo3": {AlwaysSynced: true, Emoji: "🎯"},
 		},
 	}
 
@@ -272,7 +272,7 @@ func TestRepoConfig_RoundTrip(t *testing.T) {
 
 	cfg := &AgencConfig{
 		RepoConfigs: map[string]RepoConfig{
-			"github.com/owner/repo1": {AlwaysSynced: true, WindowTitle: "Custom"},
+			"github.com/owner/repo1": {AlwaysSynced: true, Emoji: "🔥"},
 			"github.com/owner/repo2": {AlwaysSynced: true},
 		},
 	}
@@ -294,16 +294,16 @@ func TestRepoConfig_RoundTrip(t *testing.T) {
 	if !rc1.AlwaysSynced {
 		t.Error("expected repo1 alwaysSynced=true")
 	}
-	if rc1.WindowTitle != "Custom" {
-		t.Errorf("expected 'Custom', got '%s'", rc1.WindowTitle)
+	if rc1.Emoji != "🔥" {
+		t.Errorf("expected '🔥', got '%s'", rc1.Emoji)
 	}
 
 	rc2 := got.RepoConfigs["github.com/owner/repo2"]
 	if !rc2.AlwaysSynced {
 		t.Error("expected repo2 alwaysSynced=true")
 	}
-	if rc2.WindowTitle != "" {
-		t.Errorf("expected empty window title, got '%s'", rc2.WindowTitle)
+	if rc2.Emoji != "" {
+		t.Errorf("expected empty emoji, got '%s'", rc2.Emoji)
 	}
 }
 
@@ -349,12 +349,12 @@ func TestRepoConfig_SetAlwaysSynced(t *testing.T) {
 		t.Error("expected repo1 to not be always synced after SetAlwaysSynced(false)")
 	}
 
-	// Existing window title should be preserved
-	cfg.SetRepoConfig("github.com/owner/repo2", RepoConfig{WindowTitle: "test"})
+	// Existing emoji should be preserved
+	cfg.SetRepoConfig("github.com/owner/repo2", RepoConfig{Emoji: "🎯"})
 	cfg.SetAlwaysSynced("github.com/owner/repo2", true)
 	rc, _ := cfg.GetRepoConfig("github.com/owner/repo2")
-	if rc.WindowTitle != "test" {
-		t.Errorf("expected window title 'test' preserved, got '%s'", rc.WindowTitle)
+	if rc.Emoji != "🎯" {
+		t.Errorf("expected emoji '🎯' preserved, got '%s'", rc.Emoji)
 	}
 	if !rc.AlwaysSynced {
 		t.Error("expected alwaysSynced=true")

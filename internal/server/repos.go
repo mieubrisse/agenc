@@ -54,7 +54,7 @@ type RepoResponse struct {
 type AddRepoRequest struct {
 	Reference    string  `json:"reference"`
 	AlwaysSynced *bool   `json:"always_synced,omitempty"`
-	WindowTitle  *string `json:"window_title,omitempty"`
+	Emoji        *string `json:"emoji,omitempty"`
 }
 
 // AddRepoResponse is the JSON shape returned by POST /repos.
@@ -116,7 +116,7 @@ func (s *Server) handleAddRepo(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Update config if flags were provided
-	if req.AlwaysSynced != nil || req.WindowTitle != nil {
+	if req.AlwaysSynced != nil || req.Emoji != nil {
 		cfg, cm, err := config.ReadAgencConfig(s.agencDirpath)
 		if err != nil {
 			return newHTTPError(http.StatusInternalServerError, "failed to read config: "+err.Error())
@@ -126,8 +126,8 @@ func (s *Server) handleAddRepo(w http.ResponseWriter, r *http.Request) error {
 		if req.AlwaysSynced != nil {
 			rc.AlwaysSynced = *req.AlwaysSynced
 		}
-		if req.WindowTitle != nil {
-			rc.WindowTitle = *req.WindowTitle
+		if req.Emoji != nil {
+			rc.Emoji = *req.Emoji
 		}
 		cfg.SetRepoConfig(result.RepoName, rc)
 

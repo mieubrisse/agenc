@@ -185,9 +185,9 @@ func serverClient() (*server.Client, error) {
 // Config helpers
 // ============================================================================
 
-// lookupWindowTitle reads the config and returns the window title for the
+// lookupRepoEmoji reads the config and returns the emoji for the
 // given repo, or empty string if not configured or on read error.
-func lookupWindowTitle(agencDirpath string, gitRepoName string) string {
+func lookupRepoEmoji(agencDirpath string, gitRepoName string) string {
 	if gitRepoName == "" {
 		return ""
 	}
@@ -195,7 +195,7 @@ func lookupWindowTitle(agencDirpath string, gitRepoName string) string {
 	if err != nil {
 		return ""
 	}
-	return cfg.GetWindowTitle(gitRepoName)
+	return cfg.GetRepoEmoji(gitRepoName)
 }
 
 // getCurrentTmuxSessionName returns the name of the tmux session the caller

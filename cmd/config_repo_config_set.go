@@ -20,8 +20,8 @@ At least one flag must be provided.
 
 Examples:
   agenc config repoConfig set github.com/owner/repo --always-synced=true
-  agenc config repoConfig set github.com/owner/repo --window-title="my-repo"
-  agenc config repoConfig set github.com/owner/repo --always-synced=true --window-title="my-repo"
+  agenc config repoConfig set github.com/owner/repo --emoji="🔥"
+  agenc config repoConfig set github.com/owner/repo --always-synced=true --emoji="🔥"
   agenc config repoConfig set github.com/owner/repo --post-update-hook="make setup"
 `,
 	Args: cobra.ExactArgs(1),
@@ -31,7 +31,7 @@ Examples:
 func init() {
 	configRepoConfigCmd.AddCommand(configRepoConfigSetCmd)
 	configRepoConfigSetCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the daemon")
-	configRepoConfigSetCmd.Flags().String(repoConfigWindowTitleFlagName, "", "custom tmux window title for missions using this repo")
+	configRepoConfigSetCmd.Flags().String(repoConfigEmojiFlagName, "", "emoji to display for missions using this repo")
 	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
 	configRepoConfigSetCmd.Flags().String(repoConfigDefaultModelFlagName, "", `default Claude model for missions using this repo (e.g., "opus", "sonnet")`)
 	configRepoConfigSetCmd.Flags().String(repoConfigPostUpdateHookFlagName, "", `shell command to run after repo updates (e.g., "make setup"); empty to clear`)
@@ -45,14 +45,14 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
-	windowTitleChanged := cmd.Flags().Changed(repoConfigWindowTitleFlagName)
+	emojiChanged := cmd.Flags().Changed(repoConfigEmojiFlagName)
 	trustedChanged := cmd.Flags().Changed(repoConfigTrustedMcpServersFlagName)
 	defaultModelChanged := cmd.Flags().Changed(repoConfigDefaultModelFlagName)
 	postUpdateHookChanged := cmd.Flags().Changed(repoConfigPostUpdateHookFlagName)
 
-	if !alwaysSyncedChanged && !windowTitleChanged && !trustedChanged && !defaultModelChanged && !postUpdateHookChanged {
+	if !alwaysSyncedChanged && !emojiChanged && !trustedChanged && !defaultModelChanged && !postUpdateHookChanged {
 		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, or --%s must be provided",
-			repoConfigAlwaysSyncedFlagName, repoConfigWindowTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName)
+			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName)
 	}
 
 	cfg, cm, err := readConfigWithComments()
@@ -70,12 +70,12 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 		rc.AlwaysSynced = synced
 	}
 
-	if windowTitleChanged {
-		title, err := cmd.Flags().GetString(repoConfigWindowTitleFlagName)
+	if emojiChanged {
+		emoji, err := cmd.Flags().GetString(repoConfigEmojiFlagName)
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigWindowTitleFlagName)
+			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigEmojiFlagName)
 		}
-		rc.WindowTitle = title
+		rc.Emoji = emoji
 	}
 
 	if trustedChanged {

@@ -340,9 +340,9 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	return nil
 }
 
-// lookupWindowTitle reads the config and returns the window title for the
+// lookupRepoEmoji reads the config and returns the emoji for the
 // given repo, or empty string if not configured or on read error.
-func (s *Server) lookupWindowTitle(gitRepoName string) string {
+func (s *Server) lookupRepoEmoji(gitRepoName string) string {
 	if gitRepoName == "" {
 		return ""
 	}
@@ -350,7 +350,7 @@ func (s *Server) lookupWindowTitle(gitRepoName string) string {
 	if err != nil {
 		return ""
 	}
-	return cfg.GetWindowTitle(gitRepoName)
+	return cfg.GetRepoEmoji(gitRepoName)
 }
 
 const (

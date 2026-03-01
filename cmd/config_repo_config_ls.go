@@ -40,19 +40,19 @@ func runConfigRepoConfigLs(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(repoNames)
 
-	tbl := tableprinter.NewTable("REPO", "ALWAYS SYNCED", "WINDOW TITLE", "DEFAULT MODEL", "TRUSTED MCP SERVERS")
+	tbl := tableprinter.NewTable("REPO", "ALWAYS SYNCED", "EMOJI", "DEFAULT MODEL", "TRUSTED MCP SERVERS")
 	for _, name := range repoNames {
 		rc := cfg.RepoConfigs[name]
 		synced := formatCheckmark(rc.AlwaysSynced)
-		windowTitle := rc.WindowTitle
-		if windowTitle == "" {
-			windowTitle = "--"
+		emoji := rc.Emoji
+		if emoji == "" {
+			emoji = "--"
 		}
 		defaultModel := rc.DefaultModel
 		if defaultModel == "" {
 			defaultModel = "--"
 		}
-		tbl.AddRow(displayGitRepo(name), synced, windowTitle, defaultModel, formatTrustedMcpServers(rc.TrustedMcpServers))
+		tbl.AddRow(displayGitRepo(name), synced, emoji, defaultModel, formatTrustedMcpServers(rc.TrustedMcpServers))
 	}
 	tbl.Print()
 

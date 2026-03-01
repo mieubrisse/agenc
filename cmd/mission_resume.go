@@ -178,11 +178,11 @@ func runWrapperDirect(missionID string, initialPrompt string) error {
 	// Determine if this is a resume (existing conversation) or a fresh start
 	hasConversation := claudeconfig.GetLastSessionID(agencDirpath, missionID) != ""
 
-	windowTitle := lookupWindowTitle(agencDirpath, missionRecord.GitRepo)
+	repoEmoji := lookupRepoEmoji(agencDirpath, missionRecord.GitRepo)
 	if config.IsMissionAdjutant(agencDirpath, missionID) {
-		windowTitle = "🤖  Adjutant"
+		repoEmoji = "🤖"
 	}
 
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, windowTitle, initialPrompt)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, repoEmoji, initialPrompt)
 	return w.Run(hasConversation)
 }
