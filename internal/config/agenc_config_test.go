@@ -701,7 +701,7 @@ func TestIsMissionScoped_True(t *testing.T) {
 func TestIsMissionScoped_False(t *testing.T) {
 	cmd := ResolvedPaletteCommand{
 		Name:    "newMission",
-		Command: "agenc tmux window new -- agenc mission new",
+		Command: "agenc mission new",
 	}
 	if cmd.IsMissionScoped() {
 		t.Error("expected command without AGENC_CALLING_MISSION_UUID to not be mission-scoped")

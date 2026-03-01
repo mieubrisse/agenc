@@ -96,17 +96,17 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"quickClaude": {
 		Title:       "🦀  Quick Claude",
 		Description: "Creates a blank mission in a new window",
-		Command:     "agenc tmux window new -a --name '🦀' -- agenc mission new --blank",
+		Command:     "agenc mission new --blank",
 	},
 	"talkToAgenc": {
 		Title:       "🤖  Adjutant",
 		Description: "Launch an Adjutant mission in a new window",
-		Command:     "agenc tmux window new -a -- agenc mission new --adjutant",
+		Command:     "agenc mission new --adjutant",
 	},
 	"newMission": {
 		Title:          "🚀  New Mission",
 		Description:    "Create a new mission and launch Claude",
-		Command:        "agenc tmux window new -a -- agenc mission new",
+		Command:        "agenc mission new",
 		TmuxKeybinding: "-n C-n",
 	},
 	"switchMission": {
@@ -118,7 +118,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"resumeMission": {
 		Title:       "🟢  Resume Mission",
 		Description: "Resume a stopped mission with claude --continue",
-		Command:     "agenc tmux window new -a -- agenc mission resume",
+		Command:     "agenc mission resume",
 	},
 	"sideShell": {
 		Title:          "🐚  Side Shell",
@@ -165,7 +165,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"sendFeedback": {
 		Title:       "💬  Send Feedback",
 		Description: "Send feedback about AgenC",
-		Command:     "agenc tmux window new -a -- agenc mission new --adjutant --prompt \"I'd like to send feedback about AgenC\"",
+		Command:     "agenc mission new --adjutant --prompt \"I'd like to send feedback about AgenC\"",
 	},
 	"joinDiscord": {
 		Title:       "👾  Join the Discord",
