@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
-if command -v bd >/dev/null 2>&1; then
-    exec bd hook post-merge "$@"
-fi
+# TODO: re-enable once beads hook command is fixed
+# if command -v bd >/dev/null 2>&1; then
+#     exec bd hook post-merge "$@"
+# fi
