@@ -295,8 +295,8 @@ func (c *Client) ReloadMission(id string, tmuxSession string) error {
 
 // AttachMission ensures the mission's wrapper is running in the pool and links
 // the pool window into the given tmux session.
-func (c *Client) AttachMission(id string, tmuxSession string) error {
-	body := AttachRequest{TmuxSession: tmuxSession}
+func (c *Client) AttachMission(id string, tmuxSession string, noFocus bool) error {
+	body := AttachRequest{TmuxSession: tmuxSession, NoFocus: noFocus}
 	return c.Post("/missions/"+id+"/attach", body, nil)
 }
 

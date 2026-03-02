@@ -66,6 +66,14 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	return windowTarget, paneID, nil
 }
 
+// focusWindow switches the tmux focus to the window identified by windowName
+// in the given session. Best-effort: errors are silently ignored.
+func focusWindow(tmuxSession string, windowName string) {
+	target := fmt.Sprintf("%s:%s", tmuxSession, windowName)
+	//nolint:errcheck // best-effort; the window may have been renamed or closed
+	exec.Command("tmux", "select-window", "-t", target).Run()
+}
+
 // linkPoolWindow links a window from the agenc-pool session into the target
 // tmux session. The window appears adjacent to the caller's current window
 // (-a) without stealing focus (-d).

@@ -154,6 +154,7 @@ func runMissionNewWithClone() error {
 		Prompt:      promptFlag,
 		CloneFrom:   sourceMission.ID,
 		TmuxSession: tmuxSession,
+		NoFocus:     noFocusFlag,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
@@ -164,9 +165,6 @@ func runMissionNewWithClone() error {
 
 	if tmuxSession != "" {
 		fmt.Println("Launched in tmux pool")
-		if !noFocusFlag {
-			focusMissionWindow(missionRecord.ShortID, tmuxSession)
-		}
 	} else {
 		fmt.Println("Running in background (pool window)")
 	}
@@ -255,6 +253,7 @@ func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) e
 		Adjutant:    true,
 		Prompt:      initialPrompt,
 		TmuxSession: tmuxSession,
+		NoFocus:     noFocusFlag,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create adjutant mission")
@@ -264,9 +263,6 @@ func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) e
 
 	if tmuxSession != "" {
 		fmt.Println("Launched in tmux pool")
-		if !noFocusFlag {
-			focusMissionWindow(missionRecord.ShortID, tmuxSession)
-		}
 	} else {
 		fmt.Println("Running in background (pool window)")
 	}
@@ -400,6 +396,7 @@ func createAndLaunchMission(
 		CronID:      cronIDFlag,
 		CronName:    cronNameFlag,
 		Timeout:     timeoutFlag,
+		NoFocus:     noFocusFlag,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
@@ -409,9 +406,6 @@ func createAndLaunchMission(
 
 	if tmuxSession != "" {
 		fmt.Println("Launched in tmux pool")
-		if !noFocusFlag {
-			focusMissionWindow(missionRecord.ShortID, tmuxSession)
-		}
 	} else {
 		fmt.Println("Running in background (pool window)")
 	}

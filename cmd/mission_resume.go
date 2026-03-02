@@ -131,12 +131,8 @@ func resumeMission(client *server.Client, missionID string) error {
 
 	fmt.Printf("Resuming mission: %s\n", database.ShortID(missionID))
 
-	if err := client.AttachMission(missionID, tmuxSession); err != nil {
+	if err := client.AttachMission(missionID, tmuxSession, resumeNoFocusFlag); err != nil {
 		return stacktrace.Propagate(err, "failed to attach mission")
-	}
-
-	if !resumeNoFocusFlag {
-		focusMissionWindow(missionRecord.ShortID, tmuxSession)
 	}
 
 	return nil

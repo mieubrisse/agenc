@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -196,13 +195,6 @@ func getCurrentTmuxSessionName() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// focusMissionWindow switches the tmux focus to the window for the given
-// mission short ID in the specified session.
-func focusMissionWindow(shortID string, tmuxSession string) {
-	target := fmt.Sprintf("%s:%s", tmuxSession, shortID)
-	exec.Command("tmux", "select-window", "-t", target).Run()
 }
 
 // readConfig centralizes the config reading boilerplate. It returns the config
