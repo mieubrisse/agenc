@@ -43,7 +43,7 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		cmdArgs = append(cmdArgs, args...)
 		cmdStr := strings.Join(cmdArgs, " ")
 
-		popupCmd := exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", cmdStr)
+		popupCmd := exec.Command("tmux", "display-popup", "-E", "-w", "90%", "-h", "63%", cmdStr)
 		popupCmd.Stdout = os.Stdout
 		popupCmd.Stderr = os.Stderr
 		return popupCmd.Run()
@@ -92,10 +92,10 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 		},
 		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.ShortID, truncatePrompt(e.TmuxTitle, 20), e.Session, e.Repo}
+			return []string{e.ShortID, e.Status, truncatePrompt(e.TmuxTitle, 20), e.Session, e.Repo}
 		},
 		FzfPrompt:         "Switch to mission: ",
-		FzfHeaders:        []string{"ID", "TITLE", "SESSION", "REPO"},
+		FzfHeaders:        []string{"ID", "STATUS", "TITLE", "SESSION", "REPO"},
 		MultiSelect:       false,
 		NotCanonicalError: "not a valid mission ID",
 	})
