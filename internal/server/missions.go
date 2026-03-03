@@ -393,7 +393,7 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	}
 
 	// Create the wrapper window in the pool
-	poolWindowTarget, paneID, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
+	_, paneID, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create pool window: %w", err)
 	}
@@ -404,17 +404,16 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	}
 
 	// Link the pool window into the caller's session (if provided),
-	// then focus and reconcile the title. Order matters: link and focus
-	// resolve by the original short-ID window name, so they must run
-	// before reconciliation renames the window.
+	// then focus and reconcile the title. Uses pane ID (immutable) for
+	// targeting so that this works even after title reconciliation.
 	tmuxSession := req.TmuxSession
 	if tmuxSession != "" {
-		if err := linkPoolWindow(poolWindowTarget, tmuxSession); err != nil {
+		if err := linkPoolWindowByPane(paneID, tmuxSession); err != nil {
 			s.destroyPoolWindow(missionRecord.ID)
 			return fmt.Errorf("failed to link pool window: %w", err)
 		}
 		if !req.NoFocus {
-			focusWindow(tmuxSession, missionRecord.ShortID)
+			focusPaneInSession(paneID, tmuxSession)
 		}
 	}
 
@@ -634,20 +633,31 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to start wrapper: %s", err.Error())
 	}
 
-	// Link the pool window, then focus and reconcile. Order matters: link
-	// and focus resolve by the original short-ID window name, so they must
-	// run before reconciliation renames the window.
-	shortID := database.ShortID(resolvedID)
-	poolWindowTarget := fmt.Sprintf("%s:%s", poolSessionName, shortID)
-	if err := linkPoolWindow(poolWindowTarget, req.TmuxSession); err != nil {
-		return newHTTPErrorf(http.StatusInternalServerError, "failed to link window: %s", err.Error())
+	// Refresh the mission record to get the current pane ID (ensureWrapperInPool
+	// may have created a new pool window and stored a new pane ID).
+	missionRecord, err = s.db.GetMission(resolvedID)
+	if err != nil || missionRecord == nil {
+		return newHTTPError(http.StatusInternalServerError, "failed to refresh mission after ensuring wrapper")
+	}
+	if missionRecord.TmuxPane == nil || *missionRecord.TmuxPane == "" {
+		return newHTTPError(http.StatusInternalServerError, "mission has no tmux pane after ensuring wrapper")
+	}
+	paneID := *missionRecord.TmuxPane
+
+	// Link the pool window into the caller's session if not already there.
+	// Uses the pane ID (immutable) rather than the window name (which may have
+	// been changed by title reconciliation).
+	if !isPaneInSession(paneID, req.TmuxSession) {
+		if err := linkPoolWindowByPane(paneID, req.TmuxSession); err != nil {
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to link window: %s", err.Error())
+		}
 	}
 	if !req.NoFocus {
-		focusWindow(req.TmuxSession, shortID)
+		focusPaneInSession(paneID, req.TmuxSession)
 	}
 	s.reconcileTmuxWindowTitle(resolvedID)
 
-	s.logger.Printf("Attached mission %s to session %s", shortID, req.TmuxSession)
+	s.logger.Printf("Attached mission %s to session %s", database.ShortID(resolvedID), req.TmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "attached"})
 	return nil
 }

@@ -66,26 +66,6 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	return windowTarget, paneID, nil
 }
 
-// focusWindow switches the tmux focus to the window identified by windowName
-// in the given session. Best-effort: errors are silently ignored.
-func focusWindow(tmuxSession string, windowName string) {
-	target := fmt.Sprintf("%s:%s", tmuxSession, windowName)
-	//nolint:errcheck // best-effort; the window may have been renamed or closed
-	exec.Command("tmux", "select-window", "-t", target).Run()
-}
-
-// linkPoolWindow links a window from the agenc-pool session into the target
-// tmux session. The window appears adjacent to the caller's current window
-// (-a) without stealing focus (-d).
-func linkPoolWindow(poolWindowTarget string, targetSession string) error {
-	cmd := exec.Command("tmux", "link-window", "-d", "-a", "-s", poolWindowTarget, "-t", targetSession+":")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return stacktrace.NewError("failed to link window: %v (output: %s)", err, string(output))
-	}
-	return nil
-}
-
 // unlinkPoolWindow unlinks a mission's window from the target session. The
 // window continues to exist in the agenc-pool session.
 func unlinkPoolWindow(targetSession string, missionID string) error {
@@ -165,6 +145,60 @@ func getLinkedPaneIDs() map[string]bool {
 		}
 	}
 	return linked
+}
+
+// isPaneInSession checks whether a pane (by numeric ID without "%" prefix) is
+// currently visible in the given tmux session. Returns false if the session
+// doesn't exist or the tmux command fails.
+func isPaneInSession(paneID string, sessionName string) bool {
+	target := "%" + paneID
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", sessionName, "-F", "#{pane_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if strings.TrimSpace(line) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// linkPoolWindowByPane links the pool window containing the given pane into
+// the target tmux session. Uses the pane ID (immutable) rather than the window
+// name (which may have been changed by title reconciliation).
+func linkPoolWindowByPane(paneID string, targetSession string) error {
+	paneTarget := "%" + paneID
+	cmd := exec.Command("tmux", "link-window", "-d", "-a", "-s", paneTarget, "-t", targetSession+":")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return stacktrace.NewError("failed to link window by pane: %v (output: %s)", err, string(output))
+	}
+	return nil
+}
+
+// focusPaneInSession switches focus to the window containing the given pane in
+// the specified tmux session. Best-effort: errors are silently ignored.
+// Uses the pane ID to find the window index in the target session, which is
+// reliable even after title reconciliation renames the window.
+func focusPaneInSession(paneID string, sessionName string) {
+	paneTarget := "%" + paneID
+	// Query all panes in the session to find the window index for our pane
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", sessionName, "-F", "#{pane_id} #{window_index}")
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+		if len(parts) == 2 && parts[0] == paneTarget {
+			windowTarget := fmt.Sprintf("%s:%s", sessionName, parts[1])
+			//nolint:errcheck // best-effort
+			exec.Command("tmux", "select-window", "-t", windowTarget).Run()
+			return
+		}
+	}
 }
 
 // listPoolPaneIDs returns the pane IDs (without "%" prefix) of all panes
