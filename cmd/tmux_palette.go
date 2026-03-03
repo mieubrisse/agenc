@@ -8,6 +8,7 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -15,8 +16,10 @@ var tmuxPaletteCmd = &cobra.Command{
 	Use:   paletteCmdStr,
 	Short: "Open the AgenC command palette (runs inside a tmux display-popup)",
 	Long: `Presents an fzf-based command picker inside a tmux display-popup.
-On selection, the chosen command runs via sh -c. On cancel
-(Ctrl-C or Esc), the popup closes with no action.
+On selection, the chosen command is dispatched to the tmux server via
+run-shell -b with the appropriate execution mode wrapping (popup, pane,
+window, or direct). On cancel (Ctrl-C or Esc), the popup closes with
+no action.
 
 This command is designed to be invoked by the palette keybinding
 (prefix + a, k).`,
@@ -157,14 +160,27 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("unknown palette selection: %q", selectedTitle)
 	}
 
-	// Dispatch: execute the command string via sh -c
-	execCmd := exec.Command("sh", "-c", selectedEntry.Command)
-	execCmd.Stdin = os.Stdin
-	execCmd.Stdout = os.Stdout
-	execCmd.Stderr = os.Stderr
+	wrappedCommand := tmux.WrapCommand(selectedEntry.Command, selectedEntry.ExecutionMode, selectedEntry.IsMissionScoped())
 
-	if err := execCmd.Run(); err != nil {
-		return stacktrace.Propagate(err, "failed to execute palette selection")
+	// tmux run-shell -b runs in the tmux server's environment, not the
+	// palette's. Prepend env exports so shell variable references in the
+	// wrapped command (e.g. $AGENC_CALLING_MISSION_UUID in workdir flags)
+	// resolve correctly.
+	fullCommand := wrappedCommand
+	if selectedEntry.IsMissionScoped() && callingMissionUUID != "" {
+		envPrefix := fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
+		agencDirpath, err := config.GetAgencDirpath()
+		if err == nil {
+			envPrefix += fmt.Sprintf("export AGENC_DIRPATH=%s; ", agencDirpath)
+		}
+		fullCommand = envPrefix + wrappedCommand
+	}
+
+	runShellCmd := exec.Command("tmux", "run-shell", "-b", fullCommand)
+	runShellCmd.Stdout = os.Stdout
+	runShellCmd.Stderr = os.Stderr
+	if err := runShellCmd.Run(); err != nil {
+		return stacktrace.Propagate(err, "failed to dispatch palette command via tmux run-shell")
 	}
 
 	return nil
