@@ -65,7 +65,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		fmt.Fprintf(&sb, "# Command palette (bind-key %s)\n", paletteKey)
 		fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-			"tmux display-popup -E -w 60%% -h 50%% "+
+			"tmux display-popup -E -w 90%% -h 63%% "+
 			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
 			"'\n", paletteKey, agencBinary, agencBinary)
 	}
@@ -97,7 +97,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 					"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 					"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && "+
-					"tmux display-popup -E "+
+					"tmux display-popup -E -w 90%% -h 63%% "+
 					"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s\""+
 					"'\n", bindKeyArgs, agencBinary, popupCmd)
 			} else {
@@ -112,7 +112,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 			if usePopup {
 				popupCmd := strings.ReplaceAll(escapedCommand, `"`, `\"`)
 				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
-					"tmux display-popup -E \"%s\""+
+					"tmux display-popup -E -w 90%% -h 63%% \"%s\""+
 					"'\n", bindKeyArgs, popupCmd)
 			} else {
 				fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedCommand)
