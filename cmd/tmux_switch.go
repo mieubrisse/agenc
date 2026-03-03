@@ -2,14 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 var tmuxSwitchCmd = &cobra.Command{
@@ -35,18 +33,6 @@ func init() {
 func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 	if !isInsideTmux() {
 		return stacktrace.NewError("must be run inside a tmux session")
-	}
-
-	// Auto-wrap in a popup if we're running without a TTY.
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		cmdArgs := []string{"agenc", "tmux", "switch"}
-		cmdArgs = append(cmdArgs, args...)
-		cmdStr := strings.Join(cmdArgs, " ")
-
-		popupCmd := exec.Command("tmux", "display-popup", "-E", "-w", "90%", "-h", "63%", cmdStr)
-		popupCmd.Stdout = os.Stdout
-		popupCmd.Stderr = os.Stderr
-		return popupCmd.Run()
 	}
 
 	client, err := serverClient()
