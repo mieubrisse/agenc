@@ -26,6 +26,11 @@ const (
 	// summarizerMaxPromptLen is the maximum length of the user prompt to include
 	// in the summarization request. Longer prompts are truncated.
 	summarizerMaxPromptLen = 500
+
+	// summarizerMaxOutputLen is the maximum length (in bytes) of a valid summary.
+	// Responses longer than this are rejected — they indicate the model ignored
+	// the system prompt and produced a conversational response instead of a title.
+	summarizerMaxOutputLen = 80
 )
 
 // summaryRequest represents a request to generate an auto_summary for a session.
@@ -113,8 +118,10 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 		truncated = truncated[:summarizerMaxPromptLen-3] + "..."
 	}
 
-	systemPrompt := "Generate a 3-8 word terminal window title describing what the user is working on. " +
-		"Output ONLY the title. No quotes, no punctuation at the end, no explanation."
+	systemPrompt := "You are a title generator. You will receive the text of a user's request to an AI coding assistant. " +
+		"Your job: output a 3-8 word terminal window title summarizing what the user is working on. " +
+		"Rules: output ONLY the title. No quotes. No punctuation at the end. No markdown. No explanation. " +
+		"Do NOT answer the user's request. Do NOT ask questions. Do NOT offer help. Just the title."
 
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
@@ -124,6 +131,10 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 	cmdCtx, cancel := context.WithTimeout(ctx, summarizerTimeout)
 	defer cancel()
 
+	// Wrap the user message so the model sees it as input to summarize,
+	// not as a conversation to respond to.
+	wrappedPrompt := "Generate a window title for this user request:\n\n" + truncated
+
 	cmd := exec.CommandContext(cmdCtx, claudeBinary,
 		"--print",
 		"--model", summarizerModel,
@@ -131,7 +142,7 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 		"--no-session-persistence",
 		"--tools", "",
 		"--disable-slash-commands",
-		"-p", truncated,
+		"-p", wrappedPrompt,
 	)
 
 	// Run from a temp directory as defense-in-depth: if --no-session-persistence
@@ -156,6 +167,12 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 	summary := strings.TrimSpace(string(output))
 	if summary == "" {
 		return "", fmt.Errorf("claude returned empty summary")
+	}
+
+	// Reject responses that are too long — the model likely ignored the
+	// system prompt and produced a conversational response.
+	if len(summary) > summarizerMaxOutputLen {
+		return "", fmt.Errorf("claude returned response too long (%d bytes), likely not a title", len(summary))
 	}
 
 	return summary, nil
