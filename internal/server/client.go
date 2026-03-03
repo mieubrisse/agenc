@@ -316,6 +316,16 @@ func (c *Client) CreateMission(req CreateMissionRequest) (*database.Mission, err
 	return resp.ToMission(), nil
 }
 
+// ListSessions fetches all sessions across all missions.
+func (c *Client) ListSessions() ([]*database.Session, error) {
+	var responses []SessionResponse
+	if err := c.Get("/sessions", &responses); err != nil {
+		return nil, err
+	}
+
+	return toSessionSlice(responses), nil
+}
+
 // ListMissionSessions fetches all sessions for a mission.
 func (c *Client) ListMissionSessions(missionID string) ([]*database.Session, error) {
 	var responses []SessionResponse
@@ -323,19 +333,7 @@ func (c *Client) ListMissionSessions(missionID string) ([]*database.Session, err
 		return nil, err
 	}
 
-	sessions := make([]*database.Session, len(responses))
-	for i, r := range responses {
-		sessions[i] = &database.Session{
-			ID:               r.ID,
-			MissionID:        r.MissionID,
-			CustomTitle:      r.CustomTitle,
-			AgencCustomTitle: r.AgencCustomTitle,
-			AutoSummary:      r.AutoSummary,
-			CreatedAt:        r.CreatedAt,
-			UpdatedAt:        r.UpdatedAt,
-		}
-	}
-	return sessions, nil
+	return toSessionSlice(responses), nil
 }
 
 // UpdateSession updates fields on a session via the server.

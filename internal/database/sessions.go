@@ -103,6 +103,20 @@ func (db *DB) UpdateSessionAgencCustomTitle(sessionID string, title string) erro
 	return nil
 }
 
+// ListSessions returns all sessions across all missions,
+// ordered by updated_at descending (most recently modified first).
+func (db *DB) ListSessions() ([]*Session, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions ORDER BY updated_at DESC",
+	)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to list sessions")
+	}
+	defer rows.Close()
+
+	return scanSessions(rows)
+}
+
 // ListSessionsByMission returns all sessions for a given mission,
 // ordered by updated_at descending (most recently modified first).
 func (db *DB) ListSessionsByMission(missionID string) ([]*Session, error) {

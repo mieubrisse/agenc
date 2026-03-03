@@ -31,6 +31,22 @@ func toSessionResponse(s *database.Session) SessionResponse {
 	}
 }
 
+func toSessionSlice(responses []SessionResponse) []*database.Session {
+	sessions := make([]*database.Session, len(responses))
+	for i, r := range responses {
+		sessions[i] = &database.Session{
+			ID:               r.ID,
+			MissionID:        r.MissionID,
+			CustomTitle:      r.CustomTitle,
+			AgencCustomTitle: r.AgencCustomTitle,
+			AutoSummary:      r.AutoSummary,
+			CreatedAt:        r.CreatedAt,
+			UpdatedAt:        r.UpdatedAt,
+		}
+	}
+	return sessions
+}
+
 func toSessionResponses(sessions []*database.Session) []SessionResponse {
 	result := make([]SessionResponse, len(sessions))
 	for i, s := range sessions {
@@ -40,19 +56,25 @@ func toSessionResponses(sessions []*database.Session) []SessionResponse {
 }
 
 // handleListSessions handles GET /sessions?mission_id={id}.
-// Returns sessions for a mission, ordered by updated_at descending.
+// When mission_id is provided, returns sessions for that mission.
+// When omitted, returns all sessions across all missions.
+// Results are ordered by updated_at descending.
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) error {
 	missionID := r.URL.Query().Get("mission_id")
-	if missionID == "" {
-		return newHTTPError(http.StatusBadRequest, "mission_id query parameter is required")
+
+	var sessions []*database.Session
+	var err error
+
+	if missionID != "" {
+		resolvedID, resolveErr := s.db.ResolveMissionID(missionID)
+		if resolveErr != nil {
+			return newHTTPError(http.StatusNotFound, "mission not found: "+missionID)
+		}
+		sessions, err = s.db.ListSessionsByMission(resolvedID)
+	} else {
+		sessions, err = s.db.ListSessions()
 	}
 
-	resolvedID, err := s.db.ResolveMissionID(missionID)
-	if err != nil {
-		return newHTTPError(http.StatusNotFound, "mission not found: "+missionID)
-	}
-
-	sessions, err := s.db.ListSessionsByMission(resolvedID)
 	if err != nil {
 		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
