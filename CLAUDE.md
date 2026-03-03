@@ -148,6 +148,19 @@ func (db *DB) ListAllMissions() ([]*Mission, error)
 
 When a new query variation is needed, first check whether an existing function can be extended with a parameter rather than creating a new function.
 
+Beads Database
+--------------
+
+When running `br` commands, always pass `--db ~/.beads_rust/agenc` to target the correct database. A PreToolUse hook enforces this — `br` commands without the flag will be rejected.
+
+```
+# Correct
+br query --db ~/.beads_rust/agenc "some query"
+
+# Wrong — will be blocked by hook
+br query "some query"
+```
+
 Banned Skills
 -------------
 
