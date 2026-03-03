@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 )
 
 func TestCreateAndGetSession(t *testing.T) {
@@ -220,6 +221,95 @@ func TestGetActiveSession_NoSessions(t *testing.T) {
 	}
 	if active != nil {
 		t.Errorf("expected nil for mission with no sessions, got %v", active)
+	}
+}
+
+func TestGetActiveSession_ScanOffsetDoesNotDisplaceRename(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	// Create two sessions. "older" is created first, "current" is created second.
+	if _, err := db.CreateSession(mission.ID, "older-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if _, err := db.CreateSession(mission.ID, "current-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Sleep to ensure the rename gets a distinct RFC3339 timestamp
+	// (second-level precision).
+	time.Sleep(1100 * time.Millisecond)
+
+	// Rename the current session — this bumps updated_at
+	if err := db.UpdateSessionAgencCustomTitle("current-session", "My Rename"); err != nil {
+		t.Fatalf("UpdateSessionAgencCustomTitle failed: %v", err)
+	}
+
+	// Simulate the scanner advancing the offset on the older session
+	// (e.g., it discovered the JSONL and scanned it). This must NOT bump
+	// updated_at and must NOT displace the renamed session.
+	if err := db.UpdateSessionScanResults("older-session", "", 4096); err != nil {
+		t.Fatalf("UpdateSessionScanResults failed: %v", err)
+	}
+
+	active, err := db.GetActiveSession(mission.ID)
+	if err != nil {
+		t.Fatalf("GetActiveSession failed: %v", err)
+	}
+	if active == nil {
+		t.Fatal("expected active session, got nil")
+	}
+	if active.ID != "current-session" {
+		t.Errorf("expected renamed session 'current-session' to remain active, got %q", active.ID)
+	}
+	if active.AgencCustomTitle != "My Rename" {
+		t.Errorf("expected agenc_custom_title %q, got %q", "My Rename", active.AgencCustomTitle)
+	}
+}
+
+func TestGetActiveSession_AutoSummaryDoesNotDisplaceRename(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	if _, err := db.CreateSession(mission.ID, "older-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if _, err := db.CreateSession(mission.ID, "current-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Sleep to ensure the rename gets a distinct RFC3339 timestamp
+	// (second-level precision).
+	time.Sleep(1100 * time.Millisecond)
+
+	// Rename the current session
+	if err := db.UpdateSessionAgencCustomTitle("current-session", "My Rename"); err != nil {
+		t.Fatalf("UpdateSessionAgencCustomTitle failed: %v", err)
+	}
+
+	// Simulate the summarizer finishing an auto_summary on the older session.
+	// This must NOT displace the renamed session.
+	if err := db.UpdateSessionAutoSummary("older-session", "Working on auth"); err != nil {
+		t.Fatalf("UpdateSessionAutoSummary failed: %v", err)
+	}
+
+	active, err := db.GetActiveSession(mission.ID)
+	if err != nil {
+		t.Fatalf("GetActiveSession failed: %v", err)
+	}
+	if active == nil {
+		t.Fatal("expected active session, got nil")
+	}
+	if active.ID != "current-session" {
+		t.Errorf("expected renamed session 'current-session' to remain active, got %q", active.ID)
 	}
 }
 

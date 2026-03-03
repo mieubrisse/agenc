@@ -60,15 +60,19 @@ func (db *DB) GetSession(sessionID string) (*Session, error) {
 // for a session after an incremental JSONL scan.
 // Only updates non-empty title values (preserves existing values when the
 // new scan found nothing new).
+//
+// updated_at is only bumped when custom_title actually changes. Offset-only
+// updates are silent — they must not affect GetActiveSession ordering, which
+// uses updated_at to determine the "active" session for a mission.
 func (db *DB) UpdateSessionScanResults(sessionID string, customTitle string, lastScannedOffset int64) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.conn.Exec(
 		`UPDATE sessions SET
 			custom_title = CASE WHEN ? != '' THEN ? ELSE custom_title END,
 			last_scanned_offset = ?,
-			updated_at = ?
+			updated_at = CASE WHEN ? != '' THEN ? ELSE updated_at END
 		WHERE id = ?`,
-		customTitle, customTitle, lastScannedOffset, now, sessionID,
+		customTitle, customTitle, lastScannedOffset, customTitle, now, sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update scan results for session '%s'", sessionID)
@@ -77,11 +81,14 @@ func (db *DB) UpdateSessionScanResults(sessionID string, customTitle string, las
 }
 
 // UpdateSessionAutoSummary sets the auto_summary for a session.
+//
+// Does not bump updated_at — auto_summary is a background operation that must
+// not affect GetActiveSession ordering. Only user-initiated actions (session
+// creation, rename) should influence which session is considered "active."
 func (db *DB) UpdateSessionAutoSummary(sessionID string, autoSummary string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.conn.Exec(
-		"UPDATE sessions SET auto_summary = ?, updated_at = ? WHERE id = ?",
-		autoSummary, now, sessionID,
+		"UPDATE sessions SET auto_summary = ? WHERE id = ?",
+		autoSummary, sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update auto_summary for session '%s'", sessionID)
