@@ -261,14 +261,18 @@ func (s *Server) handlePushStash(w http.ResponseWriter, r *http.Request) error {
 		for _, resp := range responses {
 			stopWg.Add(1)
 			sem <- struct{}{} // acquire slot
-			go func(missionID, shortID string) {
+			paneID := ""
+			if resp.TmuxPane != nil {
+				paneID = *resp.TmuxPane
+			}
+			go func(missionID, shortID, paneID string) {
 				defer stopWg.Done()
 				defer func() { <-sem }() // release slot
 				if err := s.stopWrapper(missionID); err != nil {
 					s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", shortID, err)
 				}
-				s.destroyPoolWindow(missionID)
-			}(resp.ID, resp.ShortID)
+				s.destroyPoolWindow(paneID)
+			}(resp.ID, resp.ShortID, paneID)
 		}
 		stopWg.Wait()
 		s.logger.Printf("Stash %s: all %d missions stopped", stashID, len(responses))

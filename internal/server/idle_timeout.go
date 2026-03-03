@@ -80,7 +80,9 @@ func (s *Server) runIdleTimeoutCycle() {
 		}
 
 		// Also destroy the pool window since the wrapper exited
-		s.destroyPoolWindow(m.ID)
+		if m.TmuxPane != nil {
+			s.destroyPoolWindow(*m.TmuxPane)
+		}
 	}
 }
 

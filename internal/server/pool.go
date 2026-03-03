@@ -104,27 +104,30 @@ func unlinkPoolWindowByPane(paneID string, targetSession string) error {
 	return nil
 }
 
-// destroyPoolWindow kills a mission's window in the agenc-pool session.
-func (s *Server) destroyPoolWindow(missionID string) {
-	windowName := database.ShortID(missionID)
-	target := fmt.Sprintf("%s:%s", poolSessionName, windowName)
-
-	cmd := exec.Command("tmux", "kill-window", "-t", target)
+// destroyPoolWindow kills the tmux window containing the given pane. Uses the
+// pane ID (immutable) rather than the window name (which may have been changed
+// by title reconciliation). No-op if paneID is empty.
+func (s *Server) destroyPoolWindow(paneID string) {
+	if paneID == "" {
+		return
+	}
+	paneTarget := "%" + paneID
+	cmd := exec.Command("tmux", "kill-window", "-t", paneTarget)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Non-fatal: window may already be gone
-		s.logger.Printf("Warning: failed to destroy pool window %s: %v (output: %s)", target, err, strings.TrimSpace(string(output)))
+		s.logger.Printf("Warning: failed to destroy pool window for pane %s: %v (output: %s)", paneID, err, strings.TrimSpace(string(output)))
 	}
 }
 
-// poolWindowExists checks whether a window with the given mission ID exists
-// in the agenc-pool session.
-func poolWindowExists(missionID string) bool {
-	windowName := database.ShortID(missionID)
-	target := fmt.Sprintf("%s:%s", poolSessionName, windowName)
-
-	cmd := exec.Command("tmux", "has-session", "-t", target)
-	return cmd.Run() == nil
+// poolWindowExistsByPane checks whether the given pane exists in the agenc-pool
+// session. Uses the pane ID (immutable) rather than the window name (which may
+// have been changed by title reconciliation).
+func poolWindowExistsByPane(paneID string) bool {
+	if paneID == "" {
+		return false
+	}
+	return isPaneInSession(paneID, poolSessionName)
 }
 
 // getLinkedPaneIDs returns the set of tmux pane IDs (without the "%" prefix)

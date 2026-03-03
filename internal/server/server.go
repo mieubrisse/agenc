@@ -250,10 +250,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Push-event uses a catch-all prefix since repo names contain slashes
 	mux.Handle("POST /repos/", appHandler(s.requestLogger, s.handlePushEvent))
 
-	// Stash endpoints
+	// Stash endpoints — push and pop are wrapped in stashGuard so they cannot
+	// race with each other (e.g., pop arriving while push's background goroutine
+	// is still stopping wrappers).
 	mux.Handle("GET /stash", appHandler(s.requestLogger, s.handleListStashes))
-	mux.Handle("POST /stash/push", appHandler(s.requestLogger, s.handlePushStash))
-	mux.Handle("POST /stash/pop", appHandler(s.requestLogger, s.handlePopStash))
+	mux.Handle("POST /stash/push", appHandler(s.requestLogger, s.stashGuard(s.handlePushStash)))
+	mux.Handle("POST /stash/pop", appHandler(s.requestLogger, s.stashGuard(s.handlePopStash)))
 
 	// Claude-modifications config file endpoints
 	mux.Handle("GET /config/claude-md", appHandler(s.requestLogger, s.handleGetClaudeMd))

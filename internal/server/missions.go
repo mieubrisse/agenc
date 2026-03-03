@@ -403,7 +403,7 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	tmuxSession := req.TmuxSession
 	if tmuxSession != "" {
 		if err := linkPoolWindowByPane(paneID, tmuxSession); err != nil {
-			s.destroyPoolWindow(missionRecord.ID)
+			s.destroyPoolWindow(paneID)
 			return fmt.Errorf("failed to link pool window: %w", err)
 		}
 		if !req.NoFocus {
@@ -444,7 +444,9 @@ func (s *Server) handleStopMission(w http.ResponseWriter, r *http.Request) error
 	}
 
 	// Clean up pool window (may already be gone if wrapper exited cleanly)
-	s.destroyPoolWindow(resolvedID)
+	if missionRecord.TmuxPane != nil {
+		s.destroyPoolWindow(*missionRecord.TmuxPane)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 	return nil
@@ -510,7 +512,9 @@ func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) err
 	if err := s.stopWrapper(resolvedID); err != nil {
 		s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", id, err)
 	}
-	s.destroyPoolWindow(resolvedID)
+	if missionRecord.TmuxPane != nil {
+		s.destroyPoolWindow(*missionRecord.TmuxPane)
+	}
 
 	// Clean up per-mission Keychain credentials from the old auth system
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, resolvedID)
@@ -709,7 +713,11 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 	pid, err := ReadPID(pidFilepath)
 	if err == nil && IsProcessRunning(pid) {
 		// Wrapper is already running — ensure pool window exists too
-		if poolWindowExists(missionRecord.ID) {
+		paneID := ""
+		if missionRecord.TmuxPane != nil {
+			paneID = *missionRecord.TmuxPane
+		}
+		if poolWindowExistsByPane(paneID) {
 			return nil
 		}
 		// Wrapper running but no pool window (orphan from before pool existed).
@@ -767,7 +775,9 @@ func (s *Server) handleArchiveMission(w http.ResponseWriter, r *http.Request) er
 	if err := s.stopWrapper(resolvedID); err != nil {
 		s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", id, err)
 	}
-	s.destroyPoolWindow(resolvedID)
+	if missionRecord.TmuxPane != nil {
+		s.destroyPoolWindow(*missionRecord.TmuxPane)
+	}
 
 	if err := s.db.ArchiveMission(resolvedID); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to archive mission: %s", err.Error())
