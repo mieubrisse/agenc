@@ -190,6 +190,16 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: "Open the AgenC GitHub repo in your browser",
 		Command:     "agenc star",
 	},
+	"stashWorkspace": {
+		Title:       "📥  Stash Workspace",
+		Description: "Snapshot all running missions and stop them",
+		Command:     `tmux display-popup -E -w 68% -h 63% "agenc stash push"`,
+	},
+	"restoreWorkspace": {
+		Title:       "📤  Restore Workspace",
+		Description: "Restore missions from a previously saved stash",
+		Command:     `tmux display-popup -E -w 68% -h 63% "agenc stash pop"`,
+	},
 	"exitTmux": {
 		Title:       "🚪  Exit",
 		Description: "Detach from the session (missions keep running in the background)",
@@ -215,6 +225,8 @@ var builtinPaletteCommandOrder = []string{
 	"reloadMission",
 	"removeMission",
 	"nukeMissions",
+	"stashWorkspace",
+	"restoreWorkspace",
 	"exitTmux",
 	"sendFeedback",
 	"joinDiscord",
