@@ -8,7 +8,6 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/odyssey/agenc/internal/config"
-	"github.com/odyssey/agenc/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -160,20 +159,18 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("unknown palette selection: %q", selectedTitle)
 	}
 
-	wrappedCommand := tmux.WrapCommand(selectedEntry.Command, selectedEntry.ExecutionMode, selectedEntry.IsMissionScoped())
-
-	// tmux run-shell -b runs in the tmux server's environment, not the
-	// palette's. Prepend env exports so shell variable references in the
-	// wrapped command (e.g. $AGENC_CALLING_MISSION_UUID in workdir flags)
-	// resolve correctly.
-	fullCommand := wrappedCommand
+	// Commands are self-contained (they include their own tmux primitives),
+	// so we use them directly. For mission-scoped commands, prepend env
+	// exports so shell variable references (e.g. $AGENC_CALLING_MISSION_UUID)
+	// resolve correctly in the tmux server's environment.
+	fullCommand := selectedEntry.Command
 	if selectedEntry.IsMissionScoped() && callingMissionUUID != "" {
 		envPrefix := fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
 		agencDirpath, err := config.GetAgencDirpath()
 		if err == nil {
 			envPrefix += fmt.Sprintf("export AGENC_DIRPATH=%s; ", agencDirpath)
 		}
-		fullCommand = envPrefix + wrappedCommand
+		fullCommand = envPrefix + selectedEntry.Command
 	}
 
 	runShellCmd := exec.Command("tmux", "run-shell", "-b", fullCommand)
