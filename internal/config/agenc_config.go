@@ -79,10 +79,11 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 // For builtin overrides, non-empty fields override the builtin defaults.
 // An entry with all fields empty (IsEmpty() == true) disables the builtin.
 type PaletteCommandConfig struct {
-	Title          string `yaml:"title,omitempty"`
-	Description    string `yaml:"description,omitempty"`
-	Command        string `yaml:"command,omitempty"`
-	TmuxKeybinding string `yaml:"tmuxKeybinding,omitempty"`
+	Title          string        `yaml:"title,omitempty"`
+	Description    string        `yaml:"description,omitempty"`
+	Command        string        `yaml:"command,omitempty"`
+	TmuxKeybinding string        `yaml:"tmuxKeybinding,omitempty"`
+	ExecutionMode  ExecutionMode `yaml:"executionMode,omitempty"`
 }
 
 // IsEmpty returns true if all fields are empty (used to detect disable entries).
@@ -232,6 +233,31 @@ func BuiltinPaletteCommandOrder() []string {
 // focused mission's UUID into palette and keybinding commands.
 const CallingMissionUUIDEnvVar = "AGENC_CALLING_MISSION_UUID"
 
+// ExecutionMode controls how a palette command is executed in tmux.
+type ExecutionMode string
+
+const (
+	// ExecRun executes the command via tmux run-shell (default).
+	ExecRun ExecutionMode = "run"
+	// ExecPopup opens a tmux display-popup for interactive input.
+	ExecPopup ExecutionMode = "popup"
+	// ExecPane splits a pane to run the command.
+	ExecPane ExecutionMode = "pane"
+	// ExecWindow opens a new tmux window for the command.
+	ExecWindow ExecutionMode = "window"
+)
+
+// IsValid reports whether the execution mode is a recognized value.
+// An empty string is valid and defaults to run.
+func (m ExecutionMode) IsValid() bool {
+	switch m {
+	case "", ExecRun, ExecPopup, ExecPane, ExecWindow:
+		return true
+	default:
+		return false
+	}
+}
+
 // ResolvedPaletteCommand is a palette command with all defaults applied and
 // the agenc binary substituted in the command string.
 type ResolvedPaletteCommand struct {
@@ -241,7 +267,7 @@ type ResolvedPaletteCommand struct {
 	Command        string
 	TmuxKeybinding string
 	IsBuiltin      bool
-	DisplayPopup   bool // If true, direct keybinding opens a tmux popup for interactive input
+	ExecutionMode  ExecutionMode
 }
 
 // IsMissionScoped returns true if the command references the calling mission
@@ -673,6 +699,11 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			continue
 		}
 
+		execMode := builtin.ExecutionMode
+		if execMode == "" && builtinDisplayPopupCommands[name] {
+			execMode = ExecPopup
+		}
+
 		resolved := ResolvedPaletteCommand{
 			Name:           name,
 			Title:          builtin.Title,
@@ -680,7 +711,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Command:        builtin.Command,
 			TmuxKeybinding: builtin.TmuxKeybinding,
 			IsBuiltin:      true,
-			DisplayPopup:   builtinDisplayPopupCommands[name],
+			ExecutionMode:  execMode,
 		}
 
 		// Apply overrides — non-empty fields replace defaults

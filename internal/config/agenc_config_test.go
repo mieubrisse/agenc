@@ -1544,3 +1544,46 @@ repoConfig:
 		t.Errorf("expected repo2 to fall back to 'haiku', got '%s'", cfg.GetDefaultModel("github.com/owner/repo2"))
 	}
 }
+
+func TestExecutionModeValidation(t *testing.T) {
+	tests := []struct {
+		name  string
+		mode  ExecutionMode
+		valid bool
+	}{
+		{"empty string defaults to run", ExecutionMode(""), true},
+		{"explicit run", ExecRun, true},
+		{"popup mode", ExecPopup, true},
+		{"pane mode", ExecPane, true},
+		{"window mode", ExecWindow, true},
+		{"invalid mode", ExecutionMode("invalid"), false},
+		{"uppercase rejected", ExecutionMode("Run"), false},
+		{"typo rejected", ExecutionMode("popu"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.mode.IsValid()
+			if got != tt.valid {
+				t.Errorf("ExecutionMode(%q).IsValid() = %v, want %v", tt.mode, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestPaletteCommandConfigIsEmpty_IgnoresExecutionMode(t *testing.T) {
+	// A config entry with only ExecutionMode set should still be considered
+	// empty (i.e., a "disable" override for a builtin command).
+	cfg := PaletteCommandConfig{
+		ExecutionMode: ExecPopup,
+	}
+	if !cfg.IsEmpty() {
+		t.Error("expected IsEmpty() == true when only ExecutionMode is set")
+	}
+
+	// Verify that setting other fields still returns non-empty.
+	cfg.Title = "Some Title"
+	if cfg.IsEmpty() {
+		t.Error("expected IsEmpty() == false when Title is set")
+	}
+}

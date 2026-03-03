@@ -29,11 +29,11 @@ const agencBinary = "agenc"
 // CustomKeybinding represents a user/builtin keybinding to emit in the
 // generated tmux keybindings file.
 type CustomKeybinding struct {
-	Key             string // tmux key or raw bind-key args (e.g. "f", "C-y", "-n C-s")
-	Command         string // full command string
-	Comment         string // human-readable comment for the generated file
-	IsMissionScoped bool   // true if the command requires a focused mission pane
-	DisplayPopup    bool   // true if the keybinding should open a tmux popup for interactive input
+	Key             string               // tmux key or raw bind-key args (e.g. "f", "C-y", "-n C-s")
+	Command         string               // full command string
+	Comment         string               // human-readable comment for the generated file
+	IsMissionScoped bool                 // true if the command requires a focused mission pane
+	ExecutionMode   config.ExecutionMode // controls how the command is executed in tmux
 }
 
 // GenerateKeybindingsContent returns the full content of the agenc-managed
@@ -86,7 +86,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		}
 
 		escapedCommand := escapeSingleQuotes(kb.Command)
-		usePopup := kb.DisplayPopup && (tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2))
+		usePopup := kb.ExecutionMode == config.ExecPopup && (tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2))
 
 		if kb.IsMissionScoped {
 			if usePopup {
@@ -162,7 +162,7 @@ func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []Cu
 			Command:         cmd.Command,
 			Comment:         comment,
 			IsMissionScoped: cmd.IsMissionScoped(),
-			DisplayPopup:    cmd.DisplayPopup,
+			ExecutionMode:   cmd.ExecutionMode,
 		})
 	}
 	return keybindings
