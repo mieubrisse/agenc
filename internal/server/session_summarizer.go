@@ -113,12 +113,8 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 		truncated = truncated[:summarizerMaxPromptLen-3] + "..."
 	}
 
-	prompt := fmt.Sprintf(
-		"You are generating a short description for a terminal window title. "+
-			"Based on the user's first message from a coding session, write a concise "+
-			"3-8 word description of what they are working on. "+
-			"Output ONLY the description — no quotes, no punctuation at the end, no explanation.\n\n"+
-			"User's first message:\n%s", truncated)
+	systemPrompt := "Generate a 3-8 word terminal window title describing what the user is working on. " +
+		"Output ONLY the title. No quotes, no punctuation at the end, no explanation."
 
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
@@ -128,12 +124,19 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 	cmdCtx, cancel := context.WithTimeout(ctx, summarizerTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, claudeBinary, "--print", "--model", summarizerModel, "-p", prompt)
+	cmd := exec.CommandContext(cmdCtx, claudeBinary,
+		"--print",
+		"--model", summarizerModel,
+		"--system-prompt", systemPrompt,
+		"--no-session-persistence",
+		"--tools", "",
+		"--disable-slash-commands",
+		"-p", truncated,
+	)
 
-	// Run from a temp directory so Claude's session JSONL files don't land in
-	// any mission's project directory. Without this, the session scanner picks
-	// up the Haiku-generated sessions and tries to re-summarize them, creating
-	// a recursive cascade of garbage summaries.
+	// Run from a temp directory as defense-in-depth: if --no-session-persistence
+	// is ever removed or broken, JSONL files won't land in a mission's project
+	// directory and trigger recursive re-summarization.
 	cmd.Dir = os.TempDir()
 
 	// Pass OAuth token for authentication
