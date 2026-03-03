@@ -1,12 +1,12 @@
 package wrapper
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,19 +128,13 @@ func mockClaudeProcess(agentDirpath, missionID string, duration time.Duration) (
 	return cmd, nil
 }
 
-// waitForSocket waits for the wrapper socket to be ready or times out.
+// waitForSocket waits for the wrapper HTTP server to be ready by polling GET /status.
 func waitForSocket(socketFilepath string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socketFilepath); err == nil {
-			// Socket exists, try to connect
-			resp, err := SendCommandWithTimeout(socketFilepath, Command{
-				Command: "claude_update",
-				Event:   "UserPromptSubmit",
-			}, 500*time.Millisecond)
-			if err == nil && resp.Status == "ok" {
-				return nil
-			}
+		client := NewWrapperClient(socketFilepath, 500*time.Millisecond)
+		if _, err := client.GetStatus(); err == nil {
+			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -159,7 +153,45 @@ func getTestAgentDirpath(agencDirpath, missionID string) string {
 	return filepath.Join(agencDirpath, "m", missionID[:8], "agent")
 }
 
-// TestGracefulRestart tests the state transitions Running → RestartPending → Restarting.
+// startTestEventLoop starts a goroutine that reads commands from the wrapper's
+// commandCh and processes them via handleCommand, mimicking the main event loop.
+// The goroutine exits when ctx is cancelled or after processing maxCommands
+// commands (0 means unlimited). Returns a channel that receives nil on clean
+// exit or an error on timeout.
+func startTestEventLoop(ctx context.Context, w *Wrapper, maxCommands int) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		count := 0
+		for {
+			select {
+			case cmdResp := <-w.commandCh:
+				resp := w.handleCommand(cmdResp.cmd)
+				cmdResp.responseCh <- resp
+				count++
+				if maxCommands > 0 && count >= maxCommands {
+					done <- nil
+					return
+				}
+			case <-ctx.Done():
+				done <- nil
+				return
+			}
+		}
+	}()
+	return done
+}
+
+// startHTTPServerAndWait starts the HTTP server and waits for it to become ready.
+func startHTTPServerAndWait(t *testing.T, ctx context.Context, socketFilepath string, w *Wrapper) {
+	t.Helper()
+	go startHTTPServer(ctx, socketFilepath, w, w.logger)
+	time.Sleep(100 * time.Millisecond)
+	if err := waitForSocket(socketFilepath, 2*time.Second); err != nil {
+		t.Fatalf("HTTP server not ready: %v", err)
+	}
+}
+
+// TestGracefulRestart tests the state transitions Running -> RestartPending -> Restarting.
 func TestGracefulRestart(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
@@ -190,16 +222,13 @@ func TestGracefulRestart(t *testing.T) {
 	w.claudeExited = make(chan error, 1)
 	w.commandCh = make(chan commandWithResponse, 1)
 
-	// Start socket listener
-	go listenSocket(ctx, setup.socketFilepath, w.commandCh, w.logger)
-
-	// Wait for socket to be ready
+	// Start HTTP server and wait for it to be ready
+	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
 	time.Sleep(100 * time.Millisecond)
 
 	// Start wrapper event loop in background
 	wrapperDone := make(chan error, 1)
 	go func() {
-		// Simulate the main event loop handling restart
 		for {
 			select {
 			case cmdResp := <-w.commandCh:
@@ -227,17 +256,15 @@ func TestGracefulRestart(t *testing.T) {
 		}
 	}()
 
-	// Send graceful restart request while Claude is busy
-	resp, err := SendCommandWithTimeout(setup.socketFilepath, Command{
-		Command: "restart",
-		Mode:    "graceful",
-		Reason:  "test",
-	}, 1*time.Second)
-	if err != nil {
-		t.Fatalf("failed to send restart command: %v", err)
+	// Wait for HTTP server to be ready
+	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
+		t.Fatalf("HTTP server not ready: %v", err)
 	}
-	if resp.Status != "ok" {
-		t.Errorf("restart command failed: %s", resp.Error)
+
+	// Send graceful restart request while Claude is busy
+	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
+	if err := client.Restart("graceful", "test"); err != nil {
+		t.Fatalf("failed to send restart command: %v", err)
 	}
 
 	// Verify state is RestartPending
@@ -246,15 +273,8 @@ func TestGracefulRestart(t *testing.T) {
 	}
 
 	// Simulate Claude becoming idle by sending Stop event
-	resp, err = SendCommandWithTimeout(setup.socketFilepath, Command{
-		Command: "claude_update",
-		Event:   "Stop",
-	}, 1*time.Second)
-	if err != nil {
+	if err := client.SendClaudeUpdate("Stop", ""); err != nil {
 		t.Fatalf("failed to send Stop event: %v", err)
-	}
-	if resp.Status != "ok" {
-		t.Errorf("Stop event failed: %s", resp.Error)
 	}
 
 	// Wait for wrapper event loop to complete
@@ -266,10 +286,6 @@ func TestGracefulRestart(t *testing.T) {
 	if w.state != stateRestarting {
 		t.Errorf("expected final state Restarting, got %d", w.state)
 	}
-
-	// Note: The sleep process will receive SIGINT but won't exit immediately.
-	// In real usage, Claude would handle SIGINT and exit. For this test,
-	// we've verified the state machine transitions correctly.
 }
 
 // TestHardRestart tests immediate SIGKILL behavior and fresh session.
@@ -298,36 +314,26 @@ func TestHardRestart(t *testing.T) {
 	defer cancel()
 
 	w.commandCh = make(chan commandWithResponse, 1)
-	go listenSocket(ctx, setup.socketFilepath, w.commandCh, w.logger)
+
+	// Start HTTP server
+	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
 	time.Sleep(100 * time.Millisecond)
 
-	// Start event loop
-	wrapperDone := make(chan error, 1)
-	go func() {
-		select {
-		case cmdResp := <-w.commandCh:
-			resp := w.handleCommand(cmdResp.cmd)
-			cmdResp.responseCh <- resp
-			wrapperDone <- nil
-		case <-time.After(2 * time.Second):
-			wrapperDone <- fmt.Errorf("timeout")
-		}
-	}()
+	// Start event loop (processes 1 command)
+	loopDone := startTestEventLoop(ctx, w, 1)
+
+	// Wait for HTTP server to be ready
+	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
+		t.Fatalf("HTTP server not ready: %v", err)
+	}
 
 	// Send hard restart
-	resp, err := SendCommandWithTimeout(setup.socketFilepath, Command{
-		Command: "restart",
-		Mode:    "hard",
-		Reason:  "test hard restart",
-	}, 1*time.Second)
-	if err != nil {
+	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
+	if err := client.Restart("hard", "test hard restart"); err != nil {
 		t.Fatalf("failed to send hard restart: %v", err)
 	}
-	if resp.Status != "ok" {
-		t.Errorf("hard restart failed: %s", resp.Error)
-	}
 
-	<-wrapperDone
+	<-loopDone
 
 	// Verify state transitioned directly to Restarting (skips RestartPending)
 	if w.state != stateRestarting {
@@ -338,10 +344,6 @@ func TestHardRestart(t *testing.T) {
 	if w.hasConversation {
 		t.Error("expected hasConversation=false for hard restart, got true")
 	}
-
-	// Note: The sleep process will receive SIGINT but won't exit immediately.
-	// In real usage, Claude would handle SIGINT and exit. For this test,
-	// we've verified the state machine transitions correctly and the signal was sent.
 }
 
 // TestRestartIdempotency tests that duplicate restart requests are handled correctly.
@@ -371,41 +373,24 @@ func TestRestartIdempotency(t *testing.T) {
 	defer cancel()
 
 	w.commandCh = make(chan commandWithResponse, 1)
-	go listenSocket(ctx, setup.socketFilepath, w.commandCh, w.logger)
+
+	// Start HTTP server
+	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
 	time.Sleep(100 * time.Millisecond)
 
-	// Event loop that handles multiple commands
-	wrapperDone := make(chan struct{})
-	go func() {
-		count := 0
-		for {
-			select {
-			case cmdResp := <-w.commandCh:
-				resp := w.handleCommand(cmdResp.cmd)
-				cmdResp.responseCh <- resp
-				count++
-				if count >= 2 {
-					close(wrapperDone)
-					return
-				}
-			case <-time.After(3 * time.Second):
-				close(wrapperDone)
-				return
-			}
-		}
-	}()
+	// Event loop that handles 2 commands
+	loopDone := startTestEventLoop(ctx, w, 2)
+
+	// Wait for HTTP server to be ready
+	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
+		t.Fatalf("HTTP server not ready: %v", err)
+	}
+
+	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
 
 	// Send first graceful restart
-	resp1, err := SendCommandWithTimeout(setup.socketFilepath, Command{
-		Command: "restart",
-		Mode:    "graceful",
-		Reason:  "first restart",
-	}, 1*time.Second)
-	if err != nil {
+	if err := client.Restart("graceful", "first restart"); err != nil {
 		t.Fatalf("failed to send first restart: %v", err)
-	}
-	if resp1.Status != "ok" {
-		t.Errorf("first restart failed: %s", resp1.Error)
 	}
 
 	// Verify state is RestartPending
@@ -413,20 +398,12 @@ func TestRestartIdempotency(t *testing.T) {
 		t.Errorf("expected state RestartPending after first restart, got %d", w.state)
 	}
 
-	// Send second graceful restart while still pending
-	resp2, err := SendCommandWithTimeout(setup.socketFilepath, Command{
-		Command: "restart",
-		Mode:    "graceful",
-		Reason:  "second restart",
-	}, 1*time.Second)
-	if err != nil {
-		t.Fatalf("failed to send second restart: %v", err)
-	}
-	if resp2.Status != "ok" {
-		t.Errorf("second restart should return ok (idempotent): %s", resp2.Error)
+	// Send second graceful restart while still pending (should be idempotent)
+	if err := client.Restart("graceful", "second restart"); err != nil {
+		t.Fatalf("second restart should return ok (idempotent): %v", err)
 	}
 
-	<-wrapperDone
+	<-loopDone
 
 	// State should still be RestartPending (only one restart scheduled)
 	if w.state != stateRestartPending {
@@ -434,7 +411,7 @@ func TestRestartIdempotency(t *testing.T) {
 	}
 }
 
-// TestSocketProtocol tests the wrapper socket communication.
+// TestSocketProtocol tests the wrapper HTTP API communication.
 func TestSocketProtocol(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
@@ -447,24 +424,45 @@ func TestSocketProtocol(t *testing.T) {
 	defer cancel()
 
 	w.commandCh = make(chan commandWithResponse, 1)
-	go listenSocket(ctx, setup.socketFilepath, w.commandCh, w.logger)
+
+	// Start HTTP server
+	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
 	time.Sleep(100 * time.Millisecond)
+
+	// Wait for HTTP server to be ready
+	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
+		t.Fatalf("HTTP server not ready: %v", err)
+	}
+
+	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
 
 	tests := []struct {
 		name       string
-		cmd        Command
-		wantStatus string
-		wantError  string
+		action     func() error
+		wantErr    bool
+		errSubstr  string
+		setup      func()
 		checkState func(*testing.T, *Wrapper)
 	}{
 		{
 			name: "restart command",
-			cmd: Command{
-				Command: "restart",
-				Mode:    "graceful",
-				Reason:  "test",
+			setup: func() {
+				// Create mock Claude process for restart test
+				mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
+				if err != nil {
+					t.Fatalf("failed to create mock Claude: %v", err)
+				}
+				t.Cleanup(func() {
+					if mockCmd.Process != nil {
+						mockCmd.Process.Kill()
+						mockCmd.Wait()
+					}
+				})
+				w.claudeCmd = mockCmd
 			},
-			wantStatus: "ok",
+			action: func() error {
+				return client.Restart("graceful", "test")
+			},
 			checkState: func(t *testing.T, w *Wrapper) {
 				// State should be Restarting since Claude is idle
 				if w.state != stateRestarting {
@@ -474,11 +472,9 @@ func TestSocketProtocol(t *testing.T) {
 		},
 		{
 			name: "claude_update Stop event",
-			cmd: Command{
-				Command: "claude_update",
-				Event:   "Stop",
+			action: func() error {
+				return client.SendClaudeUpdate("Stop", "")
 			},
-			wantStatus: "ok",
 			checkState: func(t *testing.T, w *Wrapper) {
 				if !w.claudeIdle {
 					t.Error("expected claudeIdle=true after Stop event")
@@ -490,11 +486,9 @@ func TestSocketProtocol(t *testing.T) {
 		},
 		{
 			name: "claude_update UserPromptSubmit event",
-			cmd: Command{
-				Command: "claude_update",
-				Event:   "UserPromptSubmit",
+			action: func() error {
+				return client.SendClaudeUpdate("UserPromptSubmit", "")
 			},
-			wantStatus: "ok",
 			checkState: func(t *testing.T, w *Wrapper) {
 				if w.claudeIdle {
 					t.Error("expected claudeIdle=false after UserPromptSubmit event")
@@ -506,36 +500,21 @@ func TestSocketProtocol(t *testing.T) {
 		},
 		{
 			name: "claude_update Notification event",
-			cmd: Command{
-				Command:          "claude_update",
-				Event:            "Notification",
-				NotificationType: "permission_prompt",
+			action: func() error {
+				return client.SendClaudeUpdate("Notification", "permission_prompt")
 			},
-			wantStatus: "ok",
 		},
 		{
 			name: "claude_update PostToolUse event",
-			cmd: Command{
-				Command: "claude_update",
-				Event:   "PostToolUse",
+			action: func() error {
+				return client.SendClaudeUpdate("PostToolUse", "")
 			},
-			wantStatus: "ok",
 		},
 		{
 			name: "claude_update PostToolUseFailure event",
-			cmd: Command{
-				Command: "claude_update",
-				Event:   "PostToolUseFailure",
+			action: func() error {
+				return client.SendClaudeUpdate("PostToolUseFailure", "")
 			},
-			wantStatus: "ok",
-		},
-		{
-			name: "unknown command",
-			cmd: Command{
-				Command: "invalid",
-			},
-			wantStatus: "error",
-			wantError:  "unknown command",
 		},
 	}
 
@@ -546,49 +525,29 @@ func TestSocketProtocol(t *testing.T) {
 			w.claudeIdle = true
 			w.hasConversation = false
 
-			// Create mock Claude process for restart test
-			if tt.cmd.Command == "restart" {
-				mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			// Start event loop (processes 1 command)
+			loopDone := startTestEventLoop(ctx, w, 1)
+
+			// Execute the action
+			err := tt.action()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got nil")
+				} else if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("expected error containing %q, got %q", tt.errSubstr, err.Error())
+				}
+			} else {
 				if err != nil {
-					t.Fatalf("failed to create mock Claude: %v", err)
+					t.Fatalf("unexpected error: %v", err)
 				}
-				defer func() {
-					if mockCmd.Process != nil {
-						mockCmd.Process.Kill()
-						mockCmd.Wait()
-					}
-				}()
-				w.claudeCmd = mockCmd
 			}
 
-			// Start event loop
-			wrapperDone := make(chan error, 1)
-			go func() {
-				select {
-				case cmdResp := <-w.commandCh:
-					resp := w.handleCommand(cmdResp.cmd)
-					cmdResp.responseCh <- resp
-					wrapperDone <- nil
-				case <-time.After(2 * time.Second):
-					wrapperDone <- fmt.Errorf("timeout")
-				}
-			}()
-
-			// Send command
-			resp, err := SendCommandWithTimeout(setup.socketFilepath, tt.cmd, 1*time.Second)
-			if err != nil {
-				t.Fatalf("failed to send command: %v", err)
-			}
-
-			if resp.Status != tt.wantStatus {
-				t.Errorf("expected status %q, got %q", tt.wantStatus, resp.Status)
-			}
-
-			if tt.wantError != "" && !strings.Contains(resp.Error, tt.wantError) {
-				t.Errorf("expected error containing %q, got %q", tt.wantError, resp.Error)
-			}
-
-			<-wrapperDone
+			<-loopDone
 
 			if tt.checkState != nil {
 				tt.checkState(t, w)
@@ -659,35 +618,24 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	defer cancel()
 
 	w.commandCh = make(chan commandWithResponse, 1)
-	go listenSocket(ctx, setup.socketFilepath, w.commandCh, w.logger)
+
+	// Start HTTP server and event loop
+	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
 	time.Sleep(100 * time.Millisecond)
 
-	// Helper to send command and wait for processing
-	sendAndWait := func(cmd Command) *Response {
-		wrapperDone := make(chan *Response, 1)
-		go func() {
-			select {
-			case cmdResp := <-w.commandCh:
-				resp := w.handleCommand(cmdResp.cmd)
-				cmdResp.responseCh <- resp
-				wrapperDone <- &resp
-			case <-time.After(2 * time.Second):
-				wrapperDone <- &Response{Status: "error", Error: "timeout"}
-			}
-		}()
+	// Start event loop (unlimited commands)
+	startTestEventLoop(ctx, w, 0)
 
-		resp, err := SendCommandWithTimeout(setup.socketFilepath, cmd, 1*time.Second)
-		if err != nil {
-			t.Fatalf("failed to send command: %v", err)
-		}
-		<-wrapperDone
-		return resp
+	// Wait for HTTP server to be ready
+	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
+		t.Fatalf("HTTP server not ready: %v", err)
 	}
 
+	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
+
 	// Test Stop event: sets idle=true, hasConversation=true
-	resp := sendAndWait(Command{Command: "claude_update", Event: "Stop"})
-	if resp.Status != "ok" {
-		t.Errorf("Stop event failed: %s", resp.Error)
+	if err := client.SendClaudeUpdate("Stop", ""); err != nil {
+		t.Fatalf("Stop event failed: %v", err)
 	}
 	if !w.claudeIdle {
 		t.Error("expected claudeIdle=true after Stop")
@@ -697,9 +645,8 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	}
 
 	// Test UserPromptSubmit event: sets idle=false, hasConversation=true
-	resp = sendAndWait(Command{Command: "claude_update", Event: "UserPromptSubmit"})
-	if resp.Status != "ok" {
-		t.Errorf("UserPromptSubmit event failed: %s", resp.Error)
+	if err := client.SendClaudeUpdate("UserPromptSubmit", ""); err != nil {
+		t.Fatalf("UserPromptSubmit event failed: %v", err)
 	}
 	if w.claudeIdle {
 		t.Error("expected claudeIdle=false after UserPromptSubmit")
@@ -709,8 +656,40 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	}
 }
 
-// TestJSONProtocol verifies the socket uses correct JSON encoding/decoding.
+// TestJSONProtocol verifies the HTTP API returns valid JSON responses.
 func TestJSONProtocol(t *testing.T) {
+	setup := setupTest(t)
+	defer setup.cleanup()
+
+	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
+	w.state = stateRunning
+	w.claudeIdle = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	w.commandCh = make(chan commandWithResponse, 1)
+
+	// Start HTTP server (GET /status doesn't need the event loop)
+	startHTTPServerAndWait(t, ctx, setup.socketFilepath, w)
+
+	// Verify that GET /status returns valid JSON with expected fields
+	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
+	status, err := client.GetStatus()
+	if err != nil {
+		t.Fatalf("failed to get status: %v", err)
+	}
+
+	if status.ClaudeState != "idle" {
+		t.Errorf("expected claude_state 'idle', got %q", status.ClaudeState)
+	}
+	if status.WrapperState != "running" {
+		t.Errorf("expected wrapper_state 'running', got %q", status.WrapperState)
+	}
+}
+
+// TestInvalidJSON tests that invalid JSON is handled gracefully.
+func TestInvalidJSON(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
@@ -721,71 +700,86 @@ func TestJSONProtocol(t *testing.T) {
 	defer cancel()
 
 	w.commandCh = make(chan commandWithResponse, 1)
-	go listenSocket(ctx, setup.socketFilepath, w.commandCh, w.logger)
-	time.Sleep(100 * time.Millisecond)
 
-	// Event loop
-	go func() {
-		select {
-		case cmdResp := <-w.commandCh:
-			resp := w.handleCommand(cmdResp.cmd)
-			cmdResp.responseCh <- resp
-		case <-time.After(2 * time.Second):
-		}
-	}()
+	// Start HTTP server (invalid JSON is rejected at the HTTP handler level, no event loop needed)
+	startHTTPServerAndWait(t, ctx, setup.socketFilepath, w)
 
-	// Manually connect and send raw JSON
-	conn, err := SendCommandWithTimeout(setup.socketFilepath, Command{
-		Command: "claude_update",
-		Event:   "Stop",
-	}, 1*time.Second)
-	if err != nil {
-		t.Fatalf("failed to send command: %v", err)
+	// Send raw HTTP POST with malformed JSON body to /claude-update
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return net.DialTimeout("unix", setup.socketFilepath, 1*time.Second)
+		},
 	}
+	httpClient := &http.Client{Transport: transport, Timeout: 1 * time.Second}
 
-	// Verify response is valid JSON
-	if conn.Status != "ok" {
-		t.Errorf("expected ok status, got %s: %s", conn.Status, conn.Error)
+	resp, err := httpClient.Post("http://wrapper/claude-update", "application/json", bytes.NewBufferString("{invalid json}"))
+	if err != nil {
+		t.Fatalf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should get 400 Bad Request
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", resp.StatusCode)
 	}
 }
 
-// TestInvalidJSON tests that invalid JSON is handled gracefully.
-func TestInvalidJSON(t *testing.T) {
+// TestGetStatus verifies the status endpoint returns correct state.
+func TestGetStatus(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
 	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
+	w.state = stateRunning
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	w.commandCh = make(chan commandWithResponse, 1)
-	go listenSocket(ctx, setup.socketFilepath, w.commandCh, w.logger)
-	time.Sleep(100 * time.Millisecond)
 
-	// Manually write invalid JSON to socket
-	conn, err := net.DialTimeout("unix", setup.socketFilepath, 1*time.Second)
+	// Start HTTP server (GET /status doesn't need the event loop)
+	startHTTPServerAndWait(t, ctx, setup.socketFilepath, w)
+
+	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
+
+	// Test idle state
+	w.stateMu.Lock()
+	w.claudeIdle = true
+	w.needsAttention = false
+	w.stateMu.Unlock()
+
+	status, err := client.GetStatus()
 	if err != nil {
-		t.Fatalf("failed to connect to socket: %v", err)
+		t.Fatalf("failed to get status: %v", err)
 	}
-	defer conn.Close()
-
-	// Write malformed JSON
-	if _, err := io.WriteString(conn, "{invalid json}\n"); err != nil {
-		t.Fatalf("failed to write to socket: %v", err)
+	if status.ClaudeState != "idle" {
+		t.Errorf("expected claude_state 'idle', got %q", status.ClaudeState)
 	}
 
-	// Read response
-	var resp Response
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
+	// Test busy state
+	w.stateMu.Lock()
+	w.claudeIdle = false
+	w.needsAttention = false
+	w.stateMu.Unlock()
+
+	status, err = client.GetStatus()
+	if err != nil {
+		t.Fatalf("failed to get status: %v", err)
+	}
+	if status.ClaudeState != "busy" {
+		t.Errorf("expected claude_state 'busy', got %q", status.ClaudeState)
 	}
 
-	// Should get error response
-	if resp.Status != "error" {
-		t.Errorf("expected error status for invalid JSON, got %s", resp.Status)
+	// Test needs_attention state (takes priority over idle/busy)
+	w.stateMu.Lock()
+	w.needsAttention = true
+	w.stateMu.Unlock()
+
+	status, err = client.GetStatus()
+	if err != nil {
+		t.Fatalf("failed to get status: %v", err)
 	}
-	if !strings.Contains(resp.Error, "invalid JSON") {
-		t.Errorf("expected 'invalid JSON' error, got %s", resp.Error)
+	if status.ClaudeState != "needs_attention" {
+		t.Errorf("expected claude_state 'needs_attention', got %q", status.ClaudeState)
 	}
 }

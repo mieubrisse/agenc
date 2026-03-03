@@ -53,17 +53,10 @@ func runMissionSendClaudeUpdate(cmd *cobra.Command, args []string) error {
 
 	socketFilepath := config.GetMissionSocketFilepath(agencDirpath, missionID)
 
-	socketCmd := wrapper.Command{
-		Command:          "claude_update",
-		Event:            event,
-		NotificationType: notificationType,
-	}
-
 	// Use a short timeout to avoid blocking Claude if the wrapper is unresponsive
-	resp, err := wrapper.SendCommandWithTimeout(socketFilepath, socketCmd, claudeUpdateClientTimeout)
-	if err != nil {
+	client := wrapper.NewWrapperClient(socketFilepath, claudeUpdateClientTimeout)
+	if err := client.SendClaudeUpdate(event, notificationType); err != nil {
 		// Silently fail — never block Claude
-		_ = resp
 		return nil
 	}
 

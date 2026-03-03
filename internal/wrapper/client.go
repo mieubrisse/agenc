@@ -111,38 +111,6 @@ func (c *WrapperClient) postCommand(path string, body any) (*CommandResponse, er
 	return &cmdResp, nil
 }
 
-// ============================================================================
-// Backward-compatible API — remove once all callers migrate to WrapperClient
-// ============================================================================
-
-// Response is a backward-compatible alias for CommandResponse. It exists so
-// that callers that have not yet migrated to the new HTTP client API continue
-// to compile.
-type Response = CommandResponse
-
-// SendCommand dials the wrapper unix socket via HTTP, sends a Command, and
-// returns the Response. Deprecated: use NewWrapperClient + typed methods instead.
-func SendCommand(socketFilepath string, cmd Command) (*Response, error) {
-	return SendCommandWithTimeout(socketFilepath, cmd, 5*time.Second)
-}
-
-// SendCommandWithTimeout is like SendCommand but uses a custom timeout.
-// Deprecated: use NewWrapperClient + typed methods instead.
-func SendCommandWithTimeout(socketFilepath string, cmd Command, timeout time.Duration) (*Response, error) {
-	client := NewWrapperClient(socketFilepath, timeout)
-
-	// Use the legacy /command endpoint which accepts the full Command
-	// struct and routes through handleCommand, preserving the original
-	// behavior including unknown-command error handling.
-	return client.postCommand("/command", legacyCommandRequest{
-		Command:          cmd.Command,
-		Mode:             cmd.Mode,
-		Reason:           cmd.Reason,
-		Event:            cmd.Event,
-		NotificationType: cmd.NotificationType,
-	})
-}
-
 // isConnectionError checks if an error indicates the wrapper is not running.
 // This covers both "socket file not found" (os.IsNotExist) and "connection
 // refused" (stale socket from a crashed wrapper).
