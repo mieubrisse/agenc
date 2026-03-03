@@ -686,7 +686,18 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
-	if err := unlinkPoolWindow(req.TmuxSession, resolvedID); err != nil {
+	missionRecord, err := s.db.GetMission(resolvedID)
+	if err != nil {
+		return newHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if missionRecord == nil {
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
+	}
+	if missionRecord.TmuxPane == nil || *missionRecord.TmuxPane == "" {
+		return newHTTPError(http.StatusBadRequest, "mission has no tmux pane")
+	}
+
+	if err := unlinkPoolWindowByPane(*missionRecord.TmuxPane, req.TmuxSession); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to unlink window: %s", err.Error())
 	}
 

@@ -66,16 +66,35 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	return windowTarget, paneID, nil
 }
 
-// unlinkPoolWindow unlinks a mission's window from the target session. The
-// window continues to exist in the agenc-pool session.
-func unlinkPoolWindow(targetSession string, missionID string) error {
-	windowName := database.ShortID(missionID)
-	target := fmt.Sprintf("%s:%s", targetSession, windowName)
-
-	cmd := exec.Command("tmux", "unlink-window", "-t", target)
-	output, err := cmd.CombinedOutput()
+// unlinkPoolWindowByPane unlinks the window containing the given pane from the
+// target session. Uses the pane ID (immutable) rather than the window name
+// (which may have been changed by title reconciliation).
+// The window continues to exist in the agenc-pool session.
+func unlinkPoolWindowByPane(paneID string, targetSession string) error {
+	paneTarget := "%" + paneID
+	// Find the window index in the target session that contains this pane
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", targetSession, "-F", "#{pane_id} #{window_index}")
+	output, err := cmd.Output()
 	if err != nil {
-		return stacktrace.NewError("failed to unlink window: %v (output: %s)", err, string(output))
+		return stacktrace.NewError("failed to list panes in session %s: %v", targetSession, err)
+	}
+	windowIndex := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+		if len(parts) == 2 && parts[0] == paneTarget {
+			windowIndex = parts[1]
+			break
+		}
+	}
+	if windowIndex == "" {
+		return stacktrace.NewError("pane %s not found in session %s", paneID, targetSession)
+	}
+
+	windowTarget := fmt.Sprintf("%s:%s", targetSession, windowIndex)
+	unlinkCmd := exec.Command("tmux", "unlink-window", "-t", windowTarget)
+	unlinkOutput, err := unlinkCmd.CombinedOutput()
+	if err != nil {
+		return stacktrace.NewError("failed to unlink window: %v (output: %s)", err, string(unlinkOutput))
 	}
 	return nil
 }
