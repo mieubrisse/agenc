@@ -13,23 +13,22 @@ func TestScanJSONLFromOffset(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")
 
-	content := "{\"type\":\"message\",\"role\":\"user\",\"content\":\"hello\"}\n" +
-		"{\"type\":\"summary\",\"summary\":\"Working on auth system\"}\n" +
+	content := "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello world\"}}\n" +
 		"{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"I will help with that\"}\n" +
 		"{\"type\":\"custom-title\",\"customTitle\":\"Auth Feature\"}\n"
 	if err := os.WriteFile(jsonlFilepath, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	customTitle, autoSummary, err := scanJSONLFromOffset(jsonlFilepath, 0)
+	result, err := scanJSONLFromOffset(jsonlFilepath, 0, true)
 	if err != nil {
 		t.Fatalf("scanJSONLFromOffset failed: %v", err)
 	}
-	if customTitle != "Auth Feature" {
-		t.Errorf("customTitle = %q, want %q", customTitle, "Auth Feature")
+	if result.customTitle != "Auth Feature" {
+		t.Errorf("customTitle = %q, want %q", result.customTitle, "Auth Feature")
 	}
-	if autoSummary != "Working on auth system" {
-		t.Errorf("autoSummary = %q, want %q", autoSummary, "Working on auth system")
+	if result.firstUserMessage != "hello world" {
+		t.Errorf("firstUserMessage = %q, want %q", result.firstUserMessage, "hello world")
 	}
 }
 
@@ -37,8 +36,8 @@ func TestScanJSONLFromOffset_IncrementalScan(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")
 
-	initialContent := "{\"type\":\"summary\",\"summary\":\"Initial summary\"}\n" +
-		"{\"type\":\"message\",\"role\":\"user\",\"content\":\"hello\"}\n"
+	initialContent := "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"first message\"}}\n" +
+		"{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"hello\"}\n"
 	if err := os.WriteFile(jsonlFilepath, []byte(initialContent), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -56,15 +55,16 @@ func TestScanJSONLFromOffset_IncrementalScan(t *testing.T) {
 	}
 	f.Close()
 
-	customTitle, autoSummary, err := scanJSONLFromOffset(jsonlFilepath, initialSize)
+	result, err := scanJSONLFromOffset(jsonlFilepath, initialSize, true)
 	if err != nil {
 		t.Fatalf("scanJSONLFromOffset failed: %v", err)
 	}
-	if customTitle != "New Title" {
-		t.Errorf("customTitle = %q, want %q", customTitle, "New Title")
+	if result.customTitle != "New Title" {
+		t.Errorf("customTitle = %q, want %q", result.customTitle, "New Title")
 	}
-	if autoSummary != "" {
-		t.Errorf("autoSummary = %q, want empty (initial summary is before offset)", autoSummary)
+	// User message is before offset, so should not be found
+	if result.firstUserMessage != "" {
+		t.Errorf("firstUserMessage = %q, want empty (user message is before offset)", result.firstUserMessage)
 	}
 }
 
@@ -78,39 +78,34 @@ func TestScanJSONLFromOffset_NoMetadata(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	customTitle, autoSummary, err := scanJSONLFromOffset(jsonlFilepath, 0)
+	result, err := scanJSONLFromOffset(jsonlFilepath, 0, false)
 	if err != nil {
 		t.Fatalf("scanJSONLFromOffset failed: %v", err)
 	}
-	if customTitle != "" {
-		t.Errorf("customTitle = %q, want empty", customTitle)
+	if result.customTitle != "" {
+		t.Errorf("customTitle = %q, want empty", result.customTitle)
 	}
-	if autoSummary != "" {
-		t.Errorf("autoSummary = %q, want empty", autoSummary)
+	if result.firstUserMessage != "" {
+		t.Errorf("firstUserMessage = %q, want empty (extractUserMessage=false)", result.firstUserMessage)
 	}
 }
 
-func TestScanJSONLFromOffset_LastValueWins(t *testing.T) {
+func TestScanJSONLFromOffset_LastCustomTitleWins(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")
 
 	content := "{\"type\":\"custom-title\",\"customTitle\":\"First Title\"}\n" +
-		"{\"type\":\"summary\",\"summary\":\"First summary\"}\n" +
-		"{\"type\":\"custom-title\",\"customTitle\":\"Second Title\"}\n" +
-		"{\"type\":\"summary\",\"summary\":\"Second summary\"}\n"
+		"{\"type\":\"custom-title\",\"customTitle\":\"Second Title\"}\n"
 	if err := os.WriteFile(jsonlFilepath, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	customTitle, autoSummary, err := scanJSONLFromOffset(jsonlFilepath, 0)
+	result, err := scanJSONLFromOffset(jsonlFilepath, 0, false)
 	if err != nil {
 		t.Fatalf("scanJSONLFromOffset failed: %v", err)
 	}
-	if customTitle != "Second Title" {
-		t.Errorf("customTitle = %q, want %q", customTitle, "Second Title")
-	}
-	if autoSummary != "Second summary" {
-		t.Errorf("autoSummary = %q, want %q", autoSummary, "Second summary")
+	if result.customTitle != "Second Title" {
+		t.Errorf("customTitle = %q, want %q", result.customTitle, "Second Title")
 	}
 }
 
@@ -122,7 +117,7 @@ func TestScanJSONLFromOffset_OversizedLines(t *testing.T) {
 	// The scanner must read past the huge line without aborting.
 	hugeLine := `{"type":"message","role":"assistant","content":"` + strings.Repeat("x", 20*1024) + "\"}\n"
 
-	content := `{"type":"summary","summary":"Before huge line"}` + "\n" +
+	content := `{"type":"custom-title","customTitle":"Before huge line"}` + "\n" +
 		hugeLine +
 		`{"type":"custom-title","customTitle":"After huge line"}` + "\n"
 
@@ -130,15 +125,50 @@ func TestScanJSONLFromOffset_OversizedLines(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	customTitle, autoSummary, err := scanJSONLFromOffset(jsonlFilepath, 0)
+	result, err := scanJSONLFromOffset(jsonlFilepath, 0, false)
 	if err != nil {
 		t.Fatalf("scanJSONLFromOffset failed: %v", err)
 	}
-	if customTitle != "After huge line" {
-		t.Errorf("customTitle = %q, want %q (metadata after oversized line must be found)", customTitle, "After huge line")
+	if result.customTitle != "After huge line" {
+		t.Errorf("customTitle = %q, want %q (metadata after oversized line must be found)", result.customTitle, "After huge line")
 	}
-	if autoSummary != "Before huge line" {
-		t.Errorf("autoSummary = %q, want %q", autoSummary, "Before huge line")
+}
+
+func TestScanJSONLFromOffset_ExtractsFirstUserMessage(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")
+
+	content := "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"first prompt\"}}\n" +
+		"{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"second prompt\"}}\n"
+	if err := os.WriteFile(jsonlFilepath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	result, err := scanJSONLFromOffset(jsonlFilepath, 0, true)
+	if err != nil {
+		t.Fatalf("scanJSONLFromOffset failed: %v", err)
+	}
+	// Should return the first user message, not the second
+	if result.firstUserMessage != "first prompt" {
+		t.Errorf("firstUserMessage = %q, want %q", result.firstUserMessage, "first prompt")
+	}
+}
+
+func TestScanJSONLFromOffset_SkipsUserMessageWhenNotRequested(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")
+
+	content := "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}\n"
+	if err := os.WriteFile(jsonlFilepath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	result, err := scanJSONLFromOffset(jsonlFilepath, 0, false)
+	if err != nil {
+		t.Fatalf("scanJSONLFromOffset failed: %v", err)
+	}
+	if result.firstUserMessage != "" {
+		t.Errorf("firstUserMessage = %q, want empty (extractUserMessage=false)", result.firstUserMessage)
 	}
 }
 
@@ -149,7 +179,7 @@ func TestTruncateTitle(t *testing.T) {
 		want   string
 	}{
 		{"short", 30, "short"},
-		{"this is a very long title that exceeds the maximum length", 30, "this is a very long title tha\u2026"},
+		{"this is a very long title that exceeds the maximum length", 30, "this is a very long title tha…"},
 		{"  lots   of    whitespace  ", 30, "lots of whitespace"},
 	}
 

@@ -21,23 +21,21 @@ import (
 
 // MissionResponse is the JSON representation of a mission returned by the API.
 type MissionResponse struct {
-	ID                     string     `json:"id"`
-	ShortID                string     `json:"short_id"`
-	Prompt                 string     `json:"prompt"`
-	Status                 string     `json:"status"`
-	GitRepo                string     `json:"git_repo"`
-	LastHeartbeat          *time.Time `json:"last_heartbeat"`
-	SessionName            string     `json:"session_name"`
-	SessionNameUpdatedAt   *time.Time `json:"session_name_updated_at"`
-	CronID                 *string    `json:"cron_id"`
-	CronName               *string    `json:"cron_name"`
-	ConfigCommit           *string    `json:"config_commit"`
-	TmuxPane               *string    `json:"tmux_pane"`
-	PromptCount            int        `json:"prompt_count"`
-	LastSummaryPromptCount int        `json:"last_summary_prompt_count"`
-	AISummary              string     `json:"ai_summary"`
-	CreatedAt              time.Time  `json:"created_at"`
-	UpdatedAt              time.Time  `json:"updated_at"`
+	ID                   string     `json:"id"`
+	ShortID              string     `json:"short_id"`
+	Prompt               string     `json:"prompt"`
+	Status               string     `json:"status"`
+	GitRepo              string     `json:"git_repo"`
+	LastHeartbeat        *time.Time `json:"last_heartbeat"`
+	SessionName          string     `json:"session_name"`
+	SessionNameUpdatedAt *time.Time `json:"session_name_updated_at"`
+	CronID               *string    `json:"cron_id"`
+	CronName             *string    `json:"cron_name"`
+	ConfigCommit         *string    `json:"config_commit"`
+	TmuxPane             *string    `json:"tmux_pane"`
+	PromptCount          int        `json:"prompt_count"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 
 	// ResolvedSessionTitle is derived from the active session's title chain:
 	// custom_title > agenc_custom_title > auto_summary. Empty if no session exists.
@@ -51,48 +49,44 @@ type MissionResponse struct {
 // ToMission converts a MissionResponse to a database.Mission.
 func (mr *MissionResponse) ToMission() *database.Mission {
 	return &database.Mission{
-		ID:                     mr.ID,
-		ShortID:                mr.ShortID,
-		Prompt:                 mr.Prompt,
-		Status:                 mr.Status,
-		GitRepo:                mr.GitRepo,
-		LastHeartbeat:          mr.LastHeartbeat,
-		SessionName:            mr.SessionName,
-		SessionNameUpdatedAt:   mr.SessionNameUpdatedAt,
-		CronID:                 mr.CronID,
-		CronName:               mr.CronName,
-		ConfigCommit:           mr.ConfigCommit,
-		TmuxPane:               mr.TmuxPane,
-		PromptCount:            mr.PromptCount,
-		LastSummaryPromptCount: mr.LastSummaryPromptCount,
-		AISummary:              mr.AISummary,
-		CreatedAt:              mr.CreatedAt,
-		UpdatedAt:              mr.UpdatedAt,
-		ResolvedSessionTitle:   mr.ResolvedSessionTitle,
-		ClaudeState:            mr.ClaudeState,
+		ID:                   mr.ID,
+		ShortID:              mr.ShortID,
+		Prompt:               mr.Prompt,
+		Status:               mr.Status,
+		GitRepo:              mr.GitRepo,
+		LastHeartbeat:        mr.LastHeartbeat,
+		SessionName:          mr.SessionName,
+		SessionNameUpdatedAt: mr.SessionNameUpdatedAt,
+		CronID:               mr.CronID,
+		CronName:             mr.CronName,
+		ConfigCommit:         mr.ConfigCommit,
+		TmuxPane:             mr.TmuxPane,
+		PromptCount:          mr.PromptCount,
+		CreatedAt:            mr.CreatedAt,
+		UpdatedAt:            mr.UpdatedAt,
+		ResolvedSessionTitle: mr.ResolvedSessionTitle,
+		ClaudeState:          mr.ClaudeState,
 	}
 }
 
 func toMissionResponse(m *database.Mission) MissionResponse {
 	return MissionResponse{
-		ID:                     m.ID,
-		ShortID:                m.ShortID,
-		Prompt:                 m.Prompt,
-		Status:                 m.Status,
-		GitRepo:                m.GitRepo,
-		LastHeartbeat:          m.LastHeartbeat,
-		SessionName:            m.SessionName,
-		SessionNameUpdatedAt:   m.SessionNameUpdatedAt,
-		CronID:                 m.CronID,
-		CronName:               m.CronName,
-		ConfigCommit:           m.ConfigCommit,
-		TmuxPane:               m.TmuxPane,
-		PromptCount:            m.PromptCount,
-		LastSummaryPromptCount: m.LastSummaryPromptCount,
-		AISummary:              m.AISummary,
-		CreatedAt:              m.CreatedAt,
-		UpdatedAt:              m.UpdatedAt,
-		ResolvedSessionTitle:   m.ResolvedSessionTitle,
+		ID:                   m.ID,
+		ShortID:              m.ShortID,
+		Prompt:               m.Prompt,
+		Status:               m.Status,
+		GitRepo:              m.GitRepo,
+		LastHeartbeat:        m.LastHeartbeat,
+		SessionName:          m.SessionName,
+		SessionNameUpdatedAt: m.SessionNameUpdatedAt,
+		CronID:               m.CronID,
+		CronName:             m.CronName,
+		ConfigCommit:         m.ConfigCommit,
+		TmuxPane:             m.TmuxPane,
+		PromptCount:          m.PromptCount,
+		CreatedAt:            m.CreatedAt,
+		UpdatedAt:            m.UpdatedAt,
+		ResolvedSessionTitle: m.ResolvedSessionTitle,
 	}
 }
 

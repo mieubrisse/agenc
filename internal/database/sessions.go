@@ -56,23 +56,35 @@ func (db *DB) GetSession(sessionID string) (*Session, error) {
 	return s, nil
 }
 
-// UpdateSessionScanResults updates the custom_title, auto_summary, and
-// last_scanned_offset for a session after an incremental JSONL scan.
-// Only updates non-empty title/summary values (preserves existing values
-// when the new scan found nothing new for that field).
-func (db *DB) UpdateSessionScanResults(sessionID string, customTitle string, autoSummary string, lastScannedOffset int64) error {
+// UpdateSessionScanResults updates the custom_title and last_scanned_offset
+// for a session after an incremental JSONL scan.
+// Only updates non-empty title values (preserves existing values when the
+// new scan found nothing new).
+func (db *DB) UpdateSessionScanResults(sessionID string, customTitle string, lastScannedOffset int64) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.conn.Exec(
 		`UPDATE sessions SET
 			custom_title = CASE WHEN ? != '' THEN ? ELSE custom_title END,
-			auto_summary = CASE WHEN ? != '' THEN ? ELSE auto_summary END,
 			last_scanned_offset = ?,
 			updated_at = ?
 		WHERE id = ?`,
-		customTitle, customTitle, autoSummary, autoSummary, lastScannedOffset, now, sessionID,
+		customTitle, customTitle, lastScannedOffset, now, sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update scan results for session '%s'", sessionID)
+	}
+	return nil
+}
+
+// UpdateSessionAutoSummary sets the auto_summary for a session.
+func (db *DB) UpdateSessionAutoSummary(sessionID string, autoSummary string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.conn.Exec(
+		"UPDATE sessions SET auto_summary = ?, updated_at = ? WHERE id = ?",
+		autoSummary, now, sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update auto_summary for session '%s'", sessionID)
 	}
 	return nil
 }

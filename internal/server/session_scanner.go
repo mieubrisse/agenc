@@ -21,8 +21,9 @@ const (
 )
 
 // runSessionScannerLoop polls for JSONL file changes every 3 seconds and
-// updates the sessions table with any newly discovered custom titles or
-// auto-summaries.
+// updates the sessions table with any newly discovered custom titles.
+// When a session has no auto_summary yet and a user message is found,
+// it sends a summary request to the session summarizer worker.
 func (s *Server) runSessionScannerLoop(ctx context.Context) {
 	// Initial delay to avoid racing with startup I/O
 	select {
@@ -74,7 +75,7 @@ func (s *Server) runSessionScannerCycle() {
 }
 
 // scanMissionJSONLFiles scans all JSONL files in a mission's project directory
-// for metadata changes (custom titles, auto summaries).
+// for metadata changes (custom titles) and first user messages (for auto-summary).
 func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) {
 	entries, err := os.ReadDir(projectDirpath)
 	if err != nil {
@@ -115,82 +116,120 @@ func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) 
 			continue
 		}
 
+		// Determine whether we need to look for user messages (for auto-summary)
+		needsUserMessage := sess.AutoSummary == ""
+
 		// Incremental scan from the last offset
-		customTitle, autoSummary, err := scanJSONLFromOffset(jsonlFilepath, sess.LastScannedOffset)
+		scanResult, err := scanJSONLFromOffset(jsonlFilepath, sess.LastScannedOffset, needsUserMessage)
 		if err != nil {
 			s.logger.Printf("Session scanner: failed to scan '%s': %v", jsonlFilepath, err)
 			continue
 		}
 
 		// Track whether display-relevant data changed (for tmux reconciliation)
-		customTitleChanged := customTitle != "" && customTitle != sess.CustomTitle
-		autoSummaryChanged := autoSummary != "" && autoSummary != sess.AutoSummary
+		customTitleChanged := scanResult.customTitle != "" && scanResult.customTitle != sess.CustomTitle
 
-		if err := s.db.UpdateSessionScanResults(sessionID, customTitle, autoSummary, fileSize); err != nil {
+		if err := s.db.UpdateSessionScanResults(sessionID, scanResult.customTitle, fileSize); err != nil {
 			s.logger.Printf("Session scanner: failed to update session '%s': %v", sessionID, err)
 			continue
 		}
 
 		// Reconcile tmux window title when display-relevant data changes
-		if customTitleChanged || autoSummaryChanged {
+		if customTitleChanged {
 			s.reconcileTmuxWindowTitle(missionID)
+		}
+
+		// If we found a user message and the session needs a summary, send it
+		// to the summarizer worker for async Haiku processing
+		if needsUserMessage && scanResult.firstUserMessage != "" {
+			s.requestSessionSummary(sessionID, missionID, scanResult.firstUserMessage)
 		}
 	}
 }
 
+// jsonlScanResult holds the results of scanning a JSONL file.
+type jsonlScanResult struct {
+	customTitle      string
+	firstUserMessage string
+}
+
 // jsonlMetadataEntry represents a metadata line in a session JSONL file.
-// Covers both custom-title and summary entry types.
 type jsonlMetadataEntry struct {
 	Type        string `json:"type"`
-	Summary     string `json:"summary"`
 	CustomTitle string `json:"customTitle"`
 }
 
+// jsonlUserEntry represents a user message entry in a session JSONL file.
+type jsonlUserEntry struct {
+	Type    string          `json:"type"`
+	Message json.RawMessage `json:"message"`
+}
+
+// jsonlUserMessage represents the message portion of a user entry.
+type jsonlUserMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // maxMetadataLineLen is the maximum line length we bother inspecting for
-// metadata. Metadata entries (custom-title, summary) are well under 1 KB.
+// metadata. Metadata entries (custom-title) are well under 1 KB.
 // Conversation message lines can exceed 5 MB — skip those immediately rather
 // than searching for substrings in megabytes of JSON.
 const maxMetadataLineLen = 10 * 1024 // 10 KB
 
+// maxUserMessageLineLen is the maximum line length we inspect for user messages.
+// User prompts are typically under 50 KB. We set a generous limit to catch
+// longer prompts while still skipping multi-MB assistant response lines.
+const maxUserMessageLineLen = 100 * 1024 // 100 KB
+
 // scanJSONLFromOffset reads a JSONL file starting at the given byte offset and
-// returns any custom-title and summary values found in the new data. Uses
-// bufio.Reader (not Scanner) to handle arbitrarily long lines without aborting,
-// and quick string matching before JSON parsing to avoid parsing every line.
-func scanJSONLFromOffset(jsonlFilepath string, offset int64) (customTitle string, autoSummary string, err error) {
+// returns any custom-title values found in the new data, plus optionally the
+// first user message if extractUserMessage is true.
+// Uses bufio.Reader (not Scanner) to handle arbitrarily long lines without
+// aborting, and quick string matching before JSON parsing to avoid parsing
+// every line.
+func scanJSONLFromOffset(jsonlFilepath string, offset int64, extractUserMessage bool) (jsonlScanResult, error) {
+	var result jsonlScanResult
+
 	file, err := os.Open(jsonlFilepath)
 	if err != nil {
-		return "", "", err
+		return result, err
 	}
 	defer file.Close()
 
 	if offset > 0 {
 		if _, err := file.Seek(offset, 0); err != nil {
-			return "", "", err
+			return result, err
 		}
 	}
 
 	reader := bufio.NewReaderSize(file, 64*1024) // 64 KB read buffer
+	foundUserMessage := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if len(line) > 0 {
-			// Skip oversized lines — metadata entries are always small
-			if len(line) <= maxMetadataLineLen {
-				// Quick string check: skip lines that cannot contain metadata
-				hasCustomTitle := strings.Contains(line, `"custom-title"`)
-				hasSummary := strings.Contains(line, `"type":"summary"`)
-				if hasCustomTitle || hasSummary {
-					var entry jsonlMetadataEntry
-					if jsonErr := json.Unmarshal([]byte(line), &entry); jsonErr == nil {
-						switch entry.Type {
-						case "custom-title":
-							if entry.CustomTitle != "" {
-								customTitle = entry.CustomTitle
-							}
-						case "summary":
-							if entry.Summary != "" {
-								autoSummary = entry.Summary
-							}
+			lineLen := len(line)
+
+			// Check for custom-title metadata (small lines only)
+			if lineLen <= maxMetadataLineLen && strings.Contains(line, `"custom-title"`) {
+				var entry jsonlMetadataEntry
+				if jsonErr := json.Unmarshal([]byte(line), &entry); jsonErr == nil {
+					if entry.Type == "custom-title" && entry.CustomTitle != "" {
+						result.customTitle = entry.CustomTitle
+					}
+				}
+			}
+
+			// Check for first user message if requested and not yet found
+			if extractUserMessage && !foundUserMessage && lineLen <= maxUserMessageLineLen {
+				if strings.Contains(line, `"type":"user"`) {
+					var entry jsonlUserEntry
+					if jsonErr := json.Unmarshal([]byte(line), &entry); jsonErr == nil && entry.Type == "user" {
+						var msg jsonlUserMessage
+						if jsonErr := json.Unmarshal(entry.Message, &msg); jsonErr == nil && msg.Content != "" {
+							result.firstUserMessage = msg.Content
+							foundUserMessage = true
 						}
 					}
 				}
@@ -200,9 +239,9 @@ func scanJSONLFromOffset(jsonlFilepath string, offset int64) (customTitle string
 			if err == io.EOF {
 				break
 			}
-			return customTitle, autoSummary, err
+			return result, err
 		}
 	}
 
-	return customTitle, autoSummary, nil
+	return result, nil
 }

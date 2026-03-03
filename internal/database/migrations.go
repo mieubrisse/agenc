@@ -251,7 +251,6 @@ func migrateAddQueryIndices(conn *sql.DB) error {
 	indices := []string{
 		"CREATE INDEX IF NOT EXISTS idx_missions_activity ON missions(last_heartbeat DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_missions_tmux_pane ON missions(tmux_pane) WHERE tmux_pane IS NOT NULL",
-		"CREATE INDEX IF NOT EXISTS idx_missions_summary ON missions(status, prompt_count, last_summary_prompt_count)",
 		"CREATE INDEX IF NOT EXISTS idx_missions_cron_name ON missions(cron_name) WHERE cron_name IS NOT NULL",
 	}
 

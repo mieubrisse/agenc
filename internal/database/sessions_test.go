@@ -63,7 +63,7 @@ func TestUpdateSessionScanResults(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	err = db.UpdateSessionScanResults("session-uuid-456", "My Custom Title", "Auto summary text", 4096)
+	err = db.UpdateSessionScanResults("session-uuid-456", "My Custom Title", 4096)
 	if err != nil {
 		t.Fatalf("UpdateSessionScanResults failed: %v", err)
 	}
@@ -74,9 +74,6 @@ func TestUpdateSessionScanResults(t *testing.T) {
 	}
 	if got.CustomTitle != "My Custom Title" {
 		t.Errorf("expected custom_title %q, got %q", "My Custom Title", got.CustomTitle)
-	}
-	if got.AutoSummary != "Auto summary text" {
-		t.Errorf("expected auto_summary %q, got %q", "Auto summary text", got.AutoSummary)
 	}
 	if got.LastScannedOffset != 4096 {
 		t.Errorf("expected last_scanned_offset 4096, got %d", got.LastScannedOffset)
@@ -97,13 +94,13 @@ func TestUpdateSessionScanResults_PreservesExisting(t *testing.T) {
 	}
 
 	// Set initial values
-	err = db.UpdateSessionScanResults("s1", "Original Title", "Original Summary", 100)
+	err = db.UpdateSessionScanResults("s1", "Original Title", 100)
 	if err != nil {
 		t.Fatalf("first UpdateSessionScanResults failed: %v", err)
 	}
 
 	// Update with empty strings -- should preserve existing values
-	err = db.UpdateSessionScanResults("s1", "", "", 200)
+	err = db.UpdateSessionScanResults("s1", "", 200)
 	if err != nil {
 		t.Fatalf("second UpdateSessionScanResults failed: %v", err)
 	}
@@ -115,11 +112,34 @@ func TestUpdateSessionScanResults_PreservesExisting(t *testing.T) {
 	if got.CustomTitle != "Original Title" {
 		t.Errorf("expected custom_title preserved as %q, got %q", "Original Title", got.CustomTitle)
 	}
-	if got.AutoSummary != "Original Summary" {
-		t.Errorf("expected auto_summary preserved as %q, got %q", "Original Summary", got.AutoSummary)
-	}
 	if got.LastScannedOffset != 200 {
 		t.Errorf("expected last_scanned_offset updated to 200, got %d", got.LastScannedOffset)
+	}
+}
+
+func TestUpdateSessionAutoSummary(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	_, err = db.CreateSession(mission.ID, "s-summary-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if err := db.UpdateSessionAutoSummary("s-summary-1", "Working on auth system"); err != nil {
+		t.Fatalf("UpdateSessionAutoSummary failed: %v", err)
+	}
+
+	got, err := db.GetSession("s-summary-1")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.AutoSummary != "Working on auth system" {
+		t.Errorf("expected auto_summary %q, got %q", "Working on auth system", got.AutoSummary)
 	}
 }
 
@@ -170,7 +190,7 @@ func TestGetActiveSession(t *testing.T) {
 	}
 
 	// Update the older session to make it "most recently modified"
-	if err := db.UpdateSessionScanResults("older-session", "Updated", "", 100); err != nil {
+	if err := db.UpdateSessionScanResults("older-session", "Updated", 100); err != nil {
 		t.Fatalf("UpdateSessionScanResults failed: %v", err)
 	}
 

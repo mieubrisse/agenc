@@ -38,6 +38,10 @@ type Server struct {
 
 	// Repo update worker
 	repoUpdateCh chan repoUpdateRequest
+
+	// Session summarizer: generates auto_summary from first user prompt via Haiku
+	sessionSummaryCh   chan summaryRequest
+	summarizedSessions *sync.Map
 }
 
 // NewServer creates a new Server instance.
@@ -119,6 +123,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// Load config and perform initial cron sync on startup
 	s.loadConfigOnStartup()
 
+	// Initialize session summarizer channel and deduplication map
+	s.initSessionSummarizer()
+
 	var wg sync.WaitGroup
 
 	// Start HTTP server in a goroutine
@@ -164,12 +171,6 @@ func (s *Server) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		s.runMissionSummarizerLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
 		s.runIdleTimeoutLoop(ctx)
 	}()
 
@@ -178,6 +179,13 @@ func (s *Server) Run(ctx context.Context) error {
 		defer wg.Done()
 		s.runSessionScannerLoop(ctx)
 	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runSessionSummarizerWorker(ctx)
+	}()
+
 	// Wait for context cancellation, then gracefully shut down
 	<-ctx.Done()
 	s.logger.Println("Server shutting down...")

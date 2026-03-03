@@ -134,12 +134,11 @@ The server runs eight concurrent background goroutines (formerly the daemon):
 - Sources the keybindings into any running tmux server after writing
 - Ensures keybindings stay current after binary upgrades (server auto-restarts on version bump)
 
-**5. Mission summarizer loop** (`internal/server/mission_summarizer.go`)
-- Runs every 2 minutes
-- Queries the database for active missions where `prompt_count - last_summary_prompt_count >= 10`
-- For each eligible mission: extracts recent user messages from session JSONL, calls Claude Haiku via `claude --print --model claude-haiku-4-5-20251001` to generate a 3-8 word description, stores the result in the `ai_summary` database column
-- Skips missions that already have a custom title from `/rename` (resets the counter without generating a new summary)
-- Uses the Claude CLI subprocess rather than a direct API call to avoid requiring users to configure an API key (see code comment for performance tradeoff note)
+**5. Session summarizer worker** (`internal/server/session_summarizer.go`)
+- Consumes summary requests from a buffered channel (fed by the session scanner when a session has no `auto_summary`)
+- For each request: calls Claude Haiku via `claude --print --model claude-haiku-4-5-20251001` to generate a 3-8 word description from the user's first message, stores the result in the session's `auto_summary` column
+- Uses a `sync.Map` to permanently deduplicate: each session ID triggers at most one Haiku call per process lifetime
+- Uses the Claude CLI subprocess rather than a direct API call to avoid requiring users to configure an API key
 
 **6. Idle timeout loop** (`internal/server/idle_timeout.go`)
 - Runs every 2 minutes
@@ -161,9 +160,10 @@ The server runs eight concurrent background goroutines (formerly the daemon):
 - For each running mission, computes the project directory path directly using `ComputeProjectDirpath` and lists JSONL files in that single directory (no glob across all missions)
 - For each discovered file, creates or looks up a row in the `sessions` table
 - Incrementally scans from the last byte offset (`last_scanned_offset`), avoiding re-reading data that was already processed
-- Extracts `custom-title` and `summary` metadata entries from new JSONL lines using a quick string-match filter before JSON parsing
-- Updates the session row with any new `custom_title`, `auto_summary`, and the new byte offset
-- When `custom_title` or `auto_summary` changes, triggers tmux window title reconciliation for the session's mission (see "Tmux title reconciliation" under Key Architectural Patterns)
+- Extracts `custom-title` metadata entries from new JSONL lines using a quick string-match filter before JSON parsing
+- When a session has no `auto_summary`, also extracts the first user message and sends a summary request to the session summarizer worker
+- Updates the session row with any new `custom_title` and the new byte offset
+- When `custom_title` changes, triggers tmux window title reconciliation for the session's mission (see "Tmux title reconciliation" under Key Architectural Patterns)
 
 ### Tmux pool
 
@@ -395,8 +395,8 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo, updates cached `AgencConfig` via `atomic.Pointer`, and triggers cron sync)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
-- `mission_summarizer.go` — mission summarizer loop (2-minute interval, generates AI descriptions for tmux window titles via Claude Haiku CLI subprocess)
 - `session_scanner.go` — session scanner loop (3-second interval, queries tmux pool for running missions then incrementally scans their JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
+- `session_summarizer.go` — session summarizer worker (channel-driven, generates auto_summary from first user prompt via Claude Haiku CLI subprocess, with sync.Map deduplication)
 - `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane guard. Prepends per-mission emoji (from config, or hardcoded 🤖 for adjutant / 🦀 for blank missions) with fixed-column-4 padding via `go-runewidth`
 - `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
 
@@ -496,7 +496,7 @@ The `agenc mission send claude-update` command reads hook JSON from stdin (to ex
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
 - **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending
-- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, calls the server's `/prompt` endpoint to update `last_active` and increment `prompt_count` (used by the server's mission summarizer to determine summarization eligibility)
+- **UserPromptSubmit** → marks Claude busy, records that a conversation exists, resets tmux pane to default color, calls the server's `/prompt` endpoint to increment `prompt_count`
 - **Notification** → sets tmux pane to attention color for `permission_prompt`, `idle_prompt`, and `elicitation_dialog` notification types
 - **PostToolUse / PostToolUseFailure** → sets tmux pane to busy color; corrects the window color after a permission prompt (which turns the pane orange) when Claude resumes work after the user responds
 
@@ -525,13 +525,13 @@ Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — n
 
 ### Tmux title reconciliation
 
-The server provides an idempotent function (`internal/server/tmux.go`) that examines all available data for a mission and converges the tmux window to the correct title. It can be called from any context — the session scanner, the mission summarizer, or a mission switch — and always produces the same result for the same input state.
+The server provides an idempotent function (`internal/server/tmux.go`) that examines all available data for a mission and converges the tmux window to the correct title. It can be called from any context — the session scanner, the session summarizer, or a mission switch — and always produces the same result for the same input state.
 
 **Title priority chain** (highest to lowest):
 
 1. Active session's `custom_title` (from Claude's `/rename`, stored in the `sessions` table)
 2. Active session's `agenc_custom_title` (user-set via `agenc mission rename` CLI, stored in the `sessions` table)
-3. Active session's `auto_summary` (from Claude's conversation summary, stored in the `sessions` table)
+3. Active session's `auto_summary` (generated by the session summarizer from the first user prompt via Haiku)
 4. Repo short name (extracted from the mission's `git_repo` field)
 5. Mission short ID (fallback)
 
@@ -676,7 +676,7 @@ Database Schema
 | `tmux_pane` | TEXT | Tmux pane ID where the mission wrapper is running (nullable, cleared on exit) |
 | `prompt_count` | INTEGER | Total number of user prompt submissions, incremented by `UserPromptSubmit` hook |
 | `last_summary_prompt_count` | INTEGER | Value of `prompt_count` when the AI summary was last generated. The server re-summarizes when `prompt_count - last_summary_prompt_count >= 10` |
-| `ai_summary` | TEXT | AI-generated short description of what the user is working on, produced by the server's mission summarizer via Claude Haiku |
+| `ai_summary` | TEXT | (Legacy, unused) Previously held AI-generated mission descriptions |
 | `created_at` | TEXT | Mission creation timestamp (RFC3339) |
 | `updated_at` | TEXT | Last update timestamp (RFC3339) |
 
@@ -697,7 +697,7 @@ Database Schema
 | `mission_id` | TEXT (FK) | References `missions(id)` with `ON DELETE CASCADE` |
 | `custom_title` | TEXT | User-assigned title from Claude's `/rename`, extracted from JSONL `custom-title` entries |
 | `agenc_custom_title` | TEXT | User-assigned title from `agenc mission rename` CLI command |
-| `auto_summary` | TEXT | Claude-generated conversation summary, extracted from JSONL `summary` entries |
+| `auto_summary` | TEXT | AI-generated session description from the first user prompt, produced by the session summarizer via Claude Haiku |
 | `last_scanned_offset` | INTEGER | Byte offset into the JSONL file up to which the scanner has read. Enables incremental scanning — the scanner seeks to this offset and only parses new data. |
 | `created_at` | TEXT | Session creation timestamp (RFC3339) |
 | `updated_at` | TEXT | Last update timestamp (RFC3339) |
