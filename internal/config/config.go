@@ -54,6 +54,7 @@ const (
 	GlobalCredentialsExpiryFilename = "global-credentials-expiry"
 	CacheDirname                    = "cache"
 	OAuthTokenFilename              = "oauth-token"
+	StashDirname                    = "stash"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -171,6 +172,11 @@ func GetServerSocketFilepath(agencDirpath string) string {
 // GetServerRequestsLogFilepath returns the path to the server HTTP request log file.
 func GetServerRequestsLogFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ServerDirname, RequestsLogFilename)
+}
+
+// GetStashDirpath returns the path to the stash directory.
+func GetStashDirpath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, StashDirname)
 }
 
 // GetDatabaseFilepath returns the path to the SQLite database file.

@@ -26,6 +26,7 @@ const (
 	starCmdStr     = "star"
 	feedbackCmdStr = "feedback"
 	sessionCmdStr  = "session"
+	stashCmdStr    = "stash"
 
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
@@ -38,6 +39,8 @@ const (
 	windowCmdStr = "window"
 	paneCmdStr   = "pane"
 	printCmdStr  = "print"
+	pushCmdStr   = "push"
+	popCmdStr    = "pop"
 
 	// Tmux subcommands
 	injectCmdStr         = "inject"

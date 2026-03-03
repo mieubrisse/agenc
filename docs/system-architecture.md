@@ -103,6 +103,9 @@ Current endpoints:
 - `GET /sessions?mission_id={id}` — list sessions for a mission (ordered by updated_at descending)
 - `PATCH /sessions/{id}` — update session fields (agenc_custom_title); triggers tmux window title reconciliation
 - `POST /repos/{name}/push-event` — enqueue a repo library update (returns 202 Accepted)
+- `GET /stash` — list saved workspace stash files with metadata
+- `POST /stash/push` — snapshot all running missions and their tmux links, then stop them
+- `POST /stash/pop` — restore missions from a stash file, re-link into tmux sessions
 
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file. The `agenc daemon` subcommand is deprecated and delegates to `agenc server`.
 
@@ -321,6 +324,9 @@ $AGENC_DIRPATH/
 │   ├── server.log                         # Server log
 │   ├── requests.log                       # Structured HTTP request log (JSON lines)
 │   └── server.sock                        # Unix socket for HTTP API (mode 0600)
+│
+├── stash/                                     # Workspace snapshots (agenc stash push/pop)
+│   └── <timestamp>.json                       # Each file captures running missions and their tmux links
 │
 └── daemon/                                    # Deprecated (kept for cleanup of existing installs)
     ├── daemon.pid

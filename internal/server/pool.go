@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -32,10 +33,14 @@ func (s *Server) ensurePoolSession() error {
 	return nil
 }
 
+// tmuxSessionExists checks whether a named tmux session exists.
+func tmuxSessionExists(sessionName string) bool {
+	return exec.Command("tmux", "has-session", "-t", sessionName).Run() == nil
+}
+
 // poolSessionExists checks whether the agenc-pool tmux session exists.
 func poolSessionExists() bool {
-	cmd := exec.Command("tmux", "has-session", "-t", poolSessionName)
-	return cmd.Run() == nil
+	return tmuxSessionExists(poolSessionName)
 }
 
 // createPoolWindow creates a new window in the agenc-pool session for the given
@@ -164,6 +169,49 @@ func getLinkedPaneIDs() map[string]bool {
 		}
 	}
 	return linked
+}
+
+// getLinkedPaneSessions returns a map of pane IDs to the list of tmux session
+// names they are linked into (excluding the agenc-pool session). Pane IDs are
+// returned without the "%" prefix to match the database convention.
+//
+// If the tmux command fails (e.g., no server running), returns an empty map.
+func getLinkedPaneSessions() map[string][]string {
+	cmd := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		return map[string][]string{}
+	}
+
+	// Collect which sessions each pane appears in (excluding pool)
+	paneSessions := make(map[string]map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		sessionName := parts[0]
+		if sessionName == poolSessionName {
+			continue
+		}
+		paneID := strings.TrimPrefix(parts[1], "%")
+		if paneSessions[paneID] == nil {
+			paneSessions[paneID] = make(map[string]bool)
+		}
+		paneSessions[paneID][sessionName] = true
+	}
+
+	// Convert to sorted slices for deterministic output
+	result := make(map[string][]string, len(paneSessions))
+	for paneID, sessions := range paneSessions {
+		names := make([]string, 0, len(sessions))
+		for name := range sessions {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		result[paneID] = names
+	}
+	return result
 }
 
 // isPaneInSession checks whether a pane (by numeric ID without "%" prefix) is

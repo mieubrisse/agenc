@@ -444,6 +444,68 @@ func (c *Client) GetServerLogs(source string, all bool) ([]byte, error) {
 	}
 	return c.GetRaw(path)
 }
+
+// ============================================================================
+// High-level stash API methods
+// ============================================================================
+
+// ListStashes fetches available stash files from the server.
+func (c *Client) ListStashes() ([]StashListEntry, error) {
+	var entries []StashListEntry
+	if err := c.Get("/stash", &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// PushStash snapshots and stops all running missions.
+// Returns (response, conflictResponse, error).
+// If non-idle missions exist and force is false, response is nil and
+// conflictResponse contains the non-idle missions.
+func (c *Client) PushStash(force bool) (*StashPushResponse, *StashPushConflictResponse, error) {
+	body := StashPushRequest{Force: force}
+
+	pr, pw := io.Pipe()
+	go func() {
+		pw.CloseWithError(json.NewEncoder(pw).Encode(body))
+	}()
+
+	resp, err := c.httpClient.Post(c.baseURL+"/stash/push", "application/json", pr)
+	if err != nil {
+		return nil, nil, stacktrace.Propagate(err, "failed to connect to server")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusConflict {
+		var conflict StashPushConflictResponse
+		if err := json.NewDecoder(resp.Body).Decode(&conflict); err != nil {
+			return nil, nil, stacktrace.Propagate(err, "failed to decode conflict response")
+		}
+		return nil, &conflict, nil
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, nil, c.decodeError(resp)
+	}
+
+	var pushResp StashPushResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pushResp); err != nil {
+		return nil, nil, stacktrace.Propagate(err, "failed to decode push response")
+	}
+	return &pushResp, nil, nil
+}
+
+// PopStash restores missions from a stash. If stashID is empty, pops the
+// most recent stash.
+func (c *Client) PopStash(stashID string) (*StashPopResponse, error) {
+	body := StashPopRequest{StashID: stashID}
+	var resp StashPopResponse
+	if err := c.Post("/stash/pop", body, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Client) decodeError(resp *http.Response) error {
 	var errResp errorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {

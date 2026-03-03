@@ -24,6 +24,7 @@ The AgenC — agent mission management CLI
 * [agenc server](agenc_server.md)	 - Manage the AgenC server
 * [agenc session](agenc_session.md)	 - Manage Claude Code sessions
 * [agenc star](agenc_star.md)	 - Open the AgenC GitHub repository in your browser
+* [agenc stash](agenc_stash.md)	 - Snapshot and restore running missions
 * [agenc summary](agenc_summary.md)	 - Show a daily summary of AgenC activity
 * [agenc tmux](agenc_tmux.md)	 - Manage the AgenC tmux session
 * [agenc version](agenc_version.md)	 - Print the agenc version
