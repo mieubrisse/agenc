@@ -32,6 +32,7 @@ Examples:
     --keybinding="-n C-s"
 
 
+
 ```
 agenc config paletteCommand add <name> [flags]
 ```
