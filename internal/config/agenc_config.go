@@ -117,6 +117,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:        `tmux display-popup -E -w 68% -h 63% "agenc mission attach"`,
 		TmuxKeybinding: "-n C-m",
 	},
+	"detachMission": {
+		Title:       "🔌  Detach Mission",
+		Description: "Unlink the focused mission from this tmux session (keeps running)",
+		Command:     "agenc mission detach $AGENC_CALLING_MISSION_UUID",
+	},
 	"resumeMission": {
 		Title:       "🟢  Resume Mission",
 		Description: "Resume a stopped mission with claude --continue",
@@ -199,6 +204,7 @@ var builtinPaletteCommandOrder = []string{
 	"talkToAgenc",
 	"newMission",
 	"switchMission",
+	"detachMission",
 	"resumeMission",
 	"sideShell",
 	"shell",

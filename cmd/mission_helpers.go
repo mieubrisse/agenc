@@ -95,6 +95,45 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 	return entries
 }
 
+// filterLinkedMissions returns only running missions whose tmux pane is linked
+// into the given tmux session.
+func filterLinkedMissions(missions []*database.Mission, tmuxSession string) []*database.Mission {
+	linkedPanes := getSessionPaneIDs(tmuxSession)
+	var filtered []*database.Mission
+	for _, m := range missions {
+		if m.TmuxPane == nil {
+			continue
+		}
+		if !linkedPanes[*m.TmuxPane] {
+			continue
+		}
+		if !isMissionRunning(getMissionStatus(m.ID, m.Status, m.ClaudeState)) {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+	return filtered
+}
+
+// getSessionPaneIDs returns the set of tmux pane IDs (without the "%" prefix)
+// present in the given tmux session. Returns an empty map if the session doesn't
+// exist or tmux is not running.
+func getSessionPaneIDs(tmuxSession string) map[string]bool {
+	out, err := exec.Command("tmux", "list-panes", "-s", "-t", tmuxSession, "-F", "#{pane_id}").Output()
+	if err != nil {
+		return map[string]bool{}
+	}
+	panes := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		panes[strings.TrimPrefix(line, "%")] = true
+	}
+	return panes
+}
+
 // filterStoppedMissions returns only missions that are currently stopped.
 func filterStoppedMissions(missions []*database.Mission) []*database.Mission {
 	var filtered []*database.Mission

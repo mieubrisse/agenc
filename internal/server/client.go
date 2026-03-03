@@ -300,6 +300,13 @@ func (c *Client) AttachMission(id string, tmuxSession string, noFocus bool) erro
 	return c.Post("/missions/"+id+"/attach", body, nil)
 }
 
+// DetachMission unlinks the mission's pool window from the given tmux session.
+// The wrapper keeps running in the pool.
+func (c *Client) DetachMission(id string, tmuxSession string) error {
+	body := DetachRequest{TmuxSession: tmuxSession}
+	return c.Post("/missions/"+id+"/detach", body, nil)
+}
+
 // CreateMission creates a new mission via the server.
 func (c *Client) CreateMission(req CreateMissionRequest) (*database.Mission, error) {
 	var resp MissionResponse
