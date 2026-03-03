@@ -191,8 +191,8 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     "agenc star",
 	},
 	"exitTmux": {
-		Title:       "🚪  Detach (Exit)",
-		Description: "Detach from tmux (session stays running; reattach anytime)",
+		Title:       "🚪  Exit",
+		Description: "Detach from the session (missions keep running in the background)",
 		Command:     "tmux detach",
 	},
 }
