@@ -99,7 +99,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 func filterStoppedMissions(missions []*database.Mission) []*database.Mission {
 	var filtered []*database.Mission
 	for _, m := range missions {
-		if getMissionStatus(m.ID, m.Status, m.ClaudeState) == "STOPPED" {
+		if getMissionStatus(m.ID, m.Status, m.ClaudeState) == StatusStopped {
 			filtered = append(filtered, m)
 		}
 	}

@@ -22,6 +22,18 @@ import (
 
 const defaultMissionLsLimit = 20
 
+// MissionDisplayStatus represents the display status of a mission.
+type MissionDisplayStatus string
+
+const (
+	StatusIdle     MissionDisplayStatus = "IDLE"
+	StatusBusy     MissionDisplayStatus = "BUSY"
+	StatusWaiting  MissionDisplayStatus = "WAITING"
+	StatusRunning  MissionDisplayStatus = "RUNNING"
+	StatusStopped  MissionDisplayStatus = "STOPPED"
+	StatusArchived MissionDisplayStatus = "ARCHIVED"
+)
+
 var lsAllFlag bool
 var lsCronFlag string
 var lsGitStatusFlag bool
@@ -183,20 +195,21 @@ func formatLastActive(lastHeartbeat *time.Time, createdAt time.Time) string {
 }
 
 // colorizeStatus wraps a status string with ANSI color codes.
-func colorizeStatus(status string) string {
+func colorizeStatus(status MissionDisplayStatus) string {
+	s := string(status)
 	switch status {
-	case "IDLE":
-		return ansiLightBlue + status + ansiReset
-	case "BUSY":
-		return ansiGreen + status + ansiReset
-	case "WAITING":
-		return ansiYellow + status + ansiReset
-	case "RUNNING":
-		return ansiGreen + status + ansiReset
-	case "ARCHIVED":
-		return ansiYellow + status + ansiReset
+	case StatusIdle:
+		return ansiLightBlue + s + ansiReset
+	case StatusBusy:
+		return ansiGreen + s + ansiReset
+	case StatusWaiting:
+		return ansiYellow + s + ansiReset
+	case StatusRunning:
+		return ansiGreen + s + ansiReset
+	case StatusArchived:
+		return ansiYellow + s + ansiReset
 	default:
-		return status
+		return s
 	}
 }
 
@@ -273,37 +286,36 @@ func formatConfigCommit(configCommit *string, shadowHeadCommitHash string) strin
 	return display
 }
 
-// getMissionStatus returns the display status for a mission: IDLE, BUSY,
-// WAITING, RUNNING (no claude state data), STOPPED, or ARCHIVED.
-func getMissionStatus(missionID string, dbStatus string, claudeState *string) string {
+// getMissionStatus returns the display status for a mission.
+func getMissionStatus(missionID string, dbStatus string, claudeState *string) MissionDisplayStatus {
 	if dbStatus == "archived" {
-		return "ARCHIVED"
+		return StatusArchived
 	}
 	if claudeState != nil {
 		switch *claudeState {
 		case "idle":
-			return "IDLE"
+			return StatusIdle
 		case "busy":
-			return "BUSY"
+			return StatusBusy
 		case "needs_attention":
-			return "WAITING"
+			return StatusWaiting
 		default:
-			return "RUNNING"
+			return StatusRunning
 		}
 	}
 	// Fallback: check PID when claudeState is not available
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := server.ReadPID(pidFilepath)
 	if err == nil && pid != 0 && server.IsProcessRunning(pid) {
-		return "RUNNING"
+		return StatusRunning
 	}
-	return "STOPPED"
+	return StatusStopped
 }
 
 // isMissionRunning returns true if the mission status indicates the wrapper is alive.
-func isMissionRunning(status string) bool {
+func isMissionRunning(status MissionDisplayStatus) bool {
 	switch status {
-	case "RUNNING", "IDLE", "BUSY", "WAITING":
+	case StatusRunning, StatusIdle, StatusBusy, StatusWaiting:
 		return true
 	}
 	return false
