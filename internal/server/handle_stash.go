@@ -272,13 +272,19 @@ func (s *Server) handlePopStash(w http.ResponseWriter, r *http.Request) error {
 			continue
 		}
 
-		// Spawn wrapper in pool
+		// Spawn wrapper in pool (this assigns a new pane ID in the DB)
 		if err := s.ensureWrapperInPool(mission); err != nil {
 			s.logger.Printf("Warning: failed to start wrapper for mission %s: %v", database.ShortID(sm.MissionID), err)
 			continue
 		}
 
-		// Re-link into saved tmux sessions using the pane ID
+		// Re-read mission to get the fresh pane ID assigned by ensureWrapperInPool
+		mission, err = s.db.GetMission(sm.MissionID)
+		if err != nil || mission == nil {
+			s.logger.Printf("Warning: failed to re-read mission %s after starting wrapper", database.ShortID(sm.MissionID))
+			continue
+		}
+
 		paneID := ""
 		if mission.TmuxPane != nil {
 			paneID = *mission.TmuxPane
