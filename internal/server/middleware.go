@@ -30,6 +30,17 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 // conditions; returning a plain error results in a 500 response.
 type appHandlerFunc func(http.ResponseWriter, *http.Request) error
 
+// stashGuard wraps a handler to reject requests while a stash operation is in
+// progress. Returns 503 Service Unavailable with a descriptive message.
+func (s *Server) stashGuard(fn appHandlerFunc) appHandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		if s.stashInProgress.Load() {
+			return newHTTPError(http.StatusServiceUnavailable, "stash operation in progress — try again shortly")
+		}
+		return fn(w, r)
+	}
+}
+
 // appHandler wraps an appHandlerFunc into an http.Handler that logs every
 // request and automatically writes error responses.
 func appHandler(logger *slog.Logger, fn appHandlerFunc) http.Handler {

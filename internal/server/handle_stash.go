@@ -125,6 +125,9 @@ func (s *Server) handleListStashes(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+// stashConcurrency controls how many missions are stopped/started in parallel.
+const stashConcurrency = 5
+
 // handlePushStash handles POST /stash/push.
 func (s *Server) handlePushStash(w http.ResponseWriter, r *http.Request) error {
 	var req StashPushRequest
@@ -188,6 +191,9 @@ func (s *Server) handlePushStash(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
+	// Block mutating mission requests for the duration of the stash
+	s.stashInProgress.Store(true)
+
 	// Build per-pane session map
 	paneSessions := getLinkedPaneSessions()
 
@@ -214,29 +220,67 @@ func (s *Server) handlePushStash(w http.ResponseWriter, r *http.Request) error {
 
 	// Write stash file before stopping (so partial failures still have a record)
 	if err := writeStashFile(s.agencDirpath, stashID, &stashFile); err != nil {
+		s.stashInProgress.Store(false)
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to write stash file: %s", err.Error())
 	}
 
-	// Stop all running missions
-	for _, resp := range responses {
-		if err := s.stopWrapper(resp.ID); err != nil {
-			s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", resp.ShortID, err)
+	// Immediately unlink all windows from user sessions for fast visual feedback.
+	// This makes the missions disappear from the user's tmux session right away.
+	for _, sm := range stashMissions {
+		paneID := ""
+		for _, resp := range responses {
+			if resp.ID == sm.MissionID && resp.TmuxPane != nil {
+				paneID = *resp.TmuxPane
+				break
+			}
 		}
-		s.destroyPoolWindow(resp.ID)
+		if paneID == "" {
+			continue
+		}
+		for _, sessionName := range sm.LinkedSessions {
+			if err := unlinkPoolWindowByPane(paneID, sessionName); err != nil {
+				s.logger.Printf("Warning: failed to unlink mission %s from session %s: %v",
+					database.ShortID(sm.MissionID), sessionName, err)
+			}
+		}
 	}
 
+	// Respond immediately — the user sees windows vanish and gets the CLI back.
 	s.logger.Printf("Stashed %d missions as %s", len(stashMissions), stashID)
 	writeJSON(w, http.StatusOK, StashPushResponse{
 		StashID:         stashID,
 		MissionsStashed: len(stashMissions),
 	})
+
+	// Stop wrappers and destroy pool windows concurrently in the background.
+	go func() {
+		defer s.stashInProgress.Store(false)
+
+		sem := make(chan struct{}, stashConcurrency)
+		var stopWg sync.WaitGroup
+		for _, resp := range responses {
+			stopWg.Add(1)
+			sem <- struct{}{} // acquire slot
+			go func(missionID, shortID string) {
+				defer stopWg.Done()
+				defer func() { <-sem }() // release slot
+				if err := s.stopWrapper(missionID); err != nil {
+					s.logger.Printf("Warning: failed to stop wrapper for mission %s: %v", shortID, err)
+				}
+				s.destroyPoolWindow(missionID)
+			}(resp.ID, resp.ShortID)
+		}
+		stopWg.Wait()
+		s.logger.Printf("Stash %s: all %d missions stopped", stashID, len(responses))
+	}()
+
 	return nil
 }
 
 // handlePopStash handles POST /stash/pop.
 func (s *Server) handlePopStash(w http.ResponseWriter, r *http.Request) error {
 	var req StashPopRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
@@ -258,58 +302,101 @@ func (s *Server) handlePopStash(w http.ResponseWriter, r *http.Request) error {
 		return newHTTPErrorf(http.StatusNotFound, "stash not found: %s", stashID)
 	}
 
-	// Restore each mission
-	restored := 0
+	// Block mutating mission requests during restore
+	s.stashInProgress.Store(true)
+	defer s.stashInProgress.Store(false)
+
+	// Pre-create any tmux sessions that don't exist yet (must be serial since
+	// tmux new-session is not safe to call concurrently for the same session name)
+	neededSessions := make(map[string]bool)
 	for _, sm := range stashFile.Missions {
-		// Verify mission still exists and is active
-		mission, err := s.db.GetMission(sm.MissionID)
-		if err != nil || mission == nil {
-			s.logger.Printf("Warning: stashed mission %s no longer exists, skipping", database.ShortID(sm.MissionID))
-			continue
-		}
-		if mission.Status == "archived" {
-			s.logger.Printf("Warning: stashed mission %s is archived, skipping", database.ShortID(sm.MissionID))
-			continue
-		}
-
-		// Spawn wrapper in pool (this assigns a new pane ID in the DB)
-		if err := s.ensureWrapperInPool(mission); err != nil {
-			s.logger.Printf("Warning: failed to start wrapper for mission %s: %v", database.ShortID(sm.MissionID), err)
-			continue
-		}
-
-		// Re-read mission to get the fresh pane ID assigned by ensureWrapperInPool
-		mission, err = s.db.GetMission(sm.MissionID)
-		if err != nil || mission == nil {
-			s.logger.Printf("Warning: failed to re-read mission %s after starting wrapper", database.ShortID(sm.MissionID))
-			continue
-		}
-
-		paneID := ""
-		if mission.TmuxPane != nil {
-			paneID = *mission.TmuxPane
-		}
-
 		for _, sessionName := range sm.LinkedSessions {
-			// Create tmux session if it doesn't exist
-			if !tmuxSessionExists(sessionName) {
-				createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
-				if output, err := createCmd.CombinedOutput(); err != nil {
-					s.logger.Printf("Warning: failed to create tmux session %s: %v (output: %s)", sessionName, err, string(output))
-					continue
-				}
+			neededSessions[sessionName] = true
+		}
+	}
+	for sessionName := range neededSessions {
+		if !tmuxSessionExists(sessionName) {
+			createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+			if output, err := createCmd.CombinedOutput(); err != nil {
+				s.logger.Printf("Warning: failed to create tmux session %s: %v (output: %s)", sessionName, err, string(output))
+			} else {
 				s.logger.Printf("Created tmux session %s for stash restore", sessionName)
 			}
+		}
+	}
 
-			if paneID != "" {
-				if err := linkPoolWindowByPane(paneID, sessionName); err != nil {
-					s.logger.Printf("Warning: failed to link mission %s to session %s: %v", database.ShortID(sm.MissionID), sessionName, err)
+	// Restore missions concurrently with a semaphore
+	type restoreResult struct {
+		missionID string
+		ok        bool
+	}
+	results := make(chan restoreResult, len(stashFile.Missions))
+	sem := make(chan struct{}, stashConcurrency)
+	var wg sync.WaitGroup
+
+	for _, sm := range stashFile.Missions {
+		wg.Add(1)
+		go func(sm StashMission) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire slot
+			defer func() { <-sem }() // release slot
+
+			shortID := database.ShortID(sm.MissionID)
+
+			// Verify mission still exists and is active
+			mission, err := s.db.GetMission(sm.MissionID)
+			if err != nil || mission == nil {
+				s.logger.Printf("Warning: stashed mission %s no longer exists, skipping", shortID)
+				results <- restoreResult{sm.MissionID, false}
+				return
+			}
+			if mission.Status == "archived" {
+				s.logger.Printf("Warning: stashed mission %s is archived, skipping", shortID)
+				results <- restoreResult{sm.MissionID, false}
+				return
+			}
+
+			// Spawn wrapper in pool (this assigns a new pane ID in the DB)
+			if err := s.ensureWrapperInPool(mission); err != nil {
+				s.logger.Printf("Warning: failed to start wrapper for mission %s: %v", shortID, err)
+				results <- restoreResult{sm.MissionID, false}
+				return
+			}
+
+			// Re-read mission to get the fresh pane ID assigned by ensureWrapperInPool
+			mission, err = s.db.GetMission(sm.MissionID)
+			if err != nil || mission == nil {
+				s.logger.Printf("Warning: failed to re-read mission %s after starting wrapper", shortID)
+				results <- restoreResult{sm.MissionID, false}
+				return
+			}
+
+			paneID := ""
+			if mission.TmuxPane != nil {
+				paneID = *mission.TmuxPane
+			}
+
+			for _, sessionName := range sm.LinkedSessions {
+				if paneID != "" {
+					if err := linkPoolWindowByPane(paneID, sessionName); err != nil {
+						s.logger.Printf("Warning: failed to link mission %s to session %s: %v", shortID, sessionName, err)
+					}
 				}
 			}
-		}
 
-		s.reconcileTmuxWindowTitle(sm.MissionID)
-		restored++
+			s.reconcileTmuxWindowTitle(sm.MissionID)
+			results <- restoreResult{sm.MissionID, true}
+		}(sm)
+	}
+
+	wg.Wait()
+	close(results)
+
+	restored := 0
+	for res := range results {
+		if res.ok {
+			restored++
+		}
 	}
 
 	// Delete stash file on success

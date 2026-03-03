@@ -42,6 +42,10 @@ type Server struct {
 	// Session summarizer: generates auto_summary from first user prompt via Haiku
 	sessionSummaryCh   chan summaryRequest
 	summarizedSessions *sync.Map
+
+	// stashInProgress is set while a stash push or pop is running.
+	// Mutating mission endpoints return 503 while this is true.
+	stashInProgress atomic.Bool
 }
 
 // NewServer creates a new Server instance.
@@ -225,18 +229,18 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /health", appHandler(s.requestLogger, s.handleHealth))
 	mux.Handle("GET /server/logs", appHandler(s.requestLogger, s.handleServerLogs))
 	mux.Handle("GET /missions", appHandler(s.requestLogger, s.handleListMissions))
-	mux.Handle("POST /missions", appHandler(s.requestLogger, s.handleCreateMission))
+	mux.Handle("POST /missions", appHandler(s.requestLogger, s.stashGuard(s.handleCreateMission)))
 	mux.Handle("GET /missions/{id}", appHandler(s.requestLogger, s.handleGetMission))
-	mux.Handle("POST /missions/{id}/attach", appHandler(s.requestLogger, s.handleAttachMission))
-	mux.Handle("POST /missions/{id}/detach", appHandler(s.requestLogger, s.handleDetachMission))
-	mux.Handle("POST /missions/{id}/stop", appHandler(s.requestLogger, s.handleStopMission))
-	mux.Handle("DELETE /missions/{id}", appHandler(s.requestLogger, s.handleDeleteMission))
-	mux.Handle("POST /missions/{id}/reload", appHandler(s.requestLogger, s.handleReloadMission))
-	mux.Handle("POST /missions/{id}/archive", appHandler(s.requestLogger, s.handleArchiveMission))
-	mux.Handle("POST /missions/{id}/unarchive", appHandler(s.requestLogger, s.handleUnarchiveMission))
+	mux.Handle("POST /missions/{id}/attach", appHandler(s.requestLogger, s.stashGuard(s.handleAttachMission)))
+	mux.Handle("POST /missions/{id}/detach", appHandler(s.requestLogger, s.stashGuard(s.handleDetachMission)))
+	mux.Handle("POST /missions/{id}/stop", appHandler(s.requestLogger, s.stashGuard(s.handleStopMission)))
+	mux.Handle("DELETE /missions/{id}", appHandler(s.requestLogger, s.stashGuard(s.handleDeleteMission)))
+	mux.Handle("POST /missions/{id}/reload", appHandler(s.requestLogger, s.stashGuard(s.handleReloadMission)))
+	mux.Handle("POST /missions/{id}/archive", appHandler(s.requestLogger, s.stashGuard(s.handleArchiveMission)))
+	mux.Handle("POST /missions/{id}/unarchive", appHandler(s.requestLogger, s.stashGuard(s.handleUnarchiveMission)))
 	mux.Handle("POST /missions/{id}/heartbeat", appHandler(s.requestLogger, s.handleHeartbeat))
 	mux.Handle("POST /missions/{id}/prompt", appHandler(s.requestLogger, s.handleRecordPrompt))
-	mux.Handle("PATCH /missions/{id}", appHandler(s.requestLogger, s.handleUpdateMission))
+	mux.Handle("PATCH /missions/{id}", appHandler(s.requestLogger, s.stashGuard(s.handleUpdateMission)))
 	mux.Handle("GET /sessions", appHandler(s.requestLogger, s.handleListSessions))
 	mux.Handle("PATCH /sessions/{id}", appHandler(s.requestLogger, s.handleUpdateSession))
 	mux.Handle("GET /repos", appHandler(s.requestLogger, s.handleListRepos))
