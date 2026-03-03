@@ -1649,6 +1649,33 @@ func TestBuiltinExecutionModes(t *testing.T) {
 	}
 }
 
+func TestInvalidExecutionModeInConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	configYAML := `
+paletteCommands:
+  myCmd:
+    title: "test"
+    command: "echo hello"
+    executionMode: "bogus"
+`
+	if err := os.WriteFile(filepath.Join(configDirpath, ConfigFilename), []byte(configYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Error("expected validation error for invalid executionMode")
+	}
+	if !strings.Contains(err.Error(), "invalid execution mode") {
+		t.Errorf("expected error about invalid execution mode, got: %v", err)
+	}
+}
+
 func TestBuiltinCommandsNoEmbeddedTmuxPrimitives(t *testing.T) {
 	forbiddenPrefixes := []string{
 		"tmux new-window",

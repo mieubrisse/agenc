@@ -611,6 +611,11 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a command", name, configFilepath)
 			}
 		}
+		if !cmdCfg.ExecutionMode.IsValid() {
+			return nil, nil, stacktrace.NewError(
+				"invalid execution mode %q for palette command '%s' in %s; must be one of: run, popup, pane, window",
+				cmdCfg.ExecutionMode, name, configFilepath)
+		}
 	}
 
 	// Validate uniqueness of titles and keybindings across the resolved set
