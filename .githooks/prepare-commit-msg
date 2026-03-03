@@ -1,5 +1,1 @@
 #!/usr/bin/env bash
-# TODO: re-enable once beads hook command is fixed
-# if command -v bd >/dev/null 2>&1; then
-#     exec bd hooks run prepare-commit-msg "$@"
-# fi
