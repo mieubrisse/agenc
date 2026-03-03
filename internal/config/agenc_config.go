@@ -83,9 +83,6 @@ type PaletteCommandConfig struct {
 	Description    string `yaml:"description,omitempty"`
 	Command        string `yaml:"command,omitempty"`
 	TmuxKeybinding string `yaml:"tmuxKeybinding,omitempty"`
-	// Deprecated: Retained for downstream compilation only. Will be removed
-	// once cmd/ no longer references it.
-	ExecutionMode ExecutionMode `yaml:"executionMode,omitempty"`
 }
 
 // IsEmpty returns true if all fields are empty (used to detect disable entries).
@@ -229,34 +226,6 @@ func BuiltinPaletteCommandOrder() []string {
 // focused mission's UUID into palette and keybinding commands.
 const CallingMissionUUIDEnvVar = "AGENC_CALLING_MISSION_UUID"
 
-// ExecutionMode controls how a palette command is executed in tmux.
-// Deprecated: Commands now embed their own tmux primitives directly.
-// This type is retained temporarily for downstream compilation; it will
-// be removed once internal/tmux and cmd/ are updated.
-type ExecutionMode string
-
-const (
-	// ExecRun executes the command via tmux run-shell (default).
-	ExecRun ExecutionMode = "run"
-	// ExecPopup opens a tmux display-popup for interactive input.
-	ExecPopup ExecutionMode = "popup"
-	// ExecPane splits a pane to run the command.
-	ExecPane ExecutionMode = "pane"
-	// ExecWindow opens a new tmux window for the command.
-	ExecWindow ExecutionMode = "window"
-)
-
-// IsValid reports whether the execution mode is a recognized value.
-// Deprecated: Retained for downstream compilation only.
-func (m ExecutionMode) IsValid() bool {
-	switch m {
-	case "", ExecRun, ExecPopup, ExecPane, ExecWindow:
-		return true
-	default:
-		return false
-	}
-}
-
 // ResolvedPaletteCommand is a palette command with all defaults applied and
 // the agenc binary substituted in the command string.
 type ResolvedPaletteCommand struct {
@@ -266,9 +235,6 @@ type ResolvedPaletteCommand struct {
 	Command        string
 	TmuxKeybinding string
 	IsBuiltin      bool
-	// Deprecated: Retained for downstream compilation only. Will be removed
-	// once internal/tmux and cmd/ no longer reference it.
-	ExecutionMode ExecutionMode
 }
 
 // IsMissionScoped returns true if the command references the calling mission
