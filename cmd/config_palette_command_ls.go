@@ -36,6 +36,7 @@ func runConfigPaletteCommandLs(cmd *cobra.Command, args []string) error {
 		Name       string
 		Title      string
 		Keybinding string
+		ExecMode   string
 		Command    string
 		Source     string
 	}
@@ -48,10 +49,15 @@ func runConfigPaletteCommandLs(cmd *cobra.Command, args []string) error {
 			source = "builtin"
 		}
 		keybinding := cmd.FormatKeybinding()
+		execMode := string(cmd.ExecutionMode)
+		if execMode == "" {
+			execMode = "run"
+		}
 		entries = append(entries, displayEntry{
 			Name:       cmd.Name,
 			Title:      cmd.Title,
 			Keybinding: keybinding,
+			ExecMode:   execMode,
 			Command:    cmd.Command,
 			Source:     source,
 		})
@@ -74,13 +80,13 @@ func runConfigPaletteCommandLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	tbl := tableprinter.NewTable("NAME", "TITLE", "KEYBINDING", "COMMAND", "SOURCE")
+	tbl := tableprinter.NewTable("NAME", "TITLE", "KEYBINDING", "EXEC MODE", "COMMAND", "SOURCE")
 	for _, entry := range entries {
 		command := entry.Command
 		if len(command) > 60 {
 			command = command[:57] + "..."
 		}
-		tbl.AddRow(entry.Name, entry.Title, entry.Keybinding, command, entry.Source)
+		tbl.AddRow(entry.Name, entry.Title, entry.Keybinding, entry.ExecMode, command, entry.Source)
 	}
 
 	tbl.Print()

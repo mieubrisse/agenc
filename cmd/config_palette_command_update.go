@@ -39,6 +39,7 @@ func init() {
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandCommandFlagName, "", "full command to execute")
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandKeybindingFlagName, "", "tmux keybinding (e.g. \"f\", \"C-y\", or \"-n C-s\" for global)")
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandDescriptionFlagName, "", "description shown alongside the title")
+	configPaletteCommandUpdateCmd.Flags().String(paletteCommandExecutionModeFlagName, "", "execution mode: run (default), popup, pane, or window")
 }
 
 func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
@@ -48,11 +49,13 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 	commandChanged := cmd.Flags().Changed(paletteCommandCommandFlagName)
 	keybindingChanged := cmd.Flags().Changed(paletteCommandKeybindingFlagName)
 	descriptionChanged := cmd.Flags().Changed(paletteCommandDescriptionFlagName)
+	executionModeChanged := cmd.Flags().Changed(paletteCommandExecutionModeFlagName)
 
-	if !titleChanged && !commandChanged && !keybindingChanged && !descriptionChanged {
-		return stacktrace.NewError("at least one of --%s, --%s, --%s, or --%s must be provided",
+	if !titleChanged && !commandChanged && !keybindingChanged && !descriptionChanged && !executionModeChanged {
+		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, or --%s must be provided",
 			paletteCommandTitleFlagName, paletteCommandCommandFlagName,
-			paletteCommandKeybindingFlagName, paletteCommandDescriptionFlagName)
+			paletteCommandKeybindingFlagName, paletteCommandDescriptionFlagName,
+			paletteCommandExecutionModeFlagName)
 	}
 
 	cfg, cm, err := readConfigWithComments()
@@ -100,6 +103,18 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandDescriptionFlagName)
 		}
 		existing.Description = newDescription
+	}
+
+	if executionModeChanged {
+		newModeStr, err := cmd.Flags().GetString(paletteCommandExecutionModeFlagName)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandExecutionModeFlagName)
+		}
+		newMode := config.ExecutionMode(newModeStr)
+		if newModeStr != "" && !newMode.IsValid() {
+			return stacktrace.NewError("invalid execution mode %q; must be one of: run, popup, pane, window", newModeStr)
+		}
+		existing.ExecutionMode = newMode
 	}
 
 	if cfg.PaletteCommands == nil {

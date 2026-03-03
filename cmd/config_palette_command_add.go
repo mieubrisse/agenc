@@ -39,6 +39,11 @@ Examples:
     --title="🛑 Stop Mission" \
     --command="agenc mission stop \$AGENC_CALLING_MISSION_UUID" \
     --keybinding="-n C-s"
+
+  agenc config paletteCommand add myPicker \
+    --title="🔍 My Picker" \
+    --command="my-interactive-picker" \
+    --execution-mode=popup
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigPaletteCommandAdd,
@@ -50,6 +55,7 @@ func init() {
 	configPaletteCommandAddCmd.Flags().String(paletteCommandCommandFlagName, "", "full command to execute (required)")
 	configPaletteCommandAddCmd.Flags().String(paletteCommandKeybindingFlagName, "", "tmux keybinding (e.g. \"f\", \"C-y\", or \"-n C-s\" for global)")
 	configPaletteCommandAddCmd.Flags().String(paletteCommandDescriptionFlagName, "", "description shown alongside the title (optional)")
+	configPaletteCommandAddCmd.Flags().String(paletteCommandExecutionModeFlagName, "", "execution mode: run (default), popup, pane, or window")
 	_ = configPaletteCommandAddCmd.MarkFlagRequired(paletteCommandTitleFlagName)
 	_ = configPaletteCommandAddCmd.MarkFlagRequired(paletteCommandCommandFlagName)
 }
@@ -80,6 +86,12 @@ func runConfigPaletteCommandAdd(cmd *cobra.Command, args []string) error {
 	keybinding, _ := cmd.Flags().GetString(paletteCommandKeybindingFlagName)
 	description, _ := cmd.Flags().GetString(paletteCommandDescriptionFlagName)
 
+	executionModeStr, _ := cmd.Flags().GetString(paletteCommandExecutionModeFlagName)
+	executionMode := config.ExecutionMode(executionModeStr)
+	if executionModeStr != "" && !executionMode.IsValid() {
+		return stacktrace.NewError("invalid execution mode %q; must be one of: run, popup, pane, window", executionModeStr)
+	}
+
 	cfg, cm, err := readConfigWithComments()
 	if err != nil {
 		return err
@@ -98,6 +110,7 @@ func runConfigPaletteCommandAdd(cmd *cobra.Command, args []string) error {
 		Description:    description,
 		Command:        command,
 		TmuxKeybinding: keybinding,
+		ExecutionMode:  executionMode,
 	}
 
 	// Validate uniqueness before writing

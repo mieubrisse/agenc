@@ -34,6 +34,12 @@ Example config.yml:
       title: "🛑 Stop Mission"
       command: "agenc mission stop $AGENC_CALLING_MISSION_UUID"
       tmuxKeybinding: "-n C-s"
+
+    # Custom command with interactive popup
+    myPicker:
+      title: "🔍 My Picker"
+      command: "my-interactive-picker"
+      executionMode: popup
 `,
 }
 
