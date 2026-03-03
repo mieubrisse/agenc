@@ -192,7 +192,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	},
 	"stashWorkspace": {
 		Title:       "📥  Stash Workspace",
-		Description: "Snapshot all running missions and stop them",
+		Description: "Stop all missions for later restore (useful for upgrading Claude)",
 		Command:     `tmux display-popup -E -w 68% -h 63% "agenc stash push"`,
 	},
 	"restoreWorkspace": {
