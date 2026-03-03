@@ -73,7 +73,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
 		sessionName := resolveSessionName(m)
-		status := getMissionStatus(m.ID, m.Status)
+		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAdjutant(agencDirpath, m.ID) {
 			repo = "🤖  Adjutant"
@@ -99,7 +99,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 func filterStoppedMissions(missions []*database.Mission) []*database.Mission {
 	var filtered []*database.Mission
 	for _, m := range missions {
-		if getMissionStatus(m.ID, m.Status) == "STOPPED" {
+		if getMissionStatus(m.ID, m.Status, m.ClaudeState) == "STOPPED" {
 			filtered = append(filtered, m)
 		}
 	}
@@ -110,7 +110,7 @@ func filterStoppedMissions(missions []*database.Mission) []*database.Mission {
 func filterRunningMissions(missions []*database.Mission) []*database.Mission {
 	var filtered []*database.Mission
 	for _, m := range missions {
-		if getMissionStatus(m.ID, m.Status) == "RUNNING" {
+		if strings.HasPrefix(getMissionStatus(m.ID, m.Status, m.ClaudeState), "RUNNING") {
 			filtered = append(filtered, m)
 		}
 	}

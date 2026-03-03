@@ -105,7 +105,7 @@ func inspectMission(missionID string) error {
 
 	fmt.Printf("ID:          %s\n", mission.ShortID)
 	fmt.Printf("Full ID:     %s\n", mission.ID)
-	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status))
+	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status, mission.ClaudeState))
 	if config.IsMissionAdjutant(agencDirpath, missionID) {
 		fmt.Printf("Type:        🤖  Adjutant\n")
 	} else if mission.GitRepo != "" {

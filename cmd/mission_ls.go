@@ -87,7 +87,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		}
 	}
 	for _, m := range displayMissions {
-		status := getMissionStatus(m.ID, m.Status)
+		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
 		sessionName := resolveSessionName(m)
 		repo := displayGitRepo(m.GitRepo)
 		if config.IsMissionAdjutant(agencDirpath, m.ID) {
@@ -184,10 +184,10 @@ func formatLastActive(lastHeartbeat *time.Time, createdAt time.Time) string {
 
 // colorizeStatus wraps a status string with ANSI color codes.
 func colorizeStatus(status string) string {
-	switch status {
-	case "RUNNING":
+	switch {
+	case strings.HasPrefix(status, "RUNNING"):
 		return ansiGreen + status + ansiReset
-	case "ARCHIVED":
+	case status == "ARCHIVED":
 		return ansiYellow + status + ansiReset
 	default:
 		return status
@@ -267,12 +267,27 @@ func formatConfigCommit(configCommit *string, shadowHeadCommitHash string) strin
 	return display
 }
 
-// getMissionStatus returns the unified status for a mission: RUNNING, STOPPED,
-// or ARCHIVED. Archived missions are never checked for a running wrapper.
-func getMissionStatus(missionID string, dbStatus string) string {
+// getMissionStatus returns the unified status for a mission: RUNNING (with
+// optional sub-state), STOPPED, or ARCHIVED. When claudeState is available
+// from the server API, it is included as a parenthetical (e.g. "RUNNING (idle)").
+// Falls back to PID-based detection when claudeState is nil.
+func getMissionStatus(missionID string, dbStatus string, claudeState *string) string {
 	if dbStatus == "archived" {
 		return "ARCHIVED"
 	}
+	if claudeState != nil {
+		switch *claudeState {
+		case "idle":
+			return "RUNNING (idle)"
+		case "busy":
+			return "RUNNING (busy)"
+		case "needs_attention":
+			return "RUNNING (attention)"
+		default:
+			return "RUNNING"
+		}
+	}
+	// Fallback: check PID when claudeState is not available
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := server.ReadPID(pidFilepath)
 	if err == nil && pid != 0 && server.IsProcessRunning(pid) {

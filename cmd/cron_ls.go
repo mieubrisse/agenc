@@ -72,7 +72,7 @@ func getCronLastRunStatus(client *server.Client, cronName string) (string, strin
 	mission := missions[0]
 	lastRun := mission.CreatedAt.Local().Format("2006-01-02 15:04")
 
-	status := getMissionStatus(mission.ID, mission.Status)
+	status := getMissionStatus(mission.ID, mission.Status, mission.ClaudeState)
 	coloredStatus := colorizeStatus(status)
 
 	return lastRun, coloredStatus

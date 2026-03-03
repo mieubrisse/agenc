@@ -34,6 +34,10 @@ type Mission struct {
 	// It is populated by the server from the active session's title chain:
 	// custom_title > agenc_custom_title > auto_summary.
 	ResolvedSessionTitle string
+
+	// ClaudeState is a transient field populated by the server API, not stored in the database.
+	// Possible values: "idle", "busy", "needs_attention", or nil when wrapper is not running.
+	ClaudeState *string
 }
 
 // CreateMissionParams holds optional parameters for creating a mission.

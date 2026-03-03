@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -39,6 +42,10 @@ type MissionResponse struct {
 	// ResolvedSessionTitle is derived from the active session's title chain:
 	// custom_title > agenc_custom_title > auto_summary. Empty if no session exists.
 	ResolvedSessionTitle string `json:"resolved_session_title"`
+
+	// ClaudeState is the current state of Claude in this mission. Nil when the
+	// wrapper is not running. Possible values: "idle", "busy", "needs_attention".
+	ClaudeState *string `json:"claude_state"`
 }
 
 // ToMission converts a MissionResponse to a database.Mission.
@@ -62,6 +69,7 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		CreatedAt:              mr.CreatedAt,
 		UpdatedAt:              mr.UpdatedAt,
 		ResolvedSessionTitle:   mr.ResolvedSessionTitle,
+		ClaudeState:            mr.ClaudeState,
 	}
 }
 
@@ -122,6 +130,51 @@ func (s *Server) enrichMissionWithSessionTitle(m *database.Mission) {
 	m.ResolvedSessionTitle = resolveSessionTitle(activeSession)
 }
 
+const wrapperQueryTimeout = 500 * time.Millisecond
+
+// wrapperStatusResponse mirrors the wrapper's StatusResponse for JSON decoding
+// without importing the wrapper package (which would create an import cycle).
+type wrapperStatusResponse struct {
+	ClaudeState string `json:"claude_state"`
+}
+
+// queryWrapperClaudeState queries the wrapper for a running mission's Claude state.
+// Returns nil if the wrapper is not running or unreachable.
+func (s *Server) queryWrapperClaudeState(missionID string) *string {
+	pidFilepath := config.GetMissionPIDFilepath(s.agencDirpath, missionID)
+	pid, err := ReadPID(pidFilepath)
+	if err != nil || pid == 0 || !IsProcessRunning(pid) {
+		return nil
+	}
+
+	socketFilepath := config.GetMissionSocketFilepath(s.agencDirpath, missionID)
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return net.DialTimeout("unix", socketFilepath, wrapperQueryTimeout)
+			},
+		},
+		Timeout: wrapperQueryTimeout,
+	}
+
+	resp, err := httpClient.Get("http://wrapper/status")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	var status wrapperStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return nil
+	}
+	return &status.ClaudeState
+}
+
+// enrichMissionResponse populates transient fields by querying the running wrapper.
+func (s *Server) enrichMissionResponse(resp *MissionResponse) {
+	resp.ClaudeState = s.queryWrapperClaudeState(resp.ID)
+}
+
 // handleListMissions handles GET /missions.
 // Query params:
 //   - include_archived=true — include archived missions
@@ -139,7 +192,9 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 			return nil
 		}
 		s.enrichMissionWithSessionTitle(mission)
-		writeJSON(w, http.StatusOK, []MissionResponse{toMissionResponse(mission)})
+		resp := toMissionResponse(mission)
+		s.enrichMissionResponse(&resp)
+		writeJSON(w, http.StatusOK, []MissionResponse{resp})
 		return nil
 	}
 
@@ -159,7 +214,19 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 		s.enrichMissionWithSessionTitle(m)
 	}
 
-	writeJSON(w, http.StatusOK, toMissionResponses(missions))
+	responses := toMissionResponses(missions)
+
+	var wg sync.WaitGroup
+	for i := range responses {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			s.enrichMissionResponse(&responses[idx])
+		}(i)
+	}
+	wg.Wait()
+
+	writeJSON(w, http.StatusOK, responses)
 	return nil
 }
 
@@ -181,7 +248,9 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	s.enrichMissionWithSessionTitle(mission)
-	writeJSON(w, http.StatusOK, toMissionResponse(mission))
+	resp := toMissionResponse(mission)
+	s.enrichMissionResponse(&resp)
+	writeJSON(w, http.StatusOK, resp)
 	return nil
 }
 

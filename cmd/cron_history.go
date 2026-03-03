@@ -71,7 +71,7 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 	tbl := tableprinter.NewTable("STARTED", "ID", "STATUS", "DURATION")
 
 	for _, m := range displayMissions {
-		status := getMissionStatus(m.ID, m.Status)
+		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
 		coloredStatus := colorizeStatus(status)
 
 		started := m.CreatedAt.Local().Format("2006-01-02 15:04:05")

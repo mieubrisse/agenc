@@ -200,7 +200,7 @@ func updateMissionConfig(client *server.Client, missionID string, newCommitHash 
 	}
 	fmt.Println()
 
-	if getMissionStatus(missionID, missionRecord.Status) == "RUNNING" {
+	if strings.HasPrefix(getMissionStatus(missionID, missionRecord.Status, missionRecord.ClaudeState), "RUNNING") {
 		fmt.Printf("  Note: restart the mission to pick up config changes\n")
 	}
 
