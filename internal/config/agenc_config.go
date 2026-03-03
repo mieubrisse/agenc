@@ -141,7 +141,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"copyMissionUuid": {
 		Title:       "📋  Copy Mission ID",
 		Description: "Copy the focused mission's UUID to the clipboard",
-		Command:     `printf '%s' $AGENC_CALLING_MISSION_UUID \| pbcopy`,
+		Command:     `printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy`,
 	},
 	"renameSession": {
 		Title:          "✨  Rename Session",
