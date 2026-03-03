@@ -36,6 +36,27 @@ type CustomKeybinding struct {
 	ExecutionMode   config.ExecutionMode // controls how the command is executed in tmux
 }
 
+// WrapCommand wraps a command string in the appropriate tmux primitive based
+// on execution mode. For pane and window modes, if missionScoped is true,
+// the working directory is set to the mission's agent directory.
+func WrapCommand(command string, mode config.ExecutionMode, missionScoped bool) string {
+	workdirFlag := ""
+	if missionScoped && (mode == config.ExecPane || mode == config.ExecWindow) {
+		workdirFlag = ` -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent"`
+	}
+
+	switch mode {
+	case config.ExecPopup:
+		return fmt.Sprintf(`tmux display-popup -E -w 90%% -h 63%% "%s"`, strings.ReplaceAll(command, `"`, `\"`))
+	case config.ExecPane:
+		return fmt.Sprintf("tmux split-window -h%s %s", workdirFlag, command)
+	case config.ExecWindow:
+		return fmt.Sprintf("tmux new-window -a%s %s", workdirFlag, command)
+	default:
+		return command
+	}
+}
+
 // GenerateKeybindingsContent returns the full content of the agenc-managed
 // tmux keybindings configuration file. The tmuxMajor/tmuxMinor parameters
 // control version-gated features (e.g. display-popup requires tmux >= 3.2).
@@ -77,46 +98,27 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 			fmt.Fprintf(&sb, "# %s\n", kb.Comment)
 		}
 
-		// Determine the bind-key args. If the key starts with "-", it
-		// contains raw bind-key flags (e.g. "-n C-s" for root table) and
-		// is inserted verbatim. Otherwise, scope it to the agenc key table.
 		bindKeyArgs := fmt.Sprintf("-T %s %s", agencKeyTable, kb.Key)
 		if strings.HasPrefix(kb.Key, "-") {
 			bindKeyArgs = kb.Key
 		}
 
-		escapedCommand := escapeSingleQuotes(kb.Command)
-		usePopup := kb.ExecutionMode == config.ExecPopup && (tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2))
+		// Popup falls back to run mode on tmux < 3.2
+		effectiveMode := kb.ExecutionMode
+		if effectiveMode == config.ExecPopup && !(tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2)) {
+			effectiveMode = config.ExecRun
+		}
+
+		wrappedCommand := WrapCommand(kb.Command, effectiveMode, kb.IsMissionScoped)
+		escapedWrapped := escapeSingleQuotes(wrappedCommand)
 
 		if kb.IsMissionScoped {
-			if usePopup {
-				// Mission-scoped with display-popup: resolve UUID, then open
-				// an interactive popup. Double quotes in the command are escaped
-				// for the inner double-quoted display-popup argument.
-				popupCmd := strings.ReplaceAll(escapedCommand, `"`, `\"`)
-				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
-					"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-					"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && "+
-					"tmux display-popup -E -w 90%% -h 63%% "+
-					"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s\""+
-					"'\n", bindKeyArgs, agencBinary, popupCmd)
-			} else {
-				// Mission-scoped: resolve the pane's mission UUID first, skip if empty.
-				// #{pane_id} is expanded by tmux at key-press time.
-				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
-					"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-					"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
-					"'\n", bindKeyArgs, agencBinary, escapedCommand)
-			}
+			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
+				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
+				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
+				"'\n", bindKeyArgs, agencBinary, escapedWrapped)
 		} else {
-			if usePopup {
-				popupCmd := strings.ReplaceAll(escapedCommand, `"`, `\"`)
-				fmt.Fprintf(&sb, "bind-key %s run-shell '"+
-					"tmux display-popup -E -w 90%% -h 63%% \"%s\""+
-					"'\n", bindKeyArgs, popupCmd)
-			} else {
-				fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedCommand)
-			}
+			fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedWrapped)
 		}
 	}
 

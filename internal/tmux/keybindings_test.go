@@ -172,21 +172,19 @@ func TestGenerateKeybindingsContent_GlobalMissionScopedKeybinding(t *testing.T) 
 
 func TestGenerateKeybindingsContent_SingleQuotesInCommand(t *testing.T) {
 	// Commands containing single quotes must be escaped so they don't break
-	// the run-shell '...' wrapper. For example, the sideShell builtin uses:
-	//   tmux split-window -h -c '#{pane_current_path}' $SHELL
+	// the run-shell '...' wrapper.
 	keybindings := []CustomKeybinding{
 		{
 			Key:     "-n C-p",
-			Command: "tmux split-window -h -c '#{pane_current_path}' $SHELL",
-			Comment: "sideShell — Side Shell (-n C-p)",
+			Command: "bash -c 'echo hello'",
+			Comment: "test — Test (-n C-p)",
 		},
 	}
 
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
 
 	// The inner single quotes must be escaped as '\'' so tmux parses them correctly.
-	// The full line should be: run-shell 'tmux split-window -h -c '\''#{pane_current_path}'\'' $SHELL'
-	expected := `run-shell 'tmux split-window -h -c '\''#{pane_current_path}'\'' $SHELL'`
+	expected := `run-shell 'bash -c '\''echo hello'\'''`
 	if !strings.Contains(content, expected) {
 		t.Errorf("expected single quotes to be escaped in run-shell wrapper\nwant substring: %s\ngot content:\n%s", expected, content)
 	}
@@ -211,6 +209,169 @@ func TestGenerateKeybindingsContent_SingleQuotesInMissionScopedCommand(t *testin
 	}
 	if !strings.Contains(content, `'\''#{pane_current_path}'\''`) {
 		t.Error("expected single quotes to be escaped as '\\'\\'' in mission-scoped command")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WrapCommand tests
+// ---------------------------------------------------------------------------
+
+func TestWrapCommand_Run(t *testing.T) {
+	cmd := "agenc mission new"
+	result := WrapCommand(cmd, config.ExecRun, false)
+	if result != cmd {
+		t.Errorf("ExecRun should return command unchanged\ngot:  %s\nwant: %s", result, cmd)
+	}
+}
+
+func TestWrapCommand_Popup(t *testing.T) {
+	result := WrapCommand("agenc tmux palette", config.ExecPopup, false)
+	want := `tmux display-popup -E -w 90% -h 63% "agenc tmux palette"`
+	if result != want {
+		t.Errorf("ExecPopup wrapping incorrect\ngot:  %s\nwant: %s", result, want)
+	}
+}
+
+func TestWrapCommand_Pane(t *testing.T) {
+	result := WrapCommand("$SHELL", config.ExecPane, false)
+	want := "tmux split-window -h $SHELL"
+	if result != want {
+		t.Errorf("ExecPane wrapping incorrect\ngot:  %s\nwant: %s", result, want)
+	}
+}
+
+func TestWrapCommand_Window(t *testing.T) {
+	result := WrapCommand("$SHELL", config.ExecWindow, false)
+	want := "tmux new-window -a $SHELL"
+	if result != want {
+		t.Errorf("ExecWindow wrapping incorrect\ngot:  %s\nwant: %s", result, want)
+	}
+}
+
+func TestWrapCommand_PaneMissionScoped(t *testing.T) {
+	result := WrapCommand("$SHELL", config.ExecPane, true)
+	if !strings.Contains(result, "split-window") {
+		t.Error("expected pane command to contain split-window")
+	}
+	if !strings.Contains(result, "AGENC_DIRPATH") {
+		t.Error("expected mission-scoped pane command to contain AGENC_DIRPATH working directory")
+	}
+	if !strings.Contains(result, "AGENC_CALLING_MISSION_UUID") {
+		t.Error("expected mission-scoped pane command to reference calling mission UUID")
+	}
+}
+
+func TestWrapCommand_WindowMissionScoped(t *testing.T) {
+	result := WrapCommand("$SHELL", config.ExecWindow, true)
+	if !strings.Contains(result, "new-window") {
+		t.Error("expected window command to contain new-window")
+	}
+	if !strings.Contains(result, "AGENC_DIRPATH") {
+		t.Error("expected mission-scoped window command to contain AGENC_DIRPATH working directory")
+	}
+	if !strings.Contains(result, "AGENC_CALLING_MISSION_UUID") {
+		t.Error("expected mission-scoped window command to reference calling mission UUID")
+	}
+}
+
+func TestWrapCommand_PopupEscapesDoubleQuotes(t *testing.T) {
+	result := WrapCommand(`echo "hello"`, config.ExecPopup, false)
+	want := `tmux display-popup -E -w 90% -h 63% "echo \"hello\""`
+	if result != want {
+		t.Errorf("ExecPopup should escape double quotes\ngot:  %s\nwant: %s", result, want)
+	}
+}
+
+func TestWrapCommand_PopupMissionScopedNoWorkdir(t *testing.T) {
+	// Popup mode should NOT add a working directory flag even when mission-scoped,
+	// because display-popup uses a different mechanism.
+	result := WrapCommand("agenc cmd", config.ExecPopup, true)
+	if strings.Contains(result, "AGENC_DIRPATH") {
+		t.Error("expected popup mode NOT to add working directory flag")
+	}
+	if !strings.Contains(result, "display-popup") {
+		t.Error("expected popup wrapping")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GenerateKeybindingsContent tests for execution modes
+// ---------------------------------------------------------------------------
+
+func TestGenerateKeybindingsContent_PopupMode(t *testing.T) {
+	keybindings := []CustomKeybinding{
+		{
+			Key:           "n",
+			Command:       "agenc mission new",
+			Comment:       "newMission (prefix + a, n)",
+			ExecutionMode: config.ExecPopup,
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+
+	if !strings.Contains(content, "display-popup") {
+		t.Errorf("expected popup keybinding to contain display-popup\ngot:\n%s", content)
+	}
+}
+
+func TestGenerateKeybindingsContent_PaneMode(t *testing.T) {
+	keybindings := []CustomKeybinding{
+		{
+			Key:           "-n C-p",
+			Command:       "$SHELL",
+			Comment:       "sideShell (-n C-p)",
+			ExecutionMode: config.ExecPane,
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+
+	if !strings.Contains(content, "split-window") {
+		t.Errorf("expected pane keybinding to contain split-window\ngot:\n%s", content)
+	}
+}
+
+func TestGenerateKeybindingsContent_WindowMode(t *testing.T) {
+	keybindings := []CustomKeybinding{
+		{
+			Key:           "w",
+			Command:       "$SHELL",
+			Comment:       "shell (prefix + a, w)",
+			ExecutionMode: config.ExecWindow,
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+
+	if !strings.Contains(content, "new-window") {
+		t.Errorf("expected window keybinding to contain new-window\ngot:\n%s", content)
+	}
+}
+
+func TestGenerateKeybindingsContent_PopupFallbackOnOldTmux(t *testing.T) {
+	keybindings := []CustomKeybinding{
+		{
+			Key:           "n",
+			Command:       "agenc mission new",
+			Comment:       "newMission (prefix + a, n)",
+			ExecutionMode: config.ExecPopup,
+		},
+	}
+
+	// tmux 3.1 does not support display-popup (requires >= 3.2)
+	content := GenerateKeybindingsContent(3, 1, "-T agenc k", keybindings)
+
+	if strings.Contains(content, "display-popup") {
+		t.Error("expected popup keybinding to fall back to run mode on tmux < 3.2")
+	}
+
+	// Should still contain the command in a simple run-shell form
+	if !strings.Contains(content, "run-shell") {
+		t.Error("expected fallback keybinding to use run-shell")
+	}
+	if !strings.Contains(content, "agenc mission new") {
+		t.Error("expected fallback keybinding to contain the original command")
 	}
 }
 
