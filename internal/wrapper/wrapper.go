@@ -64,12 +64,18 @@ type Wrapper struct {
 	// by handleClaudeUpdate from the main event loop.
 	claudeIdle bool
 
+	// stateMu protects claudeIdle, hasConversation, state, and needsAttention.
+	// The HTTP GET /status handler reads these fields concurrently with the
+	// main event loop, so all reads and writes must hold the appropriate lock.
+	stateMu        sync.RWMutex
+	needsAttention bool // true when Claude needs user attention (permission prompt etc.)
+
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
 	// goroutine leaks.
 	claudeExited chan error // receives the exit error from cmd.Wait()
 
-	// commandCh receives commands from the socket listener goroutine.
+	// commandCh receives commands from the HTTP server goroutine.
 	commandCh chan commandWithResponse
 
 	// state tracks the wrapper's position in the restart state machine.
@@ -210,9 +216,9 @@ func (w *Wrapper) Run(isResume bool) error {
 		go w.watchWorkspaceRemoteRefs(ctx)
 	}
 
-	// Start socket listener for receiving commands (restart, etc.)
+	// Start HTTP server for receiving commands (restart, status, etc.)
 	socketFilepath := config.GetMissionSocketFilepath(w.agencDirpath, w.missionID)
-	go listenSocket(ctx, socketFilepath, w.commandCh, w.logger)
+	go startHTTPServer(ctx, socketFilepath, w, w.logger)
 
 	// Clone global MCP credentials into per-mission Keychain and start sync goroutines.
 	w.cloneCredentials()
@@ -340,32 +346,35 @@ func (w *Wrapper) Run(isResume bool) error {
 	}
 }
 
-// handleCommand processes a socket command and returns a Response.
-func (w *Wrapper) handleCommand(cmd Command) Response {
+// handleCommand processes a command from the HTTP server and returns a CommandResponse.
+func (w *Wrapper) handleCommand(cmd Command) CommandResponse {
 	switch cmd.Command {
 	case "restart":
 		return w.handleRestartCommand(cmd)
 	case "claude_update":
 		return w.handleClaudeUpdate(cmd)
 	default:
-		return Response{Status: "error", Error: "unknown command: " + cmd.Command}
+		return CommandResponse{Status: "error", Error: "unknown command: " + cmd.Command}
 	}
 }
 
 // handleRestartCommand processes a restart command. Idempotent: if a restart is
 // already pending or in progress, returns ok. A hard restart overrides a pending
 // graceful restart.
-func (w *Wrapper) handleRestartCommand(cmd Command) Response {
+func (w *Wrapper) handleRestartCommand(cmd Command) CommandResponse {
 	mode := cmd.Mode
 	if mode == "" {
 		mode = "graceful"
 	}
 
+	w.stateMu.Lock()
+	defer w.stateMu.Unlock()
+
 	switch w.state {
 	case stateRestarting:
 		// Already restarting — caller's intent is being fulfilled
 		w.logger.Info("Restart already in progress, returning ok", "requestedMode", mode)
-		return Response{Status: "ok"}
+		return CommandResponse{Status: "ok"}
 
 	case stateRestartPending:
 		if mode == "hard" {
@@ -376,11 +385,11 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 			// For hard restart, don't preserve conversation
 			w.hasConversation = false
 			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			return Response{Status: "ok"}
+			return CommandResponse{Status: "ok"}
 		}
 		// Already pending graceful — idempotent
 		w.logger.Info("Graceful restart already pending, returning ok")
-		return Response{Status: "ok"}
+		return CommandResponse{Status: "ok"}
 
 	case stateRunning:
 		if mode == "hard" {
@@ -390,7 +399,7 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 			// For hard restart, don't preserve conversation
 			w.hasConversation = false
 			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			return Response{Status: "ok"}
+			return CommandResponse{Status: "ok"}
 		}
 
 		// Graceful restart: check if Claude is currently idle
@@ -404,23 +413,27 @@ func (w *Wrapper) handleRestartCommand(cmd Command) Response {
 			w.state = stateRestartPending
 			w.pendingRestart = &cmd
 		}
-		return Response{Status: "ok"}
+		return CommandResponse{Status: "ok"}
 
 	default:
-		return Response{Status: "error", Error: "unexpected wrapper state"}
+		return CommandResponse{Status: "error", Error: "unexpected wrapper state"}
 	}
 }
 
 // handleClaudeUpdate processes a claude_update command sent by hooks. It
-// updates the wrapper's idle state, hasConversation flag, triggers deferred
-// restarts, and sets tmux pane colors for visual feedback.
-func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
+// updates the wrapper's idle state, hasConversation flag, needsAttention flag,
+// triggers deferred restarts, and sets tmux pane colors for visual feedback.
+func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 	w.logger.Info("Received claude_update", "event", cmd.Event, "notification_type", cmd.NotificationType)
+
+	w.stateMu.Lock()
+	defer w.stateMu.Unlock()
 
 	switch cmd.Event {
 	case "Stop":
 		w.claudeIdle = true
 		w.hasConversation = true
+		w.needsAttention = false
 		w.setWindowNeedsAttention()
 
 		// If a graceful restart is pending, now is the time to initiate it
@@ -434,6 +447,7 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 	case "UserPromptSubmit":
 		w.claudeIdle = false
 		w.hasConversation = true
+		w.needsAttention = false
 		w.setWindowBusy()
 		if err := w.client.RecordPrompt(w.missionID); err != nil {
 			w.logger.Warn("Failed to record prompt", "error", err)
@@ -442,17 +456,44 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) Response {
 	case "PostToolUse", "PostToolUseFailure":
 		// A tool just completed (or failed) — Claude is still actively working,
 		// so reset the window to busy in case a permission prompt turned it orange.
+		w.needsAttention = false
 		w.setWindowBusy()
 
 	case "Notification":
 		// Color the pane for notification types that need user attention
 		switch cmd.NotificationType {
 		case "permission_prompt", "idle_prompt", "elicitation_dialog":
+			w.needsAttention = true
 			w.setWindowNeedsAttention()
 		}
 	}
 
-	return Response{Status: "ok"}
+	return CommandResponse{Status: "ok"}
+}
+
+// getClaudeStateString returns the Claude state as a string for the status API.
+// Must be called with stateMu held (at least RLock).
+func (w *Wrapper) getClaudeStateString() string {
+	if w.needsAttention {
+		return "needs_attention"
+	}
+	if w.claudeIdle {
+		return "idle"
+	}
+	return "busy"
+}
+
+// getWrapperStateString returns the wrapper state as a string for the status API.
+// Must be called with stateMu held (at least RLock).
+func (w *Wrapper) getWrapperStateString() string {
+	switch w.state {
+	case stateRestartPending:
+		return "restart_pending"
+	case stateRestarting:
+		return "restarting"
+	default:
+		return "running"
+	}
 }
 
 // resolveRepoDirpath returns the path to the git repository within the
