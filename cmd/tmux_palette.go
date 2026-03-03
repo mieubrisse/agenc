@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -16,9 +17,11 @@ var tmuxPaletteCmd = &cobra.Command{
 	Short: "Open the AgenC command palette (runs inside a tmux display-popup)",
 	Long: `Presents an fzf-based command picker inside a tmux display-popup.
 On selection, the chosen command is dispatched to the tmux server via
-run-shell -b with the appropriate execution mode wrapping (popup, pane,
-window, or direct). On cancel (Ctrl-C or Esc), the popup closes with
-no action.
+run-shell -b. Commands are self-contained strings that include their own
+tmux primitives when needed. Output is redirected to a log file to prevent
+run-shell from echoing it into the active pane.
+
+On cancel (Ctrl-C or Esc), the popup closes with no action.
 
 This command is designed to be invoked by the palette keybinding
 (prefix + a, k).`,
@@ -172,6 +175,15 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		}
 		fullCommand = envPrefix + selectedEntry.Command
 	}
+
+	// Resolve the log file path for output capture.
+	// tmux run-shell captures stdout and echoes it into the active pane;
+	// redirecting to a log file suppresses the noise while preserving output
+	// for debugging.
+	agencDirpathForLog, _ := config.GetAgencDirpath()
+	logFilepath := filepath.Join(agencDirpathForLog, "logs", "palette.log")
+	os.MkdirAll(filepath.Dir(logFilepath), 0755)
+	fullCommand += fmt.Sprintf(" >> %s 2>&1", logFilepath)
 
 	runShellCmd := exec.Command("tmux", "run-shell", "-b", fullCommand)
 	runShellCmd.Stdout = os.Stdout
