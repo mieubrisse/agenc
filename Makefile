@@ -54,7 +54,7 @@ compile:
 	@go build -ldflags "$(LDFLAGS)" -o agenc .
 	@echo "✓ Build complete"
 
-bin: genprime docs compile
+bin: genprime compile
 
 build: genprime docs setup check compile
 
