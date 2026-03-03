@@ -226,7 +226,7 @@ func TestWrapCommand_Run(t *testing.T) {
 
 func TestWrapCommand_Popup(t *testing.T) {
 	result := WrapCommand("agenc tmux palette", config.ExecPopup, false)
-	want := `tmux display-popup -E -w 90% -h 63% "agenc tmux palette"`
+	want := `tmux display-popup -E -w 68% -h 63% "agenc tmux palette"`
 	if result != want {
 		t.Errorf("ExecPopup wrapping incorrect\ngot:  %s\nwant: %s", result, want)
 	}
@@ -276,7 +276,7 @@ func TestWrapCommand_WindowMissionScoped(t *testing.T) {
 
 func TestWrapCommand_PopupEscapesDoubleQuotes(t *testing.T) {
 	result := WrapCommand(`echo "hello"`, config.ExecPopup, false)
-	want := `tmux display-popup -E -w 90% -h 63% "echo \"hello\""`
+	want := `tmux display-popup -E -w 68% -h 63% "echo \"hello\""`
 	if result != want {
 		t.Errorf("ExecPopup should escape double quotes\ngot:  %s\nwant: %s", result, want)
 	}

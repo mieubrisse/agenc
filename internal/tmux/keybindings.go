@@ -47,7 +47,7 @@ func WrapCommand(command string, mode config.ExecutionMode, missionScoped bool) 
 
 	switch mode {
 	case config.ExecPopup:
-		return fmt.Sprintf(`tmux display-popup -E -w 90%% -h 63%% "%s"`, strings.ReplaceAll(command, `"`, `\"`))
+		return fmt.Sprintf(`tmux display-popup -E -w 68%% -h 63%% "%s"`, strings.ReplaceAll(command, `"`, `\"`))
 	case config.ExecPane:
 		return fmt.Sprintf("tmux split-window -h%s %s", workdirFlag, command)
 	case config.ExecWindow:
@@ -86,7 +86,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		fmt.Fprintf(&sb, "# Command palette (bind-key %s)\n", paletteKey)
 		fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-			"tmux display-popup -E -w 90%% -h 63%% "+
+			"tmux display-popup -E -w 68%% -h 63%% "+
 			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
 			"'\n", paletteKey, agencBinary, agencBinary)
 	}
