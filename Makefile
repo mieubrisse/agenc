@@ -20,7 +20,7 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
-.PHONY: build check clean docs genprime setup test
+.PHONY: bin build check clean docs genprime setup test
 
 setup:
 	@if git rev-parse --git-dir >/dev/null 2>&1; then \
@@ -48,6 +48,11 @@ check: genprime
 	@echo "Running tests..."
 	@go test ./...
 	@echo "✓ Tests passed"
+
+bin: genprime docs
+	@echo "Building agenc..."
+	@go build -ldflags "$(LDFLAGS)" -o agenc .
+	@echo "✓ Build complete"
 
 build: genprime docs setup check
 	@echo "Building agenc..."
