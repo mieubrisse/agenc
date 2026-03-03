@@ -21,7 +21,8 @@ Example config.yml:
       tmuxKeybinding: "C-n"
 
     # Disable a builtin
-    nukeMissions: {}
+    nukeMissions:
+      disabled: true
 
     # Custom command with keybinding (in AgenC table: prefix + a, f)
     dotfiles:

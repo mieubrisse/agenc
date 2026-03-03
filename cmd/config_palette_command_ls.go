@@ -60,7 +60,7 @@ func runConfigPaletteCommandLs(cmd *cobra.Command, args []string) error {
 	// Add disabled builtins
 	for _, name := range config.BuiltinPaletteCommandOrder() {
 		override, hasOverride := cfg.PaletteCommands[name]
-		if hasOverride && override.IsEmpty() {
+		if hasOverride && override.Disabled {
 			entries = append(entries, displayEntry{
 				Name:   name,
 				Title:  "(disabled)",

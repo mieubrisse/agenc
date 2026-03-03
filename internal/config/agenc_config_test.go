@@ -461,7 +461,8 @@ func TestPaletteCommands_BuiltinDisable(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
-  nukeMissions: {}
+  nukeMissions:
+    disabled: true
 `)
 
 	cfg, _, err := ReadAgencConfig(tmpDir)
@@ -474,6 +475,34 @@ paletteCommands:
 		if cmd.Name == "nukeMissions" {
 			t.Error("expected nukeMissions to be disabled (not in resolved list)")
 		}
+	}
+}
+
+func TestPaletteCommands_EmptyOverrideUsesDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  nukeMissions: {}
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	resolved := cfg.GetResolvedPaletteCommands()
+	found := false
+	for _, cmd := range resolved {
+		if cmd.Name == "nukeMissions" {
+			found = true
+			if cmd.Title == "" {
+				t.Error("expected nukeMissions to have its builtin title")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected nukeMissions to appear in resolved list (empty override should not disable)")
 	}
 }
 
@@ -775,6 +804,11 @@ func TestPaletteCommandConfig_IsEmpty(t *testing.T) {
 	notEmpty := PaletteCommandConfig{Title: "test"}
 	if notEmpty.IsEmpty() {
 		t.Error("expected config with title to not be empty")
+	}
+
+	disabled := PaletteCommandConfig{Disabled: true}
+	if disabled.IsEmpty() {
+		t.Error("expected disabled config to not be empty")
 	}
 }
 

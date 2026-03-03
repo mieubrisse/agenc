@@ -77,17 +77,20 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 // PaletteCommandConfig represents a palette command entry in config.yml.
 // For custom commands, all fields are user-provided.
 // For builtin overrides, non-empty fields override the builtin defaults.
-// An entry with all fields empty (IsEmpty() == true) disables the builtin.
+// Set Disabled to true to hide a command from the palette entirely.
 type PaletteCommandConfig struct {
 	Title          string `yaml:"title,omitempty"`
 	Description    string `yaml:"description,omitempty"`
 	Command        string `yaml:"command,omitempty"`
 	TmuxKeybinding string `yaml:"tmuxKeybinding,omitempty"`
+	Disabled       bool   `yaml:"disabled,omitempty"`
 }
 
-// IsEmpty returns true if all fields are empty (used to detect disable entries).
+// IsEmpty returns true if the entry carries no meaningful information —
+// all string fields are empty and the command is not disabled. An empty
+// builtin override can safely be removed from config (it has no effect).
 func (c *PaletteCommandConfig) IsEmpty() bool {
-	return c.Title == "" && c.Description == "" && c.Command == "" && c.TmuxKeybinding == ""
+	return !c.Disabled && c.Title == "" && c.Description == "" && c.Command == "" && c.TmuxKeybinding == ""
 }
 
 // BuiltinPaletteCommands defines the default palette commands shipped with agenc.
@@ -578,7 +581,7 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		}
 		// Custom (non-builtin) entries with content must have title and command
 		_, isBuiltin := BuiltinPaletteCommands[name]
-		if !isBuiltin && !cmdCfg.IsEmpty() {
+		if !isBuiltin && !cmdCfg.IsEmpty() && !cmdCfg.Disabled {
 			if cmdCfg.Title == "" {
 				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a title", name, configFilepath)
 			}
@@ -679,8 +682,8 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 		builtin := BuiltinPaletteCommands[name]
 		override, hasOverride := c.PaletteCommands[name]
 
-		if hasOverride && override.IsEmpty() {
-			// Disabled — skip entirely
+		if hasOverride && override.Disabled {
+			// Explicitly disabled — skip entirely
 			continue
 		}
 
@@ -723,7 +726,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 
 	for _, name := range customNames {
 		cmdCfg := c.PaletteCommands[name]
-		if cmdCfg.IsEmpty() {
+		if cmdCfg.IsEmpty() || cmdCfg.Disabled {
 			continue
 		}
 		resolved := ResolvedPaletteCommand{

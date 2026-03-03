@@ -25,9 +25,13 @@ binding that works anywhere without the AgenC leader, prefix with "-n":
   --keybinding="f"       → prefix + a, f  (AgenC table)
   --keybinding="-n C-s"  → Ctrl-s globally (root table, no prefix needed)
 
+Use --disabled to hide a command from the palette without removing its config.
+Use --disabled=false to re-enable a previously disabled command.
+
 Example:
   agenc config paletteCommand update newMission --keybinding="C-n"
   agenc config paletteCommand update stopMission --keybinding="-n C-s"
+  agenc config paletteCommand update nukeMissions --disabled
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runConfigPaletteCommandUpdate,
@@ -39,6 +43,7 @@ func init() {
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandCommandFlagName, "", "full command to execute")
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandKeybindingFlagName, "", "tmux keybinding (e.g. \"f\", \"C-y\", or \"-n C-s\" for global)")
 	configPaletteCommandUpdateCmd.Flags().String(paletteCommandDescriptionFlagName, "", "description shown alongside the title")
+	configPaletteCommandUpdateCmd.Flags().Bool(paletteCommandDisabledFlagName, false, "hide this command from the palette")
 }
 
 func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
@@ -48,11 +53,13 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 	commandChanged := cmd.Flags().Changed(paletteCommandCommandFlagName)
 	keybindingChanged := cmd.Flags().Changed(paletteCommandKeybindingFlagName)
 	descriptionChanged := cmd.Flags().Changed(paletteCommandDescriptionFlagName)
+	disabledChanged := cmd.Flags().Changed(paletteCommandDisabledFlagName)
 
-	if !titleChanged && !commandChanged && !keybindingChanged && !descriptionChanged {
-		return stacktrace.NewError("at least one of --%s, --%s, --%s, or --%s must be provided",
+	if !titleChanged && !commandChanged && !keybindingChanged && !descriptionChanged && !disabledChanged {
+		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, or --%s must be provided",
 			paletteCommandTitleFlagName, paletteCommandCommandFlagName,
-			paletteCommandKeybindingFlagName, paletteCommandDescriptionFlagName)
+			paletteCommandKeybindingFlagName, paletteCommandDescriptionFlagName,
+			paletteCommandDisabledFlagName)
 	}
 
 	cfg, cm, err := readConfigWithComments()
@@ -102,10 +109,26 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 		existing.Description = newDescription
 	}
 
+	if disabledChanged {
+		newDisabled, err := cmd.Flags().GetBool(paletteCommandDisabledFlagName)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandDisabledFlagName)
+		}
+		existing.Disabled = newDisabled
+	}
+
 	if cfg.PaletteCommands == nil {
 		cfg.PaletteCommands = make(map[string]config.PaletteCommandConfig)
 	}
-	cfg.PaletteCommands[name] = existing
+
+	// Clean up empty builtin overrides — if no fields differ from the
+	// builtin defaults, remove the entry entirely instead of leaving a
+	// stale {} in config.yml.
+	if isBuiltin && existing.IsEmpty() {
+		delete(cfg.PaletteCommands, name)
+	} else {
+		cfg.PaletteCommands[name] = existing
+	}
 
 	// Validate uniqueness before writing
 	configFilepath := config.GetConfigFilepath(agencDirpath)

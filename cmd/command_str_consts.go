@@ -117,6 +117,7 @@ const (
 	paletteCommandTitleFlagName       = "title"
 	paletteCommandDescriptionFlagName = "description"
 	paletteCommandKeybindingFlagName  = "keybinding"
+	paletteCommandDisabledFlagName    = "disabled"
 
 	// repoConfig flags
 	repoConfigAlwaysSyncedFlagName      = "always-synced"
