@@ -148,6 +148,12 @@ func (db *DB) ListAllMissions() ([]*Mission, error)
 
 When a new query variation is needed, first check whether an existing function can be extended with a parameter rather than creating a new function.
 
+Key File Locations
+------------------
+
+- The AgenC SQLite database lives at `~/.agenc/database.sqlite`.
+- Claude's JSONL files live at `~/.claude/projects/`, **not** any `claude-config` directory.
+
 Beads Database
 --------------
 
