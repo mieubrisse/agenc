@@ -31,7 +31,8 @@
             "Bash(mv:*)",
             "Bash(tmux list-panes:*)",
             "Bash(tmux display-message:*)",
-            "Bash(tmux list-windows:*)"
+            "Bash(tmux list-windows:*)",
+            "Bash(agenc server logs print:*)"
         ],
         "deny": [
             "Read(./.env)",
