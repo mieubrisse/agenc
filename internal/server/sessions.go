@@ -55,6 +55,28 @@ func toSessionResponses(sessions []*database.Session) []SessionResponse {
 	return result
 }
 
+// handleGetSession handles GET /sessions/{id}.
+// Supports both full UUIDs and 8-character short IDs.
+func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveSessionID(id)
+	if err != nil {
+		return newHTTPError(http.StatusNotFound, "session not found: "+id)
+	}
+
+	session, err := s.db.GetSession(resolvedID)
+	if err != nil {
+		return newHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if session == nil {
+		return newHTTPError(http.StatusNotFound, "session not found: "+id)
+	}
+
+	writeJSON(w, http.StatusOK, toSessionResponse(session))
+	return nil
+}
+
 // handleListSessions handles GET /sessions?mission_id={id}.
 // When mission_id is provided, returns sessions for that mission.
 // When omitted, returns all sessions across all missions.

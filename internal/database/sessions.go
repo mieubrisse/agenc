@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
@@ -10,6 +11,7 @@ import (
 // Session represents a row in the sessions table.
 type Session struct {
 	ID                string
+	ShortID           string
 	MissionID         string
 	CustomTitle       string
 	AgencCustomTitle  string
@@ -23,9 +25,10 @@ type Session struct {
 // Returns the created Session.
 func (db *DB) CreateSession(missionID string, sessionID string) (*Session, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	shortID := ShortID(sessionID)
 	_, err := db.conn.Exec(
-		"INSERT INTO sessions (id, mission_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
-		sessionID, missionID, now, now,
+		"INSERT INTO sessions (id, short_id, mission_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		sessionID, shortID, missionID, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert session '%s'", sessionID)
@@ -33,6 +36,7 @@ func (db *DB) CreateSession(missionID string, sessionID string) (*Session, error
 
 	return &Session{
 		ID:        sessionID,
+		ShortID:   shortID,
 		MissionID: missionID,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
@@ -42,7 +46,7 @@ func (db *DB) CreateSession(missionID string, sessionID string) (*Session, error
 // GetSession returns a single session by ID, or (nil, nil) if not found.
 func (db *DB) GetSession(sessionID string) (*Session, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE id = ?",
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE id = ?",
 		sessionID,
 	)
 
@@ -114,7 +118,7 @@ func (db *DB) UpdateSessionAgencCustomTitle(sessionID string, title string) erro
 // ordered by updated_at descending (most recently modified first).
 func (db *DB) ListSessions() ([]*Session, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions ORDER BY updated_at DESC",
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions ORDER BY updated_at DESC",
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to list sessions")
@@ -128,7 +132,7 @@ func (db *DB) ListSessions() ([]*Session, error) {
 // ordered by updated_at descending (most recently modified first).
 func (db *DB) ListSessionsByMission(missionID string) ([]*Session, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC",
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC",
 		missionID,
 	)
 	if err != nil {
@@ -143,7 +147,7 @@ func (db *DB) ListSessionsByMission(missionID string) ([]*Session, error) {
 // or (nil, nil) if the mission has no sessions.
 func (db *DB) GetActiveSession(missionID string) (*Session, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC LIMIT 1",
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_scanned_offset, created_at, updated_at FROM sessions WHERE mission_id = ? ORDER BY updated_at DESC LIMIT 1",
 		missionID,
 	)
 
@@ -161,7 +165,7 @@ func (db *DB) GetActiveSession(missionID string) (*Session, error) {
 func scanSession(row *sql.Row) (*Session, error) {
 	var s Session
 	var createdAt, updatedAt string
-	if err := row.Scan(&s.ID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&s.ID, &s.ShortID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	s.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
@@ -175,7 +179,7 @@ func scanSessions(rows *sql.Rows) ([]*Session, error) {
 	for rows.Next() {
 		var s Session
 		var createdAt, updatedAt string
-		if err := rows.Scan(&s.ID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.ShortID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan session row")
 		}
 		s.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
@@ -186,4 +190,58 @@ func scanSessions(rows *sql.Rows) ([]*Session, error) {
 		return nil, stacktrace.Propagate(err, "error iterating session rows")
 	}
 	return sessions, nil
+}
+
+// ResolveSessionID resolves a user-provided session identifier (either a full
+// UUID or an 8-character short ID) to the full session UUID. Returns an error
+// if the identifier matches zero or multiple sessions.
+func (db *DB) ResolveSessionID(userInput string) (string, error) {
+	// Try exact match on full ID first (O(1) via primary key)
+	var fullID string
+	err := db.conn.QueryRow("SELECT id FROM sessions WHERE id = ?", userInput).Scan(&fullID)
+	if err == nil {
+		return fullID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", stacktrace.Propagate(err, "failed to query session by full ID")
+	}
+
+	// Try match on short_id (O(1) via index)
+	rows, err := db.conn.Query("SELECT id, mission_id FROM sessions WHERE short_id = ?", userInput)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to query session by short ID")
+	}
+	defer rows.Close()
+
+	type match struct {
+		id        string
+		missionID string
+	}
+	var matches []match
+	for rows.Next() {
+		var m match
+		if err := rows.Scan(&m.id, &m.missionID); err != nil {
+			return "", stacktrace.Propagate(err, "failed to scan session row")
+		}
+		matches = append(matches, m)
+	}
+	if err := rows.Err(); err != nil {
+		return "", stacktrace.Propagate(err, "error iterating session rows")
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", stacktrace.NewError("session '%s' not found", userInput)
+	case 1:
+		return matches[0].id, nil
+	default:
+		var lines []string
+		for _, m := range matches {
+			lines = append(lines, "  "+m.id+" (mission "+ShortID(m.missionID)+")")
+		}
+		return "", stacktrace.NewError(
+			"ambiguous session short ID '%s' matches %d sessions:\n%s",
+			userInput, len(matches), strings.Join(lines, "\n"),
+		)
+	}
 }

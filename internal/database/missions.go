@@ -309,7 +309,11 @@ func (db *DB) IncrementPromptCount(id string) error {
 }
 
 // ShortID returns the first 8 characters of a full UUID.
+// Returns the full string if it is shorter than 8 characters.
 func ShortID(fullID string) string {
+	if len(fullID) < 8 {
+		return fullID
+	}
 	return fullID[:8]
 }
 

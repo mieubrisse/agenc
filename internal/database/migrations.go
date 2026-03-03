@@ -40,6 +40,10 @@ const (
 	createSessionsMissionIDIndexSQL = `CREATE INDEX IF NOT EXISTS idx_sessions_mission_id ON sessions(mission_id);`
 
 	addAgencCustomTitleColumnSQL = `ALTER TABLE sessions ADD COLUMN agenc_custom_title TEXT NOT NULL DEFAULT '';`
+
+	addSessionShortIDColumnSQL   = `ALTER TABLE sessions ADD COLUMN short_id TEXT NOT NULL DEFAULT '';`
+	backfillSessionShortIDSQL    = `UPDATE sessions SET short_id = SUBSTR(id, 1, 8) WHERE short_id = '';`
+	createSessionShortIDIndexSQL = `CREATE INDEX IF NOT EXISTS idx_sessions_short_id ON sessions(short_id);`
 )
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
@@ -375,4 +379,54 @@ func migrateCreateSessionsTable(conn *sql.DB) error {
 		return stacktrace.Propagate(err, "failed to create sessions mission_id index")
 	}
 	return nil
+}
+
+// migrateAddSessionShortID idempotently adds the short_id column to the
+// sessions table, backfills it from existing IDs, and creates an index.
+func migrateAddSessionShortID(conn *sql.DB) error {
+	columns, err := getSessionColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["short_id"] {
+		return nil
+	}
+
+	if _, err := conn.Exec(addSessionShortIDColumnSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to add short_id column to sessions")
+	}
+	if _, err := conn.Exec(backfillSessionShortIDSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to backfill sessions short_id column")
+	}
+	if _, err := conn.Exec(createSessionShortIDIndexSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create sessions short_id index")
+	}
+	return nil
+}
+
+// getSessionColumnNames returns a set of column names present in the sessions table.
+func getSessionColumnNames(conn *sql.DB) (map[string]bool, error) {
+	rows, err := conn.Query("PRAGMA table_info(sessions)")
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read sessions table info")
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to scan table_info row")
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, stacktrace.Propagate(err, "error iterating table_info rows")
+	}
+	return columns, nil
 }

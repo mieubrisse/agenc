@@ -16,9 +16,11 @@ var sessionPrintAllFlag bool
 var sessionPrintFormatFlag string
 
 var sessionPrintCmd = &cobra.Command{
-	Use:   printCmdStr + " <session-uuid>",
+	Use:   printCmdStr + " <session-id>",
 	Short: "Print a Claude session transcript (human-readable text by default)",
 	Long: `Print a Claude session transcript.
+
+Accepts a full session UUID or an 8-character short ID.
 
 By default, outputs a human-readable text summary. Use --format=jsonl for
 raw JSONL output.
@@ -27,10 +29,11 @@ Outputs the last 20 lines by default. Use --tail to change the line count,
 or --all to print the entire session.
 
 Example:
+  agenc session print 18749fb5
   agenc session print 18749fb5-02ba-4b19-b989-4e18fbf8ea92
-  agenc session print 18749fb5-02ba-4b19-b989-4e18fbf8ea92 --format=jsonl
-  agenc session print 18749fb5-02ba-4b19-b989-4e18fbf8ea92 --tail 50
-  agenc session print 18749fb5-02ba-4b19-b989-4e18fbf8ea92 --all`,
+  agenc session print 18749fb5 --format=jsonl
+  agenc session print 18749fb5 --tail 50
+  agenc session print 18749fb5 --all`,
 	Args: cobra.ExactArgs(1),
 	RunE: runSessionPrint,
 }
@@ -49,7 +52,17 @@ func runSessionPrint(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("--tail value must be positive")
 	}
 
-	jsonlFilepath, err := session.FindSessionJSONLPath(sessionID)
+	// Resolve short IDs to full UUIDs via the server
+	client, err := serverClient()
+	if err != nil {
+		return err
+	}
+	resolvedID, err := client.ResolveSessionID(sessionID)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to resolve session ID '%s'", sessionID)
+	}
+
+	jsonlFilepath, err := session.FindSessionJSONLPath(resolvedID)
 	if err != nil {
 		return stacktrace.Propagate(err, "")
 	}

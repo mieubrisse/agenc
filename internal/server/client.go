@@ -336,6 +336,15 @@ func (c *Client) ListMissionSessions(missionID string) ([]*database.Session, err
 	return toSessionSlice(responses), nil
 }
 
+// ResolveSessionID resolves a short ID or full UUID to the full session ID.
+func (c *Client) ResolveSessionID(id string) (string, error) {
+	var resp SessionResponse
+	if err := c.Get("/sessions/"+id, &resp); err != nil {
+		return "", err
+	}
+	return resp.ID, nil
+}
+
 // UpdateSession updates fields on a session via the server.
 func (c *Client) UpdateSession(sessionID string, req UpdateSessionRequest) error {
 	return c.Patch("/sessions/"+sessionID, req, nil)

@@ -242,6 +242,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /missions/{id}/prompt", appHandler(s.requestLogger, s.handleRecordPrompt))
 	mux.Handle("PATCH /missions/{id}", appHandler(s.requestLogger, s.stashGuard(s.handleUpdateMission)))
 	mux.Handle("GET /sessions", appHandler(s.requestLogger, s.handleListSessions))
+	mux.Handle("GET /sessions/{id}", appHandler(s.requestLogger, s.handleGetSession))
 	mux.Handle("PATCH /sessions/{id}", appHandler(s.requestLogger, s.handleUpdateSession))
 	mux.Handle("GET /repos", appHandler(s.requestLogger, s.handleListRepos))
 	mux.Handle("POST /repos", appHandler(s.requestLogger, s.handleAddRepo))
