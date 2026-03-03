@@ -17,6 +17,5 @@ Manage the AgenC tmux session
 * [agenc tmux palette](agenc_tmux_palette.md)	 - Open the AgenC command palette (runs inside a tmux display-popup)
 * [agenc tmux resolve-mission](agenc_tmux_resolve-mission.md)	 - Resolve a tmux pane to its mission UUID
 * [agenc tmux rm](agenc_tmux_rm.md)	 - Destroy the AgenC tmux session, stopping all running missions
-* [agenc tmux switch](agenc_tmux_switch.md)	 - Switch to a running mission's tmux window
 * [agenc tmux uninject](agenc_tmux_uninject.md)	 - Remove AgenC tmux keybindings
 

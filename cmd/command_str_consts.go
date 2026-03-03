@@ -43,7 +43,6 @@ const (
 	injectCmdStr         = "inject"
 	uninjectCmdStr       = "uninject"
 	paletteCmdStr        = "palette"
-	switchCmdStr         = "switch"
 	resolveMissionCmdStr = "resolve-mission"
 
 	// Mission subcommands
