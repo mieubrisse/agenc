@@ -130,6 +130,12 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 
 	cmd := exec.CommandContext(cmdCtx, claudeBinary, "--print", "--model", summarizerModel, "-p", prompt)
 
+	// Run from a temp directory so Claude's session JSONL files don't land in
+	// any mission's project directory. Without this, the session scanner picks
+	// up the Haiku-generated sessions and tries to re-summarize them, creating
+	// a recursive cascade of garbage summaries.
+	cmd.Dir = os.TempDir()
+
 	// Pass OAuth token for authentication
 	oauthToken, err := config.ReadOAuthToken(agencDirpath)
 	if err != nil {
