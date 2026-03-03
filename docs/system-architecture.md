@@ -412,7 +412,7 @@ macOS launchd integration for cron scheduling.
 
 Tmux keybindings generation and version detection, shared by the CLI (`tmux inject`) and server.
 
-- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`. Keybinding generation accepts the detected tmux version and a slice of `CustomKeybinding` entries (built from resolved palette commands). Version-gates features: the command palette keybinding (`display-popup`) is only emitted on tmux >= 3.2. The hardcoded key table entry (`prefix + a`) and palette popup (`k`) remain fixed; all other keybindings (including built-in defaults like `n`, `p`, `d`) are driven by the resolved palette commands.
+- `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`, `WrapCommand`. Each palette command declares an `ExecutionMode` (`run`, `popup`, `pane`, `window`) that controls how it runs in tmux. The shared `WrapCommand` function wraps a command string in the appropriate tmux primitive (e.g. `display-popup`, `split-window`, `new-window`, or passthrough for `run`). Keybinding generation calls `WrapCommand` at file-generation time; the palette calls it at selection time and hands off via `tmux run-shell -b` so both paths produce identical behavior. Version-gates features: popup mode falls back to `run` on tmux < 3.2. The hardcoded key table entry (`prefix + a`) and palette popup (`k`) remain fixed; all other keybindings (including built-in defaults like `n`, `p`, `d`) are driven by the resolved palette commands.
 - `version.go` — `ParseVersion` (parses `tmux -V` output), `DetectVersion` (runs `tmux -V` and parses the result). Used by keybindings generation, the server, and the CLI to detect the installed tmux version.
 
 ### `internal/wrapper/`
@@ -512,8 +512,8 @@ The resolution flow:
 
 1. A tmux keybinding calls `agenc tmux resolve-mission "$(tmux display-message -p "#{pane_id}")"` to look up the focused pane's mission UUID
 2. The UUID is exported as `AGENC_CALLING_MISSION_UUID`
-3. For the palette: the env var is passed into the popup so `buildPaletteEntries` can filter out mission-scoped commands when no mission is focused, and the var is available to executed commands via `sh -c`
-4. For direct keybindings: mission-scoped keybindings (those whose command contains `AGENC_CALLING_MISSION_UUID`) include a guard that skips execution when the UUID is empty
+3. For direct keybindings: mission-scoped keybindings include a preamble that resolves the UUID and a guard that skips execution when empty
+4. For the palette: the env var is passed into the popup so `buildPaletteEntries` can filter out mission-scoped commands when no mission is focused. On selection, the palette prepends `export AGENC_CALLING_MISSION_UUID=<uuid>` to the wrapped command before handing off via `tmux run-shell -b`, since the tmux server's shell environment does not inherit the palette process's env vars
 
 Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — no special placeholder syntax. The palette detects mission-scoped commands by checking whether the command string contains the env var name (`ResolvedPaletteCommand.IsMissionScoped()`).
 
