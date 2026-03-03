@@ -1587,3 +1587,79 @@ func TestPaletteCommandConfigIsEmpty_IgnoresExecutionMode(t *testing.T) {
 		t.Error("expected IsEmpty() == false when Title is set")
 	}
 }
+
+func TestBuiltinExecutionModes(t *testing.T) {
+	expectedModes := map[string]ExecutionMode{
+		// ExecRun commands
+		"quickClaude":     ExecRun,
+		"talkToAgenc":     ExecRun,
+		"copyMissionUuid": ExecRun,
+		"stopMission":     ExecRun,
+		"reconfigMission": ExecRun,
+		"reloadMission":   ExecRun,
+		"sendFeedback":    ExecRun,
+		"joinDiscord":     ExecRun,
+		"starAgenc":       ExecRun,
+		"exitTmux":        ExecRun,
+		// ExecPopup commands
+		"newMission":    ExecPopup,
+		"switchMission": ExecPopup,
+		"renameSession": ExecPopup,
+		"resumeMission": ExecPopup,
+		"removeMission": ExecPopup,
+		"nukeMissions":  ExecPopup,
+		// ExecPane commands
+		"sideShell": ExecPane,
+		// ExecWindow commands
+		"shell": ExecWindow,
+	}
+
+	for name, wantMode := range expectedModes {
+		builtin, ok := BuiltinPaletteCommands[name]
+		if !ok {
+			t.Errorf("expected builtin %q to exist", name)
+			continue
+		}
+		if builtin.ExecutionMode != wantMode {
+			t.Errorf("builtin %q: ExecutionMode = %q, want %q", name, builtin.ExecutionMode, wantMode)
+		}
+	}
+
+	// Every builtin must have an explicit (non-empty) ExecutionMode.
+	for name, builtin := range BuiltinPaletteCommands {
+		if builtin.ExecutionMode == "" {
+			t.Errorf("builtin %q has empty ExecutionMode; every builtin must declare a mode", name)
+		}
+	}
+
+	// Verify the resolved commands carry the correct execution modes too.
+	cfg := &AgencConfig{}
+	resolved := cfg.GetResolvedPaletteCommands()
+	for _, cmd := range resolved {
+		if !cmd.IsBuiltin {
+			continue
+		}
+		wantMode, ok := expectedModes[cmd.Name]
+		if !ok {
+			continue
+		}
+		if cmd.ExecutionMode != wantMode {
+			t.Errorf("resolved builtin %q: ExecutionMode = %q, want %q", cmd.Name, cmd.ExecutionMode, wantMode)
+		}
+	}
+}
+
+func TestBuiltinCommandsNoEmbeddedTmuxPrimitives(t *testing.T) {
+	forbiddenPrefixes := []string{
+		"tmux new-window",
+		"tmux split-window",
+	}
+
+	for name, builtin := range BuiltinPaletteCommands {
+		for _, prefix := range forbiddenPrefixes {
+			if strings.HasPrefix(builtin.Command, prefix) {
+				t.Errorf("builtin %q command starts with %q; commands should not embed tmux primitives", name, prefix)
+			}
+		}
+	}
+}

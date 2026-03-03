@@ -95,108 +95,118 @@ func (c *PaletteCommandConfig) IsEmpty() bool {
 // Keys match the config.yml paletteCommands keys for override/disable purposes.
 var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"quickClaude": {
-		Title:       "🦀  Quick Claude",
-		Description: "Creates a blank mission in a new window",
-		Command:     "agenc mission new --blank",
+		Title:         "🦀  Quick Claude",
+		Description:   "Creates a blank mission in a new window",
+		Command:       "agenc mission new --blank",
+		ExecutionMode: ExecRun,
 	},
 	"talkToAgenc": {
-		Title:       "🤖  Adjutant",
-		Description: "Launch an Adjutant mission in a new window",
-		Command:     "agenc mission new --adjutant",
+		Title:         "🤖  Adjutant",
+		Description:   "Launch an Adjutant mission in a new window",
+		Command:       "agenc mission new --adjutant",
+		ExecutionMode: ExecRun,
 	},
 	"newMission": {
 		Title:          "🚀  New Mission",
 		Description:    "Create a new mission and launch Claude",
 		Command:        "agenc mission new",
 		TmuxKeybinding: "-n C-n",
+		ExecutionMode:  ExecPopup,
 	},
 	"switchMission": {
 		Title:          "🔀  Switch Mission",
 		Description:    "Switch to a running mission's tmux window",
 		Command:        "agenc tmux switch",
 		TmuxKeybinding: "-n C-m",
+		ExecutionMode:  ExecPopup,
 	},
 	"resumeMission": {
-		Title:       "🟢  Resume Mission",
-		Description: "Resume a stopped mission with claude --continue",
-		Command:     "tmux new-window -a agenc mission resume",
+		Title:         "🟢  Resume Mission",
+		Description:   "Resume a stopped mission with claude --continue",
+		Command:       "agenc mission resume",
+		ExecutionMode: ExecPopup,
 	},
 	"sideShell": {
 		Title:          "🐚  Side Shell",
 		Description:    "Split pane and open a shell in the current mission's workspace",
-		Command:        `tmux split-window -h -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`,
+		Command:        "$SHELL",
 		TmuxKeybinding: "-n C-p",
+		ExecutionMode:  ExecPane,
 	},
 	"shell": {
-		Title:       "🐚  Shell",
-		Description: "Open a shell in a new window",
-		Command:     `tmux new-window -a -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`,
+		Title:         "🐚  Shell",
+		Description:   "Open a shell in a new window",
+		Command:       "$SHELL",
+		ExecutionMode: ExecWindow,
 	},
 	"copyMissionUuid": {
-		Title:       "📋  Copy Mission ID",
-		Description: "Copy the focused mission's UUID to the clipboard",
-		Command:     "printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy",
+		Title:         "📋  Copy Mission ID",
+		Description:   "Copy the focused mission's UUID to the clipboard",
+		Command:       "printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy",
+		ExecutionMode: ExecRun,
 	},
 	"renameSession": {
 		Title:          "✨  Rename Session",
 		Description:    "Rename the focused mission's window",
 		Command:        "agenc mission rename $AGENC_CALLING_MISSION_UUID",
 		TmuxKeybinding: "-n C-.",
+		ExecutionMode:  ExecPopup,
 	},
 	"stopMission": {
 		Title:          "🛑  Stop Mission",
 		Description:    "Stop the mission in the focused pane",
 		Command:        "agenc mission stop $AGENC_CALLING_MISSION_UUID",
 		TmuxKeybinding: "-n C-s",
+		ExecutionMode:  ExecRun,
 	},
 	"reconfigMission": {
-		Title:       "🔧  Reconfig & Reload Mission",
-		Description: "Update the mission's config and restart to apply changes",
-		Command:     "agenc mission reconfig $AGENC_CALLING_MISSION_UUID && agenc mission reload $AGENC_CALLING_MISSION_UUID",
+		Title:         "🔧  Reconfig & Reload Mission",
+		Description:   "Update the mission's config and restart to apply changes",
+		Command:       "agenc mission reconfig $AGENC_CALLING_MISSION_UUID && agenc mission reload $AGENC_CALLING_MISSION_UUID",
+		ExecutionMode: ExecRun,
 	},
 	"reloadMission": {
-		Title:       "🔄  Reload Mission",
-		Description: "Stop and restart the mission in the focused pane",
-		Command:     "agenc mission reload $AGENC_CALLING_MISSION_UUID",
+		Title:         "🔄  Reload Mission",
+		Description:   "Stop and restart the mission in the focused pane",
+		Command:       "agenc mission reload $AGENC_CALLING_MISSION_UUID",
+		ExecutionMode: ExecRun,
 	},
 	"removeMission": {
-		Title:       "❌  Remove Mission",
-		Description: "Remove a mission and its directory",
-		Command:     "tmux new-window -a agenc mission rm",
+		Title:         "❌  Remove Mission",
+		Description:   "Remove a mission and its directory",
+		Command:       "agenc mission rm",
+		ExecutionMode: ExecPopup,
 	},
 	"nukeMissions": {
-		Title:       "💥  Nuke Missions",
-		Description: "Remove all archived missions",
-		Command:     "tmux new-window -a agenc mission nuke",
+		Title:         "💥  Nuke Missions",
+		Description:   "Remove all archived missions",
+		Command:       "agenc mission nuke",
+		ExecutionMode: ExecPopup,
 	},
 	"sendFeedback": {
-		Title:       "💬  Send Feedback",
-		Description: "Send feedback about AgenC",
-		Command:     "agenc mission new --adjutant --prompt \"I'd like to send feedback about AgenC\"",
+		Title:         "💬  Send Feedback",
+		Description:   "Send feedback about AgenC",
+		Command:       "agenc mission new --adjutant --prompt \"I'd like to send feedback about AgenC\"",
+		ExecutionMode: ExecRun,
 	},
 	"joinDiscord": {
-		Title:       "👾  Join the Discord",
-		Description: "Join the AgenC Discord community",
-		Command:     "agenc discord",
+		Title:         "👾  Join the Discord",
+		Description:   "Join the AgenC Discord community",
+		Command:       "agenc discord",
+		ExecutionMode: ExecRun,
 	},
 	"starAgenc": {
-		Title:       "⭐  Star AgenC on Github",
-		Description: "Open the AgenC GitHub repo in your browser",
-		Command:     "agenc star",
+		Title:         "⭐  Star AgenC on Github",
+		Description:   "Open the AgenC GitHub repo in your browser",
+		Command:       "agenc star",
+		ExecutionMode: ExecRun,
 	},
 	"exitTmux": {
-		Title:       "🚪  Detach (Exit)",
-		Description: "Detach from tmux (session stays running; reattach anytime)",
-		Command:     "tmux detach",
+		Title:         "🚪  Detach (Exit)",
+		Description:   "Detach from tmux (session stays running; reattach anytime)",
+		Command:       "tmux detach",
+		ExecutionMode: ExecRun,
 	},
-}
-
-// builtinDisplayPopupCommands lists builtin commands whose direct keybinding
-// should open a tmux display-popup for interactive input instead of run-shell.
-var builtinDisplayPopupCommands = map[string]bool{
-	"newMission":    true,
-	"switchMission": true,
-	"renameSession": true,
 }
 
 // builtinPaletteCommandOrder controls the display order of builtin commands
@@ -699,11 +709,6 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			continue
 		}
 
-		execMode := builtin.ExecutionMode
-		if execMode == "" && builtinDisplayPopupCommands[name] {
-			execMode = ExecPopup
-		}
-
 		resolved := ResolvedPaletteCommand{
 			Name:           name,
 			Title:          builtin.Title,
@@ -711,7 +716,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Command:        builtin.Command,
 			TmuxKeybinding: builtin.TmuxKeybinding,
 			IsBuiltin:      true,
-			ExecutionMode:  execMode,
+			ExecutionMode:  builtin.ExecutionMode,
 		}
 
 		// Apply overrides — non-empty fields replace defaults
@@ -727,6 +732,9 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			}
 			if override.TmuxKeybinding != "" {
 				resolved.TmuxKeybinding = override.TmuxKeybinding
+			}
+			if override.ExecutionMode != "" {
+				resolved.ExecutionMode = override.ExecutionMode
 			}
 		}
 
@@ -754,6 +762,7 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 			Command:        cmdCfg.Command,
 			TmuxKeybinding: cmdCfg.TmuxKeybinding,
 			IsBuiltin:      false,
+			ExecutionMode:  cmdCfg.ExecutionMode,
 		}
 		result = append(result, resolved)
 	}
