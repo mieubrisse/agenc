@@ -62,7 +62,7 @@ func runTmuxSwitch(cmd *cobra.Command, args []string) error {
 	// Only include missions that are running AND have a tmux pane registered.
 	var switchable []*database.Mission
 	for _, m := range missions {
-		if m.TmuxPane != nil && strings.HasPrefix(getMissionStatus(m.ID, m.Status, m.ClaudeState), "RUNNING") {
+		if m.TmuxPane != nil && isMissionRunning(getMissionStatus(m.ID, m.Status, m.ClaudeState)) {
 			switchable = append(switchable, m)
 		}
 	}

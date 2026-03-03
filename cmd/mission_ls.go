@@ -184,10 +184,16 @@ func formatLastActive(lastHeartbeat *time.Time, createdAt time.Time) string {
 
 // colorizeStatus wraps a status string with ANSI color codes.
 func colorizeStatus(status string) string {
-	switch {
-	case strings.HasPrefix(status, "RUNNING"):
+	switch status {
+	case "IDLE":
+		return ansiLightBlue + status + ansiReset
+	case "BUSY":
 		return ansiGreen + status + ansiReset
-	case status == "ARCHIVED":
+	case "WAITING":
+		return ansiYellow + status + ansiReset
+	case "RUNNING":
+		return ansiGreen + status + ansiReset
+	case "ARCHIVED":
 		return ansiYellow + status + ansiReset
 	default:
 		return status
@@ -267,10 +273,8 @@ func formatConfigCommit(configCommit *string, shadowHeadCommitHash string) strin
 	return display
 }
 
-// getMissionStatus returns the unified status for a mission: RUNNING (with
-// optional sub-state), STOPPED, or ARCHIVED. When claudeState is available
-// from the server API, it is included as a parenthetical (e.g. "RUNNING (idle)").
-// Falls back to PID-based detection when claudeState is nil.
+// getMissionStatus returns the display status for a mission: IDLE, BUSY,
+// WAITING, RUNNING (no claude state data), STOPPED, or ARCHIVED.
 func getMissionStatus(missionID string, dbStatus string, claudeState *string) string {
 	if dbStatus == "archived" {
 		return "ARCHIVED"
@@ -278,11 +282,11 @@ func getMissionStatus(missionID string, dbStatus string, claudeState *string) st
 	if claudeState != nil {
 		switch *claudeState {
 		case "idle":
-			return "RUNNING (idle)"
+			return "IDLE"
 		case "busy":
-			return "RUNNING (busy)"
+			return "BUSY"
 		case "needs_attention":
-			return "RUNNING (attention)"
+			return "WAITING"
 		default:
 			return "RUNNING"
 		}
@@ -294,6 +298,15 @@ func getMissionStatus(missionID string, dbStatus string, claudeState *string) st
 		return "RUNNING"
 	}
 	return "STOPPED"
+}
+
+// isMissionRunning returns true if the mission status indicates the wrapper is alive.
+func isMissionRunning(status string) bool {
+	switch status {
+	case "RUNNING", "IDLE", "BUSY", "WAITING":
+		return true
+	}
+	return false
 }
 
 // getMissionGitStatus checks for uncommitted changes in a mission's agent

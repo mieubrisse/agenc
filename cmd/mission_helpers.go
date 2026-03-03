@@ -110,7 +110,7 @@ func filterStoppedMissions(missions []*database.Mission) []*database.Mission {
 func filterRunningMissions(missions []*database.Mission) []*database.Mission {
 	var filtered []*database.Mission
 	for _, m := range missions {
-		if strings.HasPrefix(getMissionStatus(m.ID, m.Status, m.ClaudeState), "RUNNING") {
+		if isMissionRunning(getMissionStatus(m.ID, m.Status, m.ClaudeState)) {
 			filtered = append(filtered, m)
 		}
 	}
