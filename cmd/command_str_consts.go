@@ -111,11 +111,10 @@ const (
 	jsonFlagName = "json"
 
 	// paletteCommand flags
-	paletteCommandCommandFlagName       = "command"
-	paletteCommandTitleFlagName         = "title"
-	paletteCommandDescriptionFlagName   = "description"
-	paletteCommandKeybindingFlagName    = "keybinding"
-	paletteCommandExecutionModeFlagName = "execution-mode"
+	paletteCommandCommandFlagName     = "command"
+	paletteCommandTitleFlagName       = "title"
+	paletteCommandDescriptionFlagName = "description"
+	paletteCommandKeybindingFlagName  = "keybinding"
 
 	// repoConfig flags
 	repoConfigAlwaysSyncedFlagName      = "always-synced"
