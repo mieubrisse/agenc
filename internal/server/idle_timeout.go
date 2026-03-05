@@ -18,6 +18,11 @@ const (
 	// defaultIdleTimeout is how long a mission can be idle before its wrapper
 	// is stopped. Idle means the JSONL conversation log has not been modified.
 	defaultIdleTimeout = 30 * time.Minute
+
+	// staleHeartbeatThreshold is how long after the last heartbeat before a
+	// mission's tmux_pane is considered stale and cleared. Set to 3x the
+	// wrapper heartbeat interval (10s) to tolerate occasional delays.
+	staleHeartbeatThreshold = 30 * time.Second
 )
 
 // runIdleTimeoutLoop periodically scans running missions and stops wrappers
@@ -54,9 +59,11 @@ func (s *Server) runIdleTimeoutCycle() {
 		return
 	}
 
+	now := time.Now()
+	s.reapStalePaneIDs(missions, now)
+
 	linkedPaneIDs := getLinkedPaneIDs()
 
-	now := time.Now()
 	for _, m := range missions {
 		if !s.isWrapperRunning(m.ID) {
 			continue
@@ -83,6 +90,28 @@ func (s *Server) runIdleTimeoutCycle() {
 		if m.TmuxPane != nil {
 			s.destroyPoolWindow(*m.TmuxPane)
 		}
+	}
+}
+
+// reapStalePaneIDs clears tmux_pane for missions whose wrapper has stopped
+// heartbeating. This catches wrapper crashes and tmux restarts that happen
+// during normal operation (not just at server startup).
+func (s *Server) reapStalePaneIDs(missions []*database.Mission, now time.Time) {
+	for _, m := range missions {
+		if m.TmuxPane == nil {
+			continue
+		}
+
+		isStale := m.LastHeartbeat == nil || now.Sub(*m.LastHeartbeat) > staleHeartbeatThreshold
+		if !isStale {
+			continue
+		}
+
+		if err := s.db.ClearTmuxPane(m.ID); err != nil {
+			s.logger.Printf("Warning: failed to clear stale pane for mission %s: %v", database.ShortID(m.ID), err)
+			continue
+		}
+		s.logger.Printf("Cleared stale tmux pane for mission %s (last heartbeat: %v)", database.ShortID(m.ID), m.LastHeartbeat)
 	}
 }
 
