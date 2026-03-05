@@ -42,9 +42,13 @@ func runMissionSendKeys(cmd *cobra.Command, args []string) error {
 	var keys []string
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) && !isatty.IsCygwinTerminal(os.Stdin.Fd()) {
-		data, err := io.ReadAll(os.Stdin)
+		const maxStdinBytes = 1 << 20 // 1 MiB
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, maxStdinBytes+1))
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to read stdin")
+		}
+		if len(data) > maxStdinBytes {
+			return stacktrace.NewError("stdin exceeds maximum size of %d bytes", maxStdinBytes)
 		}
 		stdinContent := strings.TrimRight(string(data), "\n")
 		if stdinContent != "" {
