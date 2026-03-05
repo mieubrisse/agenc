@@ -524,6 +524,22 @@ func (c *Client) PopStash(stashID string) (*StashPopResponse, error) {
 	return &resp, nil
 }
 
+// HealthResponse represents the response from the /health endpoint.
+type HealthResponse struct {
+	Status  string            `json:"status"`
+	Version string            `json:"version"`
+	Loops   map[string]string `json:"loops"`
+}
+
+// GetHealth calls the /health endpoint and returns the server health status.
+func (c *Client) GetHealth() (*HealthResponse, error) {
+	var result HealthResponse
+	if err := c.Get("/health", &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) decodeError(resp *http.Response) error {
 	var errResp errorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
