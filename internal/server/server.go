@@ -252,9 +252,24 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) error {
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status":  "ok",
+	loops := make(map[string]string)
+	s.loopHealth.Range(func(key, value any) bool {
+		loops[key.(string)] = value.(string)
+		return true
+	})
+
+	status := "ok"
+	for _, loopStatus := range loops {
+		if loopStatus == "crashed" {
+			status = "degraded"
+			break
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  status,
 		"version": version.Version,
+		"loops":   loops,
 	})
 	return nil
 }
