@@ -280,3 +280,39 @@ func TestListMissions_BrandNewMissionAppearsFirst(t *testing.T) {
 		t.Errorf("expected brand new mission to appear first, got %s", missions[0].ID)
 	}
 }
+
+func TestClearAllTmuxPanes(t *testing.T) {
+	db := openTestDB(t)
+
+	// Create two missions with pane IDs
+	m1, err := db.CreateMission("repo1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, err := db.CreateMission("repo2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.SetTmuxPane(m1.ID, "42"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTmuxPane(m2.ID, "99"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Clear all
+	if err := db.ClearAllTmuxPanes(); err != nil {
+		t.Fatalf("ClearAllTmuxPanes failed: %v", err)
+	}
+
+	// Verify both are cleared
+	got1, _ := db.GetMission(m1.ID)
+	got2, _ := db.GetMission(m2.ID)
+	if got1.TmuxPane != nil {
+		t.Errorf("expected nil pane for m1, got %v", *got1.TmuxPane)
+	}
+	if got2.TmuxPane != nil {
+		t.Errorf("expected nil pane for m2, got %v", *got2.TmuxPane)
+	}
+}

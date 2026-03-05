@@ -295,6 +295,17 @@ func (db *DB) ClearTmuxPane(id string) error {
 	return nil
 }
 
+// ClearAllTmuxPanes removes the tmux pane association for all missions.
+// Used on server startup to clear stale pane IDs before reconciling with
+// the actual tmux state.
+func (db *DB) ClearAllTmuxPanes() error {
+	_, err := db.conn.Exec("UPDATE missions SET tmux_pane = NULL")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to clear all tmux panes")
+	}
+	return nil
+}
+
 // IncrementPromptCount atomically increments the prompt_count for a mission.
 // Called by the wrapper on each UserPromptSubmit hook event.
 func (db *DB) IncrementPromptCount(id string) error {
