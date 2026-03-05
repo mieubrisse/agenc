@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+func TestCreateSessionRejectsBadMissionID(t *testing.T) {
+	db := openTestDB(t)
+
+	_, err := db.CreateSession("nonexistent-mission-id", "session-123")
+	if err == nil {
+		t.Fatal("expected error when creating session with nonexistent mission ID, got nil")
+	}
+}
+
 func TestCreateAndGetSession(t *testing.T) {
 	db := openTestDB(t)
 
@@ -355,11 +364,6 @@ func TestUpdateSessionAgencCustomTitle(t *testing.T) {
 
 func TestSessionsCascadeDeleteWithMission(t *testing.T) {
 	db := openTestDB(t)
-
-	// Enable foreign keys (SQLite has them off by default)
-	if _, err := db.conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		t.Fatalf("failed to enable foreign keys: %v", err)
-	}
 
 	mission, err := db.CreateMission("github.com/owner/repo", nil)
 	if err != nil {

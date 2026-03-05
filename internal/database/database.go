@@ -16,7 +16,7 @@ type DB struct {
 // Open opens or creates the SQLite database at the given filepath
 // and runs auto-migration.
 func Open(dbFilepath string) (*DB, error) {
-	dsn := dbFilepath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	dsn := dbFilepath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to open database at '%s'", dbFilepath)
