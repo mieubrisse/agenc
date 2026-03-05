@@ -181,7 +181,7 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	// redirecting to a log file suppresses the noise while preserving output
 	// for debugging.
 	agencDirpathForLog, _ := config.GetAgencDirpath()
-	logFilepath := filepath.Join(agencDirpathForLog, "logs", "palette.log")
+	logFilepath := config.GetPaletteLogFilepath(agencDirpathForLog)
 	os.MkdirAll(filepath.Dir(logFilepath), 0755)
 	fullCommand += fmt.Sprintf(" >> %s 2>&1", logFilepath)
 

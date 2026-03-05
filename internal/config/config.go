@@ -412,6 +412,13 @@ func GetOAuthTokenFilepath(agencDirpath string) string {
 	return filepath.Join(GetCacheDirpath(agencDirpath), OAuthTokenFilename)
 }
 
+// GetPaletteLogFilepath returns the path to the palette command output log.
+// Both the palette picker and direct keybindings redirect command output here
+// to prevent tmux run-shell from overlaying it on the active pane.
+func GetPaletteLogFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, "logs", "palette.log")
+}
+
 // GetCronLogDirpath returns the path to the cron logs directory.
 func GetCronLogDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, "logs", "crons")

@@ -59,7 +59,8 @@ func runTmuxInject(cmd *cobra.Command, args []string) error {
 		keybindings = agentmux.BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
 	}
 
-	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, paletteKey, keybindings); err != nil {
+	logFilepath := config.GetPaletteLogFilepath(agencDirpath)
+	if err := agentmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, paletteKey, keybindings, logFilepath); err != nil {
 		return err
 	}
 	fmt.Printf("Wrote keybindings to %s\n", keybindingsFilepath)

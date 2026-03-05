@@ -41,7 +41,10 @@ type CustomKeybinding struct {
 // The paletteKey parameter is the tmux key for the command palette
 // (e.g. "k"). The customKeybindings slice contains all keybindings from
 // resolved palette commands (both builtin and user-defined).
-func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, customKeybindings []CustomKeybinding) string {
+// The logFilepath parameter, when non-empty, causes each keybinding's command
+// output to be redirected to the given file (appending stdout and stderr).
+// This prevents tmux run-shell from overlaying command output on the active pane.
+func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, customKeybindings []CustomKeybinding, logFilepath string) string {
 	var sb strings.Builder
 
 	sb.WriteString("# AgenC tmux keybindings\n")
@@ -69,6 +72,14 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 			"'\n", paletteKey, agencBinary, agencBinary)
 	}
 
+	// Build the output redirect suffix. When a log file is configured,
+	// stdout and stderr are appended to it so that tmux run-shell does not
+	// overlay command output on the active pane.
+	redirectSuffix := ""
+	if logFilepath != "" {
+		redirectSuffix = fmt.Sprintf(" >> %s 2>&1", escapeSingleQuotes(logFilepath))
+	}
+
 	// Emit all keybindings from resolved palette commands
 	for _, kb := range customKeybindings {
 		sb.WriteString("\n")
@@ -92,10 +103,10 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		if kb.IsMissionScoped {
 			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s"+
-				"'\n", bindKeyArgs, agencBinary, escapedCommand)
+				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s%s"+
+				"'\n", bindKeyArgs, agencBinary, escapedCommand, redirectSuffix)
 		} else {
-			fmt.Fprintf(&sb, "bind-key %s run-shell '%s'\n", bindKeyArgs, escapedCommand)
+			fmt.Fprintf(&sb, "bind-key %s run-shell '%s%s'\n", bindKeyArgs, escapedCommand, redirectSuffix)
 		}
 	}
 
@@ -105,9 +116,10 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 // WriteKeybindingsFile writes the agenc-managed keybindings file, overwriting
 // any previous version. The tmuxMajor/tmuxMinor parameters control
 // version-gated keybindings. The paletteKey parameter is the tmux key for the
-// command palette.
-func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, paletteKey string, customKeybindings []CustomKeybinding) error {
-	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor, paletteKey, customKeybindings)
+// command palette. The logFilepath parameter controls output redirection
+// (see GenerateKeybindingsContent).
+func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, paletteKey string, customKeybindings []CustomKeybinding, logFilepath string) error {
+	content := GenerateKeybindingsContent(tmuxMajor, tmuxMinor, paletteKey, customKeybindings, logFilepath)
 	if err := os.WriteFile(keybindingsFilepath, []byte(content), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write keybindings file '%s'", keybindingsFilepath)
 	}
@@ -152,6 +164,7 @@ func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []Cu
 // add/update/rm) so changes take effect immediately.
 func RefreshKeybindings(agencDirpath string) error {
 	keybindingsFilepath := config.GetTmuxKeybindingsFilepath(agencDirpath)
+	logFilepath := config.GetPaletteLogFilepath(agencDirpath)
 
 	tmuxMajor, tmuxMinor, _ := DetectVersion()
 
@@ -162,7 +175,7 @@ func RefreshKeybindings(agencDirpath string) error {
 		keybindings = BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
 	}
 
-	if err := WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, paletteKey, keybindings); err != nil {
+	if err := WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, paletteKey, keybindings, logFilepath); err != nil {
 		return stacktrace.Propagate(err, "failed to write keybindings file")
 	}
 

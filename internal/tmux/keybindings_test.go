@@ -17,7 +17,7 @@ func TestGenerateKeybindingsContent_MissionScopedKeybinding(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// Should contain resolve-mission preamble for mission-scoped keybinding
 	if !strings.Contains(content, "resolve-mission") {
@@ -39,7 +39,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// Should contain the simple run-shell form
 	if !strings.Contains(content, "run-shell 'agenc mission new'") {
@@ -60,7 +60,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 }
 
 func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 4, "-T agenc k", nil)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", nil, "")
 
 	// Palette keybinding (k) should always include resolve-mission
 	if !strings.Contains(content, "resolve-mission") {
@@ -79,7 +79,7 @@ func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) 
 }
 
 func TestGenerateKeybindingsContent_PaletteOmittedOnOldTmux(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 1, "-T agenc k", nil)
+	content := GenerateKeybindingsContent(3, 1, "-T agenc k", nil, "")
 
 	// tmux < 3.2 should not have the palette keybinding
 	if strings.Contains(content, "display-popup") {
@@ -88,7 +88,7 @@ func TestGenerateKeybindingsContent_PaletteOmittedOnOldTmux(t *testing.T) {
 }
 
 func TestGenerateKeybindingsContent_CustomPaletteKey(t *testing.T) {
-	content := GenerateKeybindingsContent(3, 4, "-T agenc p", nil)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc p", nil, "")
 
 	// Should bind the palette to the custom key in the agenc table
 	if !strings.Contains(content, "bind-key -T agenc p run-shell") {
@@ -103,7 +103,7 @@ func TestGenerateKeybindingsContent_CustomPaletteKey(t *testing.T) {
 
 func TestGenerateKeybindingsContent_PaletteKeyOutsideAgencTable(t *testing.T) {
 	// User binds the palette directly on prefix (no agenc table)
-	content := GenerateKeybindingsContent(3, 4, "C-k", nil)
+	content := GenerateKeybindingsContent(3, 4, "C-k", nil, "")
 
 	// Should emit the keybinding verbatim
 	if !strings.Contains(content, "bind-key C-k run-shell") {
@@ -127,7 +127,7 @@ func TestGenerateKeybindingsContent_GlobalKeybinding(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// Should emit "bind-key -n C-s" verbatim
 	if !strings.Contains(content, "bind-key -n C-s run-shell") {
@@ -152,7 +152,7 @@ func TestGenerateKeybindingsContent_GlobalMissionScopedKeybinding(t *testing.T) 
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// Should emit "bind-key -n C-s" verbatim
 	if !strings.Contains(content, "bind-key -n C-s run-shell") {
@@ -181,7 +181,7 @@ func TestGenerateKeybindingsContent_SingleQuotesInCommand(t *testing.T) {
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// The inner single quotes must be escaped as '\'' so tmux parses them correctly.
 	expected := `run-shell 'bash -c '\''echo hello'\'''`
@@ -201,7 +201,7 @@ func TestGenerateKeybindingsContent_SingleQuotesInMissionScopedCommand(t *testin
 		},
 	}
 
-	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// The escaped single quotes should appear in the mission-scoped preamble
 	if strings.Contains(content, "-c '#{pane_current_path}' $SHELL'") {
@@ -220,7 +220,7 @@ func TestGenerateKeybindingsContent_DisplayPopupSkippedOnOldTmux(t *testing.T) {
 			Comment: "newMission (prefix + a, n)",
 		},
 	}
-	content := GenerateKeybindingsContent(3, 1, "-T agenc k", keybindings)
+	content := GenerateKeybindingsContent(3, 1, "-T agenc k", keybindings, "")
 	if strings.Contains(content, "display-popup") {
 		t.Error("expected display-popup command to be skipped on tmux < 3.2")
 	}
@@ -250,5 +250,61 @@ func TestBuildKeybindingsFromCommands_GlobalKeyComment(t *testing.T) {
 	}
 	if !strings.Contains(kb.Comment, "-n C-s") {
 		t.Errorf("expected global keybinding comment to contain '-n C-s', got: %s", kb.Comment)
+	}
+}
+
+func TestGenerateKeybindingsContent_OutputRedirect(t *testing.T) {
+	logFilepath := "/tmp/test/palette.log"
+
+	// Non-mission-scoped command should have output redirected
+	keybindings := []CustomKeybinding{
+		{
+			Key:     "d",
+			Command: "agenc discord",
+			Comment: "joinDiscord (prefix + a, d)",
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, logFilepath)
+
+	expectedRedirect := ">> /tmp/test/palette.log 2>&1"
+	if !strings.Contains(content, expectedRedirect) {
+		t.Errorf("expected output redirect in keybinding\nwant substring: %s\ngot:\n%s", expectedRedirect, content)
+	}
+}
+
+func TestGenerateKeybindingsContent_OutputRedirectMissionScoped(t *testing.T) {
+	logFilepath := "/tmp/test/palette.log"
+
+	keybindings := []CustomKeybinding{
+		{
+			Key:             "s",
+			Command:         "agenc mission stop $AGENC_CALLING_MISSION_UUID",
+			Comment:         "stopMission (prefix + a, s)",
+			IsMissionScoped: true,
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, logFilepath)
+
+	expectedRedirect := ">> /tmp/test/palette.log 2>&1"
+	if !strings.Contains(content, expectedRedirect) {
+		t.Errorf("expected output redirect in mission-scoped keybinding\nwant substring: %s\ngot:\n%s", expectedRedirect, content)
+	}
+}
+
+func TestGenerateKeybindingsContent_NoRedirectWhenLogEmpty(t *testing.T) {
+	keybindings := []CustomKeybinding{
+		{
+			Key:     "d",
+			Command: "agenc discord",
+			Comment: "joinDiscord (prefix + a, d)",
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
+
+	if strings.Contains(content, ">>") {
+		t.Errorf("expected no output redirect when logFilepath is empty\ngot:\n%s", content)
 	}
 }
