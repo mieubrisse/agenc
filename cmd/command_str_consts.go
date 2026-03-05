@@ -60,6 +60,7 @@ const (
 	sendCmdStr         = "send"
 	claudeUpdateCmdStr = "claude-update"
 	renameCmdStr       = "rename"
+	sendKeysCmdStr     = "send-keys"
 
 	// Config subcommands
 	initCmdStr           = "init"
