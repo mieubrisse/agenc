@@ -459,9 +459,11 @@ paletteCommands:
 
 func TestPaletteCommands_BuiltinClearKeybinding(t *testing.T) {
 	tmpDir := t.TempDir()
+	// newMission has a default keybinding of "-n C-n"; clearing it should
+	// produce an empty keybinding in the resolved output.
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
-  stopMission:
+  newMission:
     tmuxKeybinding: ""
 `)
 
@@ -471,9 +473,9 @@ paletteCommands:
 	}
 
 	// The override entry should persist (not be cleaned up as empty)
-	override, exists := cfg.PaletteCommands["stopMission"]
+	override, exists := cfg.PaletteCommands["newMission"]
 	if !exists {
-		t.Fatal("expected stopMission override to exist in config")
+		t.Fatal("expected newMission override to exist in config")
 	}
 	if override.TmuxKeybinding == nil {
 		t.Fatal("expected TmuxKeybinding to be non-nil (explicitly set to empty)")
@@ -485,18 +487,18 @@ paletteCommands:
 	// The resolved command should have no keybinding
 	resolved := cfg.GetResolvedPaletteCommands()
 	for _, cmd := range resolved {
-		if cmd.Name == "stopMission" {
+		if cmd.Name == "newMission" {
 			if cmd.TmuxKeybinding != "" {
 				t.Errorf("expected cleared keybinding (empty string), got '%s'", cmd.TmuxKeybinding)
 			}
 			// Title should still have the builtin default
-			if cmd.Title != "🛑  Stop Mission" {
+			if cmd.Title != "🚀  New Mission" {
 				t.Errorf("expected default title, got '%s'", cmd.Title)
 			}
 			return
 		}
 	}
-	t.Error("stopMission not found in resolved commands")
+	t.Error("newMission not found in resolved commands")
 }
 
 func TestPaletteCommands_BuiltinDisable(t *testing.T) {

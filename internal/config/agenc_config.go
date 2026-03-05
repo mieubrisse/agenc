@@ -137,9 +137,10 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		TmuxKeybinding: StringPtr("-n C-m"),
 	},
 	"detachMission": {
-		Title:       StringPtr("🔌  Detach Mission"),
-		Description: StringPtr("Unlink the focused mission from this tmux session (keeps running)"),
-		Command:     StringPtr("agenc mission detach $AGENC_CALLING_MISSION_UUID"),
+		Title:          StringPtr("🔌  Detach Mission"),
+		Description:    StringPtr("Unlink the focused mission from this tmux session (keeps running)"),
+		Command:        StringPtr("agenc mission detach $AGENC_CALLING_MISSION_UUID"),
+		TmuxKeybinding: StringPtr("-n C-s"),
 	},
 	"resumeMission": {
 		Title:       StringPtr("🟢  Resume Mission"),
@@ -169,10 +170,9 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		TmuxKeybinding: StringPtr("-n C-."),
 	},
 	"stopMission": {
-		Title:          StringPtr("🛑  Stop Mission"),
-		Description:    StringPtr("Stop the mission in the focused pane"),
-		Command:        StringPtr("agenc mission stop $AGENC_CALLING_MISSION_UUID"),
-		TmuxKeybinding: StringPtr("-n C-s"),
+		Title:       StringPtr("🛑  Stop Mission"),
+		Description: StringPtr("Stop the mission in the focused pane"),
+		Command:     StringPtr("agenc mission stop $AGENC_CALLING_MISSION_UUID"),
 	},
 	"reconfigMission": {
 		Title:       StringPtr("🔧  Reconfig & Reload Mission"),
