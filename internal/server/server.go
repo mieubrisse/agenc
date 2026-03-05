@@ -119,6 +119,9 @@ func (s *Server) Run(ctx context.Context) error {
 		s.logger.Printf("Warning: failed to create tmux pool session: %v", err)
 	}
 
+	// Reconcile tmux pane IDs with actual pool state
+	s.reconcilePaneIDs()
+
 	// Verify launchctl is available (required for cron scheduling)
 	if err := launchd.VerifyLaunchctlAvailable(); err != nil {
 		s.logger.Printf("Warning: %v - cron scheduling will not work", err)
