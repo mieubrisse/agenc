@@ -46,6 +46,10 @@ type Server struct {
 	// stashInProgress is set while a stash push or pop is running.
 	// Mutating mission endpoints return 503 while this is true.
 	stashInProgress atomic.Bool
+
+	// loopHealth tracks the status of each background loop goroutine.
+	// Values are "running", "stopped", or "crashed".
+	loopHealth sync.Map
 }
 
 // NewServer creates a new Server instance.
@@ -67,6 +71,24 @@ func (s *Server) getConfig() *config.AgencConfig {
 		return &config.AgencConfig{}
 	}
 	return cfg
+}
+
+// runLoop runs a named background loop function with panic recovery and health tracking.
+// On normal return, the loop is marked "stopped". On panic, it is marked "crashed"
+// and the panic is logged — the loop is NOT restarted.
+func (s *Server) runLoop(name string, wg *sync.WaitGroup, ctx context.Context, fn func(ctx context.Context)) {
+	wg.Add(1)
+	s.loopHealth.Store(name, "running")
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Printf("PANIC in background loop %q: %v", name, r)
+			s.loopHealth.Store(name, "crashed")
+		} else {
+			s.loopHealth.Store(name, "stopped")
+		}
+		wg.Done()
+	}()
+	fn(ctx)
 }
 
 // Run starts the HTTP server on the unix socket and blocks until ctx is cancelled.
