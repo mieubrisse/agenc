@@ -64,10 +64,14 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return updateConfigForAllMissions(client, newCommitHash)
 	}
 
-	// Fast path: when a mission ID is provided directly (e.g. from the palette
-	// command), resolve and reconfig it without listing all missions.
 	input := strings.Join(args, " ")
-	if input != "" && looksLikeMissionID(input) {
+
+	// When a mission ID is provided, resolve and reconfig directly without
+	// calling ListMissions (which queries every wrapper over HTTP).
+	if input != "" {
+		if !looksLikeMissionID(input) {
+			return stacktrace.NewError("not a valid mission ID: %s", input)
+		}
 		missionID, err := client.ResolveMissionID(input)
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve mission ID")
@@ -75,7 +79,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return updateMissionConfig(client, missionID, newCommitHash)
 	}
 
-	// Interactive path: list all missions and show fzf picker
+	// No args: list all missions and show fzf picker
 	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -89,29 +93,12 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 	entries := buildMissionPickerEntries(missions, defaultPromptMaxLen)
 
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
-		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
-			if !looksLikeMissionID(input) {
-				return missionPickerEntry{}, false, nil
-			}
-			missionID, err := client.ResolveMissionID(input)
-			if err != nil {
-				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
-			}
-			for _, e := range entries {
-				if e.MissionID == missionID {
-					return e, true, nil
-				}
-			}
-			return missionPickerEntry{}, false, stacktrace.NewError("mission %s not found", input)
-		},
 		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
 			return []string{e.LastActive, e.ShortID, e.Status, e.Session, e.Repo}
 		},
-		FzfPrompt:         "Select mission to reconfig: ",
-		FzfHeaders:        []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
-		MultiSelect:       false,
-		NotCanonicalError: "not a valid mission ID",
+		FzfPrompt:  "Select mission to reconfig: ",
+		FzfHeaders: []string{"LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO"},
 	})
 	if err != nil {
 		return err
