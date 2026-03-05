@@ -166,54 +166,15 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Start background loops
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runRepoUpdateWorker(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runRepoUpdateLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runConfigAutoCommitLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runConfigWatcherLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runKeybindingsWriterLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runIdleTimeoutLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runSessionScannerLoop(ctx)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		s.runSessionSummarizerWorker(ctx)
-	}()
+	// Start background loops with panic recovery
+	go s.runLoop("repo-update-worker", &wg, ctx, s.runRepoUpdateWorker)
+	go s.runLoop("repo-update-loop", &wg, ctx, s.runRepoUpdateLoop)
+	go s.runLoop("config-auto-commit", &wg, ctx, s.runConfigAutoCommitLoop)
+	go s.runLoop("config-watcher", &wg, ctx, s.runConfigWatcherLoop)
+	go s.runLoop("keybindings-writer", &wg, ctx, s.runKeybindingsWriterLoop)
+	go s.runLoop("idle-timeout", &wg, ctx, s.runIdleTimeoutLoop)
+	go s.runLoop("session-scanner", &wg, ctx, s.runSessionScannerLoop)
+	go s.runLoop("session-summarizer", &wg, ctx, s.runSessionSummarizerWorker)
 
 	// Wait for context cancellation, then gracefully shut down
 	<-ctx.Done()
