@@ -1,6 +1,7 @@
 package database
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -384,5 +385,62 @@ func TestSessionsCascadeDeleteWithMission(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("expected session to be cascade-deleted, but it still exists")
+	}
+}
+
+func TestOrphanedSessionsCleanedOnOpen(t *testing.T) {
+	dbFilepath := filepath.Join(t.TempDir(), "test.sqlite")
+
+	// Open the database to create the schema
+	db1, err := Open(dbFilepath)
+	if err != nil {
+		t.Fatalf("first Open failed: %v", err)
+	}
+
+	// Create a mission and a session
+	mission, err := db1.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("CreateMission failed: %v", err)
+	}
+	if _, err := db1.CreateSession(mission.ID, "legit-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Insert an orphaned session directly via SQL (bypass FK check by
+	// temporarily disabling foreign keys at the connection level)
+	if _, err := db1.conn.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatalf("failed to disable foreign keys: %v", err)
+	}
+	if _, err := db1.conn.Exec(
+		"INSERT INTO sessions (id, short_id, mission_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+		"orphan-session", "orphan-s", "nonexistent-mission", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z",
+	); err != nil {
+		t.Fatalf("failed to insert orphaned session: %v", err)
+	}
+	db1.Close()
+
+	// Re-open the database — the migration should clean up the orphan
+	db2, err := Open(dbFilepath)
+	if err != nil {
+		t.Fatalf("second Open failed: %v", err)
+	}
+	defer db2.Close()
+
+	// The orphaned session should be gone
+	got, err := db2.GetSession("orphan-session")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected orphaned session to be cleaned up, but it still exists")
+	}
+
+	// The legitimate session should still exist
+	legit, err := db2.GetSession("legit-session")
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if legit == nil {
+		t.Error("expected legitimate session to survive cleanup, but it was deleted")
 	}
 }

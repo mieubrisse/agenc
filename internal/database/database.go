@@ -120,6 +120,11 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to drop mission_descriptions table")
 	}
 
+	if err := migrateCleanOrphanedSessions(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to clean orphaned sessions")
+	}
+
 	return &DB{conn: conn}, nil
 }
 

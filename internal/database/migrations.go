@@ -44,6 +44,8 @@ const (
 	addSessionShortIDColumnSQL   = `ALTER TABLE sessions ADD COLUMN short_id TEXT NOT NULL DEFAULT '';`
 	backfillSessionShortIDSQL    = `UPDATE sessions SET short_id = SUBSTR(id, 1, 8) WHERE short_id = '';`
 	createSessionShortIDIndexSQL = `CREATE INDEX IF NOT EXISTS idx_sessions_short_id ON sessions(short_id);`
+
+	cleanOrphanedSessionsSQL = `DELETE FROM sessions WHERE mission_id NOT IN (SELECT id FROM missions);`
 )
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
@@ -403,6 +405,14 @@ func migrateAddSessionShortID(conn *sql.DB) error {
 		return stacktrace.Propagate(err, "failed to create sessions short_id index")
 	}
 	return nil
+}
+
+// migrateCleanOrphanedSessions removes sessions whose mission_id does not
+// reference an existing mission. These orphans could accumulate from periods
+// when foreign key constraints were not enforced.
+func migrateCleanOrphanedSessions(conn *sql.DB) error {
+	_, err := conn.Exec(cleanOrphanedSessionsSQL)
+	return err
 }
 
 // getSessionColumnNames returns a set of column names present in the sessions table.
