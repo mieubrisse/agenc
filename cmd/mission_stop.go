@@ -31,6 +31,22 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Fast path: when a mission ID is provided directly (e.g. from the palette
+	// command), resolve and stop it without listing all missions.
+	input := strings.Join(args, " ")
+	if input != "" && looksLikeMissionID(input) {
+		missionID, err := client.ResolveMissionID(input)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve mission ID")
+		}
+		if err := client.StopMission(missionID); err != nil {
+			return stacktrace.Propagate(err, "failed to stop mission %s", database.ShortID(missionID))
+		}
+		fmt.Printf("Mission '%s' stopped.\n", database.ShortID(missionID))
+		return nil
+	}
+
+	// Interactive path: list running missions and show fzf picker
 	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -44,7 +60,6 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 
 	entries := buildMissionPickerEntries(runningMissions, defaultPromptMaxLen)
 
-	input := strings.Join(args, " ")
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
 			if !looksLikeMissionID(input) {
@@ -54,7 +69,6 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
 			}
-			// Find the entry in our running missions list
 			for _, e := range entries {
 				if e.MissionID == missionID {
 					return e, true, nil

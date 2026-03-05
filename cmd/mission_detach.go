@@ -40,6 +40,22 @@ func runMissionDetach(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("mission detach requires tmux; run inside a tmux session")
 	}
 
+	// Fast path: when a mission ID is provided directly (e.g. from the palette
+	// command), resolve and detach it without listing all missions.
+	input := strings.Join(args, " ")
+	if input != "" && looksLikeMissionID(input) {
+		missionID, err := client.ResolveMissionID(input)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve mission ID")
+		}
+		fmt.Printf("Detaching mission: %s\n", database.ShortID(missionID))
+		if err := client.DetachMission(missionID, tmuxSession); err != nil {
+			return stacktrace.Propagate(err, "failed to detach mission")
+		}
+		return nil
+	}
+
+	// Interactive path: list linked missions and show fzf picker
 	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -52,7 +68,7 @@ func runMissionDetach(cmd *cobra.Command, args []string) error {
 
 	entries := buildMissionPickerEntries(linkedMissions, 100)
 
-	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
+	result, err := Resolve(input, Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil

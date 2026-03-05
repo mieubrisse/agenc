@@ -64,7 +64,18 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return updateConfigForAllMissions(client, newCommitHash)
 	}
 
-	// Single mission mode
+	// Fast path: when a mission ID is provided directly (e.g. from the palette
+	// command), resolve and reconfig it without listing all missions.
+	input := strings.Join(args, " ")
+	if input != "" && looksLikeMissionID(input) {
+		missionID, err := client.ResolveMissionID(input)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve mission ID")
+		}
+		return updateMissionConfig(client, missionID, newCommitHash)
+	}
+
+	// Interactive path: list all missions and show fzf picker
 	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -77,7 +88,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 
 	entries := buildMissionPickerEntries(missions, defaultPromptMaxLen)
 
-	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
+	result, err := Resolve(input, Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
 			if !looksLikeMissionID(input) {
 				return missionPickerEntry{}, false, nil
