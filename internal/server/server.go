@@ -236,6 +236,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /missions/{id}", appHandler(s.requestLogger, s.handleGetMission))
 	mux.Handle("POST /missions/{id}/attach", appHandler(s.requestLogger, s.stashGuard(s.handleAttachMission)))
 	mux.Handle("POST /missions/{id}/detach", appHandler(s.requestLogger, s.stashGuard(s.handleDetachMission)))
+	mux.Handle("POST /missions/{id}/send-keys", appHandler(s.requestLogger, s.handleSendKeys))
 	mux.Handle("POST /missions/{id}/stop", appHandler(s.requestLogger, s.stashGuard(s.handleStopMission)))
 	mux.Handle("DELETE /missions/{id}", appHandler(s.requestLogger, s.stashGuard(s.handleDeleteMission)))
 	mux.Handle("POST /missions/{id}/reload", appHandler(s.requestLogger, s.stashGuard(s.handleReloadMission)))

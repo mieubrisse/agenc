@@ -704,6 +704,66 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
+// SendKeysRequest is the JSON body for POST /missions/{id}/send-keys.
+type SendKeysRequest struct {
+	Keys []string `json:"keys"`
+}
+
+// handleSendKeys handles POST /missions/{id}/send-keys.
+// Sends keystrokes to a running mission's tmux pane via tmux send-keys.
+func (s *Server) handleSendKeys(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+
+	var req SendKeysRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
+	}
+	if len(req.Keys) == 0 {
+		return newHTTPError(http.StatusBadRequest, "keys is required and must not be empty")
+	}
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
+	}
+
+	missionRecord, err := s.db.GetMission(resolvedID)
+	if err != nil {
+		return newHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if missionRecord == nil {
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
+	}
+
+	shortID := database.ShortID(resolvedID)
+
+	if missionRecord.Status == "archived" {
+		return newHTTPErrorf(http.StatusBadRequest,
+			"cannot send keys to archived mission %s — unarchive it with: agenc mission unarchive %s",
+			shortID, shortID)
+	}
+	if missionRecord.TmuxPane == nil || *missionRecord.TmuxPane == "" {
+		return newHTTPErrorf(http.StatusBadRequest,
+			"mission %s is not running — start it with: agenc mission attach %s",
+			shortID, shortID)
+	}
+
+	paneID := *missionRecord.TmuxPane
+	if !poolWindowExistsByPane(paneID) {
+		return newHTTPErrorf(http.StatusInternalServerError,
+			"mission %s has a stale pane reference — try: agenc mission reload %s",
+			shortID, shortID)
+	}
+
+	if err := sendKeysToPane(paneID, req.Keys); err != nil {
+		return newHTTPErrorf(http.StatusInternalServerError, "%s", err.Error())
+	}
+
+	s.logger.Printf("Sent %d key(s) to mission %s (pane %s)", len(req.Keys), shortID, paneID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	return nil
+}
+
 // ensureWrapperInPool checks if the mission's wrapper is running in the pool.
 // If not, it spawns a new wrapper in a pool window. This is the "lazy start"
 // mechanism — wrappers are only started when someone attaches.

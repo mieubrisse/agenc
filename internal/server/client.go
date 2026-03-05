@@ -312,6 +312,12 @@ func (c *Client) DetachMission(id string, tmuxSession string) error {
 	return c.Post("/missions/"+id+"/detach", body, nil)
 }
 
+// SendKeys sends keystrokes to a running mission's tmux pane.
+func (c *Client) SendKeys(id string, keys []string) error {
+	body := SendKeysRequest{Keys: keys}
+	return c.Post("/missions/"+id+"/send-keys", body, nil)
+}
+
 // CreateMission creates a new mission via the server.
 func (c *Client) CreateMission(req CreateMissionRequest) (*database.Mission, error) {
 	var resp MissionResponse
