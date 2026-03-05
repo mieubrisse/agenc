@@ -16,9 +16,13 @@ binding that works anywhere without the AgenC leader, prefix with "-n":
   --keybinding="f"       → prefix + a, f  (AgenC table)
   --keybinding="-n C-s"  → Ctrl-s globally (root table, no prefix needed)
 
+Use --disabled to hide a command from the palette without removing its config.
+Use --disabled=false to re-enable a previously disabled command.
+
 Example:
   agenc config paletteCommand update newMission --keybinding="C-n"
   agenc config paletteCommand update stopMission --keybinding="-n C-s"
+  agenc config paletteCommand update nukeMissions --disabled
 
 
 ```
@@ -30,6 +34,7 @@ agenc config paletteCommand update <name> [flags]
 ```
       --command string       full command to execute
       --description string   description shown alongside the title
+      --disabled             hide this command from the palette
   -h, --help                 help for update
       --keybinding string    tmux keybinding (e.g. "f", "C-y", or "-n C-s" for global)
       --title string         title shown in the palette picker
