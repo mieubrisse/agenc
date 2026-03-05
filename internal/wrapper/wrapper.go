@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -52,6 +53,7 @@ type Wrapper struct {
 	client         *server.Client
 	claudeCmd      *exec.Cmd
 	logger         *slog.Logger
+	tmuxPaneID     string // numeric pane ID from $TMUX_PANE (%-prefix stripped); empty for headless
 
 	// hasConversation tracks whether a Claude conversation exists that can be
 	// resumed with `claude -c`. Set to true at startup for resumes, and flipped
@@ -205,8 +207,11 @@ func (w *Wrapper) Run(isResume bool) error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
+	// Capture the tmux pane ID (e.g. "%42" -> "42") for heartbeat reporting.
+	w.tmuxPaneID = strings.TrimPrefix(os.Getenv("TMUX_PANE"), "%")
+
 	// Write initial heartbeat and start periodic heartbeat loop
-	if err := w.client.Heartbeat(w.missionID); err != nil {
+	if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID); err != nil {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)
@@ -615,7 +620,7 @@ func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.client.Heartbeat(w.missionID); err != nil {
+			if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID); err != nil {
 				w.logger.Warn("Failed to write heartbeat", "error", err)
 			}
 		}
@@ -689,8 +694,11 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
+	// Capture the tmux pane ID (will be empty for headless missions).
+	w.tmuxPaneID = strings.TrimPrefix(os.Getenv("TMUX_PANE"), "%")
+
 	// Write initial heartbeat and start periodic heartbeat loop
-	if err := w.client.Heartbeat(w.missionID); err != nil {
+	if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID); err != nil {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)

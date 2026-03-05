@@ -274,9 +274,14 @@ func (c *Client) UpdateMission(id string, update UpdateMissionRequest) error {
 	return c.Patch("/missions/"+id, update, nil)
 }
 
-// Heartbeat updates a mission's last_heartbeat timestamp.
-func (c *Client) Heartbeat(id string) error {
-	return c.Post("/missions/"+id+"/heartbeat", nil, nil)
+// Heartbeat updates a mission's last_heartbeat timestamp. If paneID is
+// non-empty, the server also stores it as the mission's current tmux pane.
+func (c *Client) Heartbeat(id string, paneID string) error {
+	body := map[string]string{}
+	if paneID != "" {
+		body["pane_id"] = paneID
+	}
+	return c.Post("/missions/"+id+"/heartbeat", body, nil)
 }
 
 // RecordPrompt increments prompt_count for a mission.

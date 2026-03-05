@@ -847,8 +847,14 @@ func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
+// HeartbeatRequest is the optional JSON body for the heartbeat endpoint.
+type HeartbeatRequest struct {
+	PaneID string `json:"pane_id"`
+}
+
 // handleHeartbeat handles POST /missions/{id}/heartbeat.
-// Updates the mission's last_heartbeat timestamp.
+// Updates the mission's last_heartbeat timestamp and, if a pane_id is provided,
+// stores it as the mission's current tmux pane.
 func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
@@ -859,6 +865,18 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) error {
 
 	if err := s.db.UpdateHeartbeat(resolvedID); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to update heartbeat: %s", err.Error())
+	}
+
+	// Decode optional pane_id from the request body. Old wrappers and headless
+	// missions may send an empty body, so decode errors are ignored.
+	var req HeartbeatRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.PaneID != "" {
+		if err := s.db.SetTmuxPane(resolvedID, req.PaneID); err != nil {
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to set tmux pane: %s", err.Error())
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
