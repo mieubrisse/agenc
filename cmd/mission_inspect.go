@@ -15,8 +15,9 @@ import (
 var inspectDirFlag bool
 
 var missionInspectCmd = &cobra.Command{
-	Use:   inspectCmdStr + " [mission-id]",
-	Short: "Print information about a mission",
+	Use:     inspectCmdStr + " [mission-id]",
+	Aliases: []string{statusCmdStr},
+	Short:   "Print information about a mission",
 	Long: `Print information about a mission.
 
 Without arguments, opens an interactive fzf picker to select a mission.
