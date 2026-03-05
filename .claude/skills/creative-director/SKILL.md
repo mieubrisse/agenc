@@ -189,8 +189,9 @@ On every invocation:
 3. Selectively load other strategy files based on the task at hand
 4. Check decision log for triggered revisit conditions
 5. Engage with the founder's request
-6. Update strategy files if the conversation produced new strategic context or decisions
-7. If overruled on a recommendation, record the disagreement in the decision log
+6. If the conversation involves launching an offer, product, or service — invoke `/offer-launch-playbook` to guide the tactical launch process. Your role is the strategic packaging; the playbook handles the launch execution workflow.
+7. Update strategy files if the conversation produced new strategic context or decisions
+8. If overruled on a recommendation, record the disagreement in the decision log
 
 ---
 
