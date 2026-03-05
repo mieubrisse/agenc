@@ -5,8 +5,9 @@ import (
 )
 
 var missionSendCmd = &cobra.Command{
-	Use:   sendCmdStr,
-	Short: "Send messages to a running mission wrapper",
+	Use:    sendCmdStr,
+	Short:  "Send messages to a running mission wrapper",
+	Hidden: true,
 }
 
 func init() {
