@@ -16,29 +16,30 @@ func TestBuildClaudeConfigDenyEntries(t *testing.T) {
 	claudeConfigDirpath := filepath.Join(homeDir, ".agenc", "missions", "test-uuid", "claude-config")
 	entries := BuildClaudeConfigDenyEntries(claudeConfigDirpath)
 
-	// Should generate deny entries for all tools × all path variants
+	// Should generate deny entries for all tools × all path variants × all protected items
 	expectedToolCount := len(AgencDenyPermissionTools)
 	expectedPathVariants := 3 // absolute, tilde, ${HOME}
-	expectedTotal := expectedToolCount * expectedPathVariants
+	expectedItemCount := len(claudeConfigProtectedItems)
+	expectedTotal := expectedToolCount * expectedPathVariants * expectedItemCount
 
 	if len(entries) != expectedTotal {
-		t.Errorf("expected %d entries (tools=%d × variants=%d), got %d",
-			expectedTotal, expectedToolCount, expectedPathVariants, len(entries))
+		t.Errorf("expected %d entries (tools=%d × variants=%d × items=%d), got %d",
+			expectedTotal, expectedToolCount, expectedPathVariants, expectedItemCount, len(entries))
 	}
 
-	// Verify all three path variants are present for at least one tool
+	// Verify all three path variants are present for at least one tool+item combo
 	foundAbsolute := false
 	foundTilde := false
 	foundHomeEnv := false
 
 	for _, entry := range entries {
-		if strings.Contains(entry, "Edit("+claudeConfigDirpath) {
+		if strings.Contains(entry, "Edit("+claudeConfigDirpath+"/settings.json)") {
 			foundAbsolute = true
 		}
-		if strings.Contains(entry, "Edit(~/.agenc/missions/test-uuid/claude-config") {
+		if strings.Contains(entry, "Edit(~/.agenc/missions/test-uuid/claude-config/settings.json)") {
 			foundTilde = true
 		}
-		if strings.Contains(entry, "Edit(${HOME}/.agenc/missions/test-uuid/claude-config") {
+		if strings.Contains(entry, "Edit(${HOME}/.agenc/missions/test-uuid/claude-config/settings.json)") {
 			foundHomeEnv = true
 		}
 	}
@@ -51,6 +52,57 @@ func TestBuildClaudeConfigDenyEntries(t *testing.T) {
 	}
 	if !foundHomeEnv {
 		t.Error("missing ${HOME} path variant")
+	}
+
+	// Verify files get exact match and directories get /** glob
+	foundFileExact := false
+	foundDirGlob := false
+	for _, entry := range entries {
+		if strings.Contains(entry, "/CLAUDE.md)") {
+			foundFileExact = true
+		}
+		if strings.Contains(entry, "/skills/**)") {
+			foundDirGlob = true
+		}
+	}
+
+	if !foundFileExact {
+		t.Error("file items should use exact path match (no glob)")
+	}
+	if !foundDirGlob {
+		t.Error("directory items should use /** glob suffix")
+	}
+
+	// Verify symlinked dirs like shell-snapshots are NOT denied
+	for _, entry := range entries {
+		if strings.Contains(entry, "shell-snapshots") {
+			t.Error("shell-snapshots should not be denied — it's a symlinked runtime directory")
+		}
+		if strings.Contains(entry, "plugins") {
+			t.Error("plugins should not be denied — it's a symlinked runtime directory")
+		}
+	}
+}
+
+func TestIsFileName(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected bool
+	}{
+		{"CLAUDE.md", true},
+		{"settings.json", true},
+		{".claude.json", true},
+		{"skills", false},
+		{"hooks", false},
+		{"commands", false},
+		{"agents", false},
+	}
+
+	for _, tt := range tests {
+		got := isFileName(tt.name)
+		if got != tt.expected {
+			t.Errorf("isFileName(%q) = %v, want %v", tt.name, got, tt.expected)
+		}
 	}
 }
 

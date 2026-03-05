@@ -88,7 +88,9 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
 				deny := parseDenyArray(t, settings)
 				// Should contain the 2 original + repo library entries + claude-config entries
-				expectedLen := 2 + 2*len(claudeconfig.AgencDenyPermissionTools)
+				repoEntries := len(claudeconfig.BuildRepoLibraryDenyEntries(testAgencDirpath))
+				configEntries := len(claudeconfig.BuildClaudeConfigDenyEntries(testClaudeConfigDirpath))
+				expectedLen := 2 + repoEntries + configEntries
 				if len(deny) != expectedLen {
 					t.Errorf("expected deny array length %d, got %d", expectedLen, len(deny))
 				}
