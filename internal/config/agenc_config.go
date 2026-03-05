@@ -74,23 +74,39 @@ func (c *CronConfig) GetOverlapPolicy() CronOverlapPolicy {
 	return c.Overlap
 }
 
+// StringPtr returns a pointer to the given string. It is a convenience helper
+// for constructing PaletteCommandConfig literals with *string fields.
+func StringPtr(s string) *string {
+	return &s
+}
+
+// derefStr returns the string value of a *string, or "" if nil.
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // PaletteCommandConfig represents a palette command entry in config.yml.
 // For custom commands, all fields are user-provided.
-// For builtin overrides, non-empty fields override the builtin defaults.
+// For builtin overrides, non-nil fields override the builtin defaults.
+// A nil pointer means "not set" (inherit the builtin default), while a pointer
+// to an empty string means "explicitly cleared."
 // Set Disabled to true to hide a command from the palette entirely.
 type PaletteCommandConfig struct {
-	Title          string `yaml:"title,omitempty"`
-	Description    string `yaml:"description,omitempty"`
-	Command        string `yaml:"command,omitempty"`
-	TmuxKeybinding string `yaml:"tmuxKeybinding,omitempty"`
-	Disabled       bool   `yaml:"disabled,omitempty"`
+	Title          *string `yaml:"title,omitempty"`
+	Description    *string `yaml:"description,omitempty"`
+	Command        *string `yaml:"command,omitempty"`
+	TmuxKeybinding *string `yaml:"tmuxKeybinding,omitempty"`
+	Disabled       bool    `yaml:"disabled,omitempty"`
 }
 
 // IsEmpty returns true if the entry carries no meaningful information —
-// all string fields are empty and the command is not disabled. An empty
+// all pointer fields are nil and the command is not disabled. An empty
 // builtin override can safely be removed from config (it has no effect).
 func (c *PaletteCommandConfig) IsEmpty() bool {
-	return !c.Disabled && c.Title == "" && c.Description == "" && c.Command == "" && c.TmuxKeybinding == ""
+	return !c.Disabled && c.Title == nil && c.Description == nil && c.Command == nil && c.TmuxKeybinding == nil
 }
 
 // BuiltinPaletteCommands defines the default palette commands shipped with agenc.
@@ -99,114 +115,114 @@ func (c *PaletteCommandConfig) IsEmpty() bool {
 // (display-popup, split-window, new-window) when needed.
 var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"quickClaude": {
-		Title:       "🦀  Quick Claude",
-		Description: "Creates a blank mission in a new window",
-		Command:     "agenc mission new --blank",
+		Title:       StringPtr("🦀  Quick Claude"),
+		Description: StringPtr("Creates a blank mission in a new window"),
+		Command:     StringPtr("agenc mission new --blank"),
 	},
 	"talkToAgenc": {
-		Title:       "🤖  Adjutant",
-		Description: "Launch an Adjutant mission in a new window",
-		Command:     "agenc mission new --adjutant",
+		Title:       StringPtr("🤖  Adjutant"),
+		Description: StringPtr("Launch an Adjutant mission in a new window"),
+		Command:     StringPtr("agenc mission new --adjutant"),
 	},
 	"newMission": {
-		Title:          "🚀  New Mission",
-		Description:    "Create a new mission and launch Claude",
-		Command:        `tmux display-popup -E -w 68% -h 63% "agenc mission new"`,
-		TmuxKeybinding: "-n C-n",
+		Title:          StringPtr("🚀  New Mission"),
+		Description:    StringPtr("Create a new mission and launch Claude"),
+		Command:        StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission new"`),
+		TmuxKeybinding: StringPtr("-n C-n"),
 	},
 	"switchMission": {
-		Title:          "🔀  Attach Mission",
-		Description:    "Attach a running mission to this tmux session",
-		Command:        `tmux display-popup -E -w 68% -h 63% "agenc mission attach"`,
-		TmuxKeybinding: "-n C-m",
+		Title:          StringPtr("🔀  Attach Mission"),
+		Description:    StringPtr("Attach a running mission to this tmux session"),
+		Command:        StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission attach"`),
+		TmuxKeybinding: StringPtr("-n C-m"),
 	},
 	"detachMission": {
-		Title:       "🔌  Detach Mission",
-		Description: "Unlink the focused mission from this tmux session (keeps running)",
-		Command:     "agenc mission detach $AGENC_CALLING_MISSION_UUID",
+		Title:       StringPtr("🔌  Detach Mission"),
+		Description: StringPtr("Unlink the focused mission from this tmux session (keeps running)"),
+		Command:     StringPtr("agenc mission detach $AGENC_CALLING_MISSION_UUID"),
 	},
 	"resumeMission": {
-		Title:       "🟢  Resume Mission",
-		Description: "Resume a stopped mission with claude --continue",
-		Command:     `tmux display-popup -E -w 68% -h 63% "agenc mission resume"`,
+		Title:       StringPtr("🟢  Resume Mission"),
+		Description: StringPtr("Resume a stopped mission with claude --continue"),
+		Command:     StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission resume"`),
 	},
 	"sideShell": {
-		Title:          "🐚  Side Shell",
-		Description:    "Split pane and open a shell in the current mission's workspace",
-		Command:        `tmux split-window -h -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`,
-		TmuxKeybinding: "-n C-p",
+		Title:          StringPtr("🐚  Side Shell"),
+		Description:    StringPtr("Split pane and open a shell in the current mission's workspace"),
+		Command:        StringPtr(`tmux split-window -h -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`),
+		TmuxKeybinding: StringPtr("-n C-p"),
 	},
 	"shell": {
-		Title:       "🐚  Shell",
-		Description: "Open a shell in a new window",
-		Command:     `tmux new-window -a -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`,
+		Title:       StringPtr("🐚  Shell"),
+		Description: StringPtr("Open a shell in a new window"),
+		Command:     StringPtr(`tmux new-window -a -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`),
 	},
 	"copyMissionUuid": {
-		Title:       "📋  Copy Mission ID",
-		Description: "Copy the focused mission's UUID to the clipboard",
-		Command:     `printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy`,
+		Title:       StringPtr("📋  Copy Mission ID"),
+		Description: StringPtr("Copy the focused mission's UUID to the clipboard"),
+		Command:     StringPtr(`printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy`),
 	},
 	"renameSession": {
-		Title:          "✨  Rename Session",
-		Description:    "Rename the focused mission's window",
-		Command:        `tmux display-popup -E -w 68% -h 63% "agenc mission rename $AGENC_CALLING_MISSION_UUID"`,
-		TmuxKeybinding: "-n C-.",
+		Title:          StringPtr("✨  Rename Session"),
+		Description:    StringPtr("Rename the focused mission's window"),
+		Command:        StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission rename $AGENC_CALLING_MISSION_UUID"`),
+		TmuxKeybinding: StringPtr("-n C-."),
 	},
 	"stopMission": {
-		Title:          "🛑  Stop Mission",
-		Description:    "Stop the mission in the focused pane",
-		Command:        "agenc mission stop $AGENC_CALLING_MISSION_UUID",
-		TmuxKeybinding: "-n C-s",
+		Title:          StringPtr("🛑  Stop Mission"),
+		Description:    StringPtr("Stop the mission in the focused pane"),
+		Command:        StringPtr("agenc mission stop $AGENC_CALLING_MISSION_UUID"),
+		TmuxKeybinding: StringPtr("-n C-s"),
 	},
 	"reconfigMission": {
-		Title:       "🔧  Reconfig & Reload Mission",
-		Description: "Update the mission's config and restart to apply changes",
-		Command:     "agenc mission reconfig $AGENC_CALLING_MISSION_UUID && agenc mission reload $AGENC_CALLING_MISSION_UUID",
+		Title:       StringPtr("🔧  Reconfig & Reload Mission"),
+		Description: StringPtr("Update the mission's config and restart to apply changes"),
+		Command:     StringPtr("agenc mission reconfig $AGENC_CALLING_MISSION_UUID && agenc mission reload $AGENC_CALLING_MISSION_UUID"),
 	},
 	"reloadMission": {
-		Title:       "🔄  Reload Mission",
-		Description: "Stop and restart the mission in the focused pane",
-		Command:     "agenc mission reload $AGENC_CALLING_MISSION_UUID",
+		Title:       StringPtr("🔄  Reload Mission"),
+		Description: StringPtr("Stop and restart the mission in the focused pane"),
+		Command:     StringPtr("agenc mission reload $AGENC_CALLING_MISSION_UUID"),
 	},
 	"removeMission": {
-		Title:       "❌  Remove Mission",
-		Description: "Remove a mission and its directory",
-		Command:     `tmux display-popup -E -w 68% -h 63% "agenc mission rm"`,
+		Title:       StringPtr("❌  Remove Mission"),
+		Description: StringPtr("Remove a mission and its directory"),
+		Command:     StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission rm"`),
 	},
 	"nukeMissions": {
-		Title:       "💥  Nuke Missions",
-		Description: "Remove all archived missions",
-		Command:     `tmux display-popup -E -w 68% -h 63% "agenc mission nuke"`,
+		Title:       StringPtr("💥  Nuke Missions"),
+		Description: StringPtr("Remove all archived missions"),
+		Command:     StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission nuke"`),
 	},
 	"sendFeedback": {
-		Title:       "💬  Send Feedback",
-		Description: "Send feedback about AgenC",
-		Command:     `agenc mission new --adjutant --prompt "I'd like to send feedback about AgenC"`,
+		Title:       StringPtr("💬  Send Feedback"),
+		Description: StringPtr("Send feedback about AgenC"),
+		Command:     StringPtr(`agenc mission new --adjutant --prompt "I'd like to send feedback about AgenC"`),
 	},
 	"joinDiscord": {
-		Title:       "👾  Join the Discord",
-		Description: "Join the AgenC Discord community",
-		Command:     "agenc discord",
+		Title:       StringPtr("👾  Join the Discord"),
+		Description: StringPtr("Join the AgenC Discord community"),
+		Command:     StringPtr("agenc discord"),
 	},
 	"starAgenc": {
-		Title:       "⭐  Star AgenC on Github",
-		Description: "Open the AgenC GitHub repo in your browser",
-		Command:     "agenc star",
+		Title:       StringPtr("⭐  Star AgenC on Github"),
+		Description: StringPtr("Open the AgenC GitHub repo in your browser"),
+		Command:     StringPtr("agenc star"),
 	},
 	"stashWorkspace": {
-		Title:       "📥  Stash Workspace",
-		Description: "Stop all missions for later restore (useful for upgrading Claude)",
-		Command:     `tmux display-popup -E -w 68% -h 63% "agenc stash push"`,
+		Title:       StringPtr("📥  Stash Workspace"),
+		Description: StringPtr("Stop all missions for later restore (useful for upgrading Claude)"),
+		Command:     StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc stash push"`),
 	},
 	"restoreWorkspace": {
-		Title:       "📤  Restore Workspace",
-		Description: "Restore missions from a previously saved stash",
-		Command:     `tmux display-popup -E -w 68% -h 63% "agenc stash pop"`,
+		Title:       StringPtr("📤  Restore Workspace"),
+		Description: StringPtr("Restore missions from a previously saved stash"),
+		Command:     StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc stash pop"`),
 	},
 	"exitTmux": {
-		Title:       "🚪  Exit",
-		Description: "Detach from the session (missions keep running in the background)",
-		Command:     "tmux detach",
+		Title:       StringPtr("🚪  Exit"),
+		Description: StringPtr("Detach from the session (missions keep running in the background)"),
+		Command:     StringPtr("tmux detach"),
 	},
 }
 
@@ -582,10 +598,10 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		// Custom (non-builtin) entries with content must have title and command
 		_, isBuiltin := BuiltinPaletteCommands[name]
 		if !isBuiltin && !cmdCfg.IsEmpty() && !cmdCfg.Disabled {
-			if cmdCfg.Title == "" {
+			if cmdCfg.Title == nil || *cmdCfg.Title == "" {
 				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a title", name, configFilepath)
 			}
-			if cmdCfg.Command == "" {
+			if cmdCfg.Command == nil || *cmdCfg.Command == "" {
 				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a command", name, configFilepath)
 			}
 		}
@@ -689,26 +705,27 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 
 		resolved := ResolvedPaletteCommand{
 			Name:           name,
-			Title:          builtin.Title,
-			Description:    builtin.Description,
-			Command:        builtin.Command,
-			TmuxKeybinding: builtin.TmuxKeybinding,
+			Title:          derefStr(builtin.Title),
+			Description:    derefStr(builtin.Description),
+			Command:        derefStr(builtin.Command),
+			TmuxKeybinding: derefStr(builtin.TmuxKeybinding),
 			IsBuiltin:      true,
 		}
 
-		// Apply overrides — non-empty fields replace defaults
+		// Apply overrides — non-nil fields replace defaults (including
+		// pointer-to-empty-string, which explicitly clears the field).
 		if hasOverride {
-			if override.Title != "" {
-				resolved.Title = override.Title
+			if override.Title != nil {
+				resolved.Title = *override.Title
 			}
-			if override.Description != "" {
-				resolved.Description = override.Description
+			if override.Description != nil {
+				resolved.Description = *override.Description
 			}
-			if override.Command != "" {
-				resolved.Command = override.Command
+			if override.Command != nil {
+				resolved.Command = *override.Command
 			}
-			if override.TmuxKeybinding != "" {
-				resolved.TmuxKeybinding = override.TmuxKeybinding
+			if override.TmuxKeybinding != nil {
+				resolved.TmuxKeybinding = *override.TmuxKeybinding
 			}
 		}
 
@@ -731,10 +748,10 @@ func (c *AgencConfig) GetResolvedPaletteCommands() []ResolvedPaletteCommand {
 		}
 		resolved := ResolvedPaletteCommand{
 			Name:           name,
-			Title:          cmdCfg.Title,
-			Description:    cmdCfg.Description,
-			Command:        cmdCfg.Command,
-			TmuxKeybinding: cmdCfg.TmuxKeybinding,
+			Title:          derefStr(cmdCfg.Title),
+			Description:    derefStr(cmdCfg.Description),
+			Command:        derefStr(cmdCfg.Command),
+			TmuxKeybinding: derefStr(cmdCfg.TmuxKeybinding),
 			IsBuiltin:      false,
 		}
 		result = append(result, resolved)
@@ -1001,10 +1018,10 @@ func ValidateAndPopulateDefaults(cfg *AgencConfig) error {
 		// Name validation already done by ReadAgencConfig
 
 		// Sanitize command string
-		if cmdCfg.Command != "" {
-			sanitized, modified := SanitizePrompt(cmdCfg.Command)
+		if cmdCfg.Command != nil && *cmdCfg.Command != "" {
+			sanitized, modified := SanitizePrompt(*cmdCfg.Command)
 			if modified {
-				cmdCfg.Command = sanitized
+				cmdCfg.Command = StringPtr(sanitized)
 				cfg.PaletteCommands[name] = cmdCfg
 			}
 		}

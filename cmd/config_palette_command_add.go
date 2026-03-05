@@ -94,12 +94,17 @@ func runConfigPaletteCommandAdd(cmd *cobra.Command, args []string) error {
 	if cfg.PaletteCommands == nil {
 		cfg.PaletteCommands = make(map[string]config.PaletteCommandConfig)
 	}
-	cfg.PaletteCommands[name] = config.PaletteCommandConfig{
-		Title:          title,
-		Description:    description,
-		Command:        command,
-		TmuxKeybinding: keybinding,
+	newCmd := config.PaletteCommandConfig{
+		Title:   config.StringPtr(title),
+		Command: config.StringPtr(command),
 	}
+	if description != "" {
+		newCmd.Description = config.StringPtr(description)
+	}
+	if keybinding != "" {
+		newCmd.TmuxKeybinding = config.StringPtr(keybinding)
+	}
+	cfg.PaletteCommands[name] = newCmd
 
 	// Validate uniqueness before writing
 	configFilepath := config.GetConfigFilepath(agencDirpath)

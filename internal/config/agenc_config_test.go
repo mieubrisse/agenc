@@ -457,6 +457,48 @@ paletteCommands:
 	t.Error("newMission not found in resolved commands")
 }
 
+func TestPaletteCommands_BuiltinClearKeybinding(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+paletteCommands:
+  stopMission:
+    tmuxKeybinding: ""
+`)
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	// The override entry should persist (not be cleaned up as empty)
+	override, exists := cfg.PaletteCommands["stopMission"]
+	if !exists {
+		t.Fatal("expected stopMission override to exist in config")
+	}
+	if override.TmuxKeybinding == nil {
+		t.Fatal("expected TmuxKeybinding to be non-nil (explicitly set to empty)")
+	}
+	if *override.TmuxKeybinding != "" {
+		t.Errorf("expected TmuxKeybinding to be empty string, got '%s'", *override.TmuxKeybinding)
+	}
+
+	// The resolved command should have no keybinding
+	resolved := cfg.GetResolvedPaletteCommands()
+	for _, cmd := range resolved {
+		if cmd.Name == "stopMission" {
+			if cmd.TmuxKeybinding != "" {
+				t.Errorf("expected cleared keybinding (empty string), got '%s'", cmd.TmuxKeybinding)
+			}
+			// Title should still have the builtin default
+			if cmd.Title != "🛑  Stop Mission" {
+				t.Errorf("expected default title, got '%s'", cmd.Title)
+			}
+			return
+		}
+	}
+	t.Error("stopMission not found in resolved commands")
+}
+
 func TestPaletteCommands_BuiltinDisable(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
@@ -590,14 +632,14 @@ func TestPaletteCommands_RoundTrip(t *testing.T) {
 	cfg := &AgencConfig{
 		PaletteCommands: map[string]PaletteCommandConfig{
 			"dotfiles": {
-				Title:          "📁 Open dotfiles",
-				Description:    "Start a dotfiles mission",
-				Command:        "agenc tmux window new -- agenc mission new mieubrisse/dotfiles",
-				TmuxKeybinding: "f",
+				Title:          StringPtr("📁 Open dotfiles"),
+				Description:    StringPtr("Start a dotfiles mission"),
+				Command:        StringPtr("agenc tmux window new -- agenc mission new mieubrisse/dotfiles"),
+				TmuxKeybinding: StringPtr("f"),
 			},
 			"logs": {
-				Title:   "📋 Daemon logs",
-				Command: "agenc tmux window new -- agenc daemon logs",
+				Title:   StringPtr("📋 Daemon logs"),
+				Command: StringPtr("agenc tmux window new -- agenc daemon logs"),
 			},
 		},
 	}
@@ -619,14 +661,14 @@ func TestPaletteCommands_RoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'dotfiles' palette command to exist")
 	}
-	if dotfiles.Title != "📁 Open dotfiles" {
-		t.Errorf("expected title '📁 Open dotfiles', got '%s'", dotfiles.Title)
+	if derefStr(dotfiles.Title) != "📁 Open dotfiles" {
+		t.Errorf("expected title '📁 Open dotfiles', got '%s'", derefStr(dotfiles.Title))
 	}
-	if dotfiles.Command != "agenc tmux window new -- agenc mission new mieubrisse/dotfiles" {
-		t.Errorf("expected command 'agenc tmux window new -- agenc mission new mieubrisse/dotfiles', got '%s'", dotfiles.Command)
+	if derefStr(dotfiles.Command) != "agenc tmux window new -- agenc mission new mieubrisse/dotfiles" {
+		t.Errorf("expected command 'agenc tmux window new -- agenc mission new mieubrisse/dotfiles', got '%s'", derefStr(dotfiles.Command))
 	}
-	if dotfiles.TmuxKeybinding != "f" {
-		t.Errorf("expected keybinding 'f', got '%s'", dotfiles.TmuxKeybinding)
+	if derefStr(dotfiles.TmuxKeybinding) != "f" {
+		t.Errorf("expected keybinding 'f', got '%s'", derefStr(dotfiles.TmuxKeybinding))
 	}
 }
 
@@ -801,7 +843,7 @@ func TestPaletteCommandConfig_IsEmpty(t *testing.T) {
 		t.Error("expected empty config to be empty")
 	}
 
-	notEmpty := PaletteCommandConfig{Title: "test"}
+	notEmpty := PaletteCommandConfig{Title: StringPtr("test")}
 	if notEmpty.IsEmpty() {
 		t.Error("expected config with title to not be empty")
 	}
@@ -1166,8 +1208,8 @@ func TestValidateAndPopulateDefaults(t *testing.T) {
 		cfg := &AgencConfig{
 			PaletteCommands: map[string]PaletteCommandConfig{
 				"test": {
-					Title:   "Test",
-					Command: "echo 'test'\x00\x1b",
+					Title:   StringPtr("Test"),
+					Command: StringPtr("echo 'test'\x00\x1b"),
 				},
 			},
 		}
@@ -1177,7 +1219,7 @@ func TestValidateAndPopulateDefaults(t *testing.T) {
 			t.Fatalf("ValidateAndPopulateDefaults() failed: %v", err)
 		}
 
-		got := cfg.PaletteCommands["test"].Command
+		got := derefStr(cfg.PaletteCommands["test"].Command)
 		want := "echo 'test'"
 		if got != want {
 			t.Errorf("command not sanitized: got %q, want %q", got, want)

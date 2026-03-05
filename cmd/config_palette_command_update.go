@@ -82,7 +82,7 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandTitleFlagName)
 		}
-		existing.Title = newTitle
+		existing.Title = config.StringPtr(newTitle)
 	}
 
 	if commandChanged {
@@ -90,7 +90,7 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandCommandFlagName)
 		}
-		existing.Command = newCommand
+		existing.Command = config.StringPtr(newCommand)
 	}
 
 	if keybindingChanged {
@@ -98,7 +98,7 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandKeybindingFlagName)
 		}
-		existing.TmuxKeybinding = newKeybinding
+		existing.TmuxKeybinding = config.StringPtr(newKeybinding)
 	}
 
 	if descriptionChanged {
@@ -106,7 +106,7 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandDescriptionFlagName)
 		}
-		existing.Description = newDescription
+		existing.Description = config.StringPtr(newDescription)
 	}
 
 	if disabledChanged {
