@@ -292,3 +292,17 @@ func listPoolPaneIDs() []string {
 	}
 	return paneIDs
 }
+
+// sendKeysToPane sends keystrokes to the given tmux pane by invoking
+// tmux send-keys. Keys are passed as separate arguments — no shell
+// interpolation. Uses tmux's native key name syntax (Enter, C-c, Escape, etc.).
+func sendKeysToPane(paneID string, keys []string) error {
+	paneTarget := "%" + paneID
+	args := append([]string{"send-keys", "-t", paneTarget}, keys...)
+	cmd := exec.Command("tmux", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return stacktrace.NewError("tmux send-keys failed: %v (output: %s)", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
