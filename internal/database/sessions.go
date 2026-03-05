@@ -168,8 +168,15 @@ func scanSession(row *sql.Row) (*Session, error) {
 	if err := row.Scan(&s.ID, &s.ShortID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
-	s.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	s.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	var err error
+	s.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse session created_at timestamp")
+	}
+	s.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse session updated_at timestamp")
+	}
 	return &s, nil
 }
 
@@ -182,8 +189,15 @@ func scanSessions(rows *sql.Rows) ([]*Session, error) {
 		if err := rows.Scan(&s.ID, &s.ShortID, &s.MissionID, &s.CustomTitle, &s.AgencCustomTitle, &s.AutoSummary, &s.LastScannedOffset, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan session row")
 		}
-		s.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		s.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		var parseErr error
+		s.CreatedAt, parseErr = time.Parse(time.RFC3339, createdAt)
+		if parseErr != nil {
+			return nil, stacktrace.Propagate(parseErr, "failed to parse session created_at timestamp")
+		}
+		s.UpdatedAt, parseErr = time.Parse(time.RFC3339, updatedAt)
+		if parseErr != nil {
+			return nil, stacktrace.Propagate(parseErr, "failed to parse session updated_at timestamp")
+		}
 		sessions = append(sessions, &s)
 	}
 	if err := rows.Err(); err != nil {

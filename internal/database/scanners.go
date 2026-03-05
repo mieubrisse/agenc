@@ -18,11 +18,17 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
-			t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
+			t, err := time.Parse(time.RFC3339, lastHeartbeat.String)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "failed to parse last_heartbeat timestamp")
+			}
 			m.LastHeartbeat = &t
 		}
 		if sessionNameUpdatedAt.Valid {
-			t, _ := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
+			t, err := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "failed to parse session_name_updated_at timestamp")
+			}
 			m.SessionNameUpdatedAt = &t
 		}
 		if cronID.Valid {
@@ -37,8 +43,15 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 		if tmuxPane.Valid {
 			m.TmuxPane = &tmuxPane.String
 		}
-		m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		var err error
+		m.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse created_at timestamp")
+		}
+		m.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse updated_at timestamp")
+		}
 		missions = append(missions, &m)
 	}
 	if err := rows.Err(); err != nil {
@@ -56,11 +69,17 @@ func scanMission(row *sql.Row) (*Mission, error) {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
-		t, _ := time.Parse(time.RFC3339, lastHeartbeat.String)
+		t, err := time.Parse(time.RFC3339, lastHeartbeat.String)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse last_heartbeat timestamp")
+		}
 		m.LastHeartbeat = &t
 	}
 	if sessionNameUpdatedAt.Valid {
-		t, _ := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
+		t, err := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse session_name_updated_at timestamp")
+		}
 		m.SessionNameUpdatedAt = &t
 	}
 	if cronID.Valid {
@@ -75,7 +94,14 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	if tmuxPane.Valid {
 		m.TmuxPane = &tmuxPane.String
 	}
-	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	var err error
+	m.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse created_at timestamp")
+	}
+	m.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse updated_at timestamp")
+	}
 	return &m, nil
 }
