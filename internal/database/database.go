@@ -114,12 +114,6 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to add short_id column to sessions")
 	}
 
-	// Backfill: strip "%" prefix from tmux_pane values stored by older builds
-	if _, err := conn.Exec(stripTmuxPanePercentSQL); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to strip percent prefix from tmux_pane values")
-	}
-
 	// Drop legacy mission_descriptions table
 	if _, err := conn.Exec(dropMissionDescriptionsTableSQL); err != nil {
 		conn.Close()
