@@ -5,18 +5,15 @@ import (
 	"os/exec"
 
 	"github.com/mieubrisse/stacktrace"
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/spf13/cobra"
 )
 
-// draftTargetPaneEnvVar is the environment variable that carries the tmux pane ID
-// to paste drafted text into. Set by the palette command before opening the split.
-const draftTargetPaneEnvVar = "AGENC_DRAFT_TARGET_PANE"
-
 var missionDraftCmd = &cobra.Command{
-	Use:    draftCmdStr,
-	Short:  "Open an editor to draft text and paste it into the calling pane",
+	Use:    draftCmdStr + " <mission-id>",
+	Short:  "Open an editor to draft text and paste it into the mission's pane",
 	Hidden: true,
-	Args:   cobra.NoArgs,
+	Args:   cobra.ExactArgs(1),
 	RunE:   runMissionDraft,
 }
 
@@ -25,10 +22,22 @@ func init() {
 }
 
 func runMissionDraft(cmd *cobra.Command, args []string) error {
-	targetPaneID := os.Getenv(draftTargetPaneEnvVar)
-	if targetPaneID == "" {
-		targetPaneID = "{last}"
+	missionIDInput := args[0]
+
+	client, err := serverClient()
+	if err != nil {
+		return err
 	}
+
+	mission, err := client.GetMission(missionIDInput)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to resolve mission %s", missionIDInput)
+	}
+
+	if mission.TmuxPane == nil {
+		return stacktrace.NewError("mission %s has no tmux pane", database.ShortID(mission.ID))
+	}
+	targetPane := "%" + *mission.TmuxPane
 
 	tmpFile, err := os.CreateTemp("", "agenc-draft-*.md")
 	if err != nil {
@@ -64,7 +73,7 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to load buffer into tmux: %s", string(output))
 	}
 
-	pasteCmd := exec.Command("tmux", "paste-buffer", "-t", targetPaneID)
+	pasteCmd := exec.Command("tmux", "paste-buffer", "-t", targetPane)
 	if output, err := pasteCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "failed to paste buffer into pane: %s", string(output))
 	}

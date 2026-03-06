@@ -155,8 +155,8 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	},
 	"draft": {
 		Title:          StringPtr("📝  Side Draft"),
-		Description:    StringPtr("Open an editor to draft text and paste it into the active pane"),
-		Command:        StringPtr(`target=$(tmux display-message -p '#{pane_id}') && tmux split-window -h "AGENC_DRAFT_TARGET_PANE=\"$target\" agenc mission draft"`),
+		Description:    StringPtr("Draft text in a side editor and paste it into the mission's pane"),
+		Command:        StringPtr(`tmux split-window -h "agenc mission draft $AGENC_CALLING_MISSION_UUID"`),
 		TmuxKeybinding: StringPtr("-n C-v"),
 	},
 	"shell": {
