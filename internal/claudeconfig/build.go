@@ -173,26 +173,38 @@ func GetMissionClaudeConfigDirpath(agencDirpath string, missionID string) string
 	return config.GetGlobalClaudeDirpath(agencDirpath)
 }
 
-// buildMergedClaudeMd reads user CLAUDE.md from shadow repo and agenc
-// modifications, merges them, applies path rewriting, and writes to the
-// destination config directory.
+// buildMergedClaudeMd assembles the final CLAUDE.md for a mission by combining
+// three layers:
+//  1. AgenC agent instructions (hardcoded, embedded in the binary)
+//  2. User's CLAUDE.md (from the shadow repo / ~/.claude)
+//  3. User's claude-modifications CLAUDE.md (from ~/.agenc/config/claude-modifications)
+//
+// The agent instructions provide foundational context about AgenC and missions.
+// User content can override or extend the defaults. Path rewriting is applied
+// to the final result.
 func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
 	destFilepath := filepath.Join(destDirpath, "CLAUDE.md")
 
+	// Layer 1: hardcoded agent instructions with dynamic values substituted
+	agentInstructions := GetAgentInstructions(agencDirpath)
+
+	// Layer 2: user's ~/.claude/CLAUDE.md
 	userClaudeContent, err := os.ReadFile(filepath.Join(shadowDirpath, "CLAUDE.md"))
 	if err != nil && !os.IsNotExist(err) {
 		return stacktrace.Propagate(err, "failed to read user CLAUDE.md from shadow repo")
 	}
 
+	// Layer 3: user's claude-modifications CLAUDE.md
 	modsClaudeContent, err := os.ReadFile(filepath.Join(agencModsDirpath, "CLAUDE.md"))
 	if err != nil && !os.IsNotExist(err) {
 		return stacktrace.Propagate(err, "failed to read agenc modifications CLAUDE.md")
 	}
 
-	mergedClaudeMd := MergeClaudeMd(userClaudeContent, modsClaudeContent)
+	// Merge user content (layers 2+3), then prepend agent instructions (layer 1)
+	mergedUserContent := MergeClaudeMd(userClaudeContent, modsClaudeContent)
+	mergedClaudeMd := MergeClaudeMd([]byte(agentInstructions), mergedUserContent)
 
 	if mergedClaudeMd == nil {
-		// Both empty — remove destination if it exists
 		os.Remove(destFilepath)
 		return nil
 	}

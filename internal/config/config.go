@@ -49,6 +49,7 @@ const (
 	StatuslineMessageFilename       = "statusline-message"
 	StatuslineOriginalCmdFilename   = "statusline-original-cmd"
 	StatuslineWrapperFilename       = "statusline-wrapper.sh"
+	CLIName                         = "agenc"
 	MissionUUIDEnvVar               = "AGENC_MISSION_UUID"
 	AdjutantMarkerFilename          = ".adjutant"
 	GlobalCredentialsExpiryFilename = "global-credentials-expiry"

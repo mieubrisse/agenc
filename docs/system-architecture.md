@@ -373,7 +373,9 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 
 - `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `GetLastSessionID` (reads the mission's per-project `.claude.json` to resolve the current session UUID), `ResolveConfigCommitHash`, `EnsureShadowRepo`. Keychain credential functions (`CloneKeychainCredentials`, `WriteBackKeychainCredentials`, `DeleteKeychainCredentials`) handle MCP OAuth token propagation: `CloneKeychainCredentials` is called at mission spawn to seed the per-mission entry from global; `WriteBackKeychainCredentials` is called at mission exit to merge tokens back to global; `DeleteKeychainCredentials` is called by `agenc mission rm` to clean up the per-mission Keychain entry. Claude's own authentication uses the token file approach (see `internal/config/`).
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
-- `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencDenyPermissionTools` (deny Read/Glob/Grep/Write/Edit on repo library), `BuildRepoLibraryDenyEntries`
+- `agent_instructions.go` — embeds `agent_instructions.md` and substitutes dynamic placeholders (CLI name, repo library path, env var names) at runtime. Prepended to every mission's CLAUDE.md to give agents foundational context about AgenC, missions, workspace structure, and how to spawn other agents.
+- `agent_instructions.md` — hardcoded agent operating instructions covering AgenC overview, mission lifecycle, git workflow, repo library access, cross-repo work, and security boundaries.
+- `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencRepoLibraryWriteTools` (deny Write/Edit/NotebookEdit on repo library; read tools allowed for code exploration), `BuildRepoLibraryDenyEntries`
 - `prime_content.go` — embeds the CLI quick reference generated at build time by `cmd/genprime/` from the Cobra command tree. Content is printed by `agenc prime` and injected into adjutant missions via a `SessionStart` hook.
 - `adjutant.go` — adjutant mission config builders: `buildAdjutantClaudeMd` (appends adjutant instructions), `buildAdjutantSettings` (injects adjutant permissions), `BuildAdjutantAllowEntries`/`BuildAdjutantDenyEntries` (permission entry generators)
 - `adjutant_claude.md` — embedded CLAUDE.md instructions for adjutant missions (tells the agent it is the Adjutant, directs CLI usage, establishes filesystem access boundaries)
@@ -444,23 +446,24 @@ Key Architectural Patterns
 
 ### Per-mission config merging
 
-Each mission gets its own `claude-config/` directory, built at creation time from four sources:
+Each mission gets its own `claude-config/` directory, built at creation time from five sources:
 
-1. **Shadow repo** — a verbatim copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `~/.claude` paths rewritten at build time to point to the mission's concrete config path. See "Shadow repo" below.
-2. **`agenc prime` hook** — for adjutant missions only, a `SessionStart` hook in the project-level settings runs `agenc prime`, which prints the CLI quick reference into the agent's context. Content is generated at build time from the Cobra command tree (`cmd/genprime/`).
-3. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
-4. **AgenC operational overrides** — programmatically injected hooks and deny permissions
+1. **Agent instructions** — hardcoded operating instructions embedded in the binary (`internal/claudeconfig/agent_instructions.md`). Prepended to every mission's CLAUDE.md. Contains AgenC overview, mission lifecycle, git workflow, repo library access, cross-repo work, and security boundaries. Dynamic values (CLI name, repo library path, env var names) are substituted at runtime.
+2. **Shadow repo** — a verbatim copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `~/.claude` paths rewritten at build time to point to the mission's concrete config path. See "Shadow repo" below.
+3. **`agenc prime` hook** — for adjutant missions only, a `SessionStart` hook in the project-level settings runs `agenc prime`, which prints the CLI quick reference into the agent's context. Content is generated at build time from the Cobra command tree (`cmd/genprime/`).
+4. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
+5. **AgenC operational overrides** — programmatically injected hooks and deny permissions
 
 **Adjutant missions** (`agenc mission new --adjutant`) receive additional configuration beyond the standard merge. The presence of the `.adjutant` marker file in the mission directory triggers conditional logic in `BuildMissionConfigDir`:
 
-- **CLAUDE.md** — the adjutant-specific instructions (`internal/claudeconfig/adjutant_claude.md`) are appended after the standard user + modifications merge
+- **CLAUDE.md** — the adjutant-specific instructions (`internal/claudeconfig/adjutant_claude.md`) are appended after the standard agent instructions + user + modifications merge
 - **settings.json** — adjutant permissions are injected: allow entries for Read/Write/Edit/Glob/Grep on `$AGENC_DIRPATH/**` and `Bash(agenc:*)`, plus deny entries for Write/Edit on other missions' agent directories
 - **`agenc prime` SessionStart hook** — project-level hook in adjutant missions only (regular missions do not get it)
 
 Two directories are symlinked rather than copied: `plugins/` → `~/.claude/plugins/` (so plugin installations are shared), and `projects/` → `~/.claude/projects/` (so conversation transcripts and auto-memory persist beyond the mission lifecycle).
 
 Merging logic (`internal/claudeconfig/merge.go`):
-- CLAUDE.md: simple concatenation (user content + modifications content)
+- CLAUDE.md: three-layer concatenation (agent instructions + user content + modifications content)
 - settings.json: recursive deep merge (user as base, modifications as overlay), then append operational overrides (hooks and deny entries)
 - Deep merge rules: objects merge recursively, arrays concatenate, scalars from the overlay win
 

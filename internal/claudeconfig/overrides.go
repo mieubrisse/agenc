@@ -81,12 +81,23 @@ func BuildAgentDirAllowEntries(agentDirpath string) []string {
 	return entries
 }
 
+// AgencRepoLibraryWriteTools lists the tools denied write access to the shared
+// repo library. Read-only tools (Read, Glob, Grep) are intentionally omitted
+// so agents can explore code in the repo library without spawning a new mission.
+var AgencRepoLibraryWriteTools = []string{
+	"Write",
+	"Edit",
+	"NotebookEdit",
+}
+
 // BuildRepoLibraryDenyEntries constructs permission deny entries that prevent
-// agents from accessing the shared repo library under the given agenc dir.
+// agents from modifying the shared repo library under the given agenc dir.
+// Read-only access (Read, Glob, Grep) is allowed so agents can explore code
+// in other repos without needing to spawn a new mission.
 func BuildRepoLibraryDenyEntries(agencDirpath string) []string {
 	reposPattern := agencDirpath + "/repos/**"
-	entries := make([]string, 0, len(AgencDenyPermissionTools))
-	for _, tool := range AgencDenyPermissionTools {
+	entries := make([]string, 0, len(AgencRepoLibraryWriteTools))
+	for _, tool := range AgencRepoLibraryWriteTools {
 		entries = append(entries, tool+"("+reposPattern+")")
 	}
 	return entries
