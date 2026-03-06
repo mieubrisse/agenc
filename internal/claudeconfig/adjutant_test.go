@@ -17,7 +17,7 @@ func TestBuildAdjutantAllowEntries(t *testing.T) {
 	expectedTools := []string{"Read", "Write", "Edit", "Glob", "Grep"}
 	expectedPattern := agencDirpath + "/**"
 
-	// One entry per tool + Bash(agenc:*) + Bash(gh:*)
+	// One entry per tool + Bash(agenc *) + Bash(gh:*)
 	expectedLen := len(expectedTools) + 2
 	if len(entries) != expectedLen {
 		t.Fatalf("expected %d entries, got %d: %v", expectedLen, len(entries), entries)
@@ -31,8 +31,8 @@ func TestBuildAdjutantAllowEntries(t *testing.T) {
 	}
 
 	agencBashEntry := entries[len(expectedTools)]
-	if agencBashEntry != "Bash(agenc:*)" {
-		t.Errorf("entry %d: expected %q, got %q", len(expectedTools), "Bash(agenc:*)", agencBashEntry)
+	if agencBashEntry != "Bash(agenc *)" {
+		t.Errorf("entry %d: expected %q, got %q", len(expectedTools), "Bash(agenc *)", agencBashEntry)
 	}
 
 	ghBashEntry := entries[len(expectedTools)+1]

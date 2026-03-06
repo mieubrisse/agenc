@@ -96,7 +96,7 @@ func BuildAdjutantAllowEntries(agencDirpath string) []string {
 	for _, tool := range readWriteTools {
 		entries = append(entries, tool+"("+agencPattern+")")
 	}
-	entries = append(entries, "Bash(agenc:*)")
+	entries = append(entries, "Bash(agenc *)")
 	entries = append(entries, "Bash(gh:*)")
 
 	return entries
