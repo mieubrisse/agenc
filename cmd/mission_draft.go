@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/odyssey/agenc/internal/database"
@@ -47,12 +48,14 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 	tmpFile.Close()
 	defer os.Remove(tmpFilepath)
 
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vim"
+	editorEnv := os.Getenv("EDITOR")
+	if editorEnv == "" {
+		editorEnv = "vim"
 	}
 
-	editorCmd := exec.Command(editor, tmpFilepath)
+	editorParts := strings.Fields(editorEnv)
+	editorArgs := append(editorParts[1:], tmpFilepath)
+	editorCmd := exec.Command(editorParts[0], editorArgs...)
 	editorCmd.Stdin = os.Stdin
 	editorCmd.Stdout = os.Stdout
 	editorCmd.Stderr = os.Stderr
