@@ -140,7 +140,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Title:          StringPtr("🔌  Detach Mission"),
 		Description:    StringPtr("Unlink the focused mission from this tmux session (keeps running)"),
 		Command:        StringPtr("agenc mission detach $AGENC_CALLING_MISSION_UUID"),
-		TmuxKeybinding: StringPtr("-n C-s"),
+		TmuxKeybinding: StringPtr("-n C-i"),
 	},
 	"resumeMission": {
 		Title:       StringPtr("🟢  Resume Mission"),
