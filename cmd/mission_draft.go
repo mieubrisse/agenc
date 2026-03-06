@@ -8,26 +8,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var draftCmd = &cobra.Command{
-	Use:   draftCmdStr + " <target-pane-id>",
-	Short: "Open an editor to draft text and paste it into a tmux pane",
-	Long: `Opens $EDITOR (defaults to vim) with a temporary Markdown file. After the
-editor exits, if the file has content, it is pasted into the specified tmux
-pane using tmux load-buffer and paste-buffer. The temporary file is cleaned
-up afterward.
+// draftTargetPaneEnvVar is the environment variable that carries the tmux pane ID
+// to paste drafted text into. Set by the palette command before opening the split.
+const draftTargetPaneEnvVar = "AGENC_DRAFT_TARGET_PANE"
 
-This command is designed to be called by the Side Draft palette command,
-which opens it in a horizontal tmux split alongside the target pane.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runDraft,
+var missionDraftCmd = &cobra.Command{
+	Use:    draftCmdStr,
+	Short:  "Open an editor to draft text and paste it into the calling pane",
+	Hidden: true,
+	Args:   cobra.NoArgs,
+	RunE:   runMissionDraft,
 }
 
 func init() {
-	rootCmd.AddCommand(draftCmd)
+	missionCmd.AddCommand(missionDraftCmd)
 }
 
-func runDraft(cmd *cobra.Command, args []string) error {
-	targetPaneID := args[0]
+func runMissionDraft(cmd *cobra.Command, args []string) error {
+	targetPaneID := os.Getenv(draftTargetPaneEnvVar)
+	if targetPaneID == "" {
+		targetPaneID = "{last}"
+	}
 
 	tmpFile, err := os.CreateTemp("", "agenc-draft-*.md")
 	if err != nil {
@@ -65,7 +66,7 @@ func runDraft(cmd *cobra.Command, args []string) error {
 
 	pasteCmd := exec.Command("tmux", "paste-buffer", "-t", targetPaneID)
 	if output, err := pasteCmd.CombinedOutput(); err != nil {
-		return stacktrace.Propagate(err, "failed to paste buffer into pane %s: %s", targetPaneID, string(output))
+		return stacktrace.Propagate(err, "failed to paste buffer into pane: %s", string(output))
 	}
 
 	return nil
