@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -54,8 +55,16 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 	}
 
 	editorParts := strings.Fields(editorEnv)
+	editorBinary := editorParts[0]
 	editorArgs := append(editorParts[1:], tmpFilepath)
-	editorCmd := exec.Command(editorParts[0], editorArgs...)
+
+	// Start vim/nvim in insert mode since the user opened Side Draft to type
+	baseName := filepath.Base(editorBinary)
+	if baseName == "vim" || baseName == "nvim" {
+		editorArgs = append([]string{"-c", "startinsert"}, editorArgs...)
+	}
+
+	editorCmd := exec.Command(editorBinary, editorArgs...)
 	editorCmd.Stdin = os.Stdin
 	editorCmd.Stdout = os.Stdout
 	editorCmd.Stderr = os.Stderr
