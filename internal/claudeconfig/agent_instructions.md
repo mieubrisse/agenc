@@ -49,7 +49,9 @@ Use this to wait for a spawned mission to complete before consuming its results.
 
 ### Repo Library
 
-You have read-only access to all repositories in the repo library at `{{REPO_LIBRARY_DIRPATH}}`. You can explore code in any repo without spawning a new mission — useful when you need to reference another project's code, check an API surface, or understand a dependency.
+The **repo library** is AgenC's managed collection of git repositories at `{{REPO_LIBRARY_DIRPATH}}`. It contains only repos that have been explicitly registered with `{{CLI_NAME}} repo add` — it is **not** your personal code directory or any other location on disk. Do not look for repos outside this path.
+
+You have read-only access to all repositories in the repo library. You can explore code in any repo without spawning a new mission — useful when you need to reference another project's code, check an API surface, or understand a dependency.
 
 To list available repos: `{{CLI_NAME}} repo ls`
 
