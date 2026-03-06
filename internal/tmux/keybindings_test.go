@@ -50,7 +50,7 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 	// (palette keybinding does, but that's separate)
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "bind-key -T agenc n") {
+		if strings.Contains(line, `bind-key -T agenc "n"`) {
 			if strings.Contains(line, "resolve-mission") {
 				t.Error("expected non-mission-scoped keybinding to not contain resolve-mission")
 			}
@@ -129,9 +129,9 @@ func TestGenerateKeybindingsContent_GlobalKeybinding(t *testing.T) {
 
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
-	// Should emit "bind-key -n C-s" verbatim
-	if !strings.Contains(content, "bind-key -n C-s run-shell") {
-		t.Error("expected global keybinding to use '-n C-s' verbatim")
+	// Should emit "bind-key -n "C-s"" with the key double-quoted
+	if !strings.Contains(content, `bind-key -n "C-s" run-shell`) {
+		t.Error(`expected global keybinding to use '-n "C-s"'`)
 	}
 
 	// Should NOT wrap with the agenc table
@@ -154,9 +154,9 @@ func TestGenerateKeybindingsContent_GlobalMissionScopedKeybinding(t *testing.T) 
 
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
-	// Should emit "bind-key -n C-s" verbatim
-	if !strings.Contains(content, "bind-key -n C-s run-shell") {
-		t.Error("expected global mission-scoped keybinding to use '-n C-s' verbatim")
+	// Should emit "bind-key -n "C-s"" with the key double-quoted
+	if !strings.Contains(content, `bind-key -n "C-s" run-shell`) {
+		t.Error(`expected global mission-scoped keybinding to use '-n "C-s"'`)
 	}
 
 	// Should still contain resolve-mission preamble

@@ -15,6 +15,19 @@ import (
 // keybindings behind a prefix (prefix + a → agenc table).
 const agencKeyTable = "agenc"
 
+// quoteBindKeyArg double-quotes the key (last token) in a bind-key argument
+// string so that keys containing special characters (e.g. C-') don't break
+// tmux's config parser. For example, "-n C-'" becomes `-n "C-'"`.
+func quoteBindKeyArg(bindKeyArgs string) string {
+	parts := strings.Fields(bindKeyArgs)
+	if len(parts) == 0 {
+		return bindKeyArgs
+	}
+	lastIdx := len(parts) - 1
+	parts[lastIdx] = `"` + parts[lastIdx] + `"`
+	return strings.Join(parts, " ")
+}
+
 // escapeSingleQuotes escapes single quotes in a string so it can be safely
 // embedded inside a single-quoted shell/tmux string. The standard technique
 // is to end the current single-quoted segment, insert an escaped literal
@@ -97,6 +110,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		if strings.HasPrefix(kb.Key, "-") {
 			bindKeyArgs = kb.Key
 		}
+		bindKeyArgs = quoteBindKeyArg(bindKeyArgs)
 
 		escapedCommand := escapeSingleQuotes(kb.Command)
 
