@@ -27,6 +27,7 @@ const (
 	feedbackCmdStr = "feedback"
 	sessionCmdStr  = "session"
 	stashCmdStr    = "stash"
+	draftCmdStr    = "draft"
 
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"

@@ -16,6 +16,7 @@ The AgenC — agent mission management CLI
 * [agenc detach](agenc_detach.md)	 - Detach from the AgenC tmux session (alias for 'agenc tmux detach')
 * [agenc discord](agenc_discord.md)	 - Open the AgenC Discord community in your browser
 * [agenc doctor](agenc_doctor.md)	 - Check for common configuration issues
+* [agenc draft](agenc_draft.md)	 - Open an editor to draft text and paste it into a tmux pane
 * [agenc feedback](agenc_feedback.md)	 - Launch a feedback mission with Adjutant
 * [agenc login](agenc_login.md)	 - Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
 * [agenc mission](agenc_mission.md)	 - Manage agent missions

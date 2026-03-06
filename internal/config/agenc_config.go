@@ -153,6 +153,12 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:        StringPtr(`tmux split-window -h -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL`),
 		TmuxKeybinding: StringPtr("-n C-p"),
 	},
+	"draft": {
+		Title:          StringPtr("📝  Side Draft"),
+		Description:    StringPtr("Open an editor to draft text and paste it into the active pane"),
+		Command:        StringPtr(`target=$(tmux display-message -p '#{pane_id}') && tmux split-window -h "agenc draft \"$target\""`),
+		TmuxKeybinding: StringPtr("-n C-v"),
+	},
 	"shell": {
 		Title:       StringPtr("🐚  Shell"),
 		Description: StringPtr("Open a shell in a new window"),
@@ -236,6 +242,7 @@ var builtinPaletteCommandOrder = []string{
 	"detachMission",
 	"resumeMission",
 	"sideShell",
+	"draft",
 	"shell",
 	"copyMissionUuid",
 	"renameSession",
