@@ -29,10 +29,7 @@ func TestGetPrimeContent(t *testing.T) {
 			"agenc config",
 			"agenc cron",
 			"agenc server",
-			"Key Concepts",
-			"Palette commands",
 			"Repo Formats",
-			"$AGENC_MISSION_UUID",
 			"Never use interactive commands",
 		}
 		for _, phrase := range expectedPhrases {

@@ -201,13 +201,7 @@ func renderPrimeContent(groups []commandGroup) (string, error) {
 var primeTemplate = `AgenC CLI Quick Reference
 =========================
 
-You are running inside an **AgenC mission** — an isolated sandbox managed by the ` + "`agenc`" + ` CLI. You can use ` + "`agenc`" + ` to manage the system you are running in: spawn new missions, manage repos, configure cron jobs, check status, and update config.
-
-The ` + "`agenc`" + ` binary is in your PATH. Your current mission's UUID is in ` + "`$AGENC_MISSION_UUID`" + `.
-
-**Critical constraint:** Missions are ephemeral. Local filesystems do not persist after a mission ends. Always commit and push your work.
-
-**Never use interactive commands** that open ` + "`$EDITOR`" + ` or require terminal input without arguments — they will hang. Avoid: ` + "`agenc config edit`" + `, ` + "`agenc cron new`" + `. Use non-interactive alternatives (` + "`agenc config set`" + `, direct config.yml editing).
+**Never use interactive commands** that open ` + "`$EDITOR`" + ` or require terminal input without arguments — they will hang. Use non-interactive alternatives with flags instead.
 
 {{ range . }}{{ if ne .Name "other" }}
 {{ sectionH2 .Description }}
@@ -222,30 +216,6 @@ The ` + "`agenc`" + ` binary is in your PATH. Your current mission's UUID is in 
 {{ $maxLen := maxUsageLen .Commands }}{{ range .Commands }}{{ padRight .Usage $maxLen }}  # {{ .Description }}
 {{ end }}` + "```" + `
 {{ end }}{{ end }}
-Common Patterns
----------------
-
-` + "```" + `bash
-# Launch a mission with an initial prompt
-agenc mission new <repo> --prompt "Fix the failing CI tests"
-
-# Launch a headless mission (no terminal, runs in background)
-agenc mission new <repo> --prompt "Run the nightly report" --headless
-
-# Launch an Adjutant mission with a prompt
-agenc mission new --adjutant --prompt "Add a cron job for daily cleanup"
-` + "```" + `
-
-Key Concepts
-------------
-
-- **Missions** are isolated workspaces. Each mission gets its own tmux window, its own copy of a git repo (the ` + "`agent/`" + ` directory), and its own Claude Code config (` + "`claude-config/`" + `). Missions are ephemeral — local filesystems do not survive archival. Always commit and push.
-- **Repos** are git repositories in the repo library (` + "`~/.agenc/repos/`" + `). When a mission is created from a repo, the repo is cloned into the mission's ` + "`agent/`" + ` directory. You can run ` + "`agenc mission new <repo>`" + ` with any valid repo reference (URL, owner/repo shorthand, or local path) — if the repo is not already in the library, it will be cloned into the library automatically. You do not need to ` + "`agenc repo add`" + ` it first.
-- **Tmux** is the primary interface. Each mission is a tmux window. "Window title" means the tmux window name — the text shown in the status bar. AgenC sets window titles from the repo name or a custom string.
-- **Palette commands** are quick-launch entries in the AgenC tmux command palette. Each has a ` + "`name`" + ` (internal key), ` + "`title`" + ` (display text), ` + "`command`" + ` (self-contained command string, including tmux primitives like ` + "`display-popup`" + ` or ` + "`split-window`" + ` when needed), and optional ` + "`tmuxKeybinding`" + `. Stored in ` + "`config.yml`" + ` under ` + "`paletteCommands`" + `. Manage with ` + "`agenc config paletteCommand`" + `. Keybinding values are passed through to tmux's bind-key: a bare key like ` + "`\"f\"`" + ` binds in the agenc table (prefix + a, f), while ` + "`\"-n C-s\"`" + ` binds globally in the root table (no prefix needed).
-- **Cron jobs** are scheduled headless missions defined in ` + "`config.yml`" + `. Manage with ` + "`agenc cron`" + `.
-- **The server** is a background process that handles scheduled tasks, repo syncing, and credential management. Manage it with ` + "`agenc server`" + `.
-
 Repo Formats
 ------------
 
