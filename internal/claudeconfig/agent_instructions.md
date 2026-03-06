@@ -32,6 +32,21 @@ Include a clear, specific prompt so the new mission's agent can act autonomously
 
 **Prefer headed missions** (the default) over headless ones. Headed missions open a tmux window the user can observe and interact with, giving them visibility into what the agent is doing. Only use `--headless` for fully autonomous tasks that need no human oversight (e.g., scheduled jobs, background reports).
 
+### Monitoring Spawned Missions
+
+After spawning a mission, you can check its status and read its output:
+
+```bash
+# Check if the mission is still working or has finished
+{{CLI_NAME}} mission inspect <mission-id>
+# Status will show IDLE when the agent has finished and is waiting for input
+
+# Read the mission's session transcript
+{{CLI_NAME}} mission print <mission-id>
+```
+
+Use this to wait for a spawned mission to complete before consuming its results.
+
 ### Repo Library
 
 You have read-only access to all repositories in the repo library at `{{REPO_LIBRARY_DIRPATH}}`. You can explore code in any repo without spawning a new mission — useful when you need to reference another project's code, check an API surface, or understand a dependency.
@@ -136,6 +151,13 @@ git shortlog -sn --all | wc -l
 3. Create your branch: `git checkout -b <branch-name>` (use prefixes like `feat/`, `fix/`, `refactor/`)
 4. Work on your branch. Push with `-u` on first push.
 5. After merge, clean up: delete the local branch (`git branch -d`) and remote branch (`git push origin --delete`)
+
+---
+
+Configuration Boundaries
+------------------------
+
+Your mission's `claude-config/` directory is **read-only**. It contains the Claude Code configuration that AgenC assembled for this mission — you cannot modify it directly. If you or the user needs to change Claude Code settings, skills, hooks, or the global CLAUDE.md, modify the source files in `~/.claude/` instead and then use the **"Reconfig & Reload"** palette command (accessible via the tmux command palette) to rebuild and apply the updated configuration to the running mission.
 
 ---
 
