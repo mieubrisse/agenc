@@ -316,6 +316,15 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 		gitCloneDirpath = ""
 	}
 
+	// Force-pull the library clone if it hasn't been fetched recently.
+	// This prevents missions from starting with a stale copy of the repo.
+	if gitCloneDirpath != "" && mission.IsRepoStale(gitCloneDirpath, 24*time.Hour) {
+		s.logger.Printf("Mission create: force-pulling stale repo '%s' before copy", gitRepoName)
+		if err := mission.ForceUpdateRepo(gitCloneDirpath); err != nil {
+			s.logger.Printf("Mission create: failed to pull stale repo '%s': %v (proceeding with stale copy)", gitRepoName, err)
+		}
+	}
+
 	// Create mission directory structure
 	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission directory: %s", err.Error())

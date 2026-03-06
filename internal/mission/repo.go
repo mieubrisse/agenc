@@ -21,6 +21,19 @@ const (
 	gitOperationTimeout = 30 * time.Second
 )
 
+// IsRepoStale reports whether the repo's last fetch is older than maxAge.
+// Checks the mtime of .git/FETCH_HEAD, which git updates on every fetch.
+// Returns true (stale) if the file is missing or on any error — erring on
+// the side of freshness.
+func IsRepoStale(repoDirpath string, maxAge time.Duration) bool {
+	fetchHeadFilepath := filepath.Join(repoDirpath, ".git", "FETCH_HEAD")
+	info, err := os.Stat(fetchHeadFilepath)
+	if err != nil {
+		return true
+	}
+	return time.Since(info.ModTime()) > maxAge
+}
+
 // ForceUpdateRepo fetches from origin and resets the local default branch to
 // match the remote. This ensures the repo library clone is up-to-date before
 // copying into a mission's agent directory.

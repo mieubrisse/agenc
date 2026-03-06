@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestGetHEAD(t *testing.T) {
@@ -51,6 +52,43 @@ func TestGetHEAD_InvalidRepo(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for non-git directory")
 	}
+}
+
+func TestIsRepoStale(t *testing.T) {
+	tmpDir := t.TempDir()
+	gitDir := filepath.Join(tmpDir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	fetchHeadFilepath := filepath.Join(gitDir, "FETCH_HEAD")
+
+	t.Run("missing FETCH_HEAD returns true", func(t *testing.T) {
+		if !IsRepoStale(tmpDir, 24*time.Hour) {
+			t.Error("expected stale when FETCH_HEAD is missing")
+		}
+	})
+
+	t.Run("old FETCH_HEAD returns true", func(t *testing.T) {
+		if err := os.WriteFile(fetchHeadFilepath, []byte("abc123"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		oldTime := time.Now().Add(-48 * time.Hour)
+		if err := os.Chtimes(fetchHeadFilepath, oldTime, oldTime); err != nil {
+			t.Fatal(err)
+		}
+		if !IsRepoStale(tmpDir, 24*time.Hour) {
+			t.Error("expected stale when FETCH_HEAD is 48h old")
+		}
+	})
+
+	t.Run("recent FETCH_HEAD returns false", func(t *testing.T) {
+		if err := os.WriteFile(fetchHeadFilepath, []byte("abc123"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if IsRepoStale(tmpDir, 24*time.Hour) {
+			t.Error("expected not stale when FETCH_HEAD was just written")
+		}
+	})
 }
 
 func TestParseRepoReference(t *testing.T) {
