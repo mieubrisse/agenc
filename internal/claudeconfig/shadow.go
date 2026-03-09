@@ -271,7 +271,10 @@ func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 
 	changed := false
 
-	// Copy new/changed files from source to destination
+	// Copy new/changed files from source to destination.
+	// filepath.Walk uses os.Lstat, so symlinks appear as symlink entries
+	// rather than being followed. We must detect symlinks to directories
+	// and recursively ingest them ourselves.
 	err = filepath.Walk(resolvedSrc, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -283,6 +286,34 @@ func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 		}
 
 		dstPath := filepath.Join(dstDirpath, relPath)
+
+		// Handle symlinks explicitly — Walk doesn't follow them
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolvedPath, resolveErr := resolveSymlink(path)
+			if resolveErr != nil {
+				if os.IsNotExist(resolveErr) {
+					return nil // Dangling symlink, skip
+				}
+				return stacktrace.Propagate(resolveErr, "failed to resolve symlink '%s'", path)
+			}
+			resolvedInfo, statErr := os.Stat(resolvedPath)
+			if statErr != nil {
+				return stacktrace.Propagate(statErr, "failed to stat resolved symlink '%s'", resolvedPath)
+			}
+			if resolvedInfo.IsDir() {
+				// Symlink to directory: recursively ingest it
+				origDirpath := filepath.Join(srcDirpath, relPath)
+				didChange, ingestErr := ingestDir(origDirpath, dstPath)
+				if ingestErr != nil {
+					return stacktrace.Propagate(ingestErr, "failed to ingest symlinked directory '%s'", origDirpath)
+				}
+				if didChange {
+					changed = true
+				}
+				return nil
+			}
+			// Symlink to file: fall through to ingestFile below
+		}
 
 		if info.IsDir() {
 			return os.MkdirAll(dstPath, info.Mode())

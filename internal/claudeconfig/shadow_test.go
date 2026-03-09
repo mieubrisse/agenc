@@ -470,6 +470,76 @@ func TestIngestFromClaudeDir_DeletedSubdirInTrackedDir(t *testing.T) {
 	}
 }
 
+func TestIngestFromClaudeDir_SymlinkedDirInsideTrackedDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create an external directory that the symlink will point to (simulates
+	// a skill living in another repo, e.g. ~/code/mdbin/skills/mdbin)
+	externalSkillDirpath := filepath.Join(tmpDir, "external-repo", "skills", "mdbin")
+	if err := os.MkdirAll(externalSkillDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	skillContent := "# mdbin skill\nDoes mdbin things.\n"
+	if err := os.WriteFile(filepath.Join(externalSkillDirpath, "SKILL.md"), []byte(skillContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create ~/.claude/skills with a regular skill and a symlinked skill
+	claudeDirpath := filepath.Join(tmpDir, ".claude")
+	regularSkillDirpath := filepath.Join(claudeDirpath, "skills", "regular-skill")
+	if err := os.MkdirAll(regularSkillDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	regularContent := "# Regular skill\n"
+	if err := os.WriteFile(filepath.Join(regularSkillDirpath, "SKILL.md"), []byte(regularContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Symlink ~/.claude/skills/mdbin -> external-repo/skills/mdbin (a directory)
+	if err := os.Symlink(externalSkillDirpath, filepath.Join(claudeDirpath, "skills", "mdbin")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Initialize shadow repo and ingest
+	shadowDirpath, err := InitShadowRepo(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := IngestFromClaudeDir(claudeDirpath, shadowDirpath); err != nil {
+		t.Fatalf("IngestFromClaudeDir failed: %v", err)
+	}
+
+	// Verify regular skill was ingested
+	data, err := os.ReadFile(filepath.Join(shadowDirpath, "skills", "regular-skill", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("failed to read regular skill: %v", err)
+	}
+	if string(data) != regularContent {
+		t.Errorf("regular skill content mismatch: expected %q, got %q", regularContent, string(data))
+	}
+
+	// Verify symlinked directory skill was ingested as a real directory with content
+	data, err = os.ReadFile(filepath.Join(shadowDirpath, "skills", "mdbin", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("failed to read symlinked skill: %v", err)
+	}
+	if string(data) != skillContent {
+		t.Errorf("symlinked skill content mismatch: expected %q, got %q", skillContent, string(data))
+	}
+
+	// Verify it's a real directory, not a symlink
+	info, err := os.Lstat(filepath.Join(shadowDirpath, "skills", "mdbin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Error("shadow repo should contain a real directory, not a symlink")
+	}
+	if !info.IsDir() {
+		t.Error("shadow repo entry should be a directory")
+	}
+}
+
 func TestGetShadowRepoDirpath(t *testing.T) {
 	result := GetShadowRepoDirpath("/home/user/.agenc")
 	expected := "/home/user/.agenc/claude-config-shadow"
