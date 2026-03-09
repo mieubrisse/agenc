@@ -94,6 +94,18 @@ func (s *Server) runLoop(name string, wg *sync.WaitGroup, ctx context.Context, f
 // Run starts the HTTP server on the unix socket and blocks until ctx is cancelled.
 // It performs graceful shutdown when the context is cancelled.
 func (s *Server) Run(ctx context.Context) error {
+	// Acquire singleton lock — only one server process may run at a time.
+	lockFilepath := config.GetServerLockFilepath(s.agencDirpath)
+	lockFile, err := tryAcquireServerLock(lockFilepath)
+	if err != nil {
+		if err == ErrServerLocked {
+			s.logger.Println("Another server is already running, exiting")
+			return nil
+		}
+		return stacktrace.Propagate(err, "failed to acquire server lock")
+	}
+	defer lockFile.Close()
+
 	// Open the database
 	dbFilepath := config.GetDatabaseFilepath(s.agencDirpath)
 	db, err := database.Open(dbFilepath)
