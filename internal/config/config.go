@@ -33,6 +33,7 @@ const (
 	ServerLogFilename     = "server.log"
 	RequestsLogFilename   = "requests.log"
 	ServerSocketFilename  = "server.sock"
+	ServerLockFilename    = "server.lock"
 	ConfigFilename        = "config.yml"
 
 	AgentDirname                    = "agent"
@@ -168,6 +169,12 @@ func GetServerLogFilepath(agencDirpath string) string {
 // GetServerSocketFilepath returns the path to the server unix socket file.
 func GetServerSocketFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ServerDirname, ServerSocketFilename)
+}
+
+// GetServerLockFilepath returns the path to the server lock file used for
+// singleton enforcement via flock.
+func GetServerLockFilepath(agencDirpath string) string {
+	return filepath.Join(agencDirpath, ServerDirname, ServerLockFilename)
 }
 
 // GetServerRequestsLogFilepath returns the path to the server HTTP request log file.
