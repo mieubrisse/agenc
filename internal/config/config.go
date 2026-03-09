@@ -82,7 +82,6 @@ func EnsureDirStructure(agencDirpath string) error {
 		filepath.Join(agencDirpath, ReposDirname),
 		filepath.Join(agencDirpath, ClaudeDirname),
 		filepath.Join(agencDirpath, MissionsDirname),
-		filepath.Join(agencDirpath, DaemonDirname),
 		filepath.Join(agencDirpath, ServerDirname),
 		filepath.Join(agencDirpath, CacheDirname),
 	}

@@ -14,9 +14,8 @@ import (
 // daemon process from a pre-server version. All errors are silently ignored —
 // this check must never block CLI commands.
 func checkServerVersion(agencDirpath string) {
-	// Stop any leftover daemon from a pre-server version of agenc.
-	// After upgrade, the daemon PID file may still exist with a running process.
-	stopStaleDaemon(agencDirpath)
+	// Clean up any leftover daemon directory from a pre-server version of agenc.
+	cleanupDaemonDir(agencDirpath)
 
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 
@@ -58,4 +57,13 @@ func stopStaleDaemon(agencDirpath string) {
 
 	// Reuse StopServer — it works with any PID file (SIGTERM → poll → SIGKILL).
 	_ = server.StopServer(daemonPIDFilepath)
+}
+
+// cleanupDaemonDir removes the legacy daemon/ directory from the agenc root.
+// This cleans up files left behind by pre-server versions of agenc. All errors
+// are silently ignored — cleanup must never block server start.
+func cleanupDaemonDir(agencDirpath string) {
+	stopStaleDaemon(agencDirpath)
+	daemonDirpath := config.GetDaemonDirpath(agencDirpath)
+	_ = os.RemoveAll(daemonDirpath)
 }

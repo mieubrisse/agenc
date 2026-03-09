@@ -55,6 +55,7 @@ func forkServer() error {
 // ensureServerRunning idempotently starts the server if not already running,
 // and waits for it to be ready to accept connections.
 func ensureServerRunning(agencDirpath string) {
+	cleanupDaemonDir(agencDirpath)
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 	if server.IsRunning(pidFilepath) {
 		return
