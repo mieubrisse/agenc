@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -14,6 +16,9 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 )
+
+// ErrServerLocked is returned when another server process holds the lock.
+var ErrServerLocked = errors.New("another server is already running")
 
 const (
 	serverEnvVar     = "AGENC_SERVER_PROCESS"
@@ -26,6 +31,32 @@ const (
 // IsServerProcess returns true if this process was launched as the server child.
 func IsServerProcess() bool {
 	return os.Getenv(serverEnvVar) == "1"
+}
+
+// tryAcquireServerLock attempts to acquire an exclusive flock on the given lock
+// file. Returns the open file handle (caller must defer Close) on success, or
+// ErrServerLocked if another process holds the lock. Any other error indicates
+// a filesystem problem.
+func tryAcquireServerLock(lockFilepath string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(lockFilepath), 0755); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to create lock file directory")
+	}
+
+	f, err := os.OpenFile(lockFilepath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to open lock file")
+	}
+
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, ErrServerLocked
+		}
+		return nil, stacktrace.Propagate(err, "failed to acquire lock")
+	}
+
+	return f, nil
 }
 
 // ForkServer re-executes the current binary as a background server process.
