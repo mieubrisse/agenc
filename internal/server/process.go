@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -21,25 +20,11 @@ import (
 var ErrServerLocked = errors.New("another server is already running")
 
 const (
-	serverEnvVar     = "AGENC_SERVER_PROCESS"
 	stopPollTimeout  = 3 * time.Second
 	stopPollTick     = 100 * time.Millisecond
 	readyPollTimeout = 5 * time.Second
 	readyPollTick    = 100 * time.Millisecond
 )
-
-// IsServerProcess returns true if this process was launched as the server child.
-func IsServerProcess() bool {
-	return os.Getenv(serverEnvVar) == "1"
-}
-
-// ClearServerEnvVar removes the server process env var from the current process.
-// Call this after entering the server loop so child processes (tmux, etc.) don't
-// inherit it — otherwise it leaks into tmux's global environment and causes
-// 'agenc server start' to hang when run from inside missions.
-func ClearServerEnvVar() {
-	os.Unsetenv(serverEnvVar)
-}
 
 // tryAcquireServerLock attempts to acquire an exclusive flock on the given lock
 // file. Returns the open file handle (caller must defer Close) on success, or
@@ -81,8 +66,7 @@ func ForkServer(logFilepath string, pidFilepath string) error {
 		return stacktrace.Propagate(err, "failed to open server log file")
 	}
 
-	cmd := exec.Command(executableFilepath, "server", "start")
-	cmd.Env = append(os.Environ(), fmt.Sprintf("%s=1", serverEnvVar))
+	cmd := exec.Command(executableFilepath, "server", "run")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -202,17 +186,17 @@ func killProcess(pid int) {
 	_ = process.Signal(syscall.SIGKILL)
 }
 
-// findOrphanServerPIDs finds all running `agenc server start` processes that
-// have the AGENC_SERVER_PROCESS=1 env var set, excluding the given set of PIDs.
+// findOrphanServerPIDs finds all running `agenc server run` processes,
+// excluding the given set of PIDs.
 // Returns nil (not an error) if pgrep is unavailable or finds nothing.
 func findOrphanServerPIDs(excludePIDs map[int]bool) []int {
-	cmd := exec.Command("pgrep", "-f", "agenc server start")
+	cmd := exec.Command("pgrep", "-f", "agenc server run")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil // pgrep returns exit 1 when no matches
 	}
 
-	var candidates []int
+	var result []int
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -222,29 +206,10 @@ func findOrphanServerPIDs(excludePIDs map[int]bool) []int {
 		if err != nil || pid <= 0 || excludePIDs[pid] {
 			continue
 		}
-		candidates = append(candidates, pid)
+		result = append(result, pid)
 	}
 
-	// Verify each candidate has AGENC_SERVER_PROCESS=1 in its environment
-	var confirmed []int
-	for _, pid := range candidates {
-		if isServerChild(pid) {
-			confirmed = append(confirmed, pid)
-		}
-	}
-
-	return confirmed
-}
-
-// isServerChild checks whether the process with the given PID has the
-// AGENC_SERVER_PROCESS=1 environment variable set.
-func isServerChild(pid int) bool {
-	cmd := exec.Command("ps", "eww", "-p", strconv.Itoa(pid))
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(output), "AGENC_SERVER_PROCESS=1")
+	return result
 }
 
 // WaitForReady polls the server's /health endpoint on the given unix socket

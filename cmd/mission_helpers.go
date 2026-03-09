@@ -168,17 +168,15 @@ var (
 )
 
 // getAgencContext lazily ensures agenc is fully configured. It runs
-// ensureConfigured() at most once per CLI invocation and, for non-server
-// processes, checks whether the server needs a version-bump restart.
+// ensureConfigured() at most once per CLI invocation and checks whether the
+// server needs a version-bump restart.
 func getAgencContext() (string, error) {
 	agencCtxOnce.Do(func() {
 		_, agencCtxErr = ensureConfigured()
 		if agencCtxErr != nil {
 			return
 		}
-		if !server.IsServerProcess() {
-			checkServerVersion(agencDirpath)
-		}
+		checkServerVersion(agencDirpath)
 	})
 	return agencDirpath, agencCtxErr
 }
