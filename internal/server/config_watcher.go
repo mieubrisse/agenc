@@ -29,13 +29,19 @@ func (s *Server) runConfigWatcherLoop(ctx context.Context) {
 		return
 	}
 
-	// Ensure shadow repo exists (creates + initial ingest if first run)
+	// Ensure shadow repo exists (creates on first run)
 	if err := claudeconfig.EnsureShadowRepo(s.agencDirpath); err != nil {
 		s.logger.Printf("Config watcher: failed to initialize shadow repo: %v", err)
 		return
 	}
 
 	shadowDirpath := claudeconfig.GetShadowRepoDirpath(s.agencDirpath)
+
+	// Always ingest on startup so the shadow repo is current — EnsureShadowRepo
+	// only ingests when creating a brand-new shadow repo, so restarts would
+	// otherwise serve stale content until an fsnotify event fires.
+	s.ingestClaudeConfig(userClaudeDirpath, shadowDirpath)
+
 	s.logger.Println("Config watcher: shadow repo ready, starting watch")
 
 	s.watchBothConfigs(ctx, userClaudeDirpath, shadowDirpath)
@@ -128,16 +134,9 @@ func (s *Server) addTrackedWatches(watcher *fsnotify.Watcher, userClaudeDirpath 
 			continue // Directory doesn't exist
 		}
 
-		// Walk and add watches for all subdirectories
-		filepath.Walk(resolved, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if info.IsDir() {
-				addWatch(watcher, path)
-			}
-			return nil
-		})
+		// Walk and add watches for all subdirectories, following symlinks
+		// to directories so that changes inside symlinked skills/hooks are detected.
+		addWatchesRecursive(watcher, resolved)
 	}
 
 	// Watch symlink targets for tracked files
@@ -149,6 +148,42 @@ func (s *Server) addTrackedWatches(watcher *fsnotify.Watcher, userClaudeDirpath 
 		}
 		// Watch the directory containing the resolved file
 		addWatch(watcher, filepath.Dir(resolved))
+	}
+}
+
+// addWatchesRecursive walks a directory and adds fsnotify watches for it and
+// all subdirectories. Unlike filepath.Walk, this follows symlinks to
+// directories so that symlinked skills/hooks are properly watched.
+func addWatchesRecursive(watcher *fsnotify.Watcher, dirpath string) {
+	addWatch(watcher, dirpath)
+
+	entries, err := os.ReadDir(dirpath)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		childPath := filepath.Join(dirpath, entry.Name())
+
+		if entry.IsDir() {
+			addWatchesRecursive(watcher, childPath)
+			continue
+		}
+
+		// Check if this is a symlink to a directory
+		if entry.Type()&os.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(childPath)
+			if err != nil {
+				continue
+			}
+			info, err := os.Stat(resolved)
+			if err != nil {
+				continue
+			}
+			if info.IsDir() {
+				addWatchesRecursive(watcher, resolved)
+			}
+		}
 	}
 }
 
