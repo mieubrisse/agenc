@@ -28,16 +28,8 @@ func runServerStop(cmd *cobra.Command, args []string) error {
 
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 
-	pid, err := server.ReadPID(pidFilepath)
-	if err != nil {
-		return err
-	}
-
-	if pid == 0 || !server.IsRunning(pidFilepath) {
-		fmt.Println("Server is not running.")
-		return nil
-	}
-
+	// Always run StopServer — it handles missing/stale PID files gracefully
+	// and sweeps for orphaned server processes regardless.
 	if err := server.StopServer(pidFilepath); err != nil {
 		return err
 	}

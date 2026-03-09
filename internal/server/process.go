@@ -150,43 +150,93 @@ func IsRunning(pidFilepath string) bool {
 	return process.Signal(syscall.Signal(0)) == nil
 }
 
-// StopServer sends SIGTERM to the server process and waits for it to exit.
-// Cleans up the PID file afterward.
+// StopServer sends SIGTERM to the server process from the PID file, then sweeps
+// for any orphaned server processes and kills those too. Tolerant of missing or
+// stale PID files — the orphan sweep runs regardless.
 func StopServer(pidFilepath string) error {
-	pid, err := ReadPID(pidFilepath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read server PID")
+	killedPIDs := map[int]bool{os.Getpid(): true}
+
+	pid, _ := ReadPID(pidFilepath)
+	if pid > 0 && IsProcessRunning(pid) {
+		killProcess(pid)
+		killedPIDs[pid] = true
 	}
 
-	if pid == 0 || !IsRunning(pidFilepath) {
-		os.Remove(pidFilepath)
-		return stacktrace.NewError("server is not running")
+	os.Remove(pidFilepath)
+
+	// Sweep for orphaned server processes
+	orphans := findOrphanServerPIDs(killedPIDs)
+	for _, orphanPID := range orphans {
+		killProcess(orphanPID)
 	}
 
+	return nil
+}
+
+// killProcess sends SIGTERM to a process and waits for it to exit, falling
+// back to SIGKILL if it doesn't exit within the timeout.
+func killProcess(pid int) {
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to find server process")
+		return
 	}
 
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return stacktrace.Propagate(err, "failed to send SIGTERM to server (PID %d)", pid)
-	}
+	_ = process.Signal(syscall.SIGTERM)
 
-	// Poll until the process exits or we time out
 	deadline := time.Now().Add(stopPollTimeout)
 	for time.Now().Before(deadline) {
-		if !IsRunning(pidFilepath) {
-			os.Remove(pidFilepath)
-			return nil
+		if !IsProcessRunning(pid) {
+			return
 		}
 		time.Sleep(stopPollTick)
 	}
 
-	// Force kill if still running
 	_ = process.Signal(syscall.SIGKILL)
-	os.Remove(pidFilepath)
+}
 
-	return nil
+// findOrphanServerPIDs finds all running `agenc server start` processes that
+// have the AGENC_SERVER_PROCESS=1 env var set, excluding the given set of PIDs.
+// Returns nil (not an error) if pgrep is unavailable or finds nothing.
+func findOrphanServerPIDs(excludePIDs map[int]bool) []int {
+	cmd := exec.Command("pgrep", "-f", "agenc server start")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil // pgrep returns exit 1 when no matches
+	}
+
+	var candidates []int
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		pid, err := strconv.Atoi(line)
+		if err != nil || pid <= 0 || excludePIDs[pid] {
+			continue
+		}
+		candidates = append(candidates, pid)
+	}
+
+	// Verify each candidate has AGENC_SERVER_PROCESS=1 in its environment
+	var confirmed []int
+	for _, pid := range candidates {
+		if isServerChild(pid) {
+			confirmed = append(confirmed, pid)
+		}
+	}
+
+	return confirmed
+}
+
+// isServerChild checks whether the process with the given PID has the
+// AGENC_SERVER_PROCESS=1 environment variable set.
+func isServerChild(pid int) bool {
+	cmd := exec.Command("ps", "eww", "-p", strconv.Itoa(pid))
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(output), "AGENC_SERVER_PROCESS=1")
 }
 
 // WaitForReady polls the server's /health endpoint on the given unix socket
