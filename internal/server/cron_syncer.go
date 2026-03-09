@@ -27,7 +27,7 @@ func NewCronSyncer(agencDirpath string) *CronSyncer {
 }
 
 // SyncCronsToLaunchd synchronizes the cron configuration to launchd plists.
-// This function is idempotent and can be called on daemon startup and whenever
+// This function is idempotent and can be called on server startup and whenever
 // the config changes.
 func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logger logger) error {
 	// First, reconcile orphaned plists on startup
