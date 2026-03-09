@@ -33,6 +33,14 @@ func IsServerProcess() bool {
 	return os.Getenv(serverEnvVar) == "1"
 }
 
+// ClearServerEnvVar removes the server process env var from the current process.
+// Call this after entering the server loop so child processes (tmux, etc.) don't
+// inherit it — otherwise it leaks into tmux's global environment and causes
+// 'agenc server start' to hang when run from inside missions.
+func ClearServerEnvVar() {
+	os.Unsetenv(serverEnvVar)
+}
+
 // tryAcquireServerLock attempts to acquire an exclusive flock on the given lock
 // file. Returns the open file handle (caller must defer Close) on success, or
 // ErrServerLocked if another process holds the lock. Any other error indicates

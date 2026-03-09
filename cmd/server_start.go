@@ -39,6 +39,11 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 }
 
 func runServerLoop() error {
+	// Clear the env var immediately — it served its purpose (routing us here
+	// instead of forkServer). Keeping it pollutes child processes like tmux,
+	// which causes 'agenc server start' to hang inside missions.
+	server.ClearServerEnvVar()
+
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 
 	if err := os.WriteFile(pidFilepath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
