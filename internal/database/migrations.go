@@ -221,7 +221,7 @@ func migrateAddTmuxPane(conn *sql.DB) error {
 }
 
 // migrateAddAISummary idempotently adds the prompt_count,
-// last_summary_prompt_count, and ai_summary columns for daemon-driven
+// last_summary_prompt_count, and ai_summary columns for server-driven
 // AI mission summarization.
 func migrateAddAISummary(conn *sql.DB) error {
 	columns, err := getColumnNames(conn)

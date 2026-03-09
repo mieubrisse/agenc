@@ -23,7 +23,7 @@ agenc config repoConfig set <repo> [flags]
 ### Options
 
 ```
-      --always-synced                keep this repo continuously synced by the daemon
+      --always-synced                keep this repo continuously synced by the server
       --default-model string         default Claude model for missions using this repo (e.g., "opus", "sonnet")
       --emoji string                 emoji to display for missions using this repo
   -h, --help                         help for set

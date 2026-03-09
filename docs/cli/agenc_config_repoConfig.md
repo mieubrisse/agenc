@@ -9,7 +9,7 @@ Manage per-repo configuration in config.yml.
 Each repo is identified by its canonical name (github.com/owner/repo) and
 supports four optional settings:
 
-  alwaysSynced       - daemon keeps the repo continuously fetched (every 60s)
+  alwaysSynced       - server keeps the repo continuously fetched (every 60s)
   emoji              - emoji to display for missions using this repo
   defaultModel       - default Claude model for missions using this repo
   trustedMcpServers  - pre-approve MCP servers to skip the consent prompt

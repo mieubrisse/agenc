@@ -28,7 +28,7 @@ For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
-Use --%s to keep the repo continuously synced by the daemon.
+Use --%s to keep the repo continuously synced by the server.
 Use --%s to set an emoji for the repo.`,
 		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName),
 	Args: cobra.MinimumNArgs(1),
@@ -36,7 +36,7 @@ Use --%s to set an emoji for the repo.`,
 }
 
 func init() {
-	repoAddCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the daemon")
+	repoAddCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the server")
 	repoAddCmd.Flags().String(repoConfigEmojiFlagName, "", "emoji to display for missions using this repo")
 	repoCmd.AddCommand(repoAddCmd)
 }

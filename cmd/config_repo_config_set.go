@@ -30,7 +30,7 @@ Examples:
 
 func init() {
 	configRepoConfigCmd.AddCommand(configRepoConfigSetCmd)
-	configRepoConfigSetCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the daemon")
+	configRepoConfigSetCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the server")
 	configRepoConfigSetCmd.Flags().String(repoConfigEmojiFlagName, "", "emoji to display for missions using this repo")
 	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
 	configRepoConfigSetCmd.Flags().String(repoConfigDefaultModelFlagName, "", `default Claude model for missions using this repo (e.g., "opus", "sonnet")`)

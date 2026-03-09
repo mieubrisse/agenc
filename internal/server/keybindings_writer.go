@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	// keybindingsWriteInterval controls how often the daemon regenerates the
+	// keybindingsWriteInterval controls how often the server regenerates the
 	// tmux keybindings file. This ensures that after an agenc upgrade and
-	// daemon restart, keybindings stay current.
+	// server restart, keybindings stay current.
 	keybindingsWriteInterval = 5 * time.Minute
 )
 

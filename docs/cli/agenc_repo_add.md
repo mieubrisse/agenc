@@ -20,7 +20,7 @@ For shorthand formats, the clone protocol (SSH vs HTTPS) is auto-detected
 from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
-Use --always-synced to keep the repo continuously synced by the daemon.
+Use --always-synced to keep the repo continuously synced by the server.
 Use --emoji to set an emoji for the repo.
 
 ```
@@ -30,7 +30,7 @@ agenc repo add <repo> [flags]
 ### Options
 
 ```
-      --always-synced   keep this repo continuously synced by the daemon
+      --always-synced   keep this repo continuously synced by the server
       --emoji string    emoji to display for missions using this repo
   -h, --help            help for add
 ```

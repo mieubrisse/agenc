@@ -41,7 +41,7 @@ func (s *Server) runRepoUpdateLoop(ctx context.Context) {
 }
 
 const (
-	// refreshDefaultBranchInterval controls how often (in cycles) the daemon
+	// refreshDefaultBranchInterval controls how often (in cycles) the server
 	// runs "git remote set-head origin --auto" to keep origin/HEAD current.
 	refreshDefaultBranchInterval = 10
 )

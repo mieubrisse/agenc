@@ -28,7 +28,7 @@ type Server struct {
 	listener      net.Listener
 	db            *database.DB
 
-	// Background loop state (formerly in the Daemon struct)
+	// Background loop state
 	repoUpdateCycleCount int
 	cronSyncer           *CronSyncer
 

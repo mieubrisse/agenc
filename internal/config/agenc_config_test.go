@@ -640,8 +640,8 @@ func TestPaletteCommands_RoundTrip(t *testing.T) {
 				TmuxKeybinding: StringPtr("f"),
 			},
 			"logs": {
-				Title:   StringPtr("📋 Daemon logs"),
-				Command: StringPtr("agenc tmux window new -- agenc daemon logs"),
+				Title:   StringPtr("📋 Server logs"),
+				Command: StringPtr("agenc tmux window new -- agenc server logs"),
 			},
 		},
 	}

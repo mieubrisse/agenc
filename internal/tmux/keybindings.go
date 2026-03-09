@@ -142,7 +142,7 @@ func WriteKeybindingsFile(keybindingsFilepath string, tmuxMajor, tmuxMinor int, 
 
 // BuildKeybindingsFromCommands converts resolved palette commands into
 // CustomKeybinding entries for keybinding generation. This is the single
-// source of truth used by both `agenc tmux inject` and the daemon's
+// source of truth used by both `agenc tmux inject` and the server's
 // keybindings writer loop.
 func BuildKeybindingsFromCommands(resolved []config.ResolvedPaletteCommand) []CustomKeybinding {
 	var keybindings []CustomKeybinding

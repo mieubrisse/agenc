@@ -365,7 +365,7 @@ func IsCanonicalRepoName(name string) bool {
 }
 
 // RepoConfig represents per-repo configuration in the repoConfig map.
-// All fields are optional: alwaysSynced controls whether the daemon keeps
+// All fields are optional: alwaysSynced controls whether the server keeps
 // the repo continuously fetched, emoji sets the display emoji for the repo,
 // and postUpdateHook specifies a shell command to run after repo updates.
 type RepoConfig struct {
