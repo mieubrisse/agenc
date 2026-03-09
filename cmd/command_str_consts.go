@@ -13,7 +13,6 @@ const (
 	configCmdStr   = "config"
 	missionCmdStr  = "mission"
 	repoCmdStr     = "repo"
-	daemonCmdStr   = "daemon"
 	serverCmdStr   = "server"
 	discordCmdStr  = "discord"
 	tmuxCmdStr     = "tmux"
@@ -73,7 +72,7 @@ const (
 	claudeMdCmdStr       = "claude-md"
 	settingsJsonCmdStr   = "settings-json"
 
-	// Daemon subcommands
+	// Server subcommands
 	startCmdStr   = "start"
 	restartCmdStr = "restart"
 	statusCmdStr  = "status"
@@ -111,7 +110,7 @@ const (
 	// mission nuke flags
 	forceFlagName = "force"
 
-	// daemon status flags
+	// server status flags
 	jsonFlagName = "json"
 
 	// paletteCommand flags
