@@ -59,5 +59,11 @@ brews:
       - name: tmux
     install: |
       bin.install "agenc"
+    caveats: |
+      🚨 If the AgenC server is running, it is still using the old version.
+      The server will auto-restart on your next `agenc` CLI command, or you
+      can restart it now:
+
+        agenc server restart
     test: |
       system "#{bin}/agenc", "--version"
