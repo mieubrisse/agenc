@@ -99,8 +99,7 @@ func (s *Server) Run(ctx context.Context) error {
 	lockFile, err := tryAcquireServerLock(lockFilepath)
 	if err != nil {
 		if err == ErrServerLocked {
-			s.logger.Println("Another server is already running, exiting")
-			return nil
+			return ErrServerLocked
 		}
 		return stacktrace.Propagate(err, "failed to acquire server lock")
 	}

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -64,6 +66,10 @@ func runServerRun(cmd *cobra.Command, args []string) error {
 	}()
 
 	if err := srv.Run(ctx); err != nil {
+		if errors.Is(err, server.ErrServerLocked) {
+			fmt.Println("Another server is already running.")
+			return nil
+		}
 		return err
 	}
 
