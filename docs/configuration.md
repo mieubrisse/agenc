@@ -17,7 +17,7 @@ The file at `$AGENC_DIRPATH/config/config.yml` is the central configuration file
 # Per-repo configuration (keyed by canonical repo name)
 repoConfig:
   github.com/owner/repo:
-    alwaysSynced: true                # daemon fetches every 60s (optional, default: false)
+    alwaysSynced: true                # server fetches every 60s (optional, default: false)
     emoji: "🔥"                       # emoji prepended to tmux window titles and shown in repo ls (optional)
     trustedMcpServers: all            # pre-approve MCP servers: "all" or list of names (optional)
 
@@ -61,8 +61,8 @@ paletteCommands:
 
   # Custom command, palette only (no keybinding)
   logs:
-    title: "Daemon logs"
-    command: "agenc daemon logs"
+    title: "Server logs"
+    command: "agenc server logs"
 
 # Override the command palette keybinding (default: "-T agenc k")
 # The value is inserted verbatim after "bind-key" in the tmux config.
@@ -83,7 +83,7 @@ repoConfig
 
 Per-repo configuration, keyed by canonical repo name (`github.com/owner/repo`). Each entry supports these optional settings:
 
-- **alwaysSynced** — when `true`, the daemon keeps the repo continuously fetched and fast-forwarded (every 60 seconds). Defaults to `false`.
+- **alwaysSynced** — when `true`, the server keeps the repo continuously fetched and fast-forwarded (every 60 seconds). Defaults to `false`.
 - **emoji** — emoji prepended to tmux window titles (with fixed-column padding) and shown in `repo ls` and the `mission new` fzf picker. When absent, no emoji prefix is applied.
 - **trustedMcpServers** — pre-approves MCP servers from `.mcp.json` so missions skip the Claude Code consent prompt. Accepts `all` (trust every server) or a list of named servers (e.g., `[github, sentry]`). When absent, Claude Code prompts for consent as usual.
 
@@ -115,7 +115,7 @@ agenc repo rm owner/repo                                                     # r
 crons
 -----
 
-Cron jobs spawn headless missions on a schedule. Each cron needs at minimum a `schedule` (cron expression) and a `prompt` (what to tell Claude). The daemon evaluates cron expressions every 60 seconds.
+Cron jobs spawn headless missions on a schedule. Each cron needs at minimum a `schedule` (cron expression) and a `prompt` (what to tell Claude). The server evaluates cron expressions every 60 seconds.
 
 Key behaviors:
 - **Overlap policy:** `skip` (default) prevents a new run if the previous one is still active. `allow` permits concurrent runs.
@@ -233,7 +233,7 @@ This affects all future `agenc repo add` and `agenc mission new` operations.
 Config Auto-Sync
 ----------------
 
-The `$AGENC_DIRPATH/config/` directory can be a Git repository. When it is, the daemon automatically commits and pushes any uncommitted changes every 10 minutes, using a commit message of the form:
+The `$AGENC_DIRPATH/config/` directory can be a Git repository. When it is, the server automatically commits and pushes any uncommitted changes every 10 minutes, using a commit message of the form:
 
 ```
 2026-02-04T15:30:00Z agenc auto-commit

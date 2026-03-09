@@ -107,11 +107,10 @@ Current endpoints:
 - `POST /stash/push` — snapshot all running missions and their tmux links, then stop them
 - `POST /stash/pop` — restore missions from a stash file, re-link into tmux sessions
 
-The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file. The `agenc daemon` subcommand is deprecated and delegates to `agenc server`.
-
+The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 ### Background loops
 
-The server runs eight concurrent background goroutines (formerly the daemon):
+The server runs eight concurrent background goroutines:
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs every 60 seconds
@@ -257,7 +256,6 @@ Directory Structure
 │   ├── mission/                  # Mission lifecycle, Claude spawning
 │   ├── claudeconfig/             # Per-mission config merging, shadow repo
 │   ├── server/                   # HTTP API server (unix socket)
-│   ├── daemon/                   # Deprecated (replaced by server)
 │   ├── tmux/                     # Tmux keybindings generation
 │   ├── wrapper/                  # Claude child process management
 │   ├── history/                  # Prompt extraction from history.jsonl
@@ -327,11 +325,6 @@ $AGENC_DIRPATH/
 │
 ├── stash/                                     # Workspace snapshots (agenc stash push/pop)
 │   └── <timestamp>.json                       # Each file captures running missions and their tmux links
-│
-└── daemon/                                    # Deprecated (kept for cleanup of existing installs)
-    ├── daemon.pid
-    ├── daemon.log
-    └── daemon.version
 ```
 
 
@@ -383,7 +376,7 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 
 ### `internal/server/`
 
-HTTP API server that listens on a unix socket. Serves mission lifecycle endpoints and runs background maintenance loops (formerly the daemon).
+HTTP API server that listens on a unix socket. Serves mission lifecycle endpoints and runs background maintenance loops.
 
 - `server.go` — `Server` struct, `NewServer`, `Run` (starts HTTP listener, background loops, graceful shutdown on context cancellation), `registerRoutes`, `handleHealth`
 - `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `IsProcessRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)

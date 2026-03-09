@@ -15,7 +15,6 @@ Test Coverage
 | github.com/odyssey/agenc/cmd/genprime | 0.0% |
 | github.com/odyssey/agenc/internal/claudeconfig | 35.5% |
 | github.com/odyssey/agenc/internal/config | 38.7% (FAILING TESTS) |
-| github.com/odyssey/agenc/internal/daemon | 14.6% |
 | github.com/odyssey/agenc/internal/database | 50.7% |
 | github.com/odyssey/agenc/internal/history | 92.6% |
 | github.com/odyssey/agenc/internal/mission | 17.0% |
@@ -35,7 +34,7 @@ Test Coverage
 
 **Coverage Gaps:**
 - Main package and cmd packages have 0% coverage
-- Low coverage in daemon (14.6%), mission (17.0%), and wrapper (28.3%)
+- Low coverage in mission (17.0%), and wrapper (28.3%)
 - version package has no test files
 
 **Strong Coverage:**
@@ -110,7 +109,6 @@ Based on this baseline, the following areas should be prioritized for improvemen
 
 1. **Fix failing tests** in `internal/config` package (3 tests)
 2. **Improve test coverage** in low-coverage packages:
-   - daemon: 14.6% → target 60%+
    - mission: 17.0% → target 60%+
    - wrapper: 28.3% → target 60%+
    - cmd packages: 0% → target 40%+

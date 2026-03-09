@@ -349,29 +349,29 @@ The wrapper:
 
 - **Passes authentication** to Claude via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable (more below)
 - **Tracks idle state** by listening to hooks that fire when Claude starts and stops responding
-- **Writes heartbeats** to the database every 30 seconds so the daemon knows which missions are alive
+- **Writes heartbeats** to the database every 30 seconds so the server knows which missions are alive
 - **Restarts Claude** on command (via unix socket) — useful after upgrading Claude config or when something breaks
 - **Updates the repo library** immediately when you push, so new missions get your changes without waiting
 
 When Claude exits (naturally or via `/exit`), the wrapper cleans up and stops. The mission directory stays intact, so you can resume later.
 
-### Daemon
+### Server
 
-The **daemon** is a background process that keeps the factory running smoothly. It runs six concurrent loops:
+The **server** is a background process that keeps the factory running smoothly. It runs six concurrent loops:
 
 1. **Repo sync** (every 60 seconds) — Fetches and fast-forwards repos in the shared library so new missions clone from fresh code without needing to run a slow `git clone`
-2. **Config auto-commit** (every 10 minutes) — If your `$AGENC_DIRPATH/config/` is a Git repo, the daemon auto-commits and pushes changes to Github so your config stays version-controlled
+2. **Config auto-commit** (every 10 minutes) — If your `$AGENC_DIRPATH/config/` is a Git repo, the server auto-commits and pushes changes to Github so your config stays version-controlled
 <!-- 3. **Cron scheduler** (every 60 seconds) — Spawns headless missions on schedule for recurring tasks -->
 4. **Config watcher** (on file change) — Watches `~/.claude` and mirrors changes to a shadow repo so missions can inherit your latest config
 5. **Keybindings writer** (every 5 minutes) — Regenerates tmux keybindings to pick up any palette command changes
 
-The daemon starts automatically when you run most `agenc` commands. If it crashes, just restart it with `agenc daemon restart` - running missions are unaffected.
+The server starts automatically when you run most `agenc` commands. If it crashes, just restart it with `agenc server stop` then `agenc server start` - running missions are unaffected.
 
 ### Repo Library
 
 AgenC maintains a **repo library** of Git repos at `$AGENC_DIRPATH/repos/`. When you create a mission, AgenC copies from this library instead of cloning from GitHub every time so that new don't require cloning from Github.
 
-The daemon keeps the library fresh by fetching every 60 seconds. The wrapper contributes by watching for pushes: when you `git push` from a mission, the wrapper immediately updates the library copy so new missions get your changes. Existing missions will notice when they try to merge, same as a human.
+The server keeps the library fresh by fetching every 60 seconds. The wrapper contributes by watching for pushes: when you `git push` from a mission, the wrapper immediately updates the library copy so new missions get your changes. Existing missions will notice when they try to merge, same as a human.
 
 Missions cannot read or modify the repo library directly (enforced via permissions). They only see their own workspace.
 
@@ -435,11 +435,11 @@ Uninstall
 ```
 agenc tmux uninject
 agenc mission nuke -f
-agenc daemon stop
+agenc server stop
 brew uninstall agenc
 ```
 
-This stops the agenc daemon and removes all mission assets. To remove the AgenC data directory itself:
+This stops the agenc server and removes all mission assets. To remove the AgenC data directory itself:
 
 ```
 rm -rf ~/.agenc

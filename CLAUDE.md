@@ -9,7 +9,7 @@ Read `docs/system-architecture.md` before making non-trivial changes to the code
 **Keep it current.** When you make a change that affects any of the following, update `docs/system-architecture.md` in the same commit:
 
 - Adding, removing, or renaming an `internal/` package
-- Changing process boundaries (CLI, daemon, wrapper) or their goroutine structure
+- Changing process boundaries (CLI, server, wrapper) or their goroutine structure
 - Modifying the runtime directory layout under `$AGENC_DIRPATH`
 - Altering the database schema
 - Adding or changing a key architectural pattern (config merging, idle detection, cron scheduling, etc.)
