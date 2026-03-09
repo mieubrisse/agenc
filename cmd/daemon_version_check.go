@@ -10,10 +10,9 @@ import (
 )
 
 // checkServerVersion compares the running server's version against the CLI
-// version. If the versions differ, it restarts the server so background loops
-// pick up the new binary. Also stops any stale daemon process from a pre-server
-// version. All errors are silently ignored — this check must never block CLI
-// commands.
+// version. If the versions differ, it prints a warning. Also stops any stale
+// daemon process from a pre-server version. All errors are silently ignored —
+// this check must never block CLI commands.
 func checkServerVersion(agencDirpath string) {
 	// Stop any leftover daemon from a pre-server version of agenc.
 	// After upgrade, the daemon PID file may still exist with a running process.
@@ -43,8 +42,7 @@ func checkServerVersion(agencDirpath string) {
 		return
 	}
 
-	// Versions differ — restart the server
-	restartServer(agencDirpath, serverVersion, cliVersion)
+	fmt.Fprintf(os.Stderr, "⚠ Server is running %s but CLI is %s. Run 'agenc server restart' to upgrade.\n", serverVersion, cliVersion)
 }
 
 // stopStaleDaemon stops any leftover daemon process from a pre-server version
@@ -60,29 +58,4 @@ func stopStaleDaemon(agencDirpath string) {
 
 	// Reuse StopServer — it works with any PID file (SIGTERM → poll → SIGKILL).
 	_ = server.StopServer(daemonPIDFilepath)
-}
-
-// restartServer stops the running server and starts a new one, printing a
-// notice to stderr.
-func restartServer(agencDirpath string, oldVersion string, newVersion string) {
-	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
-	logFilepath := config.GetServerLogFilepath(agencDirpath)
-
-	if err := server.StopServer(pidFilepath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to stop server for upgrade: %v\n", err)
-		return
-	}
-
-	if err := server.ForkServer(logFilepath, pidFilepath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to start server after upgrade: %v\n", err)
-		return
-	}
-
-	socketFilepath := config.GetServerSocketFilepath(agencDirpath)
-	if err := server.WaitForReady(socketFilepath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: server started but did not become ready: %v\n", err)
-		return
-	}
-
-	fmt.Fprintf(os.Stderr, "Server restarted: %s → %s\n", oldVersion, newVersion)
 }
