@@ -32,13 +32,9 @@ type testSetup struct {
 func setupTest(t *testing.T) *testSetup {
 	t.Helper()
 
-	// Create temporary agenc directory with very short path to avoid unix socket path limit (104 chars on macOS)
-	// Use /tmp/claude/ which is allowed by sandbox
-	tmpClaudeDir := "/tmp/claude"
-	if err := os.MkdirAll(tmpClaudeDir, 0755); err != nil {
-		t.Fatalf("failed to create /tmp/claude directory: %v", err)
-	}
-	tempDir, err := os.MkdirTemp(tmpClaudeDir, "wt-")
+	// Create temporary agenc directory with short path to avoid unix socket path limit (104 chars on macOS).
+	// Use os.TempDir() ($TMPDIR) so tests work inside the Claude Code sandbox.
+	tempDir, err := os.MkdirTemp(os.TempDir(), "wt-")
 	if err != nil {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
