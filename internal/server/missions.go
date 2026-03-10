@@ -631,8 +631,12 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
 
+	// Auto-unarchive if needed
 	if missionRecord.Status == "archived" {
-		return newHTTPError(http.StatusBadRequest, "cannot attach to archived mission")
+		if err := s.db.UnarchiveMission(resolvedID); err != nil {
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to unarchive mission: %s", err.Error())
+		}
+		s.logger.Printf("Auto-unarchived mission %s during attach", database.ShortID(resolvedID))
 	}
 
 	// Lazy start: ensure wrapper is running in the pool

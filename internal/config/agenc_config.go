@@ -132,7 +132,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	},
 	"switchMission": {
 		Title:          StringPtr("🔀  Attach Mission"),
-		Description:    StringPtr("Attach a running mission to this tmux session"),
+		Description:    StringPtr("Attach a mission to this tmux session (auto-resumes stopped/archived missions)"),
 		Command:        StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission attach"`),
 		TmuxKeybinding: StringPtr("-n C-m"),
 	},
@@ -141,11 +141,6 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description:    StringPtr("Unlink the focused mission from this tmux session (keeps running)"),
 		Command:        StringPtr("agenc mission detach $AGENC_CALLING_MISSION_UUID"),
 		TmuxKeybinding: StringPtr("-n C-i"),
-	},
-	"resumeMission": {
-		Title:       StringPtr("🟢  Resume Mission"),
-		Description: StringPtr("Resume a stopped mission with claude --continue"),
-		Command:     StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission resume"`),
 	},
 	"sideShell": {
 		Title:          StringPtr("🐚  Side Shell"),
@@ -240,7 +235,6 @@ var builtinPaletteCommandOrder = []string{
 	"newMission",
 	"switchMission",
 	"detachMission",
-	"resumeMission",
 	"sideShell",
 	"draft",
 	"shell",

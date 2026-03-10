@@ -7,6 +7,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -14,13 +15,14 @@ var attachNoFocusFlag bool
 
 var missionAttachCmd = &cobra.Command{
 	Use:   attachCmdStr + " [mission-id]",
-	Short: "Attach a running mission to the current tmux session",
-	Long: `Attach a running mission to the current tmux session.
+	Short: "Attach a mission to the current tmux session",
+	Long: `Attach a mission to the current tmux session.
 
 Links the mission's tmux window into your session and focuses it.
 If the mission is already linked, just focuses the window.
+Stopped missions are automatically resumed; archived missions are unarchived first.
 
-Without arguments, opens an interactive fzf picker showing running missions.
+Without arguments, opens an interactive fzf picker showing all missions.
 With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionAttach,
@@ -42,17 +44,16 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("mission attach requires tmux; run inside a tmux session")
 	}
 
-	missions, err := client.ListMissions(false, "")
+	missions, err := client.ListMissions(true, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
 
-	runningMissions := filterRunningMissions(missions)
-	if len(runningMissions) == 0 {
-		return stacktrace.NewError("no running missions to attach")
+	if len(missions) == 0 {
+		return stacktrace.NewError("no missions to attach")
 	}
 
-	entries := buildMissionPickerEntries(runningMissions, 100)
+	entries := buildMissionPickerEntries(missions, 100)
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
@@ -68,7 +69,7 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 					return e, true, nil
 				}
 			}
-			return missionPickerEntry{}, false, stacktrace.NewError("mission %s is not running", input)
+			return missionPickerEntry{}, false, stacktrace.NewError("mission %s not found", input)
 		},
 		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
@@ -88,6 +89,12 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 	}
 
 	missionID := result.Items[0].MissionID
+
+	// Migrate old .assistant marker if present
+	if err := config.MigrateAssistantMarkerIfNeeded(agencDirpath, missionID); err != nil {
+		return stacktrace.Propagate(err, "failed to migrate assistant marker")
+	}
+
 	fmt.Printf("Attaching mission: %s\n", database.ShortID(missionID))
 
 	if err := client.AttachMission(missionID, tmuxSession, attachNoFocusFlag); err != nil {

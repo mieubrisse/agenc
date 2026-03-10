@@ -134,17 +134,6 @@ func getSessionPaneIDs(tmuxSession string) map[string]bool {
 	return panes
 }
 
-// filterStoppedMissions returns only missions that are currently stopped.
-func filterStoppedMissions(missions []*database.Mission) []*database.Mission {
-	var filtered []*database.Mission
-	for _, m := range missions {
-		if getMissionStatus(m.ID, m.Status, m.ClaudeState) == StatusStopped {
-			filtered = append(filtered, m)
-		}
-	}
-	return filtered
-}
-
 // filterRunningMissions returns only missions that are currently running.
 func filterRunningMissions(missions []*database.Mission) []*database.Mission {
 	var filtered []*database.Mission
