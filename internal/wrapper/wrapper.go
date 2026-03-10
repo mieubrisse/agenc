@@ -439,7 +439,7 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 		w.claudeIdle = true
 		w.hasConversation = true
 		w.needsAttention = false
-		w.setWindowNeedsAttention()
+		w.resetWindowTabStyle()
 
 		// If a graceful restart is pending, now is the time to initiate it
 		if w.state == stateRestartPending {
