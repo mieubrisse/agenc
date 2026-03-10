@@ -36,8 +36,10 @@ func checkTmuxVersion() error {
 }
 
 // tmuxSessionExists checks whether the named tmux session exists.
+// Uses tmux exact-match syntax (=name) to prevent prefix matching
+// (e.g., "agenc" would otherwise match "agenc-pool").
 func tmuxSessionExists(sessionName string) bool {
-	err := exec.Command("tmux", "has-session", "-t", sessionName).Run()
+	err := exec.Command("tmux", "has-session", "-t", "="+sessionName).Run()
 	return err == nil
 }
 

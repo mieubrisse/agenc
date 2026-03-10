@@ -34,8 +34,10 @@ func (s *Server) ensurePoolSession() error {
 }
 
 // tmuxSessionExists checks whether a named tmux session exists.
+// Uses tmux exact-match syntax (=name) to prevent prefix matching
+// (e.g., "agenc" would otherwise match "agenc-pool").
 func tmuxSessionExists(sessionName string) bool {
-	return exec.Command("tmux", "has-session", "-t", sessionName).Run() == nil
+	return exec.Command("tmux", "has-session", "-t", "="+sessionName).Run() == nil
 }
 
 // poolSessionExists checks whether the agenc-pool tmux session exists.
@@ -52,7 +54,7 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	}
 
 	windowName := database.ShortID(missionID)
-	target := fmt.Sprintf("%s:", poolSessionName)
+	target := fmt.Sprintf("=%s:", poolSessionName)
 
 	cmd := exec.Command("tmux", "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", target, "-n", windowName, command)
 	output, err := cmd.CombinedOutput()
@@ -78,7 +80,7 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 func unlinkPoolWindowByPane(paneID string, targetSession string) error {
 	paneTarget := "%" + paneID
 	// Find the window index in the target session that contains this pane
-	cmd := exec.Command("tmux", "list-panes", "-s", "-t", targetSession, "-F", "#{pane_id} #{window_index}")
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+targetSession, "-F", "#{pane_id} #{window_index}")
 	output, err := cmd.Output()
 	if err != nil {
 		return stacktrace.NewError("failed to list panes in session %s: %v", targetSession, err)
@@ -222,7 +224,7 @@ func getLinkedPaneSessions() map[string][]string {
 // doesn't exist or the tmux command fails.
 func isPaneInSession(paneID string, sessionName string) bool {
 	target := "%" + paneID
-	cmd := exec.Command("tmux", "list-panes", "-s", "-t", sessionName, "-F", "#{pane_id}")
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+sessionName, "-F", "#{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
 		return false
@@ -240,7 +242,7 @@ func isPaneInSession(paneID string, sessionName string) bool {
 // name (which may have been changed by title reconciliation).
 func linkPoolWindowByPane(paneID string, targetSession string) error {
 	paneTarget := "%" + paneID
-	cmd := exec.Command("tmux", "link-window", "-d", "-a", "-s", paneTarget, "-t", targetSession+":")
+	cmd := exec.Command("tmux", "link-window", "-d", "-a", "-s", paneTarget, "-t", "="+targetSession+":")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return stacktrace.NewError("failed to link window by pane: %v (output: %s)", err, string(output))
@@ -255,7 +257,7 @@ func linkPoolWindowByPane(paneID string, targetSession string) error {
 func focusPaneInSession(paneID string, sessionName string) {
 	paneTarget := "%" + paneID
 	// Query all panes in the session to find the window index for our pane
-	cmd := exec.Command("tmux", "list-panes", "-s", "-t", sessionName, "-F", "#{pane_id} #{window_index}")
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+sessionName, "-F", "#{pane_id} #{window_index}")
 	output, err := cmd.Output()
 	if err != nil {
 		return
@@ -275,7 +277,7 @@ func focusPaneInSession(paneID string, sessionName string) {
 // currently running in the agenc-pool tmux session. Returns an empty slice
 // if the pool doesn't exist or tmux is not running.
 func listPoolPaneIDs() []string {
-	cmd := exec.Command("tmux", "list-panes", "-s", "-t", poolSessionName, "-F", "#{pane_id}")
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+poolSessionName, "-F", "#{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil

@@ -31,7 +31,7 @@ func runTmuxRm(cmd *cobra.Command, args []string) error {
 	// Kill the tmux session. This sends SIGHUP to all processes in the session.
 	// The wrapper handles SIGHUP gracefully (forwards to Claude, waits for exit,
 	// runs deferred cleanup including PID file removal).
-	if err := exec.Command("tmux", "kill-session", "-t", tmuxSessionName).Run(); err != nil {
+	if err := exec.Command("tmux", "kill-session", "-t", "="+tmuxSessionName).Run(); err != nil {
 		return stacktrace.Propagate(err, "failed to kill tmux session")
 	}
 

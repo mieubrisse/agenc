@@ -49,7 +49,7 @@ func runTmuxAttach(cmd *cobra.Command, args []string) error {
 
 	// Attach to the session. If the session was destroyed (e.g. user cancelled
 	// the picker before we attached), exit cleanly.
-	attachCmd := exec.Command("tmux", "attach-session", "-t", tmuxSessionName)
+	attachCmd := exec.Command("tmux", "attach-session", "-t", "="+tmuxSessionName)
 	attachCmd.Stdin = os.Stdin
 	attachCmd.Stdout = os.Stdout
 	attachCmd.Stderr = os.Stderr
@@ -111,7 +111,7 @@ func shellQuote(s string) string {
 
 // setTmuxSessionEnv sets an environment variable on the agenc tmux session.
 func setTmuxSessionEnv(key string, value string) error {
-	err := exec.Command("tmux", "set-environment", "-t", tmuxSessionName, key, value).Run()
+	err := exec.Command("tmux", "set-environment", "-t", "="+tmuxSessionName, key, value).Run()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to set tmux session environment variable %s", key)
 	}

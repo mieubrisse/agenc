@@ -81,7 +81,7 @@ type poolPaneInfo struct {
 // listPoolPanesWithPIDs queries tmux for all panes in the agenc-pool session
 // and returns their pane IDs (without "%" prefix) and process PIDs.
 func listPoolPanesWithPIDs() ([]poolPaneInfo, error) {
-	cmd := exec.Command("tmux", "list-panes", "-s", "-t", poolSessionName, "-F", "#{pane_id} #{pane_pid}")
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+poolSessionName, "-F", "#{pane_id} #{pane_pid}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("tmux list-panes failed: %w", err)
