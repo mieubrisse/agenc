@@ -30,7 +30,7 @@ const (
 	// summarizerMaxOutputLen is the maximum length (in bytes) of a valid summary.
 	// Responses longer than this are rejected — they indicate the model ignored
 	// the system prompt and produced a conversational response instead of a title.
-	summarizerMaxOutputLen = 80
+	summarizerMaxOutputLen = 120
 )
 
 // summaryRequest represents a request to generate an auto_summary for a session.
@@ -119,7 +119,7 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 	}
 
 	systemPrompt := "You are a title generator. You will receive the text of a user's request to an AI coding assistant. " +
-		"Your job: output a 3-8 word terminal window title summarizing what the user is working on. " +
+		"Your job: output a 3-15 word terminal window title summarizing what the user is working on. " +
 		"Rules: output ONLY the title. No quotes. No punctuation at the end. No markdown. No explanation. " +
 		"Do NOT answer the user's request. Do NOT ask questions. Do NOT offer help. Just the title."
 
