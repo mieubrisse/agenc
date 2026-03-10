@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -143,7 +144,22 @@ func resumeMission(client *server.Client, missionID string) error {
 // wrapper that manages the Claude child process. The missionID must be a
 // full UUID. The initialPrompt is optional; if non-empty, it is passed to
 // Claude when starting a new conversation.
+//
+// On error, this function pauses with a "Press Enter" prompt so the user
+// can read the error message before the tmux pane closes.
 func runWrapperDirect(missionID string, initialPrompt string) error {
+	if err := doRunWrapperDirect(missionID, initialPrompt); err != nil {
+		// Print the error and pause so the user can see it before the tmux
+		// pane closes. Without this, wrapper startup errors vanish instantly
+		// because the pane is destroyed when the process exits.
+		fmt.Fprintf(os.Stderr, "\nWrapper failed: %v\n\nPress Enter to close this window.\n", err)
+		bufio.NewReader(os.Stdin).ReadBytes('\n')
+		return err
+	}
+	return nil
+}
+
+func doRunWrapperDirect(missionID string, initialPrompt string) error {
 	client, err := serverClient()
 	if err != nil {
 		return err

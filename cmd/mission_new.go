@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/repo"
 	"github.com/odyssey/agenc/internal/server"
 )
@@ -169,6 +171,7 @@ func runMissionNewWithClone() error {
 		fmt.Println("Running in background (pool window)")
 	}
 
+	checkWrapperHealth(client, missionRecord.ID)
 	return nil
 }
 
@@ -267,6 +270,7 @@ func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) e
 		fmt.Println("Running in background (pool window)")
 	}
 
+	checkWrapperHealth(client, missionRecord.ID)
 	return nil
 }
 
@@ -410,7 +414,26 @@ func createAndLaunchMission(
 		fmt.Println("Running in background (pool window)")
 	}
 
+	checkWrapperHealth(client, missionRecord.ID)
 	return nil
+}
+
+// checkWrapperHealth polls the mission briefly to confirm the wrapper sent
+// its first heartbeat. If no heartbeat arrives within a few seconds, prints
+// a warning with the wrapper log path so the user knows where to look.
+func checkWrapperHealth(client *server.Client, missionID string) {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		m, err := client.GetMission(missionID)
+		if err == nil && m.LastHeartbeat != nil {
+			return // Wrapper is alive
+		}
+	}
+	wrapperLogFilepath := config.GetMissionWrapperLogFilepath(agencDirpath, missionID)
+	fmt.Fprintf(os.Stderr, "\nWarning: wrapper has not started yet. It may have failed.\n")
+	fmt.Fprintf(os.Stderr, "Check the wrapper log: %s\n", wrapperLogFilepath)
+	fmt.Fprintf(os.Stderr, "Mission ID: %s\n", database.ShortID(missionID))
 }
 
 // promptForRepoLocator interactively prompts the user for a repo locator,
