@@ -44,18 +44,6 @@
             "Skill(agenc-engineer:*)"
         ]
     },
-    "hooks": {
-        "PreToolUse": [
-            {
-                "matcher": "Bash",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": ".claude/hooks/enforce-br-db-flag.sh"
-                    }
-                ]
-            }
-        ]
-    }
+    "hooks": {}
 }
 
