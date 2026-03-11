@@ -469,7 +469,7 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 	case "Notification":
 		// Color the pane for notification types that need user attention
 		switch cmd.NotificationType {
-		case "permission_prompt", "idle_prompt", "elicitation_dialog":
+		case "permission_prompt", "elicitation_dialog":
 			w.needsAttention = true
 			w.setWindowNeedsAttention()
 		}
