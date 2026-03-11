@@ -276,10 +276,14 @@ func (c *Client) UpdateMission(id string, update UpdateMissionRequest) error {
 
 // Heartbeat updates a mission's last_heartbeat timestamp. If paneID is
 // non-empty, the server also stores it as the mission's current tmux pane.
-func (c *Client) Heartbeat(id string, paneID string) error {
+// If lastUserPromptAt is non-empty, the server also updates that timestamp.
+func (c *Client) Heartbeat(id string, paneID string, lastUserPromptAt string) error {
 	body := map[string]string{}
 	if paneID != "" {
 		body["pane_id"] = paneID
+	}
+	if lastUserPromptAt != "" {
+		body["last_user_prompt_at"] = lastUserPromptAt
 	}
 	return c.Post("/missions/"+id+"/heartbeat", body, nil)
 }

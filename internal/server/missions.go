@@ -27,6 +27,7 @@ type MissionResponse struct {
 	Status               string     `json:"status"`
 	GitRepo              string     `json:"git_repo"`
 	LastHeartbeat        *time.Time `json:"last_heartbeat"`
+	LastUserPromptAt     *time.Time `json:"last_user_prompt_at"`
 	SessionName          string     `json:"session_name"`
 	SessionNameUpdatedAt *time.Time `json:"session_name_updated_at"`
 	CronID               *string    `json:"cron_id"`
@@ -55,6 +56,7 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		Status:               mr.Status,
 		GitRepo:              mr.GitRepo,
 		LastHeartbeat:        mr.LastHeartbeat,
+		LastUserPromptAt:     mr.LastUserPromptAt,
 		SessionName:          mr.SessionName,
 		SessionNameUpdatedAt: mr.SessionNameUpdatedAt,
 		CronID:               mr.CronID,
@@ -77,6 +79,7 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		Status:               m.Status,
 		GitRepo:              m.GitRepo,
 		LastHeartbeat:        m.LastHeartbeat,
+		LastUserPromptAt:     m.LastUserPromptAt,
 		SessionName:          m.SessionName,
 		SessionNameUpdatedAt: m.SessionNameUpdatedAt,
 		CronID:               m.CronID,
@@ -922,7 +925,8 @@ func (s *Server) handleUpdateMission(w http.ResponseWriter, r *http.Request) err
 
 // HeartbeatRequest is the optional JSON body for the heartbeat endpoint.
 type HeartbeatRequest struct {
-	PaneID string `json:"pane_id"`
+	PaneID           string `json:"pane_id"`
+	LastUserPromptAt string `json:"last_user_prompt_at"`
 }
 
 // handleHeartbeat handles POST /missions/{id}/heartbeat.
@@ -949,6 +953,12 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) error {
 	if req.PaneID != "" {
 		if err := s.db.SetTmuxPane(resolvedID, req.PaneID); err != nil {
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to set tmux pane: %s", err.Error())
+		}
+	}
+
+	if req.LastUserPromptAt != "" {
+		if err := s.db.SetLastUserPromptAt(resolvedID, req.LastUserPromptAt); err != nil {
+			return newHTTPErrorf(http.StatusInternalServerError, "failed to set last_user_prompt_at: %s", err.Error())
 		}
 	}
 

@@ -69,8 +69,9 @@ type Wrapper struct {
 	// stateMu protects claudeIdle, hasConversation, state, and needsAttention.
 	// The HTTP GET /status handler reads these fields concurrently with the
 	// main event loop, so all reads and writes must hold the appropriate lock.
-	stateMu        sync.RWMutex
-	needsAttention bool // true when Claude needs user attention (permission prompt etc.)
+	stateMu          sync.RWMutex
+	needsAttention   bool      // true when Claude needs user attention (permission prompt etc.)
+	lastUserPromptAt time.Time // zero value means no prompt yet this session
 
 	// Channels for internal communication between goroutines and the main loop.
 	// All are buffered with capacity 1 and use non-blocking sends to avoid
@@ -211,7 +212,7 @@ func (w *Wrapper) Run(isResume bool) error {
 	w.tmuxPaneID = strings.TrimPrefix(os.Getenv("TMUX_PANE"), "%")
 
 	// Write initial heartbeat and start periodic heartbeat loop
-	if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID); err != nil {
+	if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID, ""); err != nil {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)
@@ -453,6 +454,7 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 		w.claudeIdle = false
 		w.hasConversation = true
 		w.needsAttention = false
+		w.lastUserPromptAt = time.Now().UTC()
 		w.setWindowBusy()
 		if err := w.client.RecordPrompt(w.missionID); err != nil {
 			w.logger.Warn("Failed to record prompt", "error", err)
@@ -620,7 +622,15 @@ func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID); err != nil {
+			w.stateMu.RLock()
+			lastPromptAt := w.lastUserPromptAt
+			w.stateMu.RUnlock()
+
+			var lastPromptAtStr string
+			if !lastPromptAt.IsZero() {
+				lastPromptAtStr = lastPromptAt.Format(time.RFC3339)
+			}
+			if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID, lastPromptAtStr); err != nil {
 				w.logger.Warn("Failed to write heartbeat", "error", err)
 			}
 		}
@@ -698,7 +708,7 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 	w.tmuxPaneID = strings.TrimPrefix(os.Getenv("TMUX_PANE"), "%")
 
 	// Write initial heartbeat and start periodic heartbeat loop
-	if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID); err != nil {
+	if err := w.client.Heartbeat(w.missionID, w.tmuxPaneID, ""); err != nil {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)
