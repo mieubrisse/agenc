@@ -154,6 +154,21 @@ Key File Locations
 - The AgenC SQLite database lives at `~/.agenc/database.sqlite`.
 - Claude's JSONL files live at `~/.claude/projects/`, **not** any `claude-config` directory.
 
+Beads (br)
+----------
+
+Always run `br` with `--no-db` to use JSONL-only mode. A PreToolUse hook enforces this — `br` commands without the flag will be rejected.
+
+```
+# Correct
+br --no-db list
+br --no-db create --title "My issue"
+
+# Wrong — will be blocked by hook
+br list
+br --db ~/.beads_rust/agenc list
+```
+
 Banned Skills
 -------------
 
