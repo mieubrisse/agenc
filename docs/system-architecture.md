@@ -98,8 +98,8 @@ Current endpoints:
 - `POST /missions/{id}/reload` — in-place reload via tmux respawn-pane
 - `POST /missions/{id}/archive` — stop and archive a mission
 - `POST /missions/{id}/unarchive` — set a mission back to active
-- `POST /missions/{id}/heartbeat` — update a mission's last_heartbeat timestamp
-- `POST /missions/{id}/prompt` — update last_active and increment prompt_count
+- `POST /missions/{id}/heartbeat` — update a mission's `last_heartbeat` timestamp; also updates `last_user_prompt_at` if included in the payload
+- `POST /missions/{id}/prompt` — update `last_user_prompt_at` and increment `prompt_count`
 - `GET /sessions?mission_id={id}` — list sessions for a mission (ordered by updated_at descending)
 - `PATCH /sessions/{id}` — update session fields (agenc_custom_title); triggers tmux window title reconciliation
 - `POST /repos/{name}/push-event` — enqueue a repo library update (returns 202 Accepted)
@@ -142,7 +142,7 @@ The server runs eight concurrent background goroutines:
 **6. Idle timeout loop** (`internal/server/idle_timeout.go`)
 - Runs every 2 minutes
 - Scans all non-archived missions for running wrappers
-- Uses `last_active` (user prompt timestamp), `last_heartbeat`, or `created_at` to determine idle duration
+- Uses the active JSONL conversation log's modification time to determine idle duration, falling back to `created_at`
 - Stops wrappers idle longer than 30 minutes and destroys their pool windows
 - Wrappers are automatically re-spawned on the next attach (lazy start)
 
@@ -191,7 +191,7 @@ The wrapper:
 6. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 7. Sets `AGENC_MISSION_UUID` for the child process
 8. Starts background goroutines:
-   - **Heartbeat writer** — updates `last_heartbeat` via the server every 60 seconds
+   - **Heartbeat writer** — updates `last_heartbeat` via the server every 60 seconds; also piggybacks `last_user_prompt_at` for crash recovery
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **HTTP server** (interactive mode only) — serves an HTTP API on `wrapper.sock` (unix socket) with endpoints for status queries, restart commands, and claude_update events
    - **`watchCredentialUpwardSync`** — polls per-mission Keychain every 60s; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
@@ -541,9 +541,11 @@ Titles are truncated to 30 characters (with ellipsis) before applying.
 
 ### Heartbeat system
 
-Each wrapper sends a heartbeat to the server every 60 seconds via the `/heartbeat` endpoint (`internal/wrapper/wrapper.go:writeHeartbeat`). The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
+Each wrapper sends a heartbeat to the server every 60 seconds via the `/heartbeat` endpoint (`internal/wrapper/wrapper.go:writeHeartbeat`). The heartbeat payload includes `pane_id` and, if the user has submitted any prompts this session, `last_user_prompt_at`. The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
 
-The `last_active` column tracks a different signal: when the user last submitted a prompt to the mission's Claude session. The wrapper's `handleClaudeUpdate` handler calls the server's `/prompt` endpoint on each `UserPromptSubmit` event. Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_active` persists indefinitely and reflects true user engagement. Mission listing and the switcher sort by `last_active` first, falling back to `last_heartbeat` then `created_at`.
+The `last_user_prompt_at` column tracks when the user last submitted a prompt to the mission's Claude session. It is updated immediately by the `/prompt` endpoint on each `UserPromptSubmit` event, and also included in heartbeat payloads as a consistency backstop after server restarts. Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_user_prompt_at` persists indefinitely and reflects true user engagement.
+
+The mission attach picker sorts using a three-tier scheme (`cmd/mission_sort.go`): missions with `claude_state == "needs_attention"` float to the top, then by `last_user_prompt_at` descending (nil sorts last), then by `COALESCE(last_heartbeat, created_at)` descending. The `claude_state` is queried from running wrappers at picker time, not persisted to the database.
 
 ### Repo library
 
@@ -664,7 +666,7 @@ Database Schema
 | `status` | TEXT | `active` or `archived` |
 | `prompt` | TEXT | First user prompt, cached for listing display |
 | `last_heartbeat` | TEXT | Last wrapper heartbeat timestamp (RFC3339, nullable) |
-| `last_active` | TEXT | Last user prompt submission timestamp (RFC3339, nullable). Updated by `UserPromptSubmit` hook; persists after wrapper stops. Used for sorting by recency of use. |
+| `last_user_prompt_at` | TEXT | Last user prompt submission timestamp (RFC3339, nullable). Updated immediately by `/prompt` endpoint and also included in heartbeat payloads for crash recovery. Persists after wrapper stops. Used for three-tier picker sorting. |
 | `session_name` | TEXT | User-assigned or auto-generated session name |
 | `session_name_updated_at` | TEXT | When `session_name` was last updated (nullable) |
 | `cron_id` | TEXT | UUID of the cron that spawned this mission (nullable) |
@@ -681,7 +683,7 @@ Database Schema
 | Index | Columns | Description |
 |-------|---------|-------------|
 | `idx_missions_short_id` | `short_id` | Enables O(1) mission resolution by short ID |
-| `idx_missions_activity` | `last_active DESC, last_heartbeat DESC` | Optimizes activity-based sorting for mission listings |
+| `idx_missions_activity` | `last_heartbeat DESC` | Optimizes heartbeat-based queries (repo sync, idle timeout) |
 | `idx_missions_tmux_pane` | `tmux_pane` (partial, WHERE tmux_pane IS NOT NULL) | Speeds up pane-to-mission resolution for tmux keybindings |
 | `idx_missions_summary` | `status, prompt_count, last_summary_prompt_count` | Improves performance of server's summary eligibility query |
 
