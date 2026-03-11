@@ -53,6 +53,7 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("no missions to attach")
 	}
 
+	sortMissionsForPicker(missions)
 	entries := buildMissionPickerEntries(missions, 100)
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
