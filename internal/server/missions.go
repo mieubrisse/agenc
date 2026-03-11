@@ -970,6 +970,10 @@ func (s *Server) handleRecordPrompt(w http.ResponseWriter, r *http.Request) erro
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to increment prompt_count: %s", err.Error())
 	}
 
+	if err := s.db.UpdateLastUserPromptAt(resolvedID); err != nil {
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to update last_user_prompt_at: %s", err.Error())
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
