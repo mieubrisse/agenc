@@ -12,9 +12,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	var missions []*Mission
 	for rows.Next() {
 		var m Mission
-		var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
+		var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
@@ -23,6 +23,13 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 				return nil, stacktrace.Propagate(err, "failed to parse last_heartbeat timestamp")
 			}
 			m.LastHeartbeat = &t
+		}
+		if lastUserPromptAt.Valid {
+			t, err := time.Parse(time.RFC3339, lastUserPromptAt.String)
+			if err != nil {
+				return nil, stacktrace.Propagate(err, "failed to parse last_user_prompt_at timestamp")
+			}
+			m.LastUserPromptAt = &t
 		}
 		if sessionNameUpdatedAt.Valid {
 			t, err := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)
@@ -63,9 +70,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 // scanMission scans a single mission row from a query result.
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
-	var lastHeartbeat, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
+	var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
@@ -74,6 +81,13 @@ func scanMission(row *sql.Row) (*Mission, error) {
 			return nil, stacktrace.Propagate(err, "failed to parse last_heartbeat timestamp")
 		}
 		m.LastHeartbeat = &t
+	}
+	if lastUserPromptAt.Valid {
+		t, err := time.Parse(time.RFC3339, lastUserPromptAt.String)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse last_user_prompt_at timestamp")
+		}
+		m.LastUserPromptAt = &t
 	}
 	if sessionNameUpdatedAt.Valid {
 		t, err := time.Parse(time.RFC3339, sessionNameUpdatedAt.String)

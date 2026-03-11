@@ -26,6 +26,7 @@ const (
 	addAISummaryColumnSQL              = `ALTER TABLE missions ADD COLUMN ai_summary TEXT NOT NULL DEFAULT '';`
 	addTmuxWindowTitleColumnSQL        = `ALTER TABLE missions ADD COLUMN tmux_window_title TEXT NOT NULL DEFAULT '';`
 	clearTmuxWindowTitleColumnSQL      = `UPDATE missions SET tmux_window_title = '' WHERE tmux_window_title != '';`
+	addLastUserPromptAtColumnSQL       = `ALTER TABLE missions ADD COLUMN last_user_prompt_at TEXT;`
 
 	createSessionsTableSQL = `CREATE TABLE IF NOT EXISTS sessions (
 	id TEXT PRIMARY KEY,
@@ -412,6 +413,21 @@ func migrateAddSessionShortID(conn *sql.DB) error {
 // when foreign key constraints were not enforced.
 func migrateCleanOrphanedSessions(conn *sql.DB) error {
 	_, err := conn.Exec(cleanOrphanedSessionsSQL)
+	return err
+}
+
+// migrateAddLastUserPromptAt idempotently adds the last_user_prompt_at column.
+func migrateAddLastUserPromptAt(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["last_user_prompt_at"] {
+		return nil
+	}
+
+	_, err = conn.Exec(addLastUserPromptAtColumnSQL)
 	return err
 }
 

@@ -281,6 +281,48 @@ func TestListMissions_BrandNewMissionAppearsFirst(t *testing.T) {
 	}
 }
 
+func TestMigrateAddLastUserPromptAt(t *testing.T) {
+	db := openTestDB(t)
+	m, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+	if err := db.UpdateLastUserPromptAt(m.ID); err != nil {
+		t.Fatalf("failed to update last_user_prompt_at: %v", err)
+	}
+	got, err := db.GetMission(m.ID)
+	if err != nil {
+		t.Fatalf("failed to get mission: %v", err)
+	}
+	if got.LastUserPromptAt == nil {
+		t.Fatal("expected last_user_prompt_at to be set, got nil")
+	}
+}
+
+func TestSetLastUserPromptAt_SkipsEmpty(t *testing.T) {
+	db := openTestDB(t)
+	m, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+	if err := db.UpdateLastUserPromptAt(m.ID); err != nil {
+		t.Fatalf("failed to set initial last_user_prompt_at: %v", err)
+	}
+	got, _ := db.GetMission(m.ID)
+	original := got.LastUserPromptAt
+
+	if err := db.SetLastUserPromptAt(m.ID, ""); err != nil {
+		t.Fatalf("SetLastUserPromptAt with empty string failed: %v", err)
+	}
+	got, _ = db.GetMission(m.ID)
+	if got.LastUserPromptAt == nil {
+		t.Fatal("expected last_user_prompt_at to be preserved, got nil")
+	}
+	if !got.LastUserPromptAt.Equal(*original) {
+		t.Errorf("expected last_user_prompt_at to be unchanged, got %v (was %v)", got.LastUserPromptAt, original)
+	}
+}
+
 func TestClearAllTmuxPanes(t *testing.T) {
 	db := openTestDB(t)
 
