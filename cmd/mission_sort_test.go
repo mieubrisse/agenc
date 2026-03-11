@@ -56,6 +56,15 @@ func TestSortMissionsForPicker(t *testing.T) {
 			wantIDs: []string{"heartbeat", "created"},
 		},
 		{
+			name: "multiple needs_attention sorted by last_user_prompt_at",
+			missions: []*database.Mission{
+				{ShortID: "attn_old", ClaudeState: needsAttention, LastUserPromptAt: timePtr(now.Add(-2 * time.Hour))},
+				{ShortID: "attn_new", ClaudeState: needsAttention, LastUserPromptAt: timePtr(now)},
+				{ShortID: "busy1", ClaudeState: busy, LastUserPromptAt: timePtr(now)},
+			},
+			wantIDs: []string{"attn_new", "attn_old", "busy1"},
+		},
+		{
 			name: "nil claude_state treated as non-attention",
 			missions: []*database.Mission{
 				{ShortID: "stopped", ClaudeState: nil, LastUserPromptAt: timePtr(now)},

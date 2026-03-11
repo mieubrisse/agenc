@@ -191,7 +191,7 @@ The wrapper:
 6. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 7. Sets `AGENC_MISSION_UUID` for the child process
 8. Starts background goroutines:
-   - **Heartbeat writer** — updates `last_heartbeat` via the server every 60 seconds; also piggybacks `last_user_prompt_at` for crash recovery
+   - **Heartbeat writer** — updates `last_heartbeat` via the server every 10 seconds; also piggybacks `last_user_prompt_at` for crash recovery
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **HTTP server** (interactive mode only) — serves an HTTP API on `wrapper.sock` (unix socket) with endpoints for status queries, restart commands, and claude_update events
    - **`watchCredentialUpwardSync`** — polls per-mission Keychain every 60s; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
@@ -541,7 +541,7 @@ Titles are truncated to 30 characters (with ellipsis) before applying.
 
 ### Heartbeat system
 
-Each wrapper sends a heartbeat to the server every 60 seconds via the `/heartbeat` endpoint (`internal/wrapper/wrapper.go:writeHeartbeat`). The heartbeat payload includes `pane_id` and, if the user has submitted any prompts this session, `last_user_prompt_at`. The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
+Each wrapper sends a heartbeat to the server every 10 seconds via the `/heartbeat` endpoint (`internal/wrapper/wrapper.go:writeHeartbeat`). The heartbeat payload includes `pane_id` and, if the user has submitted any prompts this session, `last_user_prompt_at`. The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
 
 The `last_user_prompt_at` column tracks when the user last submitted a prompt to the mission's Claude session. It is updated immediately by the `/prompt` endpoint on each `UserPromptSubmit` event, and also included in heartbeat payloads as a consistency backstop after server restarts. Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_user_prompt_at` persists indefinitely and reflects true user engagement.
 
