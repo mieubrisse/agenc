@@ -1,7 +1,7 @@
 ![AgenC — AI work factory](./readme-images/cover.png)
 
 <div align="center">
-    <h1>AgenC: the AI factory for learning loops</h1>
+    <h1>AgenC: the CEO command center for your fleet of Claudes</h1>
 </div>
 
 </h1>
