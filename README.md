@@ -18,8 +18,6 @@
     |
     <a href="#how-it-works">How It Works</a>
     |
-    <a href="#vs-gastown">Vs Gastown</a>
-    |
     <a href="https://discord.gg/x9Y8Se4XF3">Discord</a>
   </p>
 </p>
@@ -470,22 +468,3 @@ This is what it means to "program an organization." The industrial capitalists c
 The key insight is that refining the outer function means refining the inner functions. Every time an agent misbehaves, that's signal. Capture it in the agent's config, and you've permanently raised its success rate. Do this systematically across all your agents, and the organization compounds in capability rather than in error.
 -->
 
-Vs Gastown
-----------
-Gastown is a fascinating idea that gave me the push to finally build AgenC, and Steve Yegge sees far beyond the horizon of what we mere mortals see.
-
-Particular things I liked:
-- The Polecat handoff feature, and the idea that "if the session compacts, that's an error"
-- Tmux as the interface
-- Inter-agent mail
-- Persistent tracking of work + dependencies with Beads aligns closely with [Fractal Outcomes](https://github.com/mieubrisse/orgbrain/blob/master/fractal-outcomes.md), a work organization framework I've been developing over the past years and which I think will be a good fit for agents
-
-However, I ultimately decided not to use Gastown and build AgenC because...
-
-- **I want less complexity.** Gastown has tons of concepts and moving pieces. I want to spend minimal time debugging the system itself; I just want a HUD with great affordances for managing my work and Claude swarm.
-- **I think learning capture is the future.** I'm [a firm believer in knowledge leverage](https://mieubrisse.substack.com/p/the-leverage-series). Meaning, I want identification of factory friction & lesson capture to be first-class concepts. Gastown's fixed personas seem less focused on learning and more "brute-force the PRs until they work". I don't want to burn a Claude Max subscription in a couple days, and I want my factory to get smarter exponentially.
-- **I think a fully-controlled sandbox is a better architecture for learning.** AgenC works hard to fully control the environment the Claude - snapshotting global Claude config and using full repo clones - so we can enable automatic lesson identification and capture. Gastown uses worktrees, which tie the agents to the central repo and require the Refinery.
-- **I want a work-agnostic factory.** Gastown seems to orient towards doing a bunch of coding on a single repo. But I needed a factory where coding and writing and assistant work are treated the same. Doing this work involves popping across many repos - dotfiles, code repos, writing repos, etc. - which is how AgenC got its "juggle lots of things" focus.
-- **I want Claude sessions as cattle, not pets.** Gastown seems to orient around a smaller number of named agents, particularly Polecats and Crew. I prefer tons of missions that are easy to launch, manage, and kill.
-
-If Gastown is Kubernetes, I think AgenC is Docker. It's not as magic, but there's more control and less chaos.
