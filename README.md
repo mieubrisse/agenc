@@ -47,6 +47,7 @@ AgenC tames this chaos. It provides:
 - 🔧 Palette customization so your top-used operations are easy
 <!-- - 🔁 Cron jobs so your factory can work while you're away -->
 - 🔐 1Password secrets injection
+- 🏗️ Claude orchestration so one Claude can spawn and coordinate other Claude teammates
 - 🤖 An AI assistant that knows how to configure & drive AgenC so you never have to use CLI commands
 
 ![](readme-images/agenc-scale-up.png)
@@ -338,6 +339,46 @@ When you create a mission, AgenC:
 3. **Spawns a wrapper process** that supervises the Claude session. The wrapper handles authentication, tracks mission health, and can restart Claude if needed.
 
 Missions are disposable. You can stop them, resume them, or archive them. Work persists because each mission is a real Git repo — commit and push like normal.
+
+### Cross-Mission Orchestration
+
+Missions aren't just isolated — they can **spawn, monitor, and read each other**. This makes AgenC a true factory: one Claude can delegate subtasks to other Claudes, wait for results, and incorporate the output.
+
+**Spawning a child mission:**
+
+From inside a running mission, a Claude can launch another mission targeting any repo in the library:
+
+```bash
+agenc mission new <repo> --prompt "Description of the work to do"
+```
+
+The `--headless` flag runs the child mission without a tmux window (useful for fully autonomous background work). The `--no-focus` flag keeps your current window focused after launch.
+
+**Monitoring status:**
+
+```bash
+agenc mission inspect <mission-id>
+# Status: IDLE = finished and waiting, BUSY = actively processing, STOPPED = not running
+```
+
+When the status shows `IDLE`, the child mission's agent has finished its work and is waiting for input.
+
+**Reading the conversation:**
+
+```bash
+agenc mission print <mission-id>           # Last 20 lines
+agenc mission print <mission-id> --all     # Full transcript
+agenc mission print <mission-id> --tail 50 # Last 50 lines
+```
+
+This lets a parent mission read what the child Claude did — check its output, verify results, or extract information to continue its own work.
+
+**Typical pattern:**
+
+1. Parent mission spawns a child: `agenc mission new myrepo --prompt "Run the test suite and report failures"`
+2. Parent periodically checks: `agenc mission inspect <id>` until status is `IDLE`
+3. Parent reads the result: `agenc mission print <id> --all`
+4. Parent incorporates the child's output into its own work
 
 ### Wrapper
 
