@@ -47,9 +47,6 @@ const (
 	ClaudeOutputLogFilename         = "claude-output.log"
 	TmuxKeybindingsFilename         = "tmux-keybindings.conf"
 	WrapperSocketFilename           = "wrapper.sock"
-	StatuslineMessageFilename       = "statusline-message"
-	StatuslineOriginalCmdFilename   = "statusline-original-cmd"
-	StatuslineWrapperFilename       = "statusline-wrapper.sh"
 	CLIName                         = "agenc"
 	MissionUUIDEnvVar               = "AGENC_MISSION_UUID"
 	AdjutantMarkerFilename          = ".adjutant"
@@ -102,10 +99,6 @@ func EnsureDirStructure(agencDirpath string) error {
 		if err := EnsureConfigFile(agencDirpath); err != nil {
 			return stacktrace.Propagate(err, "failed to seed config file")
 		}
-	}
-
-	if err := EnsureStatuslineWrapper(agencDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to ensure statusline wrapper script")
 	}
 
 	return nil
@@ -263,63 +256,12 @@ func GetClaudeModificationsDirpath(agencDirpath string) string {
 	return filepath.Join(GetConfigDirpath(agencDirpath), ClaudeModificationsDirname)
 }
 
-// GetMissionStatuslineMessageFilepath returns the path to the per-mission
-// statusline message file. When non-empty, its contents are displayed
-// in the Claude Code statusline instead of the user's original command.
-func GetMissionStatuslineMessageFilepath(agencDirpath string, missionID string) string {
-	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), StatuslineMessageFilename)
-}
-
 // GetGlobalCredentialsExpiryFilepath returns the path to the shared file that
 // broadcasts the current global credential expiry timestamp. Wrappers write
 // this file after propagating fresh credentials to the global Keychain;
 // other wrappers watch it via fsnotify to detect credential changes.
 func GetGlobalCredentialsExpiryFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, GlobalCredentialsExpiryFilename)
-}
-
-// GetStatuslineOriginalCmdFilepath returns the path to the file that stores
-// the user's original statusLine.command before it was replaced by our wrapper.
-func GetStatuslineOriginalCmdFilepath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, StatuslineOriginalCmdFilename)
-}
-
-// GetStatuslineWrapperFilepath returns the path to the shared statusline
-// wrapper script.
-func GetStatuslineWrapperFilepath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, StatuslineWrapperFilename)
-}
-
-// statuslineWrapperScript is the shell script that checks for a per-mission
-// message file. If present and non-empty, its contents are displayed.
-// Otherwise, the user's original statusLine command (if any) is executed.
-const statuslineWrapperScript = `#!/usr/bin/env bash
-set -euo pipefail
-script_dirpath="$(cd "$(dirname "${0}")" && pwd)"
-message_filepath="${1:-}"
-input=$(cat)
-
-if [[ -n "${message_filepath}" ]] && [[ -s "${message_filepath}" ]]; then
-    cat "${message_filepath}"
-    exit 0
-fi
-
-original_cmd_filepath="${script_dirpath}/statusline-original-cmd"
-if [[ -s "${original_cmd_filepath}" ]]; then
-    cmd="$(cat "${original_cmd_filepath}")"
-    echo "${input}" | bash -c "${cmd}"
-fi
-`
-
-// EnsureStatuslineWrapper writes the statusline wrapper script to
-// $AGENC_DIRPATH/statusline-wrapper.sh and makes it executable.
-// Idempotent: overwrites the script on every call so upgrades are picked up.
-func EnsureStatuslineWrapper(agencDirpath string) error {
-	wrapperFilepath := GetStatuslineWrapperFilepath(agencDirpath)
-	if err := os.WriteFile(wrapperFilepath, []byte(statuslineWrapperScript), 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to write statusline wrapper script")
-	}
-	return nil
 }
 
 // GetMissionAdjutantMarkerFilepath returns the path to the adjutant marker
