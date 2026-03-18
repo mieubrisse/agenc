@@ -48,6 +48,29 @@
             "allowWrite": ["//tmp", "//private/tmp/claude"]
         }
     },
-    "hooks": {}
+    "hooks": {
+        "SessionStart": [
+            {
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bd prime"
+                    }
+                ]
+            }
+        ],
+        "PreCompact": [
+            {
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bd prime"
+                    }
+                ]
+            }
+        ]
+    }
 }
 
