@@ -114,24 +114,6 @@ The correct sequence is: `git add` → `git commit` → `git pull --rebase` → 
 
 If the rebase surfaces conflicts, resolve them before pushing. Do not skip the pull-rebase step — even if you just pulled recently, another agent may have pushed in the interim.
 
-Releasing
----------
-
-Releases are managed by `.goreleaser.yml`. To publish a new release, push a new Git tag to the remote:
-
-```
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-Do not run GoReleaser manually — CI handles the build and publish when it sees a new tag.
-
-**Choosing a version:** Always ask the user what version to tag. Do not assume or auto-increment — the user decides the version number.
-
-**Listing existing tags:** Use `git tag --sort=-v:refname` to list tags in descending semantic-version order. Do not use unsorted `git tag` output.
-
-**Verifying the release:** After pushing the tag, watch the GitHub Release Action to confirm it completes successfully. Use `gh run list --workflow=release.yml --limit=1` (or the appropriate workflow name) to check the status, and `gh run watch` to stream logs if needed. The release is not finished until the action reports success. If it fails, investigate and resolve the issue before telling the user the release is done.
-
 Database Functions
 ------------------
 
