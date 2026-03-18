@@ -468,6 +468,15 @@ xcode-select --install
 
 Then retry `brew install agenc`.
 
+Upgrading AgenC
+----------------
+
+```
+brew update
+brew upgrade agenc
+agenc server restart
+```
+
 Uninstall
 ---------
 
