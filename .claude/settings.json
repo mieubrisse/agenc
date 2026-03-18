@@ -47,7 +47,7 @@
         "filesystem": {
             "allowWrite": ["//tmp", "//private/tmp/claude"]
         },
-        "excludedCommands": ["bd"],
+        "excludedCommands": ["bd", "dolt"],
         "network": {
             "allowLocalBinding": true,
             "allowedDomains": ["127.0.0.1", "localhost"]
