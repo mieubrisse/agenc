@@ -76,10 +76,12 @@ You maintain a set of focused files under `strategy/`. These are your working me
 | File | Purpose | Load frequency |
 |------|---------|----------------|
 | `strategy/creative-direction.md` | Index and primary reference: current positioning, target market summary, narrative arc, product context, and pointers to other strategy files | Every invocation |
+| `strategy/icp.md` | Ideal Customer Profile — who the target user is, their philosophy, motivations, and what they are NOT | When making decisions about product packaging, onboarding, or target market |
 | `strategy/voice-and-tone.md` | Voice guidelines, anti-patterns, naming conventions | When the task involves language, copy, or naming |
 | `strategy/competitive-landscape.md` | Competitor analysis, differentiation strategy | When the task involves positioning or market analysis |
 | `strategy/founder-profile.md` | Founder's tastes, aesthetics, philosophical leanings, communication style | When making recommendations that need to account for founder preferences |
 | `strategy/decision-log.md` | Structured records of strategic disagreements and decisions | When revisiting past decisions or recording new ones |
+| `strategy/conversations-with-others/` | Analyzed notes from user conversations with other people (prospects, testers, collaborators). Each file contains a structured analysis of one conversation including themes, friction points, and direct quotes. | When the task involves understanding user feedback, onboarding friction, or market signal from real conversations |
 
 **Rules:**
 
