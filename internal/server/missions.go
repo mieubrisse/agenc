@@ -42,6 +42,9 @@ type MissionResponse struct {
 	// custom_title > agenc_custom_title > auto_summary. Empty if no session exists.
 	ResolvedSessionTitle string `json:"resolved_session_title"`
 
+	// IsAdjutant is true if the mission has a .adjutant marker file.
+	IsAdjutant bool `json:"is_adjutant"`
+
 	// ClaudeState is the current state of Claude in this mission. Nil when the
 	// wrapper is not running. Possible values: "idle", "busy", "needs_attention".
 	ClaudeState *string `json:"claude_state"`
@@ -67,6 +70,7 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		CreatedAt:            mr.CreatedAt,
 		UpdatedAt:            mr.UpdatedAt,
 		ResolvedSessionTitle: mr.ResolvedSessionTitle,
+		IsAdjutant:           mr.IsAdjutant,
 		ClaudeState:          mr.ClaudeState,
 	}
 }
@@ -90,6 +94,7 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		CreatedAt:            m.CreatedAt,
 		UpdatedAt:            m.UpdatedAt,
 		ResolvedSessionTitle: m.ResolvedSessionTitle,
+		IsAdjutant:           m.IsAdjutant,
 	}
 }
 
@@ -167,9 +172,11 @@ func (s *Server) queryWrapperClaudeState(missionID string) *string {
 	return &status.ClaudeState
 }
 
-// enrichMissionResponse populates transient fields by querying the running wrapper.
+// enrichMissionResponse populates transient fields (ClaudeState, IsAdjutant)
+// by querying the running wrapper and checking the filesystem.
 func (s *Server) enrichMissionResponse(resp *MissionResponse) {
 	resp.ClaudeState = s.queryWrapperClaudeState(resp.ID)
+	resp.IsAdjutant = config.IsMissionAdjutant(s.agencDirpath, resp.ID)
 }
 
 // handleListMissions handles GET /missions.

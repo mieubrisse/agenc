@@ -1,10 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,10 +9,8 @@ import (
 	"github.com/rodaine/table"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/history"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
@@ -36,7 +31,6 @@ const (
 
 var lsAllFlag bool
 var lsCronFlag string
-var lsGitStatusFlag bool
 
 var missionLsCmd = &cobra.Command{
 	Use:   lsCmdStr,
@@ -47,17 +41,10 @@ var missionLsCmd = &cobra.Command{
 func init() {
 	missionLsCmd.Flags().BoolVarP(&lsAllFlag, allFlagName, "a", false, "include archived missions")
 	missionLsCmd.Flags().StringVar(&lsCronFlag, cronFlagName, "", "filter to missions from a specific cron job")
-	missionLsCmd.Flags().BoolVar(&lsGitStatusFlag, "git-status", false, "show uncommitted changes in mission directories")
 	missionCmd.AddCommand(missionLsCmd)
 }
 
 func runMissionLs(cmd *cobra.Command, args []string) error {
-	if _, err := getAgencContext(); err != nil {
-		return err
-	}
-
-	ensureServerRunning(agencDirpath)
-
 	missions, err := fetchMissions()
 	if err != nil {
 		return err
@@ -78,37 +65,18 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
-	// Compute shadow repo HEAD once for config staleness display
-	var shadowHeadCommitHash string
-	if lsAllFlag {
-		shadowHeadCommitHash = claudeconfig.GetShadowRepoCommitHash(agencDirpath)
-	}
-
 	var tbl table.Table
 	if lsAllFlag {
-		if lsGitStatusFlag {
-			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "CONFIG", "GIT", "SESSION", "REPO")
-		} else {
-			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "CONFIG", "SESSION", "REPO")
-		}
+		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "SESSION", "REPO")
 	} else {
-		if lsGitStatusFlag {
-			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "GIT", "SESSION", "REPO")
-		} else {
-			tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
-		}
+		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
 	}
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
 		sessionName := resolveSessionName(m)
 		repo := displayGitRepo(m.GitRepo)
-		if config.IsMissionAdjutant(agencDirpath, m.ID) {
+		if m.IsAdjutant {
 			repo = "🤖  Adjutant"
-		}
-
-		var gitStatus string
-		if lsGitStatusFlag {
-			gitStatus = getMissionGitStatus(m.ID)
 		}
 
 		if lsAllFlag {
@@ -116,47 +84,22 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			if m.TmuxPane != nil {
 				pane = *m.TmuxPane
 			}
-			if lsGitStatusFlag {
-				tbl.AddRow(
-					formatLastActive(m.LastHeartbeat, m.CreatedAt),
-					m.ShortID,
-					colorizeStatus(status),
-					pane,
-					formatConfigCommit(m.ConfigCommit, shadowHeadCommitHash),
-					gitStatus,
-					truncatePrompt(sessionName, defaultPromptMaxLen),
-					repo,
-				)
-			} else {
-				tbl.AddRow(
-					formatLastActive(m.LastHeartbeat, m.CreatedAt),
-					m.ShortID,
-					colorizeStatus(status),
-					pane,
-					formatConfigCommit(m.ConfigCommit, shadowHeadCommitHash),
-					truncatePrompt(sessionName, defaultPromptMaxLen),
-					repo,
-				)
-			}
+			tbl.AddRow(
+				formatLastActive(m.LastHeartbeat, m.CreatedAt),
+				m.ShortID,
+				colorizeStatus(status),
+				pane,
+				truncatePrompt(sessionName, defaultPromptMaxLen),
+				repo,
+			)
 		} else {
-			if lsGitStatusFlag {
-				tbl.AddRow(
-					formatLastActive(m.LastHeartbeat, m.CreatedAt),
-					m.ShortID,
-					colorizeStatus(status),
-					gitStatus,
-					truncatePrompt(sessionName, defaultPromptMaxLen),
-					repo,
-				)
-			} else {
-				tbl.AddRow(
-					formatLastActive(m.LastHeartbeat, m.CreatedAt),
-					m.ShortID,
-					colorizeStatus(status),
-					truncatePrompt(sessionName, defaultPromptMaxLen),
-					repo,
-				)
-			}
+			tbl.AddRow(
+				formatLastActive(m.LastHeartbeat, m.CreatedAt),
+				m.ShortID,
+				colorizeStatus(status),
+				truncatePrompt(sessionName, defaultPromptMaxLen),
+				repo,
+			)
 		}
 	}
 	tbl.Print()
@@ -216,37 +159,13 @@ func colorizeStatus(status MissionDisplayStatus) string {
 const defaultPromptMaxLen = 106
 
 // resolveSessionName returns the display name for a mission's active session.
-// It uses the server-provided ResolvedSessionTitle which follows the same
-// priority chain as tmux window title reconciliation:
-//
-//	custom_title > agenc_custom_title > auto_summary
-//
-// Falls back to the mission's first user prompt if no session title is available.
+// Uses server-provided ResolvedSessionTitle (custom_title > agenc_custom_title >
+// auto_summary), falling back to the cached first user prompt.
 func resolveSessionName(m *database.Mission) string {
 	if m.ResolvedSessionTitle != "" {
 		return m.ResolvedSessionTitle
 	}
-	return resolveMissionPrompt(m)
-}
-
-// resolveMissionPrompt returns the mission's first user prompt, using the
-// server-cached value if available, otherwise reading from Claude's
-// history.jsonl. The returned string may be empty if no prompt has been
-// recorded yet.
-func resolveMissionPrompt(m *database.Mission) string {
-	if m.Prompt != "" {
-		return m.Prompt
-	}
-
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, m.ID)
-	historyFilepath := filepath.Join(claudeConfigDirpath, config.HistoryFilename)
-	prompt := history.FindFirstPrompt(historyFilepath, m.ID)
-	if prompt == "" {
-		return ""
-	}
-
-	m.Prompt = prompt
-	return prompt
+	return m.Prompt
 }
 
 // truncatePrompt collapses whitespace and truncates a prompt string for
@@ -260,30 +179,6 @@ func truncatePrompt(prompt string, maxLen int) string {
 		return collapsed
 	}
 	return collapsed[:maxLen] + "…"
-}
-
-// formatConfigCommit returns a display string for a mission's config commit.
-// Shows the 12-char short hash, plus "(-N)" in red if behind HEAD.
-// Returns "--" if the mission has no config commit.
-func formatConfigCommit(configCommit *string, shadowHeadCommitHash string) string {
-	if configCommit == nil {
-		return "--"
-	}
-
-	display := shortHash(*configCommit)
-
-	if shadowHeadCommitHash == "" {
-		return display
-	}
-
-	behind := claudeconfig.CountCommitsBehind(agencDirpath, *configCommit, shadowHeadCommitHash)
-	if behind > 0 {
-		display += fmt.Sprintf(" %s(-%d)%s", ansiRed, behind, ansiReset)
-	} else if behind < 0 {
-		display += " " + ansiRed + "(??)" + ansiReset
-	}
-
-	return display
 }
 
 // getMissionStatus returns the display status for a mission.
@@ -319,35 +214,6 @@ func isMissionRunning(status MissionDisplayStatus) bool {
 		return true
 	}
 	return false
-}
-
-// getMissionGitStatus checks for uncommitted changes in a mission's agent
-// directory. Returns a status string: "clean" (no changes), "modified"
-// (unstaged or staged changes), or "--" (not a git repo or error).
-func getMissionGitStatus(missionID string) string {
-	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
-	return checkGitStatus(agentDirpath)
-}
-
-// checkGitStatus runs git status --porcelain in the given directory and returns
-// a formatted status indicator. Returns "clean" for no changes, "modified" for
-// uncommitted changes (staged or unstaged), or "--" for non-git directories.
-func checkGitStatus(dirpath string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
-	cmd.Dir = dirpath
-	output, err := cmd.Output()
-	if err != nil {
-		return "--"
-	}
-
-	trimmed := strings.TrimSpace(string(output))
-	if trimmed == "" {
-		return ansiGreen + "clean" + ansiReset
-	}
-	return ansiYellow + "modified" + ansiReset
 }
 
 // fetchMissions fetches missions from the server.

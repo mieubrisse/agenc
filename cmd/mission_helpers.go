@@ -63,7 +63,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 		sessionName := resolveSessionName(m)
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
 		repo := displayGitRepo(m.GitRepo)
-		if config.IsMissionAdjutant(agencDirpath, m.ID) {
+		if m.IsAdjutant {
 			repo = "🤖  Adjutant"
 		}
 		entries = append(entries, missionPickerEntry{

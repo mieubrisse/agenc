@@ -34,6 +34,10 @@ type Mission struct {
 	// custom_title > agenc_custom_title > auto_summary.
 	ResolvedSessionTitle string
 
+	// IsAdjutant is a transient field populated by the server API, not stored
+	// in the database. True if the mission has a .adjutant marker file.
+	IsAdjutant bool
+
 	// ClaudeState is a transient field populated by the server API, not stored in the database.
 	// Possible values: "idle", "busy", "needs_attention", or nil when wrapper is not running.
 	ClaudeState *string

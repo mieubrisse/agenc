@@ -117,7 +117,7 @@ func inspectMission(missionID string) error {
 		sessionName = "--"
 	}
 	fmt.Printf("Session:     %s\n", sessionName)
-	prompt := resolveMissionPrompt(mission)
+	prompt := mission.Prompt
 	if prompt == "" {
 		prompt = "--"
 	}
