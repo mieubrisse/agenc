@@ -50,3 +50,40 @@ Implications for Product Decisions
 | **Documentation** | Must explain the *why* (systems thinking, feedback loops) not just the *how* (commands). The ICP will invest in understanding the model if they believe in the payoff. |
 | **Skills/CLAUDE.md** | The config refinement loop is the core value prop. Must be dead simple to enter and iterate on. First-class tooling for this loop is table stakes. |
 | **Vim** | Vim keybindings should work out of the box. Vim-style editing in the terminal should feel natural. |
+
+---
+
+Phase 2 ICP (Not Prioritized)
+------------------------------
+
+> **Status:** Documented for future reference. Do not broaden the current beachhead ICP until it is proven. Revisit when the technical beachhead is established and the "download and customize" model is ready.
+
+Evidence from multiple non-technical users validates that a broader market exists beyond the current technical ICP.
+
+### Profile
+
+Tech-comfortable knowledge workers who are **not** terminal users or developers. They use AI extensively for personal productivity, self-improvement, and life management — but through chat interfaces, not code.
+
+### Validated Signals
+
+- **May** (PMM, personal Claude subscriber, March 2026 interview): Independently built end-of-day meta-refinement loops with Claude. Needs prioritization, not execution. Wants a personal assistant ("April") for thought capture, categorization (P0-P3), and calendar integration. Expressed feature fatigue and overwhelm.
+- **Dan** (marketer, earlier market research): Tech-comfortable non-terminal user who sees value in AI-augmented personal workflows.
+- **Khan** (advisor, earlier market research): Wants "an active companion in my life that doesn't feel invasive." Framed the need as relational, not transactional.
+
+### Key Differences from Phase 1
+
+| Dimension | Phase 1 (Current) | Phase 2 |
+|---|---|---|
+| **Primary need** | Delegate execution to agents | Prioritization and life management |
+| **Interface** | Terminal / CLI | Chat, SMS, mobile |
+| **Relationship to code** | Writes it | Doesn't need to |
+| **Value of AgenC** | Agent orchestration | Persistent, personalized AI that compounds |
+| **"Inputs Not Outputs"** | Skills, CLAUDE.md, self-refine | Meta-refinement loops, instruction improvement |
+
+### What Carries Over
+
+The "Inputs Not Outputs" philosophy is universal — validated across both technical (Omar, Charles) and non-technical (May) users. The meta-refinement loop (refine instructions → better AI interactions → compound over time) is independently invented by users in both segments. This is the connective tissue between Phase 1 and Phase 2.
+
+### What's Different
+
+Phase 2 users need **prioritization, not execution**. May's core unmet need: "I don't have a good enough algorithm for structuring everything that's in my head into a logical, tactical manner." This is a different product category — closer to a life coach than a coding assistant. The product form factor likely shifts from CLI to mobile/chat.
