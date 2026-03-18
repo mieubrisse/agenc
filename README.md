@@ -175,9 +175,9 @@ You _can_ use the `agenc config` commands to configure stuff like palette comman
 
 ### 6. Mission Management
 
-When you're done with a mission, you don't need to explicitly stop it — just detach and move on. The mission stays in the background AgenC pool, and after a period of inactivity AgenC will automatically idle-kill it. You can always re-attach later with "Resume Mission" on the command palette, which will pick up right where you left off.
+When you're done with a mission, you don't need to explicitly stop it — just detach and move on. The mission stays in the background AgenC pool, and after a period of inactivity AgenC will automatically idle-kill it. You can always re-attach later with "Attach Mission" on the command palette, which will pick up right where you left off.
 
-You can see all missions with `agenc mission ls`, and switch between active missions with "Switch Mission" (`ctrl-m`) on the command palette.
+You can see all missions with `agenc mission ls`, and switch between missions with "Attach Mission" (`ctrl-m`) on the command palette.
 
 If you want to explicitly stop a mission, you can use "Mission Stop" (`ctrl-s`) on the palette. Since each mission is an isolated workspace, no work is lost.
 
