@@ -5,7 +5,7 @@ Charles - AgenC Market Research Conversation
 - **Participants:** Kevin (AgenC creator), Charles (engineer, AI-assisted development practitioner, Cursor power user)
 - **Grain recording ID:** `5b5b8ddb-92f6-4f28-8da0-cfd24f178696`
 - **Journal entry:** `charles-agenc-market-research~2026-03-12_15-40-11~.md`
-- **Analysis mission:** `3142b0af-6f40-421a-a71e-834614f5b71d`
+- **Analysis mission:** `3142b0af-6f40-421a-a71e-834614f5b71d` (initial), `d64edbe6-63f4-476f-9caf-a6effed7793a` (strategic contextualization + beads)
 
 ---
 
@@ -27,16 +27,19 @@ Action Items
 
 ### Kevin
 
-- [ ] Send Charles the prompt-engineer skill
+- [ ] Share all prompts/skills with Charles (Kevin offered broader than just prompt-engineer: "I'm happy to give you all my prompts if you want")
+- [ ] Share the Superpowers repo reference specifically
 - [ ] Onboard Charles to AgenC once he has Claude Code + tmux basics
 - [ ] Consider a structured demo sequence that introduces concepts incrementally (tmux first, then missions, then MCP — not all at once)
+- [ ] Facilitate three-way skill cross-pollination between Kevin, Charles, and Yannick
 
 ### Charles
 
 - [ ] Try Claude Code on a new project
 - [ ] Learn tmux fundamentals
 - [ ] Share access to his prompt factory web app with Kevin
-- [ ] Look into MCP servers for his message/email automation project (instead of building from scratch)
+- [ ] Look into MCP servers — specifically Gmail MCP and iMessage MCP for his assistant project (instead of building from scratch)
+- [ ] Explore Claude Code (currently using OpenAI API for his assistant POC — no model lock-in)
 
 ### Unassigned
 
@@ -103,6 +106,39 @@ Insights
 
 8. **Charles's "bottom-up" building philosophy conflicts with AgenC's "trust the agent" approach.** Charles ensures every building block is correct before composing. Kevin trusts agents to handle building blocks and checks outcomes. These are fundamentally different engineering philosophies, and AgenC's onboarding needs to acknowledge and bridge this gap.
 
+9. **Kevin's "Inputs Not Outputs" blog post directly catalyzed Charles's prompt factory.** Charles said: "That might have been the thing that triggered me to be like, okay, I got to build some way to manage my prompts." This is direct evidence that Kevin's thought leadership content drives adoption behaviors — content is not just marketing, it's a conversion mechanism.
+
+10. **Charles built a human-in-the-loop approval queue for AI actions.** His POC has a front-end where AI-suggested actions queue for human approval/rejection, and rejections feed back into prompt improvement. This is a concrete UX pattern worth studying — it solves the trust problem through explicit consent rather than broad permissions.
+
+11. **The autonomy gap is quantifiable.** Charles's agent runs last "minutes" (max). Kevin's longest autonomous run was 7 hours, with a standard of ~10 minutes. This quantifies the trust/experience gap between the two approaches and suggests a progression curve for onboarding.
+
+12. **Charles's bottom-up preference is experiential, not just philosophical.** He tried top-down with his prompt factory and it "became unmanageable — I couldn't make any updates to it." This is a data point that the "just trust the agent" approach has real failure modes that need to be addressed, not dismissed.
+
+13. **60% of engineers Kevin talks to aren't even using skills.** This is a critical market signal: the target audience mostly hasn't adopted the prerequisite concepts that Charles and Kevin take for granted. AgenC is selling to a market that doesn't yet have the mental model for what AgenC does.
+
+14. **Kevin explicitly self-segments AgenC as stages 6-8 of agentic evolution** ("Agency is meant to help with this stuff six to eight... you don't need agency for just stage five"). This has positioning implications — AgenC should not market to beginners.
+
+---
+
+Notable Quotes
+---------------
+
+> "For all these AI tools, it's very black-boxed. And I want to know, like if I don't like what it outputted, how is it going to fix it? And what's the diff in its logic or instructions that would make it better the next time." — Charles (29:53), articulating the core transparency need driving his prompt factory
+
+> "This feels like one of those moments that like, I don't want to learn something new because I have what I have like works well in my brain. But it seems like this isn't like one of those things that I should invest some time into." — Charles (1:00:25), the exact conversion-moment psychology
+
+> "I'm kind of approaching my limit on the processing of information that you're giving me." — Charles (1:19:36), flagging cognitive overload during the demo
+
+> "That is cool. And I want that. And the problem that kind of arises from that is like, how do you transfer skills to other people so that it works for one person to another?" — Charles (1:36:13), reacting to skill composition and immediately asking about distribution
+
+> "That might have been the thing that triggered me to be like, okay, I got to build some way to manage my prompts or I'm just going to make it the same as the norm." — Charles (1:38:49), on Kevin's "Inputs Not Outputs" blog post catalyzing his prompt factory work
+
+> "They're just correcting the output every single time and then they're like, ah AI isn't that good. And I'm like, dude, fix your prompts. It's not the AI is trash. Your prompts are trash." — Kevin (1:38:16), on 60% of engineers not using skills
+
+> "You should be treating your work as the CEO of an organization of robots, a company of robots." — Kevin (1:18:01)
+
+> "One counterpoint: if there's bad habits that it copies, it'll tend to [replicate] those all across the code base." — Charles (54:36), the legitimate code review concern
+
 ---
 
 Followups
@@ -114,6 +150,49 @@ Followups
 - **Explore MCP as the onboarding hook for Charles** — his assistant project (message analysis, calendar, to-dos) maps directly to existing MCP integrations. Showing him this specific use case would be more compelling than a general AgenC demo.
 - **Consider a "progressive onboarding" design** — based on both Charles and Omar's experiences, the onboarding should be layered: (1) Claude Code basics, (2) tmux orientation, (3) first mission, (4) config refinement loop, (5) MCP and multi-agent. Never show everything at once.
 - **Address the code review concern directly** — Charles raised a real concern about bad habits propagating. Prepare a concrete answer: TDD, linting, agent-reviewed PRs, architectural guardrails. This will come up with every experienced engineer.
+
+---
+
+Strategic Contextualization (Creative Director)
+------------------------------------------------
+
+*Added by mission `d64edbe6-63f4-476f-9caf-a6effed7793a` on 2026-03-18.*
+
+### ICP Validation
+
+Charles is a near-perfect match for the current ICP *philosophically* — he thinks in systems, practices "inputs not outputs" independently, and builds compounding tools. But he's a mismatch on the *interface dimension*: he's deeply visual (GitHub Desktop for diffs, Cursor's GUI, multiple windows) and explicitly flagged terminal-unfamiliarity as a barrier.
+
+**Implication (high confidence):** The ICP's "comfortable writing code and working in a terminal" clause may be too narrow. Charles demonstrates that the *philosophy* is the qualifying trait, not the terminal comfort. Users who think in systems but prefer visual interfaces are being excluded by the tmux dependency. This reinforces the GUI investment case (bead `agenc-c805`).
+
+### Positioning Signal
+
+Charles's convergent evolution — independently building skill composition, prompt refinement loops, meta-prompts — is the strongest validation yet that AgenC's core abstractions are correct. Two independent practitioners arriving at the same patterns is strong signal that these are *fundamental* rather than idiosyncratic.
+
+**Implication (high confidence):** The positioning should lean into "we codified the patterns that expert AI practitioners have already discovered independently." This frames AgenC as the formalization of proven practices, not an opinionated experiment. Charles's quote — "this feels like one of those moments that like, I don't want to learn something new because I have what I have works well in my brain... but it seems like this isn't like one of those things that I should invest some time into" — captures the exact conversion moment the product needs to manufacture at scale.
+
+### Competitive Positioning: Cursor Ecosystem Stickiness
+
+Charles's setup is deeply Cursor-native: custom rules, project-specific skills, a database-backed prompt management tool, GitHub Desktop integration. The migration cost from Cursor to AgenC is substantial even for a philosophically-aligned user.
+
+**Implication (medium confidence):** AgenC should not position as a Cursor replacement. The winning play is to position as the *orchestration layer above* the IDE — you keep your Cursor/VS Code setup for individual coding sessions, but AgenC handles multi-project coordination, MCP integrations, session lifecycle, and skill distribution. Charles's pain point of command-tabbing between six Cursor windows is the entry wedge.
+
+### MCP as the Adoption Hook
+
+Charles is building a personal assistant that analyzes conversations, suggests calendar events, and creates to-dos — using a custom-built local store because he doesn't know about MCP. When Kevin mentioned MCP servers, Charles's reaction was immediate: "That is cool. And I want that."
+
+**Implication (high confidence):** For sophisticated users who already have agent workflows, MCP is the *differentiation hook*. They've solved the coding-agent problem in their own way; what they haven't solved is the *integration problem* — connecting agents to external services. AgenC's MCP ecosystem is the thing Cursor cannot offer. This should be the lead in demos for users at Charles's level.
+
+### The "Not Looking at Code" Bridge
+
+Charles's code review instinct is identity-level: "getting the code right so I can scan it." Kevin's "I don't look at code" paradigm is a hard sell. Charles raised a real concern: "If there's bad habits that it copies, it'll tend to [replicate] those all across the code base."
+
+**Implication (high confidence):** The messaging around code review needs a middle path. The current framing ("you're the CEO, don't review code") alienates experienced engineers. A better frame: "You verify *outcomes and standards*, not *implementation*. TDD, linting, agent code review, and architectural guardrails replace manual diff review." This preserves the efficiency gain without asking engineers to abandon professional identity.
+
+### Skill Portability as Network Effect
+
+Charles asked: "How do you transfer skills to other people so that it works for one person to another?" This is the exact question that, if AgenC solves well, creates a moat. A skill marketplace or Git-based distribution network creates network effects that no competitor currently has.
+
+**Implication (medium confidence):** Skill sharing/distribution (bead `agenc-yu0u`) should be elevated in priority. Charles's question reveals demand for this from the *producer* side — he wants to share what he's built. This is the supply-side validation the feature needs. The consumption side ("download experts and customize" from Dan and Khan) is already validated.
 
 ---
 
