@@ -175,7 +175,7 @@ You _can_ use the `agenc config` commands to configure stuff like palette comman
 
 ### 6. Mission Management
 
-When you're done with a mission, you don't need to explicitly stop it — just detach and move on. The mission stays in the background AgenC pool, and after a period of inactivity AgenC will automatically idle-kill it. You can always re-attach later with "Attach Mission" on the command palette, which will pick up right where you left off.
+When you're done with a mission, you don't need to explicitly stop it — just detach and move on. Use "Detach Mission" (`ctrl-i`) on the command palette to unlink the current mission from your tmux window, or "Exit" to leave the AgenC tmux session entirely. Either way, your missions keep running in the background. After a period of inactivity, AgenC will automatically idle-kill them. You can always re-attach later with "Attach Mission" on the command palette, which will pick up right where you left off.
 
 You can see all missions with `agenc mission ls`, and switch between missions with "Attach Mission" (`ctrl-m`) on the command palette.
 
