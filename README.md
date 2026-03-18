@@ -126,11 +126,13 @@ bind -n C-S-l swap-window -t +1\; select-window -t +1
 ```
 
 ### 2. 🚀 Launch
-Attach to the AgenC tmux interface:
+AgenC's interface runs inside tmux. You can use it from any tmux session — `agenc attach` is just a convenience that creates or resumes a tmux session called `agenc`:
 
 ```bash
 agenc attach
 ```
+
+If you already have your own tmux workflow, you can skip `agenc attach` and use `agenc` commands directly from any tmux session. The command palette and keybindings work everywhere.
 
 You'll be dropped into the repo selection screen. Select "Github Repo" and enter a repo you're working on.
 
