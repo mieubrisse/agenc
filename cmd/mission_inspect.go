@@ -84,10 +84,14 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return inspectMission(result.Items[0].MissionID)
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+	return inspectMission(agencDirpath, result.Items[0].MissionID)
 }
 
-func inspectMission(missionID string) error {
+func inspectMission(agencDirpath string, missionID string) error {
 	client, err := serverClient()
 	if err != nil {
 		return err

@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/session"
 )
 
@@ -103,6 +104,10 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 	missionID := result.Items[0].MissionID
 
 	// Resolve mission's current session ID
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 	sessionID := claudeconfig.GetLastSessionID(agencDirpath, missionID)
 	if sessionID == "" {
 		return stacktrace.NewError("no current session found for mission %s", missionID)

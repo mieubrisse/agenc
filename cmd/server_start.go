@@ -21,13 +21,14 @@ func init() {
 }
 
 func runServerStart(cmd *cobra.Command, args []string) error {
-	if _, err := ensureConfigured(); err != nil {
+	agencDirpath, err := ensureConfigured()
+	if err != nil {
 		return err
 	}
-	return forkServer()
+	return forkServer(agencDirpath)
 }
 
-func forkServer() error {
+func forkServer(agencDirpath string) error {
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 	logFilepath := config.GetServerLogFilepath(agencDirpath)
 

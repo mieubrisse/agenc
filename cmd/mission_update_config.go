@@ -44,7 +44,8 @@ func init() {
 }
 
 func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
-	if _, err := getAgencContext(); err != nil {
+	agencDirpath, err := getAgencContext()
+	if err != nil {
 		return err
 	}
 
@@ -61,7 +62,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 	}
 
 	if updateConfigAllFlag {
-		return updateConfigForAllMissions(client, newCommitHash)
+		return updateConfigForAllMissions(agencDirpath, client, newCommitHash)
 	}
 
 	input := strings.Join(args, " ")
@@ -76,7 +77,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve mission ID")
 		}
-		return updateMissionConfig(client, missionID, newCommitHash)
+		return updateMissionConfig(agencDirpath, client, missionID, newCommitHash)
 	}
 
 	// No args: list all missions and show fzf picker
@@ -108,12 +109,12 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	return updateMissionConfig(client, result.Items[0].MissionID, newCommitHash)
+	return updateMissionConfig(agencDirpath, client, result.Items[0].MissionID, newCommitHash)
 }
 
 // updateConfigForAllMissions updates the Claude config for all non-archived
 // missions that have a per-mission config directory.
-func updateConfigForAllMissions(client *server.Client, newCommitHash string) error {
+func updateConfigForAllMissions(agencDirpath string, client *server.Client, newCommitHash string) error {
 	missions, err := client.ListMissions(false, "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -129,7 +130,7 @@ func updateConfigForAllMissions(client *server.Client, newCommitHash string) err
 			continue // Legacy mission without per-mission config
 		}
 
-		if err := updateMissionConfig(client, m.ID, newCommitHash); err != nil {
+		if err := updateMissionConfig(agencDirpath, client, m.ID, newCommitHash); err != nil {
 			fmt.Printf("  Failed to update mission %s: %v\n", m.ShortID, err)
 			continue
 		}
@@ -142,7 +143,7 @@ func updateConfigForAllMissions(client *server.Client, newCommitHash string) err
 
 // updateMissionConfig rebuilds a single mission's Claude config directory
 // from the shadow repo.
-func updateMissionConfig(client *server.Client, missionID string, newCommitHash string) error {
+func updateMissionConfig(agencDirpath string, client *server.Client, missionID string, newCommitHash string) error {
 	missionRecord, err := client.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
@@ -162,7 +163,7 @@ func updateMissionConfig(client *server.Client, missionID string, newCommitHash 
 
 	// Show diff if we have both commits
 	if currentCommitHash != "" && newCommitHash != "" {
-		showShadowRepoDiff(currentCommitHash, newCommitHash)
+		showShadowRepoDiff(agencDirpath, currentCommitHash, newCommitHash)
 	}
 
 	fmt.Printf("Updating config for mission %s...\n", missionRecord.ShortID)
@@ -206,7 +207,7 @@ func updateMissionConfig(client *server.Client, missionID string, newCommitHash 
 }
 
 // showShadowRepoDiff displays a git diff between two commits in the shadow repo.
-func showShadowRepoDiff(oldCommit string, newCommit string) {
+func showShadowRepoDiff(agencDirpath string, oldCommit string, newCommit string) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
 	defer cancel()
 

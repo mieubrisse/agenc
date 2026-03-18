@@ -31,7 +31,8 @@ func init() {
 // runServerRun is the actual server process. It is invoked by ForkServer as a
 // detached child — not intended for direct user invocation.
 func runServerRun(cmd *cobra.Command, args []string) error {
-	if _, err := ensureConfigured(); err != nil {
+	agencDirpath, err := ensureConfigured()
+	if err != nil {
 		return err
 	}
 

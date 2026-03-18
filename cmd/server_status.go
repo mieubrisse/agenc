@@ -21,7 +21,8 @@ func init() {
 }
 
 func runServerStatus(cmd *cobra.Command, args []string) error {
-	if _, err := ensureConfigured(); err != nil {
+	agencDirpath, err := ensureConfigured()
+	if err != nil {
 		return err
 	}
 

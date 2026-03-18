@@ -199,10 +199,13 @@ func getMissionStatus(missionID string, dbStatus string, claudeState *string) Mi
 		}
 	}
 	// Fallback: check PID when claudeState is not available
-	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
-	pid, err := server.ReadPID(pidFilepath)
-	if err == nil && pid != 0 && server.IsProcessRunning(pid) {
-		return StatusRunning
+	dirpath, dirErr := config.GetAgencDirpath()
+	if dirErr == nil {
+		pidFilepath := config.GetMissionPIDFilepath(dirpath, missionID)
+		pid, err := server.ReadPID(pidFilepath)
+		if err == nil && pid != 0 && server.IsProcessRunning(pid) {
+			return StatusRunning
+		}
 	}
 	return StatusStopped
 }

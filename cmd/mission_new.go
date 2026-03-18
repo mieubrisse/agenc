@@ -69,7 +69,8 @@ type repoLibraryEntry struct {
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
-	if _, err := getAgencContext(); err != nil {
+	agencDirpath, err := getAgencContext()
+	if err != nil {
 		return err
 	}
 	ensureServerRunning(agencDirpath)
@@ -92,7 +93,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	if cloneFlag != "" {
-		return runMissionNewWithClone()
+		return runMissionNewWithClone(agencDirpath)
 	}
 
 	if adjutantFlag {
@@ -103,7 +104,7 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return createAndLaunchMission(agencDirpath, "", promptFlag)
 	}
 
-	return runMissionNewWithPicker(args)
+	return runMissionNewWithPicker(agencDirpath, args)
 }
 
 // shouldSkipCronTrigger checks if a cron trigger should be skipped due to a
@@ -133,7 +134,7 @@ func shouldSkipCronTrigger(cronName string) bool {
 // runMissionNewWithClone creates a new mission by cloning the agent directory
 // of an existing mission. The source mission's git_repo carries over to the
 // new mission.
-func runMissionNewWithClone() error {
+func runMissionNewWithClone(agencDirpath string) error {
 	client, err := serverClient()
 	if err != nil {
 		return err
@@ -174,21 +175,21 @@ func runMissionNewWithClone() error {
 
 // runMissionNewWithPicker shows an fzf picker over the repo library, or resolves
 // a positional arg as a repo reference.
-func runMissionNewWithPicker(args []string) error {
+func runMissionNewWithPicker(agencDirpath string, args []string) error {
 	entries := listRepoLibrary(agencDirpath)
 
 	input := strings.Join(args, " ")
 
 	// No args: show fzf picker with sentinel (Blank Mission option)
 	if input == "" {
-		picked, err := selectFromRepoLibrary(entries, "")
+		picked, err := selectFromRepoLibrary(agencDirpath, entries, "")
 		if err != nil {
 			return err
 		}
 		if picked == nil {
 			return nil // user cancelled fzf
 		}
-		return launchFromLibrarySelection(picked)
+		return launchFromLibrarySelection(agencDirpath, picked)
 	}
 
 	// Try to resolve as a git reference (URL, path, shorthand)
@@ -197,7 +198,7 @@ func runMissionNewWithPicker(args []string) error {
 		if err != nil {
 			return err
 		}
-		return launchFromLibrarySelection(&repoLibraryEntry{RepoName: result.RepoName})
+		return launchFromLibrarySelection(agencDirpath, &repoLibraryEntry{RepoName: result.RepoName})
 	}
 
 	// Non-empty input that doesn't look like a repo reference is an error
@@ -214,7 +215,7 @@ const cloneNewRepoSentinelRepoName = "__clone_new__"
 
 // launchFromLibrarySelection creates and launches a mission based on the
 // library picker selection.
-func launchFromLibrarySelection(selection *repoLibraryEntry) error {
+func launchFromLibrarySelection(agencDirpath string, selection *repoLibraryEntry) error {
 	if selection.RepoName == adjutantSentinelRepoName {
 		return createAndLaunchAdjutantMission(agencDirpath, promptFlag)
 	}
@@ -312,7 +313,7 @@ func listRepoLibrary(agencDirpath string) []repoLibraryEntry {
 // selectFromRepoLibrary presents an fzf picker over the repo library entries.
 // An "Adjutant" option is prepended as the first data row, followed by
 // repo entries. A NONE sentinel (Blank Mission) is appended at the bottom.
-func selectFromRepoLibrary(entries []repoLibraryEntry, initialQuery string) (*repoLibraryEntry, error) {
+func selectFromRepoLibrary(agencDirpath string, entries []repoLibraryEntry, initialQuery string) (*repoLibraryEntry, error) {
 	// First two data rows are special options; repos follow at index offset 2
 	var rows [][]string
 	rows = append(rows, []string{"🤖", "Adjutant"})

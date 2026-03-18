@@ -55,7 +55,7 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	}
 
 	key := args[0]
-	value, err := getConfigValue(cfg, key)
+	value, err := getConfigValue(agencDirpath, cfg, key)
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 
 // getConfigValue returns the string representation of a config key's current
 // value, or "unset" if the key has not been explicitly set.
-func getConfigValue(cfg *config.AgencConfig, key string) (string, error) {
+func getConfigValue(agencDirpath string, cfg *config.AgencConfig, key string) (string, error) {
 	switch key {
 	case "claudeCodeOAuthToken":
 		token, err := config.ReadOAuthToken(agencDirpath)

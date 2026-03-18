@@ -92,6 +92,10 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 	missionID := result.Items[0].MissionID
 
 	// Migrate old .assistant marker if present
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 	if err := config.MigrateAssistantMarkerIfNeeded(agencDirpath, missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to migrate assistant marker")
 	}
