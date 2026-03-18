@@ -9,6 +9,7 @@ AgenC's target user is a **technical professional who wants to systematize their
 ### Demographics
 
 - Software engineer, technical founder, or technically-oriented knowledge worker
+- Often **working for themselves** — independent consultants, retired engineers building personal projects, solo founders, or freelancers. They have autonomy over their tools and workflow, and they're optimizing their own productivity rather than fitting into a team's existing stack. (Omar: retired engineer building websites, games, garden planning. Yannik: solo knowledge worker with exobrain. Kevin: solo founder.)
 - Comfortable writing code and working in a terminal
 - Uses Vim (or Vim keybindings) as their primary editing paradigm
 - **Not** familiar with tmux — this is a new tool for them, not a comfortable home
