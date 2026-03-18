@@ -5,3 +5,7 @@
 
 # Generated at build time by cmd/genprime (embedded via go:embed)
 internal/claudeconfig/prime_content.md
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db

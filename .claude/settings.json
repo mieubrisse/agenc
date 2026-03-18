@@ -12,12 +12,7 @@
             "Read(~/.agenc/**)",
             "Glob(~/.agenc/**)",
             "Grep(~/.agenc/**)",
-            "Read(~/.beads_rust/agenc/**)",
-            "Edit(~/.beads_rust/agenc/**)",
-            "Write(~/.beads_rust/agenc/**)",
-            "Glob(~/.beads_rust/agenc/**)",
-            "Grep(~/.beads_rust/agenc/**)",
-            "Bash(br:*)",
+            "Bash(bd:*)",
             "Bash(go:*)",
             "Bash(./agenc:*)",
             "Bash(tree:*)",
@@ -49,18 +44,6 @@
             "allowWrite": ["//tmp", "//private/tmp/claude"]
         }
     },
-    "hooks": {
-        "PreToolUse": [
-            {
-                "matcher": "Bash",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": ".claude/hooks/enforce-br-no-db.sh"
-                    }
-                ]
-            }
-        ]
-    }
+    "hooks": {}
 }
 

@@ -8,16 +8,12 @@
 # Example: issue-prefix: "myproject" creates issues like "myproject-1", "myproject-2", etc.
 issue-prefix: "agenc"
 
-# Use no-db mode: load from JSONL, no SQLite, write back after each command
-# When true, bd will use .beads/issues.jsonl as the source of truth
-# instead of SQLite database
-# NOTE: no-db is required because AgenC clones repos (not worktrees), so each
-# mission gets its own copy. SQLite DB state would diverge across clones.
-# Revisit this if we switch to git worktrees.
-no-db: true
-
-# Disable daemon for RPC communication (forces direct database access)
-no-daemon: true
+# Use shared Dolt server mode: all missions share a single Dolt server
+# at ~/.beads/shared-server/. Each project gets its own database (prefix-based).
+# This gives fast SQL queries from a centralized source of truth, while the
+# in-repo JSONL remains the git-friendly portable format.
+dolt:
+  shared-server: true
 
 # Disable auto-flush of database to JSONL after mutations
 # no-auto-flush: false

@@ -136,19 +136,19 @@ Key File Locations
 - The AgenC SQLite database lives at `~/.agenc/database.sqlite`.
 - Claude's JSONL files live at `~/.claude/projects/`, **not** any `claude-config` directory.
 
-Beads (br)
+Beads (bd)
 ----------
 
-Always run `br` with `--no-db` to use JSONL-only mode. A PreToolUse hook enforces this — `br` commands without the flag will be rejected.
+Use `bd` (Dolt backend), not `br`. The project is configured for shared Dolt server mode via `.beads/config.yaml`. No special flags are needed — `bd` reads the config automatically and auto-starts the shared server at `~/.beads/shared-server/` if it isn't running.
 
 ```
 # Correct
-br --no-db list
-br --no-db create --title "My issue"
+bd list
+bd create --title "My issue"
+bd search "some query"
 
-# Wrong — will be blocked by hook
-br list
-br --db ~/.beads_rust/agenc list
+# Wrong — do not use br
+br --no-db list
 ```
 
 Banned Skills
