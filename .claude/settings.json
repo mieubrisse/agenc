@@ -44,6 +44,11 @@
             "Skill(agenc-engineer:*)"
         ]
     },
+    "sandbox": {
+        "filesystem": {
+            "allowWrite": ["//tmp", "//private/tmp/claude"]
+        }
+    },
     "hooks": {
         "PreToolUse": [
             {
