@@ -1,5 +1,5 @@
-Charles - AgenC Market Research Conversation
-====================================================
+Charles — AgenC Market Research Conversation
+=============================================
 
 - **Date:** 2026-03-12
 - **Participants:** Kevin (AgenC creator), Charles (engineer, AI-assisted development practitioner, Cursor power user)
