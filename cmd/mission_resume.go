@@ -66,6 +66,18 @@ func runWrapperDirect(missionID string, initialPrompt string) error {
 }
 
 func doRunWrapperDirect(missionID string, initialPrompt string) error {
+	// Resolve agencDirpath if not already set. The --run-wrapper code path
+	// skips getAgencContext() (which sets the package-level agencDirpath),
+	// so we must resolve it here before using it for PID files, agent
+	// directory checks, and wrapper construction.
+	if agencDirpath == "" {
+		dirpath, err := config.GetAgencDirpath()
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve agenc directory")
+		}
+		agencDirpath = dirpath
+	}
+
 	client, err := serverClient()
 	if err != nil {
 		return err
