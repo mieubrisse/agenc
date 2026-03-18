@@ -722,6 +722,10 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to unlink window: %s", err.Error())
 	}
 
+	// Clean up any side shell panes the user created (via tmux split-window)
+	// so they don't linger in the pool after detach.
+	killExtraPanesInWindow(*missionRecord.TmuxPane, s.logger)
+
 	s.logger.Printf("Detached mission %s from session %s", database.ShortID(resolvedID), req.TmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
 	return nil

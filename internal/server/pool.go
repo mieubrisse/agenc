@@ -106,6 +106,56 @@ func unlinkPoolWindowByPane(paneID string, targetSession string) error {
 	return nil
 }
 
+// killExtraPanesInWindow kills any panes in the same tmux window as keepPaneID
+// that are NOT keepPaneID. This cleans up side shell panes (created by the user
+// via tmux split-window) so they don't linger in the pool after detach.
+// Best-effort: logs warnings but does not return errors.
+func killExtraPanesInWindow(keepPaneID string, logger interface{ Printf(string, ...any) }) {
+	if keepPaneID == "" {
+		return
+	}
+	keepTarget := "%" + keepPaneID
+
+	// List all panes in the window containing keepPaneID, within the pool session.
+	// We query all panes in the pool and filter by window_id to find siblings.
+	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+poolSessionName, "-F", "#{pane_id} #{window_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	// Find the window_id that contains keepPaneID
+	var targetWindowID string
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+		if len(parts) == 2 && parts[0] == keepTarget {
+			targetWindowID = parts[1]
+			break
+		}
+	}
+	if targetWindowID == "" {
+		return
+	}
+
+	// Kill every other pane in that window
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		paneID := parts[0]
+		windowID := parts[1]
+		if windowID == targetWindowID && paneID != keepTarget {
+			killCmd := exec.Command("tmux", "kill-pane", "-t", paneID)
+			if killOutput, err := killCmd.CombinedOutput(); err != nil {
+				logger.Printf("Warning: failed to kill extra pane %s in pool window: %v (output: %s)", paneID, err, strings.TrimSpace(string(killOutput)))
+			} else {
+				logger.Printf("Killed extra pane %s from pool window (side shell cleanup)", paneID)
+			}
+		}
+	}
+}
+
 // destroyPoolWindow kills the tmux window containing the given pane. Uses the
 // pane ID (immutable) rather than the window name (which may have been changed
 // by title reconciliation). No-op if paneID is empty.
