@@ -29,6 +29,10 @@
             "Bash(tmux list-windows:*)",
             "Bash(agenc server logs print:*)"
         ],
+        "ask": [
+            "Bash(bd init)",
+            "Bash(bd init *)"
+        ],
         "deny": [
             "Read(./.env)",
             "Read(./.env.*)",
