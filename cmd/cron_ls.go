@@ -28,13 +28,10 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(cfg.Crons) == 0 {
-		agencDirpath, err := config.GetAgencDirpath()
-		if err != nil {
-			fmt.Println("No cron jobs defined.")
-			return nil
-		}
 		fmt.Println("No cron jobs defined.")
-		fmt.Printf("\nTo create a cron job, add an entry to %s under 'crons'.\n", config.GetConfigFilepath(agencDirpath))
+		if agencDirpath, err := config.GetAgencDirpath(); err == nil {
+			fmt.Printf("\nTo create a cron job, add an entry to %s under 'crons'.\n", config.GetConfigFilepath(agencDirpath))
+		}
 		return nil
 	}
 

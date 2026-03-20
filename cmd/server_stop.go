@@ -20,8 +20,8 @@ func init() {
 }
 
 func runServerStop(cmd *cobra.Command, args []string) error {
-	// Use ensureConfigured directly — skip the version check that
-	// getAgencContext performs, since we're about to stop the server anyway.
+	// Use ensureConfigured directly — skip the version check since
+	// we're about to stop the server anyway.
 	agencDirpath, err := ensureConfigured()
 	if err != nil {
 		return err

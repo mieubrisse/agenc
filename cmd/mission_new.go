@@ -69,11 +69,15 @@ type repoLibraryEntry struct {
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
-	agencDirpath, err := ensureConfigured()
-	if err != nil {
+	if _, err := ensureConfigured(); err != nil {
 		return err
 	}
 	ensureServerRunning()
+
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 
 	// Double-fire prevention: if this is a cron trigger, check for running missions
 	if cronTriggerFlag != "" {
@@ -93,18 +97,18 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	if cloneFlag != "" {
-		return runMissionNewWithClone(agencDirpath)
+		return runMissionNewWithClone()
 	}
 
 	if adjutantFlag {
-		return createAndLaunchAdjutantMission(agencDirpath, promptFlag)
+		return createAndLaunchAdjutantMission(promptFlag)
 	}
 
 	if blankFlag {
-		return createAndLaunchMission(agencDirpath, "", promptFlag)
+		return createAndLaunchMission("", promptFlag)
 	}
 
-	return runMissionNewWithPicker(agencDirpath, args)
+	return runMissionNewWithPicker(args)
 }
 
 // shouldSkipCronTrigger checks if a cron trigger should be skipped due to a
@@ -134,7 +138,7 @@ func shouldSkipCronTrigger(cronName string) bool {
 // runMissionNewWithClone creates a new mission by cloning the agent directory
 // of an existing mission. The source mission's git_repo carries over to the
 // new mission.
-func runMissionNewWithClone(agencDirpath string) error {
+func runMissionNewWithClone() error {
 	client, err := serverClient()
 	if err != nil {
 		return err
@@ -162,7 +166,9 @@ func runMissionNewWithClone(agencDirpath string) error {
 	}
 
 	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
-	fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
+	if agencDirpath, err := config.GetAgencDirpath(); err == nil {
+		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
+	}
 
 	if tmuxSession != "" {
 		fmt.Println("Launched in tmux pool")
@@ -175,7 +181,12 @@ func runMissionNewWithClone(agencDirpath string) error {
 
 // runMissionNewWithPicker shows an fzf picker over the repo library, or resolves
 // a positional arg as a repo reference.
-func runMissionNewWithPicker(agencDirpath string, args []string) error {
+func runMissionNewWithPicker(args []string) error {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	entries := listRepoLibrary(agencDirpath)
 
 	input := strings.Join(args, " ")
@@ -189,7 +200,7 @@ func runMissionNewWithPicker(agencDirpath string, args []string) error {
 		if picked == nil {
 			return nil // user cancelled fzf
 		}
-		return launchFromLibrarySelection(agencDirpath, picked)
+		return launchFromLibrarySelection(picked)
 	}
 
 	// Try to resolve as a git reference (URL, path, shorthand)
@@ -198,7 +209,7 @@ func runMissionNewWithPicker(agencDirpath string, args []string) error {
 		if err != nil {
 			return err
 		}
-		return launchFromLibrarySelection(agencDirpath, &repoLibraryEntry{RepoName: result.RepoName})
+		return launchFromLibrarySelection(&repoLibraryEntry{RepoName: result.RepoName})
 	}
 
 	// Non-empty input that doesn't look like a repo reference is an error
@@ -215,31 +226,31 @@ const cloneNewRepoSentinelRepoName = "__clone_new__"
 
 // launchFromLibrarySelection creates and launches a mission based on the
 // library picker selection.
-func launchFromLibrarySelection(agencDirpath string, selection *repoLibraryEntry) error {
+func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 	if selection.RepoName == adjutantSentinelRepoName {
-		return createAndLaunchAdjutantMission(agencDirpath, promptFlag)
+		return createAndLaunchAdjutantMission(promptFlag)
 	}
 
 	if selection.RepoName == cloneNewRepoSentinelRepoName {
-		result, err := promptForRepoLocator(agencDirpath)
+		result, err := promptForRepoLocator()
 		if err != nil {
 			return err
 		}
-		return createAndLaunchMission(agencDirpath, result.RepoName, promptFlag)
+		return createAndLaunchMission(result.RepoName, promptFlag)
 	}
 
 	if selection.RepoName == "" {
 		// NONE selected — Blank Mission
-		return createAndLaunchMission(agencDirpath, "", promptFlag)
+		return createAndLaunchMission("", promptFlag)
 	}
 
 	// Repo selected — clone into agent directory
-	return createAndLaunchMission(agencDirpath, selection.RepoName, promptFlag)
+	return createAndLaunchMission(selection.RepoName, promptFlag)
 }
 
 // createAndLaunchAdjutantMission creates an Adjutant mission via the server,
 // which spawns a wrapper in a tmux pool window.
-func createAndLaunchAdjutantMission(agencDirpath string, initialPrompt string) error {
+func createAndLaunchAdjutantMission(initialPrompt string) error {
 	client, err := serverClient()
 	if err != nil {
 		return err
@@ -375,7 +386,6 @@ func selectFromRepoLibrary(agencDirpath string, entries []repoLibraryEntry, init
 // "github.com/owner/repo"); empty when no git repo is involved.
 // initialPrompt is optional; if non-empty, it will be sent to Claude.
 func createAndLaunchMission(
-	agencDirpath string,
 	gitRepoName string,
 	initialPrompt string,
 ) error {
@@ -417,7 +427,12 @@ func createAndLaunchMission(
 // promptForRepoLocator interactively prompts the user for a repo locator,
 // printing the accepted formats and looping on invalid input. Returns the
 // resolved repo result ready for mission creation.
-func promptForRepoLocator(agencDirpath string) (*repo.RepoResolutionResult, error) {
+func promptForRepoLocator() (*repo.RepoResolutionResult, error) {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	fmt.Println()
 	printRepoFormatHelp()
 
