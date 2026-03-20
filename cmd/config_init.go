@@ -197,7 +197,8 @@ func offerCreateConfigRepo(reader *bufio.Reader, configDirpath string) (bool, er
 func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
 	// Validate the repo reference parses correctly
 	defaultOwner := repo.GetDefaultGitHubUser()
-	_, _, err := mission.ParseRepoReference(repoRef, false, defaultOwner)
+	preferSSH, _, _ := repo.GetProtocolPreference(agencDirpath)
+	_, _, err := mission.ParseRepoReference(repoRef, preferSSH, defaultOwner)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo name")
 	}
@@ -224,10 +225,12 @@ func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
 // cloneIntoConfigDir clones the given repo reference into the config directory,
 // backing up any existing seed files first and re-seeding missing files after.
 func cloneIntoConfigDir(configDirpath string, repoRef string) error {
-	// Parse the repo reference. On first setup there may be no existing repos
-	// to detect protocol from, so shorthand defaults to HTTPS.
+	// Determine protocol preference from gh config or existing repos.
+	// Falls back to HTTPS when no preference can be determined.
+	preferSSH, _, _ := repo.GetProtocolPreference(agencDirpath)
+
 	defaultOwner := repo.GetDefaultGitHubUser()
-	_, cloneURL, err := mission.ParseRepoReference(repoRef, false, defaultOwner)
+	_, cloneURL, err := mission.ParseRepoReference(repoRef, preferSSH, defaultOwner)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo reference")
 	}
