@@ -59,6 +59,10 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 
 	cronCfg, exists := cfg.Crons[name]
 	if !exists {

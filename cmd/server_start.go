@@ -54,8 +54,13 @@ func forkServer(agencDirpath string) error {
 }
 
 // ensureServerRunning idempotently starts the server if not already running,
-// and waits for it to be ready to accept connections.
-func ensureServerRunning(agencDirpath string) {
+// and waits for it to be ready to accept connections. Resolves the agenc
+// directory path internally via config.GetAgencDirpath().
+func ensureServerRunning() {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return
+	}
 	cleanupDaemonDir(agencDirpath)
 	pidFilepath := config.GetServerPIDFilepath(agencDirpath)
 	if server.IsRunning(pidFilepath) {

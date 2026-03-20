@@ -63,6 +63,10 @@ func runCronLogs(cmd *cobra.Command, args []string) error {
 	mission := missions[0]
 
 	// Get the log file path
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 	logFilepath := config.GetMissionClaudeOutputLogFilepath(agencDirpath, mission.ID)
 
 	// Check if log file exists

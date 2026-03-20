@@ -4,8 +4,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var agencDirpath string
-
 var rootCmd = &cobra.Command{
 	Use:          agencCmdStr,
 	Short:        "The AgenC — agent mission management CLI",

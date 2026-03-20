@@ -31,7 +31,7 @@ func runConfigEdit(cmd *cobra.Command, args []string) error {
 			agencCmdStr, configCmdStr, setCmdStr,
 		)
 	}
-	agencDirpath, err := getAgencContext()
+	agencDirpath, err := ensureConfigured()
 	if err != nil {
 		return err
 	}

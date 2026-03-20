@@ -56,6 +56,10 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 
 	if _, exists := cfg.Crons[name]; exists {
 		return stacktrace.NewError("cron job '%s' already exists; use '%s %s %s %s %s' to modify it",

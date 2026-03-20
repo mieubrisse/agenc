@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
@@ -129,29 +128,6 @@ func filterRunningMissions(missions []*database.Mission) []*database.Mission {
 }
 
 // ============================================================================
-// Agenc context — lazy one-shot initialization
-// ============================================================================
-
-var (
-	agencCtxOnce sync.Once
-	agencCtxErr  error
-)
-
-// getAgencContext lazily ensures agenc is fully configured. It runs
-// ensureConfigured() at most once per CLI invocation and checks whether the
-// server needs a version-bump restart.
-func getAgencContext() (string, error) {
-	agencCtxOnce.Do(func() {
-		_, agencCtxErr = ensureConfigured()
-		if agencCtxErr != nil {
-			return
-		}
-		checkServerVersion(agencDirpath)
-	})
-	return agencDirpath, agencCtxErr
-}
-
-// ============================================================================
 // Server client helpers
 // ============================================================================
 
@@ -165,7 +141,7 @@ func serverClient() (*server.Client, error) {
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
 	}
-	ensureServerRunning(dirpath)
+	ensureServerRunning()
 	socketFilepath := config.GetServerSocketFilepath(dirpath)
 	return server.NewClient(socketFilepath), nil
 }
@@ -190,9 +166,11 @@ func getCurrentTmuxSessionName() string {
 // readConfig centralizes the config reading boilerplate. It returns the config
 // only; use readConfigWithComments when the comment map is needed for write-back.
 func readConfig() (*config.AgencConfig, error) {
-	if _, err := getAgencContext(); err != nil {
+	agencDirpath, err := ensureConfigured()
+	if err != nil {
 		return nil, err
 	}
+	checkServerVersion(agencDirpath)
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to read config")
@@ -203,9 +181,11 @@ func readConfig() (*config.AgencConfig, error) {
 // readConfigWithComments reads the config and returns the comment map needed
 // for write-back operations that preserve YAML comments.
 func readConfigWithComments() (*config.AgencConfig, yaml.CommentMap, error) {
-	if _, err := getAgencContext(); err != nil {
+	agencDirpath, err := ensureConfigured()
+	if err != nil {
 		return nil, nil, err
 	}
+	checkServerVersion(agencDirpath)
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return nil, nil, stacktrace.Propagate(err, "failed to read config")

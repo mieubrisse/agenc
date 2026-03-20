@@ -59,6 +59,10 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 
 	rc, _ := cfg.GetRepoConfig(repoName)
 

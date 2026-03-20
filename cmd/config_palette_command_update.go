@@ -66,6 +66,10 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 
 	isBuiltin := config.IsBuiltinPaletteCommand(name)
 	existing, existsInConfig := cfg.PaletteCommands[name]

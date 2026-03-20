@@ -33,6 +33,10 @@ func runConfigRepoConfigRm(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 
 	if !cfg.RemoveRepoConfig(repoName) {
 		return stacktrace.NewError("no repo config found for '%s'", repoName)

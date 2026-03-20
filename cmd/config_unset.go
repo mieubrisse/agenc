@@ -31,7 +31,7 @@ func init() {
 }
 
 func runConfigUnset(cmd *cobra.Command, args []string) error {
-	agencDirpath, err := getAgencContext()
+	agencDirpath, err := ensureConfigured()
 	if err != nil {
 		return err
 	}

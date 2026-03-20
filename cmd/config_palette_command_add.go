@@ -85,6 +85,10 @@ func runConfigPaletteCommandAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
 
 	if existing, exists := cfg.PaletteCommands[name]; exists && !existing.IsEmpty() {
 		return stacktrace.NewError("palette command '%s' already exists; use '%s %s %s %s %s' to modify it",

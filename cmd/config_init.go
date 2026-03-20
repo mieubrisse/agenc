@@ -46,7 +46,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 	// Always print summary (the only difference from auto-onboarding)
 	configIsGitRepo := isGitRepo(config.GetConfigDirpath(dirpath))
 	fmt.Println()
-	printConfigSummary(configIsGitRepo)
+	printConfigSummary(dirpath, configIsGitRepo)
 	return nil
 }
 
@@ -64,8 +64,6 @@ func ensureConfigured() (string, error) {
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to get agenc directory path")
 	}
-
-	agencDirpath = dirpath
 
 	if err := handleFirstRun(dirpath); err != nil {
 		return "", stacktrace.Propagate(err, "first-run setup failed")
@@ -195,10 +193,15 @@ func offerCreateConfigRepo(reader *bufio.Reader, configDirpath string) (bool, er
 // createAndCloneConfigRepo creates a new private GitHub repo using the gh CLI,
 // then clones it into the config directory.
 func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	// Validate the repo reference parses correctly
 	defaultOwner := repo.GetDefaultGitHubUser()
 	preferSSH, _, _ := repo.GetProtocolPreference(agencDirpath)
-	_, _, err := mission.ParseRepoReference(repoRef, preferSSH, defaultOwner)
+	_, _, err = mission.ParseRepoReference(repoRef, preferSSH, defaultOwner)
 	if err != nil {
 		return stacktrace.Propagate(err, "invalid repo name")
 	}
@@ -225,6 +228,11 @@ func createAndCloneConfigRepo(configDirpath string, repoRef string) error {
 // cloneIntoConfigDir clones the given repo reference into the config directory,
 // backing up any existing seed files first and re-seeding missing files after.
 func cloneIntoConfigDir(configDirpath string, repoRef string) error {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	// Determine protocol preference from gh config or existing repos.
 	// Falls back to HTTPS when no preference can be determined.
 	preferSSH, _, _ := repo.GetProtocolPreference(agencDirpath)
@@ -274,7 +282,6 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 	}
 
 	// Re-seed any files the clone might not have (config.yml, claude-modifications/)
-	agencDirpath := filepath.Dir(configDirpath)
 	if err := config.EnsureConfigFile(agencDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to seed config file after clone")
 	}
@@ -334,7 +341,7 @@ func printRepoFormatHelp() {
 }
 
 // printConfigSummary prints the current configuration state.
-func printConfigSummary(configIsGitRepo bool) {
+func printConfigSummary(agencDirpath string, configIsGitRepo bool) {
 	fmt.Println("Configuration summary:")
 
 	if configIsGitRepo {

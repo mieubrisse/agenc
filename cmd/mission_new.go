@@ -69,11 +69,11 @@ type repoLibraryEntry struct {
 }
 
 func runMissionNew(cmd *cobra.Command, args []string) error {
-	agencDirpath, err := getAgencContext()
+	agencDirpath, err := ensureConfigured()
 	if err != nil {
 		return err
 	}
-	ensureServerRunning(agencDirpath)
+	ensureServerRunning()
 
 	// Double-fire prevention: if this is a cron trigger, check for running missions
 	if cronTriggerFlag != "" {
