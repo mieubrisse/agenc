@@ -87,7 +87,7 @@ The server is a long-running HTTP API process that listens on a unix socket. It 
 Current endpoints:
 - `GET /health` — returns `{"status": "ok", "version": "<version>"}`
 - `GET /server/logs` — returns server log content as plain text (supports `source` and `mode` query params)
-- `GET /missions` — lists all missions (supports `include_archived` and `cron_id` query params)
+- `GET /missions` — lists all missions (supports `include_archived`, `source`, and `source_id` query params)
 - `GET /missions/{id}` — get a single mission by ID (supports short ID resolution)
 - `POST /missions` — create a new mission (DB record, directory, wrapper spawn in pool)
 - `PATCH /missions/{id}` — update mission fields (config_commit, session_name, prompt, tmux_pane)
@@ -399,7 +399,7 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 
 SQLite mission tracking with auto-migration.
 
-- `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, cron association tracking. Idempotent migrations handle schema evolution.
+- `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, generic source tracking (`source`, `source_id`, `source_metadata` columns). Idempotent migrations handle schema evolution.
 - `sessions.go` — `Session` struct, CRUD operations (`CreateSession`, `GetSession`, `UpdateSessionScanResults`, `GetActiveSession`). The `GetActiveSession` query returns the most recently updated session for a mission, used by tmux title reconciliation to determine the current display title.
 
 ### `internal/launchd/`
@@ -561,11 +561,11 @@ The `$AGENC_DIRPATH/config/` directory can optionally be a Git repo. The server'
 
 ### Cron scheduling
 
-Cron jobs are defined in `config.yml` under the `crons` key. The server syncs cron configuration to macOS launchd plists in `~/Library/LaunchAgents/`.
+Cron jobs are defined in `config.yml` under the `crons` key. Each cron has a UUID (`id` field) for stable identity. The server syncs cron configuration to macOS launchd plists in `~/Library/LaunchAgents/`.
 
 **Architecture:**
 ```
-config.yml → fsnotify → server → cron syncer → launchd plists → launchd → agenc mission new
+config.yml → fsnotify → server → cron syncer → launchd plists → launchd → agenc mission new --headless
 ```
 
 The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`) handles synchronization:
@@ -576,6 +576,7 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 - Enabled crons: plist is written and loaded into launchd
 - Disabled crons: plist is unloaded from launchd (but file remains)
 - Deleted crons: plist is unloaded and file is deleted
+- Crons without a UUID are skipped with a warning
 
 **Sync triggers:**
 - On server startup: full sync of all crons
@@ -584,19 +585,17 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 
 **Execution flow:**
 1. launchd triggers at scheduled time
-2. Invokes `agenc mission new --headless --cron-trigger=<cronName> --prompt=<prompt> [repo]`
-3. `mission_new.go` checks `--cron-trigger` flag
-4. Double-fire prevention: queries database for most recent mission with matching `cron_name`
-5. If found and status != "completed", exit 0 (skip)
-6. Otherwise, proceed with normal mission creation
+2. Invokes `agenc mission new --headless --source cron --source-id <cronUUID> --source-metadata '{"cron_name":"<name>"}' --prompt <prompt> [repo]`
+3. Server creates a normal mission with generic source tracking columns
+4. Mission runs in a tmux pool window like any other headless mission
+5. Standard 30-minute idle timeout applies (JSONL ModTime-based)
 
 **Key behaviors:**
+- **Cron missions are normal missions** — no special lifecycle, timeout, or cleanup. Users can attach/detach them like any other mission.
+- **Generic source tracking** — missions have `source`, `source_id`, and `source_metadata` columns instead of cron-specific columns. `source=cron`, `source_id=<UUID>`, `source_metadata={"cron_name":"<name>"}`.
 - **Scheduling reliability** — launchd handles scheduling, survives server restarts
-- **Double-fire prevention** — queries `GetMostRecentMissionForCron` by `cron_name`, skips if status is active
-- **No max concurrent limit** — macOS handles process management
 - **Cron expression support** — basic expressions only (`minute hour day month weekday`), no `*/N` syntax
-
-Cron missions run in headless mode (`wrapper.RunHeadless`) with configurable timeout (default: 1 hour), capturing output to `claude-output.log` with log rotation.
+- **Plist logs** — single appending log file per cron at `$AGENC_DIRPATH/logs/crons/<cronID>.log` (captures `agenc mission new` stdout/stderr for diagnosing launch failures)
 
 
 Data Flow: Mission Lifecycle
