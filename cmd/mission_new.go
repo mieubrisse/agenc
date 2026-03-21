@@ -23,10 +23,9 @@ var blankFlag bool
 var adjutantFlag bool
 var noFocusFlag bool
 var headlessFlag bool
-var timeoutFlag string
-var cronIDFlag string
-var cronNameFlag string
-var cronTriggerFlag string
+var sourceFlag string
+var sourceIDFlag string
+var sourceMetadataFlag string
 
 var missionNewCmd = &cobra.Command{
 	Use:   newCmdStr + " [repo]",
@@ -51,14 +50,12 @@ func init() {
 	missionNewCmd.Flags().BoolVar(&adjutantFlag, adjutantFlagName, false, "create an Adjutant mission")
 	missionNewCmd.Flags().BoolVar(&noFocusFlag, noFocusFlagName, false, "don't focus the new mission's tmux window after creation")
 	missionNewCmd.Flags().BoolVar(&headlessFlag, headlessFlagName, false, "run in headless mode (no terminal, outputs to log)")
-	missionNewCmd.Flags().StringVar(&timeoutFlag, timeoutFlagName, "1h", "max runtime for headless missions (e.g., '1h', '30m')")
-	missionNewCmd.Flags().StringVar(&cronIDFlag, cronIDFlagName, "", "cron job ID (internal use)")
-	missionNewCmd.Flags().StringVar(&cronNameFlag, cronNameFlagName, "", "cron job name (internal use)")
-	missionNewCmd.Flags().StringVar(&cronTriggerFlag, cronTriggerFlagName, "", "cron job name for double-fire prevention (internal use)")
-	// Hide internal cron flags
-	missionNewCmd.Flags().MarkHidden(cronIDFlagName)
-	missionNewCmd.Flags().MarkHidden(cronNameFlagName)
-	missionNewCmd.Flags().MarkHidden(cronTriggerFlagName)
+	missionNewCmd.Flags().StringVar(&sourceFlag, "source", "", "mission source type (internal use)")
+	missionNewCmd.Flags().StringVar(&sourceIDFlag, "source-id", "", "mission source identifier (internal use)")
+	missionNewCmd.Flags().StringVar(&sourceMetadataFlag, "source-metadata", "", "mission source metadata JSON (internal use)")
+	missionNewCmd.Flags().MarkHidden("source")
+	missionNewCmd.Flags().MarkHidden("source-id")
+	missionNewCmd.Flags().MarkHidden("source-metadata")
 	missionCmd.AddCommand(missionNewCmd)
 }
 
@@ -79,18 +76,6 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")
 	}
 
-	// Double-fire prevention: if this is a cron trigger, check for running missions
-	if cronTriggerFlag != "" {
-		if shouldSkipCronTrigger(cronTriggerFlag) {
-			fmt.Printf("Skipping cron trigger '%s': previous mission still running\n", cronTriggerFlag)
-			return nil
-		}
-		// Set cronNameFlag so the mission gets tagged with the cron name
-		if cronNameFlag == "" {
-			cronNameFlag = cronTriggerFlag
-		}
-	}
-
 	// Ensure shadow repo is initialized (auto-creates from ~/.claude if needed)
 	if err := claudeconfig.EnsureShadowRepo(agencDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to ensure shadow repo")
@@ -109,30 +94,6 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 
 	return runMissionNewWithPicker(args)
-}
-
-// shouldSkipCronTrigger checks if a cron trigger should be skipped due to a
-// running mission. Returns true if there is a recent mission for this cron
-// that is still active (status != "completed").
-func shouldSkipCronTrigger(cronName string) bool {
-	client, err := serverClient()
-	if err != nil {
-		fmt.Printf("Warning: failed to connect to server: %v\n", err)
-		return false
-	}
-
-	missions, err := client.ListMissions(true, "cron", cronName)
-	if err != nil {
-		fmt.Printf("Warning: failed to query for recent mission: %v\n", err)
-		return false
-	}
-
-	if len(missions) == 0 {
-		return false
-	}
-
-	mission := missions[0]
-	return mission.Status != "completed" && mission.Status != "archived"
 }
 
 // runMissionNewWithClone creates a new mission by cloning the agent directory
@@ -401,13 +362,13 @@ func createAndLaunchMission(
 	}
 
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
-		Repo:        gitRepoName,
-		Prompt:      initialPrompt,
-		TmuxSession: tmuxSession,
-		CronID:      cronIDFlag,
-		CronName:    cronNameFlag,
-		Timeout:     timeoutFlag,
-		NoFocus:     noFocusFlag,
+		Repo:           gitRepoName,
+		Prompt:         initialPrompt,
+		TmuxSession:    tmuxSession,
+		Source:         sourceFlag,
+		SourceID:       sourceIDFlag,
+		SourceMetadata: sourceMetadataFlag,
+		NoFocus:        noFocusFlag,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
