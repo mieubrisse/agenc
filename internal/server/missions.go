@@ -30,8 +30,6 @@ type MissionResponse struct {
 	LastUserPromptAt     *time.Time `json:"last_user_prompt_at"`
 	SessionName          string     `json:"session_name"`
 	SessionNameUpdatedAt *time.Time `json:"session_name_updated_at"`
-	CronID               *string    `json:"cron_id"`
-	CronName             *string    `json:"cron_name"`
 	Source               *string    `json:"source"`
 	SourceID             *string    `json:"source_id"`
 	SourceMetadata       *string    `json:"source_metadata"`
@@ -65,8 +63,6 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		LastUserPromptAt:     mr.LastUserPromptAt,
 		SessionName:          mr.SessionName,
 		SessionNameUpdatedAt: mr.SessionNameUpdatedAt,
-		CronID:               mr.CronID,
-		CronName:             mr.CronName,
 		Source:               mr.Source,
 		SourceID:             mr.SourceID,
 		SourceMetadata:       mr.SourceMetadata,
@@ -92,8 +88,6 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		LastUserPromptAt:     m.LastUserPromptAt,
 		SessionName:          m.SessionName,
 		SessionNameUpdatedAt: m.SessionNameUpdatedAt,
-		CronID:               m.CronID,
-		CronName:             m.CronName,
 		Source:               m.Source,
 		SourceID:             m.SourceID,
 		SourceMetadata:       m.SourceMetadata,
@@ -214,9 +208,6 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 	params := database.ListMissionsParams{
 		IncludeArchived: r.URL.Query().Get("include_archived") == "true",
 	}
-	if cronID := r.URL.Query().Get("cron_id"); cronID != "" {
-		params.CronID = &cronID
-	}
 	if source := r.URL.Query().Get("source"); source != "" {
 		params.Source = &source
 	}
@@ -280,12 +271,9 @@ type CreateMissionRequest struct {
 	TmuxSession    string `json:"tmux_session"`
 	Headless       bool   `json:"headless"`
 	Adjutant       bool   `json:"adjutant"`
-	CronID         string `json:"cron_id"`
-	CronName       string `json:"cron_name"`
 	Source         string `json:"source"`
 	SourceID       string `json:"source_id"`
 	SourceMetadata string `json:"source_metadata"`
-	Timeout        string `json:"timeout"`
 	CloneFrom      string `json:"clone_from"`
 	NoFocus        bool   `json:"no_focus"`
 }
@@ -301,12 +289,6 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 
 	// Build creation params
 	createParams := &database.CreateMissionParams{}
-	if req.CronID != "" {
-		createParams.CronID = &req.CronID
-	}
-	if req.CronName != "" {
-		createParams.CronName = &req.CronName
-	}
 	if req.Source != "" {
 		createParams.Source = &req.Source
 	}

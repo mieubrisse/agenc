@@ -106,25 +106,6 @@ func TestGetMissionByTmuxPane_UnknownPane(t *testing.T) {
 	}
 }
 
-func TestGetMostRecentMissionForCron_NoCronMissions(t *testing.T) {
-	db := openTestDB(t)
-
-	// Create a regular mission without cron_id
-	_, err := db.CreateMission("github.com/owner/repo", nil)
-	if err != nil {
-		t.Fatalf("failed to create mission: %v", err)
-	}
-
-	// Query for a cron ID that has no missions
-	got, err := db.GetMostRecentMissionForCron("nonexistent-cron-id")
-	if err != nil {
-		t.Fatalf("GetMostRecentMissionForCron failed: %v", err)
-	}
-	if got != nil {
-		t.Errorf("expected nil for cron with no missions, got mission '%s'", got.ID)
-	}
-}
-
 func TestBackfillStripsTmuxPanePercent(t *testing.T) {
 	db := openTestDB(t)
 

@@ -639,9 +639,7 @@ func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 
 // HeadlessConfig holds configuration for running a headless mission.
 type HeadlessConfig struct {
-	Timeout  time.Duration // Maximum runtime before timeout (0 = no timeout)
-	CronID   string        // Cron job ID that spawned this mission (optional)
-	CronName string        // Cron job name (optional)
+	Timeout time.Duration // Maximum runtime before timeout (0 = no timeout)
 }
 
 const (
@@ -675,8 +673,6 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		"is_resume", isResume,
 		"headless", true,
 		"timeout", cfg.Timeout.String(),
-		"cron_id", cfg.CronID,
-		"cron_name", cfg.CronName,
 	)
 
 	// Write wrapper PID

@@ -131,14 +131,10 @@ const (
 	runWrapperFlagName = "run-wrapper"
 
 	// cron flags
-	headlessFlagName    = "headless"
-	timeoutFlagName     = "timeout"
-	cronIDFlagName      = "cron-id"
-	cronNameFlagName    = "cron-name"
-	cronTriggerFlagName = "cron-trigger"
-	followFlagName      = "follow"
-	cronFlagName        = "cron"
-	dateFlagName        = "date"
+	headlessFlagName = "headless"
+	followFlagName   = "follow"
+	cronFlagName     = "cron"
+	dateFlagName     = "date"
 
 	// config claude-md/settings-json flags
 	contentHashFlagName = "content-hash"

@@ -48,8 +48,6 @@ type Mission struct {
 
 // CreateMissionParams holds optional parameters for creating a mission.
 type CreateMissionParams struct {
-	CronID         *string
-	CronName       *string
 	Source         *string
 	SourceID       *string
 	SourceMetadata *string
@@ -59,7 +57,6 @@ type CreateMissionParams struct {
 // ListMissionsParams holds optional parameters for filtering missions.
 type ListMissionsParams struct {
 	IncludeArchived bool
-	CronID          *string // If set, filter to missions with this cron_id
 	Source          *string
 	SourceID        *string
 }
@@ -70,10 +67,8 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	shortID := ShortID(id)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	var cronID, cronName, configCommit, source, sourceID, sourceMetadata *string
+	var configCommit, source, sourceID, sourceMetadata *string
 	if params != nil {
-		cronID = params.CronID
-		cronName = params.CronName
 		configCommit = params.ConfigCommit
 		source = params.Source
 		sourceID = params.SourceID
@@ -81,8 +76,8 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	}
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, source, source_id, source_metadata, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, cronID, cronName, configCommit, source, sourceID, sourceMetadata, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -93,8 +88,6 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		ShortID:        shortID,
 		GitRepo:        gitRepo,
 		Status:         "active",
-		CronID:         cronID,
-		CronName:       cronName,
 		Source:         source,
 		SourceID:       sourceID,
 		SourceMetadata: sourceMetadata,
@@ -107,7 +100,6 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 // ListMissions returns missions ordered by the most recent activity timestamp
 // (newest of last_heartbeat or created_at) descending.
 // If params.IncludeArchived is true, all missions are returned; otherwise archived missions are excluded.
-// If params.CronID is set, only missions with that cron_id are returned.
 func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 	query, args := buildListMissionsQuery(params)
 
@@ -135,25 +127,6 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 	}
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to get mission '%s'", id)
-	}
-	return mission, nil
-}
-
-// GetMostRecentMissionForCron returns the most recent mission for a cron job,
-// or nil if no mission exists for the cron. This function queries by cron_name
-// to check if there is a running mission for the cron (for double-fire prevention).
-func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
-	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
-		cronName,
-	)
-
-	mission, err := scanMission(row)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to get most recent mission for cron '%s'", cronName)
 	}
 	return mission, nil
 }

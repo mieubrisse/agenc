@@ -15,10 +15,6 @@ func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
 	if !params.IncludeArchived {
 		conditions = append(conditions, "status != 'archived'")
 	}
-	if params.CronID != nil {
-		conditions = append(conditions, "cron_id = ?")
-		args = append(args, *params.CronID)
-	}
 	if params.Source != nil {
 		conditions = append(conditions, "source = ?")
 		args = append(args, *params.Source)
