@@ -37,7 +37,7 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	missions, err := client.ListMissions(true, "")
+	missions, err := client.ListMissions(true, "", "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

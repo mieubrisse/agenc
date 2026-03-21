@@ -60,7 +60,7 @@ func runSummary(cmd *cobra.Command, args []string) error {
 	dayStart, dayEnd := calculateDayBounds(targetDate)
 
 	// Fetch all missions for analysis
-	missions, err := client.ListMissions(true, "")
+	missions, err := client.ListMissions(true, "", "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

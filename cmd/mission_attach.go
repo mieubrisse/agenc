@@ -44,7 +44,7 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("mission attach requires tmux; run inside a tmux session")
 	}
 
-	missions, err := client.ListMissions(true, "")
+	missions, err := client.ListMissions(true, "", "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

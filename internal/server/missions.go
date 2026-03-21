@@ -32,6 +32,9 @@ type MissionResponse struct {
 	SessionNameUpdatedAt *time.Time `json:"session_name_updated_at"`
 	CronID               *string    `json:"cron_id"`
 	CronName             *string    `json:"cron_name"`
+	Source               *string    `json:"source"`
+	SourceID             *string    `json:"source_id"`
+	SourceMetadata       *string    `json:"source_metadata"`
 	ConfigCommit         *string    `json:"config_commit"`
 	TmuxPane             *string    `json:"tmux_pane"`
 	PromptCount          int        `json:"prompt_count"`
@@ -64,6 +67,9 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		SessionNameUpdatedAt: mr.SessionNameUpdatedAt,
 		CronID:               mr.CronID,
 		CronName:             mr.CronName,
+		Source:               mr.Source,
+		SourceID:             mr.SourceID,
+		SourceMetadata:       mr.SourceMetadata,
 		ConfigCommit:         mr.ConfigCommit,
 		TmuxPane:             mr.TmuxPane,
 		PromptCount:          mr.PromptCount,
@@ -88,6 +94,9 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		SessionNameUpdatedAt: m.SessionNameUpdatedAt,
 		CronID:               m.CronID,
 		CronName:             m.CronName,
+		Source:               m.Source,
+		SourceID:             m.SourceID,
+		SourceMetadata:       m.SourceMetadata,
 		ConfigCommit:         m.ConfigCommit,
 		TmuxPane:             m.TmuxPane,
 		PromptCount:          m.PromptCount,
@@ -208,6 +217,12 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 	if cronID := r.URL.Query().Get("cron_id"); cronID != "" {
 		params.CronID = &cronID
 	}
+	if source := r.URL.Query().Get("source"); source != "" {
+		params.Source = &source
+	}
+	if sourceID := r.URL.Query().Get("source_id"); sourceID != "" {
+		params.SourceID = &sourceID
+	}
 
 	missions, err := s.db.ListMissions(params)
 	if err != nil {
@@ -260,16 +275,19 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 
 // CreateMissionRequest is the JSON body for POST /missions.
 type CreateMissionRequest struct {
-	Repo        string `json:"repo"`
-	Prompt      string `json:"prompt"`
-	TmuxSession string `json:"tmux_session"`
-	Headless    bool   `json:"headless"`
-	Adjutant    bool   `json:"adjutant"`
-	CronID      string `json:"cron_id"`
-	CronName    string `json:"cron_name"`
-	Timeout     string `json:"timeout"`
-	CloneFrom   string `json:"clone_from"`
-	NoFocus     bool   `json:"no_focus"`
+	Repo           string `json:"repo"`
+	Prompt         string `json:"prompt"`
+	TmuxSession    string `json:"tmux_session"`
+	Headless       bool   `json:"headless"`
+	Adjutant       bool   `json:"adjutant"`
+	CronID         string `json:"cron_id"`
+	CronName       string `json:"cron_name"`
+	Source         string `json:"source"`
+	SourceID       string `json:"source_id"`
+	SourceMetadata string `json:"source_metadata"`
+	Timeout        string `json:"timeout"`
+	CloneFrom      string `json:"clone_from"`
+	NoFocus        bool   `json:"no_focus"`
 }
 
 // handleCreateMission handles POST /missions.
@@ -288,6 +306,15 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 	}
 	if req.CronName != "" {
 		createParams.CronName = &req.CronName
+	}
+	if req.Source != "" {
+		createParams.Source = &req.Source
+	}
+	if req.SourceID != "" {
+		createParams.SourceID = &req.SourceID
+	}
+	if req.SourceMetadata != "" {
+		createParams.SourceMetadata = &req.SourceMetadata
 	}
 	if commitHash := claudeconfig.GetShadowRepoCommitHash(s.agencDirpath); commitHash != "" {
 		createParams.ConfigCommit = &commitHash

@@ -206,14 +206,17 @@ func (c *Client) Put(path string, body any, result any) error {
 // ============================================================================
 
 // ListMissions fetches all missions from the server.
-func (c *Client) ListMissions(includeArchived bool, cronID string) ([]*database.Mission, error) {
+func (c *Client) ListMissions(includeArchived bool, source string, sourceID string) ([]*database.Mission, error) {
 	path := "/missions"
 	var params []string
 	if includeArchived {
 		params = append(params, "include_archived=true")
 	}
-	if cronID != "" {
-		params = append(params, "cron_id="+cronID)
+	if source != "" {
+		params = append(params, "source="+source)
+	}
+	if sourceID != "" {
+		params = append(params, "source_id="+sourceID)
 	}
 	if len(params) > 0 {
 		path += "?" + strings.Join(params, "&")

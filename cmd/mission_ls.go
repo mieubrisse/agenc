@@ -226,7 +226,7 @@ func fetchMissions() ([]*database.Mission, error) {
 		return nil, err
 	}
 
-	missions, err := client.ListMissions(lsAllFlag, lsCronFlag)
+	missions, err := client.ListMissions(lsAllFlag, "", lsCronFlag)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to list missions")
 	}

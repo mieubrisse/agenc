@@ -66,7 +66,7 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 }
 
 func getCronLastRunStatus(client *server.Client, cronName string) (string, string) {
-	missions, err := client.ListMissions(true, cronName)
+	missions, err := client.ListMissions(true, "cron", cronName)
 	if err != nil || len(missions) == 0 {
 		return "--", "--"
 	}

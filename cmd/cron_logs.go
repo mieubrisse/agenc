@@ -53,7 +53,7 @@ func runCronLogs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	missions, err := client.ListMissions(true, name)
+	missions, err := client.ListMissions(true, "cron", name)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to query missions")
 	}

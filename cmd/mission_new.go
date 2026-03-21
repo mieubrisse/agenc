@@ -121,7 +121,7 @@ func shouldSkipCronTrigger(cronName string) bool {
 		return false
 	}
 
-	missions, err := client.ListMissions(true, cronName)
+	missions, err := client.ListMissions(true, "cron", cronName)
 	if err != nil {
 		fmt.Printf("Warning: failed to query for recent mission: %v\n", err)
 		return false

@@ -51,7 +51,7 @@ func runMissionStop(cmd *cobra.Command, args []string) error {
 	}
 
 	// No args: list running missions and show fzf picker
-	missions, err := client.ListMissions(false, "")
+	missions, err := client.ListMissions(false, "", "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

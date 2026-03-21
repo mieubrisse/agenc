@@ -85,7 +85,7 @@ func runMissionUpdateConfig(cmd *cobra.Command, args []string) error {
 	}
 
 	// No args: list all missions and show fzf picker
-	missions, err := client.ListMissions(false, "")
+	missions, err := client.ListMissions(false, "", "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
@@ -123,7 +123,7 @@ func updateConfigForAllMissions(client *server.Client, newCommitHash string) err
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")
 	}
-	missions, err := client.ListMissions(false, "")
+	missions, err := client.ListMissions(false, "", "")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
