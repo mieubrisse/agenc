@@ -27,6 +27,9 @@ const (
 	addTmuxWindowTitleColumnSQL        = `ALTER TABLE missions ADD COLUMN tmux_window_title TEXT NOT NULL DEFAULT '';`
 	clearTmuxWindowTitleColumnSQL      = `UPDATE missions SET tmux_window_title = '' WHERE tmux_window_title != '';`
 	addLastUserPromptAtColumnSQL       = `ALTER TABLE missions ADD COLUMN last_user_prompt_at TEXT;`
+	addSourceColumnSQL                 = `ALTER TABLE missions ADD COLUMN source TEXT;`
+	addSourceIDColumnSQL               = `ALTER TABLE missions ADD COLUMN source_id TEXT;`
+	addSourceMetadataColumnSQL         = `ALTER TABLE missions ADD COLUMN source_metadata TEXT;`
 
 	createSessionsTableSQL = `CREATE TABLE IF NOT EXISTS sessions (
 	id TEXT PRIMARY KEY,
@@ -429,6 +432,47 @@ func migrateAddLastUserPromptAt(conn *sql.DB) error {
 
 	_, err = conn.Exec(addLastUserPromptAtColumnSQL)
 	return err
+}
+
+// migrateAddSourceColumns idempotently adds the source, source_id, and
+// source_metadata columns for generic mission origin tracking.
+func migrateAddSourceColumns(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if !columns["source"] {
+		if _, err := conn.Exec(addSourceColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add source column")
+		}
+	}
+
+	if !columns["source_id"] {
+		if _, err := conn.Exec(addSourceIDColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add source_id column")
+		}
+	}
+
+	if !columns["source_metadata"] {
+		if _, err := conn.Exec(addSourceMetadataColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add source_metadata column")
+		}
+	}
+
+	// Migrate existing cron data to source columns
+	_, err = conn.Exec(`UPDATE missions SET source = 'cron', source_id = cron_id, source_metadata = json_object('cron_name', cron_name) WHERE cron_id IS NOT NULL AND source IS NULL`)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to migrate cron data to source columns")
+	}
+
+	// Create composite index for efficient source-based lookups
+	_, err = conn.Exec(`CREATE INDEX IF NOT EXISTS idx_missions_source ON missions(source, source_id, created_at DESC)`)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to create source index")
+	}
+
+	return nil
 }
 
 // getSessionColumnNames returns a set of column names present in the sessions table.

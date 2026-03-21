@@ -12,9 +12,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	var missions []*Mission
 	for rows.Next() {
 		var m Mission
-		var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
+		var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane, source, sourceID, sourceMetadata sql.NullString
 		var createdAt, updatedAt string
-		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt, &source, &sourceID, &sourceMetadata); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to scan mission row")
 		}
 		if lastHeartbeat.Valid {
@@ -50,6 +50,15 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 		if tmuxPane.Valid {
 			m.TmuxPane = &tmuxPane.String
 		}
+		if source.Valid {
+			m.Source = &source.String
+		}
+		if sourceID.Valid {
+			m.SourceID = &sourceID.String
+		}
+		if sourceMetadata.Valid {
+			m.SourceMetadata = &sourceMetadata.String
+		}
 		var err error
 		m.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
 		if err != nil {
@@ -70,9 +79,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 // scanMission scans a single mission row from a query result.
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
-	var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane sql.NullString
+	var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane, source, sourceID, sourceMetadata sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt, &source, &sourceID, &sourceMetadata); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
@@ -107,6 +116,15 @@ func scanMission(row *sql.Row) (*Mission, error) {
 	}
 	if tmuxPane.Valid {
 		m.TmuxPane = &tmuxPane.String
+	}
+	if source.Valid {
+		m.Source = &source.String
+	}
+	if sourceID.Valid {
+		m.SourceID = &sourceID.String
+	}
+	if sourceMetadata.Valid {
+		m.SourceMetadata = &sourceMetadata.String
 	}
 	var err error
 	m.CreatedAt, err = time.Parse(time.RFC3339, createdAt)

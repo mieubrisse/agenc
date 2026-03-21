@@ -7,7 +7,7 @@ import (
 // buildListMissionsQuery constructs the SQL query and arguments for ListMissions.
 // Returns the query string and a slice of arguments to be used with db.Query.
 func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
-	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at FROM missions"
+	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions"
 
 	var conditions []string
 	var args []interface{}
@@ -18,6 +18,14 @@ func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
 	if params.CronID != nil {
 		conditions = append(conditions, "cron_id = ?")
 		args = append(args, *params.CronID)
+	}
+	if params.Source != nil {
+		conditions = append(conditions, "source = ?")
+		args = append(args, *params.Source)
+	}
+	if params.SourceID != nil {
+		conditions = append(conditions, "source_id = ?")
+		args = append(args, *params.SourceID)
 	}
 
 	if len(conditions) > 0 {

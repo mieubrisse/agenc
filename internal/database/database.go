@@ -130,6 +130,11 @@ func Open(dbFilepath string) (*DB, error) {
 		return nil, stacktrace.Propagate(err, "failed to add last_user_prompt_at column")
 	}
 
+	if err := migrateAddSourceColumns(conn); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to add source columns")
+	}
+
 	return &DB{conn: conn}, nil
 }
 

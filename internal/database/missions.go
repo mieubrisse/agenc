@@ -23,6 +23,9 @@ type Mission struct {
 	SessionNameUpdatedAt *time.Time
 	CronID               *string
 	CronName             *string
+	Source               *string
+	SourceID             *string
+	SourceMetadata       *string
 	ConfigCommit         *string
 	TmuxPane             *string
 	PromptCount          int
@@ -45,15 +48,20 @@ type Mission struct {
 
 // CreateMissionParams holds optional parameters for creating a mission.
 type CreateMissionParams struct {
-	CronID       *string
-	CronName     *string
-	ConfigCommit *string
+	CronID         *string
+	CronName       *string
+	Source         *string
+	SourceID       *string
+	SourceMetadata *string
+	ConfigCommit   *string
 }
 
 // ListMissionsParams holds optional parameters for filtering missions.
 type ListMissionsParams struct {
 	IncludeArchived bool
 	CronID          *string // If set, filter to missions with this cron_id
+	Source          *string
+	SourceID        *string
 }
 
 // CreateMission inserts a new mission and returns it.
@@ -62,31 +70,37 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	shortID := ShortID(id)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	var cronID, cronName, configCommit *string
+	var cronID, cronName, configCommit, source, sourceID, sourceMetadata *string
 	if params != nil {
 		cronID = params.CronID
 		cronName = params.CronName
 		configCommit = params.ConfigCommit
+		source = params.Source
+		sourceID = params.SourceID
+		sourceMetadata = params.SourceMetadata
 	}
 
 	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, cronID, cronName, configCommit, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, cron_id, cron_name, config_commit, source, source_id, source_metadata, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, cronID, cronName, configCommit, source, sourceID, sourceMetadata, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
 	}
 
 	return &Mission{
-		ID:           id,
-		ShortID:      shortID,
-		GitRepo:      gitRepo,
-		Status:       "active",
-		CronID:       cronID,
-		CronName:     cronName,
-		ConfigCommit: configCommit,
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		ID:             id,
+		ShortID:        shortID,
+		GitRepo:        gitRepo,
+		Status:         "active",
+		CronID:         cronID,
+		CronName:       cronName,
+		Source:         source,
+		SourceID:       sourceID,
+		SourceMetadata: sourceMetadata,
+		ConfigCommit:   configCommit,
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
 	}, nil
 }
 
@@ -111,7 +125,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 // Returns (nil, error) only for actual database failures.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at FROM missions WHERE id = ?",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -130,7 +144,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 // to check if there is a running mission for the cron (for double-fire prevention).
 func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions WHERE cron_name = ? ORDER BY created_at DESC LIMIT 1",
 		cronName,
 	)
 
@@ -148,7 +162,7 @@ func (db *DB) GetMostRecentMissionForCron(cronName string) (*Mission, error) {
 // tmux pane ID, or nil if no active mission is running in that pane.
 func (db *DB) GetMissionByTmuxPane(paneID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
+		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
 		paneID,
 	)
 
