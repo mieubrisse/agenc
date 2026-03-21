@@ -54,6 +54,11 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 
 	// Process each cron job
 	for name, cronCfg := range crons {
+		if cronCfg.ID == "" {
+			logger.Printf("Cron syncer: skipping '%s' - no ID configured (add an 'id' field to config.yml)", name)
+			continue
+		}
+
 		plistFilename := launchd.CronToPlistFilename(name)
 		plistPath := filepath.Join(plistDirpath, plistFilename)
 		label := fmt.Sprintf("agenc-cron-%s", name)
@@ -71,13 +76,10 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 			"mission",
 			"new",
 			"--headless",
-			"--cron-trigger", name,
+			"--source", "cron",
+			"--source-id", cronCfg.ID,
+			"--source-metadata", fmt.Sprintf(`{"cron_name":"%s"}`, name),
 			"--prompt", cronCfg.Prompt,
-		}
-
-		// Add timeout if specified
-		if cronCfg.Timeout != "" {
-			programArgs = append(programArgs, "--timeout", cronCfg.Timeout)
 		}
 
 		// Add git repo if specified
@@ -85,16 +87,16 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 			programArgs = append(programArgs, cronCfg.Repo)
 		}
 
-		// Get log file paths for this cron
-		stdoutPath, stderrPath := config.GetCronLogFilepaths(s.agencDirpath, name)
+		// Get log file path for this cron (single file for both stdout and stderr)
+		logFilepath := config.GetCronLogFilepath(s.agencDirpath, cronCfg.ID)
 
 		// Create the plist
 		plist := &launchd.Plist{
 			Label:                 label,
 			ProgramArguments:      programArgs,
 			StartCalendarInterval: calInterval,
-			StandardOutPath:       stdoutPath,
-			StandardErrorPath:     stderrPath,
+			StandardOutPath:       logFilepath,
+			StandardErrorPath:     logFilepath,
 		}
 
 		// Write the plist to disk

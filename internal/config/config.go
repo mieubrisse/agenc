@@ -373,13 +373,10 @@ func GetCronLogDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, "logs", "crons")
 }
 
-// GetCronLogFilepaths returns stdout and stderr log paths for a cron job.
-// The cron name must already be validated (alphanumeric, dash, underscore only).
-func GetCronLogFilepaths(agencDirpath string, cronName string) (stdout, stderr string) {
-	logDir := GetCronLogDirpath(agencDirpath)
-	stdout = filepath.Join(logDir, fmt.Sprintf("%s-stdout.log", cronName))
-	stderr = filepath.Join(logDir, fmt.Sprintf("%s-stderr.log", cronName))
-	return
+// GetCronLogFilepath returns the log path for a cron job identified by its UUID.
+// Both stdout and stderr are directed to this single file.
+func GetCronLogFilepath(agencDirpath string, cronID string) string {
+	return filepath.Join(GetCronLogDirpath(agencDirpath), fmt.Sprintf("%s.log", cronID))
 }
 
 // ReadOAuthToken reads the OAuth token from the cache file. Returns an empty
