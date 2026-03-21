@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -135,6 +136,7 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 
 	// Create the cron config
 	cronCfg := config.CronConfig{
+		ID:       uuid.New().String(),
 		Schedule: schedule,
 		Prompt:   prompt,
 		Repo:     gitRepo,

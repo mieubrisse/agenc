@@ -48,7 +48,7 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 			enabled = ansiYellow + "no" + ansiReset
 		}
 
-		lastRun, status := getCronLastRunStatus(client, name)
+		lastRun, status := getCronLastRunStatus(client, cronCfg)
 		nextRun := getNextRunDisplay(cronCfg.Schedule, cronCfg.IsEnabled())
 
 		tbl.AddRow(
@@ -65,8 +65,12 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getCronLastRunStatus(client *server.Client, cronName string) (string, string) {
-	missions, err := client.ListMissions(true, "cron", cronName)
+func getCronLastRunStatus(client *server.Client, cronCfg config.CronConfig) (string, string) {
+	if cronCfg.ID == "" {
+		return "--", "--"
+	}
+
+	missions, err := client.ListMissions(true, "cron", cronCfg.ID)
 	if err != nil || len(missions) == 0 {
 		return "--", "--"
 	}

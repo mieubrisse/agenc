@@ -8,30 +8,23 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/config"
 )
-
-var cronRunTimeoutFlag string
 
 var cronRunCmd = &cobra.Command{
 	Use:   runCmdStr + " <name>",
-	Short: "Manually trigger a cron job (runs headless, untracked by cron_id)",
+	Short: "Manually trigger a cron job",
 	Long: `Manually trigger a cron job to run immediately as a headless mission.
 
-The mission will NOT be tracked as a cron run (no cron_id/cron_name will be set).
-This is useful for testing cron jobs without affecting history/scheduling.
+The mission will be tracked with source flags so it appears in 'cron history'.
 
 Example:
   agenc cron run daily-report
-  agenc cron run daily-report --timeout 30m
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runCronRun,
 }
 
 func init() {
-	cronRunCmd.Flags().StringVar(&cronRunTimeoutFlag, timeoutFlagName, "", "override timeout (e.g., '1h', '30m')")
 	cronCmd.AddCommand(cronRunCmd)
 }
 
@@ -48,26 +41,18 @@ func runCronRun(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("cron job '%s' not found", name)
 	}
 
-	// Determine timeout
-	timeout := cronCfg.Timeout
-	if cronRunTimeoutFlag != "" {
-		timeout = cronRunTimeoutFlag
-	}
-	if timeout == "" {
-		timeout = fmt.Sprintf("%v", config.DefaultCronTimeout)
+	if cronCfg.ID == "" {
+		return stacktrace.NewError("cron job '%s' has no ID — re-create it or add an 'id' field to config.yml", name)
 	}
 
-	// Validate timeout
-	if err := config.ValidateCronTimeout(timeout); err != nil {
-		return err
-	}
-
-	// Build the command arguments - note: no cron-id/cron-name flags
+	// Build the command arguments with source tracking
 	cmdArgs := []string{
 		"mission", "new",
 		"--headless",
+		"--source", "cron",
+		"--source-id", cronCfg.ID,
+		"--source-metadata", fmt.Sprintf(`{"cron_name":"%s","trigger":"manual"}`, name),
 		"--prompt", cronCfg.Prompt,
-		"--timeout", timeout,
 	}
 
 	if cronCfg.Repo != "" {
@@ -80,8 +65,7 @@ func runCronRun(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to get executable path")
 	}
 
-	fmt.Printf("Running cron job '%s' (timeout: %s)...\n", name, timeout)
-	fmt.Println("Note: This is a manual run - it won't appear in 'cron history'")
+	fmt.Printf("Running cron job '%s'...\n", name)
 	fmt.Println()
 
 	// Run in foreground so user can see output

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
@@ -110,6 +111,7 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	cronCfg := config.CronConfig{
+		ID:          uuid.New().String(),
 		Schedule:    schedule,
 		Prompt:      prompt,
 		Description: description,

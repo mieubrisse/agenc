@@ -41,8 +41,13 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if _, exists := cfg.Crons[name]; !exists {
+	cronCfg, exists := cfg.Crons[name]
+	if !exists {
 		return stacktrace.NewError("cron job '%s' not found", name)
+	}
+
+	if cronCfg.ID == "" {
+		return stacktrace.NewError("cron job '%s' has no ID — re-create it or add an 'id' field to config.yml", name)
 	}
 
 	client, err := serverClient()
@@ -50,7 +55,7 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	missions, err := client.ListMissions(true, "cron", name)
+	missions, err := client.ListMissions(true, "cron", cronCfg.ID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
