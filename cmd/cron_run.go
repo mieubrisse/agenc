@@ -57,6 +57,8 @@ func runCronRun(cmd *cobra.Command, args []string) error {
 
 	if cronCfg.Repo != "" {
 		cmdArgs = append(cmdArgs, cronCfg.Repo)
+	} else {
+		cmdArgs = append(cmdArgs, "--blank")
 	}
 
 	// Get the path to the agenc binary

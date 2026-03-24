@@ -82,9 +82,12 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 			"--prompt", cronCfg.Prompt,
 		}
 
-		// Add git repo if specified
+		// Add git repo if specified, otherwise use --blank to skip the
+		// interactive repo picker (which requires a terminal).
 		if cronCfg.Repo != "" {
 			programArgs = append(programArgs, cronCfg.Repo)
+		} else {
+			programArgs = append(programArgs, "--blank")
 		}
 
 		// Get log file path for this cron (single file for both stdout and stderr)
