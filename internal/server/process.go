@@ -154,7 +154,7 @@ func StopServer(pidFilepath string) error {
 		killedPIDs[pid] = true
 	}
 
-	os.Remove(pidFilepath)
+	_ = os.Remove(pidFilepath)
 
 	// Sweep for orphaned server processes
 	orphans := findOrphanServerPIDs(killedPIDs)

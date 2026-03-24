@@ -124,7 +124,9 @@ func (s *Server) Run(ctx context.Context) error {
 	s.requestLogger = slog.New(slog.NewJSONHandler(requestsLogFile, nil))
 
 	// Clean up stale socket file from a previous run
-	os.Remove(s.socketPath)
+	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+		return stacktrace.Propagate(err, "failed to remove stale socket file '%s'", s.socketPath)
+	}
 
 	listener, err := net.Listen("unix", s.socketPath)
 	if err != nil {
@@ -196,7 +198,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	wg.Wait()
-	os.Remove(s.socketPath)
+	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+		s.logger.Printf("Warning: failed to remove socket file on shutdown: %v", err)
+	}
 	s.logger.Println("Server stopped")
 
 	return nil

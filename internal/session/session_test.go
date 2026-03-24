@@ -18,7 +18,7 @@ func TestCustomTitlePriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	missionID := "test-mission-123"
 	projectDirpath := filepath.Join(tmpDir, "projects", "project-"+missionID)
@@ -61,7 +61,7 @@ func TestSummaryFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	missionID := "test-mission-456"
 	projectDirpath := filepath.Join(tmpDir, "projects", "project-"+missionID)
@@ -103,7 +103,7 @@ func TestSummaryFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clean up project directory before each subtest
-			os.RemoveAll(projectDirpath)
+			_ = os.RemoveAll(projectDirpath)
 			if err := os.MkdirAll(projectDirpath, 0755); err != nil {
 				t.Fatalf("failed to create project dir: %v", err)
 			}
@@ -144,7 +144,7 @@ func TestJSONLParsing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	missionID := "test-mission-789"
 	projectDirpath := filepath.Join(tmpDir, "projects", "project-"+missionID)
@@ -206,7 +206,7 @@ func TestJSONLParsing(t *testing.T) {
 			jsonlFilepath := filepath.Join(projectDirpath, "test-session.jsonl")
 
 			// Remove any existing file
-			os.Remove(jsonlFilepath)
+			_ = os.Remove(jsonlFilepath)
 
 			if tt.jsonlContent != "" {
 				if err := os.WriteFile(jsonlFilepath, []byte(tt.jsonlContent), 0644); err != nil {
@@ -236,7 +236,7 @@ func TestEmptySession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	tests := []struct {
 		name            string
@@ -320,7 +320,7 @@ func TestFindCustomTitle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	missionID := "custom-title-mission"
 	projectDirpath := filepath.Join(tmpDir, "projects", "project-"+missionID)
@@ -356,7 +356,7 @@ func TestFindCustomTitle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			jsonlFilepath := filepath.Join(projectDirpath, "session.jsonl")
-			os.Remove(jsonlFilepath)
+			_ = os.Remove(jsonlFilepath)
 
 			if tt.jsonlContent != "" {
 				if err := os.WriteFile(jsonlFilepath, []byte(tt.jsonlContent), 0644); err != nil {
@@ -383,7 +383,7 @@ func TestSessionsIndexLatestEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	projectDirpath := filepath.Join(tmpDir, "test-project")
 	if err := os.MkdirAll(projectDirpath, 0755); err != nil {

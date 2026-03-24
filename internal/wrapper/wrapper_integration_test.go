@@ -38,7 +38,7 @@ func setupTest(t *testing.T) *testSetup {
 	if err != nil {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(tempDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 
 	agencDirpath := filepath.Join(tempDir, "a")
 	if err := os.MkdirAll(agencDirpath, 0755); err != nil {

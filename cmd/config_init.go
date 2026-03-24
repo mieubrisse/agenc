@@ -267,14 +267,14 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 		} else {
 			// Remove any partial clone artifacts so we don't leave a
 			// non-git config directory behind
-			os.RemoveAll(configDirpath)
+			_ = os.RemoveAll(configDirpath)
 		}
 		return stacktrace.Propagate(err, "failed to clone config repo")
 	}
 
 	// Remove backup if we made one
 	if hadExistingDir {
-		os.RemoveAll(backupDirpath)
+		_ = os.RemoveAll(backupDirpath)
 	}
 
 	// Re-seed any files the clone might not have (config.yml, claude-modifications/)

@@ -490,7 +490,7 @@ func (s *Server) stopWrapper(missionID string) error {
 	}
 
 	if pid == 0 || !IsProcessRunning(pid) {
-		os.Remove(pidFilepath)
+		_ = os.Remove(pidFilepath)
 		return nil
 	}
 
@@ -506,7 +506,7 @@ func (s *Server) stopWrapper(missionID string) error {
 	deadline := time.Now().Add(stopTimeout)
 	for time.Now().Before(deadline) {
 		if !IsProcessRunning(pid) {
-			os.Remove(pidFilepath)
+			_ = os.Remove(pidFilepath)
 			return nil
 		}
 		time.Sleep(stopTick)
@@ -514,7 +514,7 @@ func (s *Server) stopWrapper(missionID string) error {
 
 	// Force kill if still running
 	_ = process.Signal(syscall.SIGKILL)
-	os.Remove(pidFilepath)
+	_ = os.Remove(pidFilepath)
 	return nil
 }
 

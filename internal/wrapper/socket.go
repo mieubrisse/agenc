@@ -62,7 +62,10 @@ const (
 // and POST /claude-update. The server shuts down when ctx is cancelled.
 func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, logger *slog.Logger) {
 	// Remove stale socket file from a previous run
-	os.Remove(socketFilepath)
+	if err := os.Remove(socketFilepath); err != nil && !os.IsNotExist(err) {
+		logger.Warn("Failed to remove stale socket file", "path", socketFilepath, "error", err)
+		return
+	}
 
 	listener, err := net.Listen("unix", socketFilepath)
 	if err != nil {
@@ -77,7 +80,7 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 	if err := os.Chmod(socketFilepath, 0600); err != nil {
 		logger.Warn("Failed to set socket permissions", "path", socketFilepath, "error", err)
 		listener.Close()
-		os.Remove(socketFilepath)
+		_ = os.Remove(socketFilepath)
 		return
 	}
 
@@ -96,7 +99,7 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 	go func() {
 		<-ctx.Done()
 		server.Close()
-		os.Remove(socketFilepath)
+		_ = os.Remove(socketFilepath)
 	}()
 
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {

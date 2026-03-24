@@ -455,15 +455,15 @@ func writeStashFile(agencDirpath string, stashID string, stash *StashFile) error
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
-		os.Remove(tmpFilepath)
+		_ = os.Remove(tmpFilepath)
 		return fmt.Errorf("failed to write stash data: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpFilepath)
+		_ = os.Remove(tmpFilepath)
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 	if err := os.Rename(tmpFilepath, stashFilepath); err != nil {
-		os.Remove(tmpFilepath)
+		_ = os.Remove(tmpFilepath)
 		return fmt.Errorf("failed to rename stash file: %w", err)
 	}
 	return nil

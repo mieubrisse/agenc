@@ -150,7 +150,7 @@ func (p *Plist) WriteToDisk(targetPath string) error {
 
 	// Atomic rename
 	if err := os.Rename(tempPath, targetPath); err != nil {
-		os.Remove(tempPath) // Clean up on error
+		_ = os.Remove(tempPath) // Clean up on error
 		return stacktrace.Propagate(err, "failed to rename temporary plist file")
 	}
 

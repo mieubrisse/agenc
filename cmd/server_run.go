@@ -74,7 +74,7 @@ func runServerRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	os.Remove(pidFilepath)
+	_ = os.Remove(pidFilepath)
 	logger.Println("Server exited")
 
 	return nil

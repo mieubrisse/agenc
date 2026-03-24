@@ -47,7 +47,7 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 	}
 	tmpFilepath := tmpFile.Name()
 	tmpFile.Close()
-	defer os.Remove(tmpFilepath)
+	defer func() { _ = os.Remove(tmpFilepath) }()
 
 	editorEnv := os.Getenv("EDITOR")
 	if editorEnv == "" {

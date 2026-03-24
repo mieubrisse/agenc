@@ -192,7 +192,7 @@ func (w *Wrapper) Run(isResume bool) error {
 	if err := os.WriteFile(pidFilepath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write wrapper PID file")
 	}
-	defer os.Remove(pidFilepath)
+	defer func() { _ = os.Remove(pidFilepath) }()
 
 	// Set up context for background goroutines
 	ctx, cancel := context.WithCancel(context.Background())
@@ -680,7 +680,7 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 	if err := os.WriteFile(pidFilepath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 		return stacktrace.Propagate(err, "failed to write wrapper PID file")
 	}
-	defer os.Remove(pidFilepath)
+	defer func() { _ = os.Remove(pidFilepath) }()
 
 	// Set up context with timeout if specified
 	ctx, cancel := context.WithCancel(context.Background())

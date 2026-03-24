@@ -376,7 +376,9 @@ func removeStaleEntries(dstDirpath string, srcDirpath string, changed *bool) err
 	}
 
 	for _, stalePath := range stalePaths {
-		os.RemoveAll(stalePath)
+		if err := os.RemoveAll(stalePath); err != nil {
+			return stacktrace.Propagate(err, "failed to remove stale entry '%s'", stalePath)
+		}
 		*changed = true
 	}
 

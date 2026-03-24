@@ -288,7 +288,7 @@ func TestFormatConversation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to create temp dir: %v", err)
 			}
-			defer os.RemoveAll(tmpDir)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
 
 			jsonlFilepath := filepath.Join(tmpDir, "session.jsonl")
 			if err := os.WriteFile(jsonlFilepath, []byte(tt.jsonlContent), 0644); err != nil {

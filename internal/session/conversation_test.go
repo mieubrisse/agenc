@@ -92,7 +92,7 @@ invalid line without braces
 			if err != nil {
 				t.Fatalf("failed to create temp dir: %v", err)
 			}
-			defer os.RemoveAll(tmpDir)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
 
 			jsonlFilepath := filepath.Join(tmpDir, "session.jsonl")
 			if tt.jsonlContent != "" {
@@ -120,7 +120,7 @@ func TestMessageTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	tests := []struct {
 		name         string
@@ -214,7 +214,7 @@ func TestEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	tests := []struct {
 		name        string
@@ -318,7 +318,7 @@ func TestExtractRecentUserMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	missionID := "test-mission-integration"
 	projectDirpath := filepath.Join(tmpDir, "projects", "project-"+missionID)
@@ -387,7 +387,7 @@ func TestExtractRecentUserMessages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clean and recreate project directory for each test
-			os.RemoveAll(projectDirpath)
+			_ = os.RemoveAll(projectDirpath)
 			if err := os.MkdirAll(projectDirpath, 0755); err != nil {
 				t.Fatalf("failed to create project dir: %v", err)
 			}

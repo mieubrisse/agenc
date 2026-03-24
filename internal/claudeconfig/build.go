@@ -57,12 +57,12 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 
 		if _, err := os.Stat(srcDirpath); os.IsNotExist(err) {
 			// Source doesn't exist — remove destination if it exists
-			os.RemoveAll(dstDirpath)
+			_ = os.RemoveAll(dstDirpath)
 			continue
 		}
 
 		// Remove existing destination and copy fresh with path rewriting
-		os.RemoveAll(dstDirpath)
+		_ = os.RemoveAll(dstDirpath)
 		if err := copyDirWithRewriting(srcDirpath, dstDirpath, claudeConfigDirpath); err != nil {
 			return stacktrace.Propagate(err, "failed to copy '%s' from shadow repo", dirName)
 		}
@@ -205,7 +205,7 @@ func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirp
 	mergedClaudeMd := MergeClaudeMd([]byte(agentInstructions), mergedUserContent)
 
 	if mergedClaudeMd == nil {
-		os.Remove(destFilepath)
+		_ = os.Remove(destFilepath)
 		return nil
 	}
 
@@ -273,7 +273,7 @@ func symlinkToGlobalClaudeDir(claudeConfigDirpath string, dirName string) error 
 	}
 
 	// Remove existing directory/symlink if it exists
-	os.RemoveAll(linkPath)
+	_ = os.RemoveAll(linkPath)
 
 	return os.Symlink(targetDirpath, linkPath)
 }
