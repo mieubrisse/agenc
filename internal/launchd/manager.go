@@ -62,11 +62,17 @@ func (m *Manager) IsLoaded(label string) (bool, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "launchctl", "list", label)
-	err := cmd.Run()
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return true, nil
+	}
 
-	// If the command succeeds, the job is loaded
-	// If it fails with "Could not find service", the job is not loaded
-	return err == nil, nil
+	// "Could not find service" means the job is not loaded — not an error
+	if strings.Contains(string(output), "Could not find service") {
+		return false, nil
+	}
+
+	return false, stacktrace.Propagate(err, "failed to check if job '%s' is loaded: %s", label, string(output))
 }
 
 // RemovePlist removes a plist file from both launchd and the filesystem.
