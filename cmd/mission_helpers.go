@@ -62,14 +62,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 	for _, m := range missions {
 		sessionName := resolveSessionName(m)
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
-		repo := displayGitRepo(m.GitRepo)
-		if m.IsAdjutant {
-			repo = "🤖  Adjutant"
-		} else if cfg != nil {
-			if t := cfg.GetRepoTitle(m.GitRepo); t != "" {
-				repo = t
-			}
-		}
+		repo := formatRepoDisplay(m.GitRepo, m.IsAdjutant, cfg)
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,
 			LastActive: formatLastActive(m.LastHeartbeat, m.CreatedAt),

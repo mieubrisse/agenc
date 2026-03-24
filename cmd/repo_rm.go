@@ -77,16 +77,10 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		},
 		GetItems: func() ([]string, error) { return repoNames, nil },
 		FormatRow: func(repoName string) []string {
-			title := "--"
-			if cfg != nil {
-				if t := cfg.GetRepoTitle(repoName); t != "" {
-					title = t
-				}
-			}
-			return []string{title, displayGitRepo(repoName)}
+			return []string{formatRepoDisplay(repoName, false, cfg)}
 		},
 		FzfPrompt:         "Select repos to remove (TAB to multi-select): ",
-		FzfHeaders:        []string{"TITLE", "REPO"},
+		FzfHeaders:        []string{"REPO"},
 		MultiSelect:       true,
 		NotCanonicalError: "not a valid repo reference",
 	})

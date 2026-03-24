@@ -77,14 +77,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
 		sessionName := resolveSessionName(m)
-		repo := displayGitRepo(m.GitRepo)
-		if m.IsAdjutant {
-			repo = "🤖  Adjutant"
-		} else if cfg != nil {
-			if t := cfg.GetRepoTitle(m.GitRepo); t != "" {
-				repo = t
-			}
-		}
+		repo := formatRepoDisplay(m.GitRepo, m.IsAdjutant, cfg)
 
 		if lsAllFlag {
 			pane := "--"

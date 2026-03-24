@@ -286,33 +286,19 @@ func listRepoLibrary(agencDirpath string) []repoLibraryEntry {
 // An "Adjutant" option is prepended as the first data row, followed by
 // repo entries. A NONE sentinel (Blank Mission) is appended at the bottom.
 func selectFromRepoLibrary(agencDirpath string, entries []repoLibraryEntry, initialQuery string) (*repoLibraryEntry, error) {
-	// First two data rows are special options; repos follow at index offset 2
 	var rows [][]string
-	rows = append(rows, []string{"🤖", "Adjutant"})
-	rows = append(rows, []string{"🐙", "Github Repo"})
+	rows = append(rows, []string{"🤖  Adjutant"})
+	rows = append(rows, []string{"🐙  Github Repo"})
 	cfg, _, _ := config.ReadAgencConfig(agencDirpath)
 	for _, entry := range entries {
-		icon := "📦"
-		if cfg != nil {
-			if e := cfg.GetRepoEmoji(entry.RepoName); e != "" {
-				icon = e
-			}
-		}
-		displayName := displayGitRepo(entry.RepoName)
-		if cfg != nil {
-			if t := cfg.GetRepoTitle(entry.RepoName); t != "" {
-				displayName = t
-			}
-		}
-		rows = append(rows, []string{icon, displayName})
+		rows = append(rows, []string{formatRepoDisplay(entry.RepoName, false, cfg)})
 	}
 
-	// Use sentinel row for NONE option (Blank Mission)
-	sentinelRow := []string{"😶", "Blank Mission"}
+	sentinelRow := []string{"😶  Blank Mission"}
 
 	indices, err := runFzfPickerWithSentinel(FzfPickerConfig{
 		Prompt:       "Select repo: ",
-		Headers:      []string{"TYPE", "REPO"},
+		Headers:      []string{"REPO"},
 		Rows:         rows,
 		MultiSelect:  false,
 		InitialQuery: initialQuery,
