@@ -128,6 +128,16 @@ func displayGitRepo(gitRepo string) string {
 	return ansiLightBlue + display + ansiReset
 }
 
+// plainGitRepoName returns a human-friendly repo name without ANSI codes.
+// GitHub repos have their "github.com/" prefix stripped; non-GitHub repos
+// are shown in full. Returns empty string for empty input.
+func plainGitRepoName(gitRepo string) string {
+	if gitRepo == "" {
+		return ""
+	}
+	return strings.TrimPrefix(gitRepo, "github.com/")
+}
+
 // formatLastActive returns a human-readable timestamp of the mission's last
 // activity. Uses the newest of: LastHeartbeat (wrapper liveness) or CreatedAt.
 func formatLastActive(lastHeartbeat *time.Time, createdAt time.Time) string {

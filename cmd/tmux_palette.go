@@ -33,7 +33,8 @@ func init() {
 	tmuxCmd.AddCommand(tmuxPaletteCmd)
 }
 
-// buildPaletteEntries returns the resolved palette entries from config.
+// buildPaletteEntries returns the resolved palette entries from config,
+// followed by "Open <repo>" entries for each repo in the library.
 // Only entries with a non-empty Title are included in the palette.
 // Mission-scoped entries are excluded when callingMissionUUID is empty (i.e.
 // the palette was opened from a pane that is not running a mission).
@@ -61,6 +62,27 @@ func buildPaletteEntries(callingMissionUUID string) ([]config.ResolvedPaletteCom
 			continue
 		}
 		entries = append(entries, cmd)
+	}
+
+	// Append "Open <repo>" entries for each repo in the library.
+	// These appear at the bottom of the palette, after all command entries.
+	repoEntries := listRepoLibrary(agencDirpath)
+	for _, repoEntry := range repoEntries {
+		emoji := "📦"
+		if cfg != nil {
+			if e := cfg.GetRepoEmoji(repoEntry.RepoName); e != "" {
+				emoji = e
+			}
+		}
+
+		title := fmt.Sprintf("%s  Open %s", emoji, plainGitRepoName(repoEntry.RepoName))
+		command := fmt.Sprintf("agenc mission new %s", repoEntry.RepoName)
+
+		entries = append(entries, config.ResolvedPaletteCommand{
+			Name:    "open-repo-" + repoEntry.RepoName,
+			Title:   title,
+			Command: command,
+		})
 	}
 
 	return entries, nil
