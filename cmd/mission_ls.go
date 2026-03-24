@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/rodaine/table"
 	"github.com/spf13/cobra"
@@ -142,6 +143,36 @@ func plainGitRepoName(gitRepo string) string {
 		return ""
 	}
 	return strings.TrimPrefix(gitRepo, "github.com/")
+}
+
+// formatRepoDisplay returns a user-facing display string for a repo, combining
+// emoji prefix (if configured), title (if configured), or colored canonical name.
+// For adjutant missions, returns "🤖  Adjutant" regardless of other parameters.
+// Safe to call with nil cfg (falls back to displayGitRepo with no emoji).
+func formatRepoDisplay(repoName string, isAdjutant bool, cfg *config.AgencConfig) string {
+	if isAdjutant {
+		return "🤖  Adjutant"
+	}
+
+	displayName := displayGitRepo(repoName)
+	emoji := ""
+	if cfg != nil {
+		if t := cfg.GetRepoTitle(repoName); t != "" {
+			displayName = t
+		}
+		emoji = cfg.GetRepoEmoji(repoName)
+	}
+
+	if emoji != "" {
+		emojiWidth := runewidth.StringWidth(emoji)
+		padding := 4 - emojiWidth
+		if padding < 1 {
+			padding = 1
+		}
+		return emoji + strings.Repeat(" ", padding) + displayName
+	}
+
+	return displayName
 }
 
 // formatLastActive returns a human-readable timestamp of the mission's last
