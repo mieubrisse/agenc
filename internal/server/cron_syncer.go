@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,10 +13,19 @@ import (
 	"github.com/odyssey/agenc/internal/launchd"
 )
 
+// launchdManager is the interface for launchd operations used by CronSyncer.
+// Extracted from *launchd.Manager to enable testing with mocks.
+type launchdManager interface {
+	IsLoaded(label string) (bool, error)
+	LoadPlist(plistPath string) error
+	UnloadPlist(plistPath string) error
+	RemovePlist(plistPath string) error
+}
+
 // CronSyncer manages synchronization of cron jobs to launchd plists.
 type CronSyncer struct {
 	agencDirpath string
-	manager      *launchd.Manager
+	manager      launchdManager
 }
 
 // NewCronSyncer creates a new CronSyncer.
@@ -23,6 +33,14 @@ func NewCronSyncer(agencDirpath string) *CronSyncer {
 	return &CronSyncer{
 		agencDirpath: agencDirpath,
 		manager:      launchd.NewManager(),
+	}
+}
+
+// newCronSyncerWithManager creates a CronSyncer with a custom manager (for testing).
+func newCronSyncerWithManager(agencDirpath string, manager launchdManager) *CronSyncer {
+	return &CronSyncer{
+		agencDirpath: agencDirpath,
+		manager:      manager,
 	}
 }
 
@@ -59,86 +77,8 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 			continue
 		}
 
-		plistFilename := launchd.CronToPlistFilename(name)
-		plistPath := filepath.Join(plistDirpath, plistFilename)
-		label := fmt.Sprintf("agenc-cron-%s", name)
-
-		// Parse the cron schedule
-		calInterval, err := launchd.ParseCronExpression(cronCfg.Schedule)
-		if err != nil {
-			logger.Printf("Cron syncer: skipping '%s' - unsupported schedule: %v", name, err)
-			continue
-		}
-
-		// Build the program arguments
-		programArgs := []string{
-			execPath,
-			"mission",
-			"new",
-			"--headless",
-			"--source", "cron",
-			"--source-id", cronCfg.ID,
-			"--source-metadata", fmt.Sprintf(`{"cron_name":"%s"}`, name),
-			"--prompt", cronCfg.Prompt,
-		}
-
-		// Add git repo if specified, otherwise use --blank to skip the
-		// interactive repo picker (which requires a terminal).
-		if cronCfg.Repo != "" {
-			programArgs = append(programArgs, cronCfg.Repo)
-		} else {
-			programArgs = append(programArgs, "--blank")
-		}
-
-		// Get log file path for this cron (single file for both stdout and stderr)
-		logFilepath := config.GetCronLogFilepath(s.agencDirpath, cronCfg.ID)
-
-		// Create the plist
-		plist := &launchd.Plist{
-			Label:                 label,
-			ProgramArguments:      programArgs,
-			StartCalendarInterval: calInterval,
-			StandardOutPath:       logFilepath,
-			StandardErrorPath:     logFilepath,
-		}
-
-		// Write the plist to disk
-		if err := plist.WriteToDisk(plistPath); err != nil {
-			logger.Printf("Cron syncer: failed to write plist for '%s': %v", name, err)
-			continue
-		}
-
-		// Handle enabled/disabled state
-		if cronCfg.IsEnabled() {
-			// Load the plist if it's not already loaded
-			loaded, err := s.manager.IsLoaded(label)
-			if err != nil {
-				logger.Printf("Cron syncer: failed to check if '%s' is loaded: %v", name, err)
-				continue
-			}
-
-			if !loaded {
-				if err := s.manager.LoadPlist(plistPath); err != nil {
-					logger.Printf("Cron syncer: failed to load plist for '%s': %v", name, err)
-					continue
-				}
-				logger.Printf("Cron syncer: loaded plist for '%s'", name)
-			}
-		} else {
-			// Unload the plist if it's loaded (but keep the file)
-			loaded, err := s.manager.IsLoaded(label)
-			if err != nil {
-				logger.Printf("Cron syncer: failed to check if '%s' is loaded: %v", name, err)
-				continue
-			}
-
-			if loaded {
-				if err := s.manager.UnloadPlist(plistPath); err != nil {
-					logger.Printf("Cron syncer: failed to unload plist for '%s': %v", name, err)
-					continue
-				}
-				logger.Printf("Cron syncer: unloaded plist for '%s'", name)
-			}
+		if err := s.syncCronJob(name, cronCfg, plistDirpath, execPath, logger); err != nil {
+			logger.Printf("Cron syncer: failed to sync '%s': %v", name, err)
 		}
 	}
 
@@ -148,6 +88,114 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 	}
 
 	logger.Printf("Cron syncer: synced %d cron jobs to launchd", len(crons))
+	return nil
+}
+
+// syncCronJob synchronizes a single cron job's plist to disk and manages its
+// launchd load state. Only writes the plist file and reloads launchd when the
+// generated content differs from the existing file on disk.
+func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDirpath string, execPath string, logger logger) error {
+	plistFilename := launchd.CronToPlistFilename(name)
+	plistPath := filepath.Join(plistDirpath, plistFilename)
+	label := fmt.Sprintf("agenc-cron-%s", name)
+
+	// Parse the cron schedule
+	calInterval, err := launchd.ParseCronExpression(cronCfg.Schedule)
+	if err != nil {
+		logger.Printf("Cron syncer: skipping '%s' - unsupported schedule: %v", name, err)
+		return nil
+	}
+
+	// Build the program arguments
+	programArgs := []string{
+		execPath,
+		"mission",
+		"new",
+		"--headless",
+		"--source", "cron",
+		"--source-id", cronCfg.ID,
+		"--source-metadata", fmt.Sprintf(`{"cron_name":"%s"}`, name),
+		"--prompt", cronCfg.Prompt,
+	}
+
+	// Add git repo if specified, otherwise use --blank to skip the
+	// interactive repo picker (which requires a terminal).
+	if cronCfg.Repo != "" {
+		programArgs = append(programArgs, cronCfg.Repo)
+	} else {
+		programArgs = append(programArgs, "--blank")
+	}
+
+	// Get log file path for this cron (single file for both stdout and stderr)
+	logFilepath := config.GetCronLogFilepath(s.agencDirpath, cronCfg.ID)
+
+	// Create the plist
+	plist := &launchd.Plist{
+		Label:                 label,
+		ProgramArguments:      programArgs,
+		StartCalendarInterval: calInterval,
+		StandardOutPath:       logFilepath,
+		StandardErrorPath:     logFilepath,
+	}
+
+	// Generate plist XML
+	xmlData, err := plist.GeneratePlistXML()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to generate plist XML for '%s'", name)
+	}
+
+	// Compare against existing file on disk
+	contentChanged := true
+	existingData, err := os.ReadFile(plistPath)
+	if err == nil {
+		contentChanged = !bytes.Equal(xmlData, existingData)
+	}
+	// If ReadFile fails (file doesn't exist, permissions), treat as changed
+
+	// Write plist only if content changed
+	if contentChanged {
+		if err := os.WriteFile(plistPath, xmlData, 0644); err != nil {
+			return stacktrace.Propagate(err, "failed to write plist for '%s'", name)
+		}
+	}
+
+	// Handle enabled/disabled state
+	if cronCfg.IsEnabled() {
+		loaded, err := s.manager.IsLoaded(label)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to check if '%s' is loaded", name)
+		}
+
+		if !loaded {
+			if err := s.manager.LoadPlist(plistPath); err != nil {
+				return stacktrace.Propagate(err, "failed to load plist for '%s'", name)
+			}
+			logger.Printf("Cron syncer: loaded plist for '%s'", name)
+		} else if contentChanged {
+			// Content changed and job is already loaded — unload and reload
+			if err := s.manager.UnloadPlist(plistPath); err != nil {
+				logger.Printf("Cron syncer: failed to unload plist for '%s' during reload: %v", name, err)
+			}
+			if err := s.manager.LoadPlist(plistPath); err != nil {
+				return stacktrace.Propagate(err, "failed to reload plist for '%s'", name)
+			}
+			logger.Printf("Cron syncer: reloaded plist for '%s' (content changed)", name)
+		}
+	} else {
+		// Disabled: unload if loaded, keep file
+		loaded, err := s.manager.IsLoaded(label)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to check if '%s' is loaded", name)
+		}
+
+		if loaded {
+			if err := s.manager.UnloadPlist(plistPath); err != nil {
+				return stacktrace.Propagate(err, "failed to unload plist for '%s'", name)
+			}
+			logger.Printf("Cron syncer: unloaded plist for '%s'", name)
+		}
+	}
+
 	return nil
 }
 
