@@ -163,23 +163,32 @@ func (w *Wrapper) writeBackCredentials() {
 	}
 }
 
-// Run executes the wrapper lifecycle. For a new mission, pass isResume=false.
-// For a resume, pass isResume=true. Run blocks until Claude exits naturally
-// or the wrapper shuts down.
-func (w *Wrapper) Run(isResume bool) error {
+// runResources bundles resources created during setup that the caller must
+// clean up (via deferred calls) and that the event loop needs.
+type runResources struct {
+	logFile *os.File
+	cancel  context.CancelFunc
+	sigCh   chan os.Signal
+}
+
+// setupRun performs all one-time initialization for the wrapper lifecycle:
+// OAuth check, logging, PID file, signal handling, background goroutines,
+// credential cloning, and initial Claude spawn. It returns the resources
+// needed by the event loop and registers deferred cleanup on the caller's
+// behalf via the returned cleanup function.
+func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 	// Ensure OAuth token exists before installing signal handlers. This must
 	// happen first so Ctrl-C works naturally during the interactive setup flow.
 	if err := config.SetupOAuthToken(w.agencDirpath); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Set up logger that writes to the log file
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to open wrapper log file")
+		return nil, nil, stacktrace.Propagate(err, "failed to open wrapper log file")
 	}
-	defer logFile.Close()
 	w.logger = slog.New(slog.NewJSONHandler(logFile, nil))
 	w.logger.Info("Wrapper started",
 		"mission_id", database.ShortID(w.missionID),
@@ -190,13 +199,12 @@ func (w *Wrapper) Run(isResume bool) error {
 	// Write wrapper PID
 	pidFilepath := config.GetMissionPIDFilepath(w.agencDirpath, w.missionID)
 	if err := os.WriteFile(pidFilepath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
-		return stacktrace.Propagate(err, "failed to write wrapper PID file")
+		logFile.Close()
+		return nil, nil, stacktrace.Propagate(err, "failed to write wrapper PID file")
 	}
-	defer func() { _ = os.Remove(pidFilepath) }()
 
 	// Set up context for background goroutines
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Catch SIGINT, SIGTERM, and SIGHUP to prevent Go's default termination.
 	// Claude is in the same process group, so terminal Ctrl-C reaches it
@@ -206,7 +214,6 @@ func (w *Wrapper) Run(isResume bool) error {
 	// would not run.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(sigCh)
 
 	// Capture the tmux pane ID (e.g. "%42" -> "42") for heartbeat reporting.
 	w.tmuxPaneID = strings.TrimPrefix(os.Getenv("TMUX_PANE"), "%")
@@ -228,7 +235,6 @@ func (w *Wrapper) Run(isResume bool) error {
 
 	// Clone global MCP credentials into per-mission Keychain and start sync goroutines.
 	w.cloneCredentials()
-	defer w.writeBackCredentials()
 	w.initCredentialHash()
 	go w.watchCredentialUpwardSync(ctx)
 	go w.watchCredentialDownwardSync(ctx)
@@ -239,9 +245,6 @@ func (w *Wrapper) Run(isResume bool) error {
 	if isResume {
 		w.hasConversation = true
 	}
-
-	// Reset the window tab style on exit so it doesn't stay colored after the mission ends.
-	defer w.resetWindowTabStyle()
 
 	// Change the wrapper's working directory to the agent directory so that
 	// tmux's #{pane_current_path} reflects the mission directory. This makes
@@ -254,19 +257,12 @@ func (w *Wrapper) Run(isResume bool) error {
 	}
 
 	// Spawn initial Claude process
-	if isResume {
-		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
-		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
-			w.claudeCmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, sessionID)
-		} else {
-			// Fallback to fresh start if no session or project directory exists
-			w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, "")
-		}
-	} else {
-		w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.initialPrompt)
-	}
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to spawn claude")
+	if err := w.spawnClaude(isResume); err != nil {
+		cancel()
+		signal.Stop(sigCh)
+		logFile.Close()
+		_ = os.Remove(pidFilepath)
+		return nil, nil, stacktrace.Propagate(err, "failed to spawn claude")
 	}
 
 	// Wait on Claude in a background goroutine
@@ -274,23 +270,66 @@ func (w *Wrapper) Run(isResume bool) error {
 		w.claudeExited <- w.claudeCmd.Wait()
 	}()
 
+	res := &runResources{
+		logFile: logFile,
+		cancel:  cancel,
+		sigCh:   sigCh,
+	}
+
+	cleanup := func() {
+		w.resetWindowTabStyle()
+		w.writeBackCredentials()
+		signal.Stop(sigCh)
+		cancel()
+		_ = os.Remove(pidFilepath)
+		logFile.Close()
+	}
+
+	return res, cleanup, nil
+}
+
+// spawnClaude starts a new Claude process, either resuming an existing session
+// or starting fresh. When isResume is true and a valid session exists, it
+// resumes that session; otherwise it starts a new conversation. For non-resume
+// spawns, the wrapper's initialPrompt is passed to Claude.
+func (w *Wrapper) spawnClaude(isResume bool) error {
+	var cmd *exec.Cmd
+	var err error
+
+	if isResume {
+		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
+		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
+			cmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, sessionID)
+		} else {
+			cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, "")
+		}
+	} else {
+		cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.initialPrompt)
+	}
+
+	if err != nil {
+		return err
+	}
+	w.claudeCmd = cmd
+	return nil
+}
+
+// Run executes the wrapper lifecycle. For a new mission, pass isResume=false.
+// For a resume, pass isResume=true. Run blocks until Claude exits naturally
+// or the wrapper shuts down.
+func (w *Wrapper) Run(isResume bool) error {
+	res, cleanup, err := w.setupRun(isResume)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
 	// Main event loop with three-state machine:
 	//   Running → RestartPending → Restarting → Running
 	for {
 		select {
-		case sig := <-sigCh:
-			// User sent SIGINT/SIGTERM to the wrapper. Claude already got the
-			// signal from the terminal (same process group). Just wait for it
-			// to exit. Forward the signal in case Claude is in a different
-			// process group on some platform.
-			w.logger.Info("Wrapper exiting",
-				"reason", "signal",
-				"signal", sig.String(),
-			)
-			if w.claudeCmd != nil && w.claudeCmd.Process != nil {
-				_ = w.claudeCmd.Process.Signal(sig)
-			}
-			<-w.claudeExited
+		case sig := <-res.sigCh:
+			w.handleSignal(sig)
 			return nil
 
 		case cmdResp := <-w.commandCh:
@@ -298,58 +337,75 @@ func (w *Wrapper) Run(isResume bool) error {
 			cmdResp.responseCh <- resp
 
 		case exitErr := <-w.claudeExited:
-			if w.state == stateRestarting {
-				// Wrapper-initiated restart: respawn Claude
-				w.logger.Info("Claude exited for restart, respawning")
-
-				// Respawn Claude: use session-based resume if we have a session
-				// and the project directory exists, fresh session otherwise
-				sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
-				if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
-					w.claudeCmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, sessionID)
-				} else {
-					w.claudeCmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, "")
-				}
-				if err != nil {
-					w.logger.Error("Failed to respawn Claude after restart", "error", err)
-					return stacktrace.Propagate(err, "failed to respawn claude after restart")
-				}
-
-				// Wait on the new Claude process
-				go func() {
-					w.claudeExited <- w.claudeCmd.Wait()
-				}()
-
-				w.state = stateRunning
-				w.pendingRestart = nil
-				w.logger.Info("Claude respawned successfully", "pid", w.claudeCmd.Process.Pid)
-			} else {
-				// Natural exit — wrapper exits
-				exitCode := 0
-				if exitErr != nil {
-					if ee, ok := exitErr.(*exec.ExitError); ok {
-						exitCode = ee.ExitCode()
-					} else {
-						exitCode = -1
-					}
-				}
-				w.logger.Info("Wrapper exiting",
-					"reason", "claude_exited",
-					"exit_code", exitCode,
-					"exit_error", fmt.Sprintf("%v", exitErr),
-				)
-
-				// If Claude exited with an error, pause so the user can see
-				// any error messages Claude printed to the terminal before
-				// the tmux window closes.
-				if exitCode != 0 {
-					fmt.Fprintf(os.Stderr, "\nClaude exited with code %d. Press Enter to close this window.\n", exitCode)
-					bufio.NewReader(os.Stdin).ReadBytes('\n')
-				}
-				return nil
+			done, err := w.handleClaudeExit(exitErr)
+			if done {
+				return err
 			}
 		}
 	}
+}
+
+// handleSignal processes a signal received by the wrapper. It forwards the
+// signal to the Claude process and waits for it to exit.
+func (w *Wrapper) handleSignal(sig os.Signal) {
+	w.logger.Info("Wrapper exiting",
+		"reason", "signal",
+		"signal", sig.String(),
+	)
+	if w.claudeCmd != nil && w.claudeCmd.Process != nil {
+		_ = w.claudeCmd.Process.Signal(sig)
+	}
+	<-w.claudeExited
+}
+
+// handleClaudeExit processes Claude's exit. If a restart is in progress, it
+// respawns Claude and returns (false, nil). If the restart respawn fails, it
+// returns (true, err). On a natural exit, it returns (true, nil) after logging
+// and optionally pausing for the user to read error output.
+func (w *Wrapper) handleClaudeExit(exitErr error) (done bool, err error) {
+	if w.state == stateRestarting {
+		// Wrapper-initiated restart: respawn Claude
+		w.logger.Info("Claude exited for restart, respawning")
+
+		if err := w.spawnClaude(true); err != nil {
+			w.logger.Error("Failed to respawn Claude after restart", "error", err)
+			return true, stacktrace.Propagate(err, "failed to respawn claude after restart")
+		}
+
+		// Wait on the new Claude process
+		go func() {
+			w.claudeExited <- w.claudeCmd.Wait()
+		}()
+
+		w.state = stateRunning
+		w.pendingRestart = nil
+		w.logger.Info("Claude respawned successfully", "pid", w.claudeCmd.Process.Pid)
+		return false, nil
+	}
+
+	// Natural exit — wrapper exits
+	exitCode := 0
+	if exitErr != nil {
+		if ee, ok := exitErr.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+	w.logger.Info("Wrapper exiting",
+		"reason", "claude_exited",
+		"exit_code", exitCode,
+		"exit_error", fmt.Sprintf("%v", exitErr),
+	)
+
+	// If Claude exited with an error, pause so the user can see
+	// any error messages Claude printed to the terminal before
+	// the tmux window closes.
+	if exitCode != 0 {
+		fmt.Fprintf(os.Stderr, "\nClaude exited with code %d. Press Enter to close this window.\n", exitCode)
+		bufio.NewReader(os.Stdin).ReadBytes('\n')
+	}
+	return true, nil
 }
 
 // handleCommand processes a command from the HTTP server and returns a CommandResponse.
