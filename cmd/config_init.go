@@ -91,14 +91,10 @@ func ensureConfigured() (string, error) {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	changed, err := setupConfigRepo(reader, configDirpath)
+	_, err = setupConfigRepo(reader, configDirpath)
 	if err != nil {
 		return "", stacktrace.Propagate(err, "config repo setup failed")
 	}
-	if changed {
-		configIsGitRepo = true
-	}
-
 	// Set up OAuth token if not already configured
 	if err := config.SetupOAuthToken(dirpath); err != nil {
 		return "", stacktrace.Propagate(err, "OAuth token setup failed")

@@ -50,9 +50,7 @@ func TestSyncCronsToLaunchd_EmptyCrons(t *testing.T) {
 }
 
 // syncerTestLogger is a minimal logger for testing cron syncer
-type syncerTestLogger struct {
-	messages []string
-}
+type syncerTestLogger struct{}
 
 func (l *syncerTestLogger) Printf(format string, v ...any) {
 	// Store messages for verification if needed

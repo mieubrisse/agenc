@@ -6,17 +6,6 @@ import (
 	"strings"
 )
 
-// isSolePaneInWindow returns true if the given pane is the only pane in its window.
-// Returns false if the window has multiple panes or if detection fails.
-func isSolePaneInWindow(paneID string) bool {
-	out, err := exec.Command("tmux", "display-message", "-p", "-t", paneID, "#{window_panes}").Output()
-	if err != nil {
-		return false
-	}
-	paneCount := strings.TrimSpace(string(out))
-	return paneCount == "1"
-}
-
 // setWindowBusy sets the tmux window tab to the busy colors, indicating
 // Claude is actively working. No-op when TMUX_PANE is empty or both colors are empty.
 func (w *Wrapper) setWindowBusy() {

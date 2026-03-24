@@ -110,9 +110,6 @@ const (
 	// mission nuke flags
 	forceFlagName = "force"
 
-	// server status flags
-	jsonFlagName = "json"
-
 	// paletteCommand flags
 	paletteCommandCommandFlagName     = "command"
 	paletteCommandTitleFlagName       = "title"
