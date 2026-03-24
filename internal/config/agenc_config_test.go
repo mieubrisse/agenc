@@ -1099,6 +1099,40 @@ func TestSanitizePrompt(t *testing.T) {
 	}
 }
 
+func TestValidateCronSchedule(t *testing.T) {
+	tests := []struct {
+		name     string
+		schedule string
+		wantErr  bool
+	}{
+		{name: "valid - daily at 9am", schedule: "0 9 * * *", wantErr: false},
+		{name: "valid - all wildcards", schedule: "* * * * *", wantErr: false},
+		{name: "valid - specific weekday", schedule: "0 9 * * 1", wantErr: false},
+		{name: "valid - sunday as 0", schedule: "0 0 * * 0", wantErr: false},
+		{name: "valid - sunday as 7 (normalized)", schedule: "0 0 * * 7", wantErr: false},
+		{name: "valid - specific day and month", schedule: "0 12 15 6 *", wantErr: false},
+		{name: "empty schedule", schedule: "", wantErr: true},
+		{name: "invalid - step value", schedule: "*/15 * * * *", wantErr: true},
+		{name: "invalid - range", schedule: "0 9 * * 1-5", wantErr: true},
+		{name: "invalid - list", schedule: "0 9,12 * * *", wantErr: true},
+		{name: "invalid - named day", schedule: "0 0 * * SUN", wantErr: true},
+		{name: "invalid - named month", schedule: "0 9 1 JAN *", wantErr: true},
+		{name: "invalid - too few fields", schedule: "0 9 *", wantErr: true},
+		{name: "invalid - too many fields", schedule: "0 0 9 * * * *", wantErr: true},
+		{name: "invalid - minute out of range", schedule: "60 9 * * *", wantErr: true},
+		{name: "invalid - hour out of range", schedule: "0 24 * * *", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCronSchedule(tt.schedule)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCronSchedule(%q) error = %v, wantErr %v", tt.schedule, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateCronTimeout_Bounds(t *testing.T) {
 	tests := []struct {
 		name    string

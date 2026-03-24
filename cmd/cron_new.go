@@ -74,11 +74,12 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 	// Get schedule
 	fmt.Println("\nEnter cron schedule (e.g., '0 9 * * *' for 9am daily):")
 	fmt.Println("  Format: minute hour day-of-month month day-of-week")
+	fmt.Println("  Only simple integers and '*' are supported (no ranges, lists, or step values).")
 	fmt.Println("  Common examples:")
 	fmt.Println("    0 9 * * *     - 9am every day")
-	fmt.Println("    0 9 * * 1-5   - 9am weekdays")
-	fmt.Println("    0 0 * * SUN   - midnight on Sundays")
-	fmt.Println("    */15 * * * *  - every 15 minutes")
+	fmt.Println("    0 9 * * 1     - 9am every Monday")
+	fmt.Println("    0 0 * * 0     - midnight on Sundays")
+	fmt.Println("    0 0 1 * *     - midnight on the 1st of each month")
 	fmt.Print("\nSchedule: ")
 
 	scheduleInput, err := reader.ReadString('\n')

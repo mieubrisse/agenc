@@ -14,6 +14,8 @@ import (
 	"github.com/adhocore/gronx"
 	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
+
+	"github.com/odyssey/agenc/internal/launchd"
 )
 
 // canonicalRepoRegex matches the canonical repo format: github.com/owner/repo
@@ -845,15 +847,17 @@ func ValidateCronName(name string) error {
 	return nil
 }
 
-// ValidateCronSchedule checks whether a cron schedule expression is valid.
-// Supports standard 5-field cron expressions and 6-field expressions with seconds.
+// ValidateCronSchedule checks whether a cron schedule expression is valid
+// and compatible with macOS launchd's StartCalendarInterval. Only simple
+// 5-field expressions with integer values or '*' are supported — no ranges,
+// lists, step values, or named days/months.
 func ValidateCronSchedule(schedule string) error {
 	if schedule == "" {
 		return stacktrace.NewError("cron schedule cannot be empty")
 	}
-	gron := gronx.New()
-	if !gron.IsValid(schedule) {
-		return stacktrace.NewError("invalid cron schedule '%s'; use standard cron syntax (e.g., '0 9 * * *' for 9am daily)", schedule)
+	_, err := launchd.ParseCronExpression(schedule)
+	if err != nil {
+		return stacktrace.Propagate(err, "invalid cron schedule '%s'; AgenC uses macOS launchd which only supports simple values (e.g., '0 9 * * *', '0 0 * * 0')", schedule)
 	}
 	return nil
 }
