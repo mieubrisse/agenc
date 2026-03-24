@@ -48,6 +48,7 @@ func (s *Server) handlePushEvent(w http.ResponseWriter, r *http.Request) error {
 type RepoResponse struct {
 	Name   string `json:"name"`
 	Synced bool   `json:"synced"`
+	Path   string `json:"path"`
 }
 
 // AddRepoRequest is the JSON body for POST /repos.
@@ -86,6 +87,7 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) error {
 		repos[i] = RepoResponse{
 			Name:   name,
 			Synced: cfg.IsAlwaysSynced(name),
+			Path:   config.GetRepoDirpath(s.agencDirpath, name),
 		}
 	}
 
