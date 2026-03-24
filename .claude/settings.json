@@ -1,10 +1,13 @@
 {
     "permissions": {
         "allow": [
+            "Read(.)",
             "Read(./**)",
             "Edit(./**)",
             "Write(./**)",
+            "Glob(.)",
             "Glob(./**)",
+            "Grep(.)",
             "Grep(./**)",
             "Read(~/.gitconfig)",
             "Read(~/.claude.json)",
