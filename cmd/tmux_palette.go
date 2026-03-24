@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -66,21 +67,70 @@ func buildPaletteEntries(callingMissionUUID string) ([]config.ResolvedPaletteCom
 
 	// Append "Open <repo>" entries for each repo in the library.
 	// These appear at the bottom of the palette, after all command entries.
+	// Repos are sorted by configuration tier: (title+emoji) > (title) > (emoji) > (neither),
+	// then alphabetically within each tier.
 	repoEntries := listRepoLibrary(agencDirpath)
+
+	type repoDisplayEntry struct {
+		repoName    string
+		emoji       string
+		displayName string
+		tier        int
+	}
+
+	var repoDisplayEntries []repoDisplayEntry
 	for _, repoEntry := range repoEntries {
-		emoji := "📦"
+		repoEmoji := ""
+		repoTitle := ""
 		if cfg != nil {
-			if e := cfg.GetRepoEmoji(repoEntry.RepoName); e != "" {
-				emoji = e
-			}
+			repoEmoji = cfg.GetRepoEmoji(repoEntry.RepoName)
+			repoTitle = cfg.GetRepoTitle(repoEntry.RepoName)
 		}
 
-		title := fmt.Sprintf("%s  Open %s", emoji, plainGitRepoName(repoEntry.RepoName))
-		command := fmt.Sprintf("agenc mission new %s", repoEntry.RepoName)
+		displayName := plainGitRepoName(repoEntry.RepoName)
+		if repoTitle != "" {
+			displayName = repoTitle
+		}
+
+		displayEmoji := "📦"
+		if repoEmoji != "" {
+			displayEmoji = repoEmoji
+		}
+
+		// Tier: 0 = title+emoji, 1 = title only, 2 = emoji only, 3 = neither
+		tier := 3
+		hasTitle := repoTitle != ""
+		hasEmoji := repoEmoji != ""
+		if hasTitle && hasEmoji {
+			tier = 0
+		} else if hasTitle {
+			tier = 1
+		} else if hasEmoji {
+			tier = 2
+		}
+
+		repoDisplayEntries = append(repoDisplayEntries, repoDisplayEntry{
+			repoName:    repoEntry.RepoName,
+			emoji:       displayEmoji,
+			displayName: displayName,
+			tier:        tier,
+		})
+	}
+
+	sort.Slice(repoDisplayEntries, func(i, j int) bool {
+		if repoDisplayEntries[i].tier != repoDisplayEntries[j].tier {
+			return repoDisplayEntries[i].tier < repoDisplayEntries[j].tier
+		}
+		return repoDisplayEntries[i].displayName < repoDisplayEntries[j].displayName
+	})
+
+	for _, rde := range repoDisplayEntries {
+		paletteTitle := fmt.Sprintf("%s  Open %s", rde.emoji, rde.displayName)
+		command := fmt.Sprintf("agenc mission new %s", rde.repoName)
 
 		entries = append(entries, config.ResolvedPaletteCommand{
-			Name:    "open-repo-" + repoEntry.RepoName,
-			Title:   title,
+			Name:    "open-repo-" + rde.repoName,
+			Title:   paletteTitle,
 			Command: command,
 		})
 	}
