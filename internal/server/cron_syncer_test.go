@@ -70,6 +70,14 @@ func (m *mockLaunchdManager) RemovePlist(plistPath string) error {
 	return nil
 }
 
+func (m *mockLaunchdManager) ListAgencCronJobs() ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockLaunchdManager) RemoveJobByLabel(label string) error {
+	return nil
+}
+
 func TestSyncCronJob_UnchangedContentSkipsReload(t *testing.T) {
 	agencDir := t.TempDir()
 	plistDir := t.TempDir()

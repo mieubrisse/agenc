@@ -21,6 +21,8 @@ type launchdManager interface {
 	LoadPlist(plistPath string) error
 	UnloadPlist(plistPath string) error
 	RemovePlist(plistPath string) error
+	ListAgencCronJobs() ([]string, error)
+	RemoveJobByLabel(label string) error
 }
 
 // CronSyncer manages synchronization of cron jobs to launchd plists.
@@ -56,6 +58,12 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 	// Remove plists for crons that no longer exist in config (also cleans up legacy-format plists)
 	if err := s.removeUnmatchedPlists(crons, logger); err != nil {
 		logger.Printf("Cron syncer: warning - failed to remove unmatched plists: %v", err)
+	}
+
+	// Remove launchd jobs that have no corresponding config entry (catches phantom jobs
+	// where the plist was deleted but launchd still has the job loaded)
+	if err := s.removeOrphanedLaunchdJobs(crons, logger); err != nil {
+		logger.Printf("Cron syncer: warning - failed to remove orphaned launchd jobs: %v", err)
 	}
 
 	// Get the path to the agenc binary
@@ -263,6 +271,47 @@ func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, l
 		logger.Printf("Cron syncer: removing legacy plist '%s'", filename)
 		if err := s.manager.RemovePlist(plistPath); err != nil {
 			logger.Printf("Cron syncer: failed to remove legacy plist '%s': %v", plistPath, err)
+		}
+	}
+
+	return nil
+}
+
+// removeOrphanedLaunchdJobs checks launchd for loaded agenc cron jobs that are not
+// in the current config and removes them. This catches phantom jobs that persist
+// when a plist file is deleted while the job is still loaded.
+func (s *CronSyncer) removeOrphanedLaunchdJobs(crons map[string]config.CronConfig, logger logger) error {
+	loadedJobs, err := s.manager.ListAgencCronJobs()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list loaded cron jobs")
+	}
+
+	// Build set of known cron IDs
+	knownIDs := make(map[string]bool, len(crons))
+	for _, cronCfg := range crons {
+		if cronCfg.ID != "" {
+			knownIDs[cronCfg.ID] = true
+		}
+	}
+
+	for _, label := range loadedJobs {
+		// Extract the ID from the label (agenc-cron.{UUID})
+		cronID := strings.TrimPrefix(label, launchd.CronPlistPrefix)
+
+		// Legacy labels (agenc-cron-{name}) won't match any UUID — always remove them
+		if strings.HasPrefix(label, launchd.LegacyCronPlistPrefix) && !strings.HasPrefix(label, launchd.CronPlistPrefix) {
+			logger.Printf("Cron syncer: removing orphaned legacy launchd job '%s'", label)
+			if err := s.manager.RemoveJobByLabel(label); err != nil {
+				logger.Printf("Cron syncer: failed to remove orphaned job '%s': %v", label, err)
+			}
+			continue
+		}
+
+		if !knownIDs[cronID] {
+			logger.Printf("Cron syncer: removing orphaned launchd job '%s'", label)
+			if err := s.manager.RemoveJobByLabel(label); err != nil {
+				logger.Printf("Cron syncer: failed to remove orphaned job '%s': %v", label, err)
+			}
 		}
 	}
 
