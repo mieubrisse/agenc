@@ -291,7 +291,13 @@ func selectFromRepoLibrary(agencDirpath string, entries []repoLibraryEntry, init
 	rows = append(rows, []string{"🐙  Github Repo"})
 	cfg, _, _ := config.ReadAgencConfig(agencDirpath)
 	for _, entry := range entries {
-		rows = append(rows, []string{formatRepoDisplay(entry.RepoName, false, cfg)})
+		display := formatRepoDisplay(entry.RepoName, false, cfg)
+		// Add default 📦 icon for repos without a configured emoji to keep
+		// the picker visually uniform (every row has an icon).
+		if cfg == nil || cfg.GetRepoEmoji(entry.RepoName) == "" {
+			display = "📦  " + display
+		}
+		rows = append(rows, []string{display})
 	}
 
 	sentinelRow := []string{"😶  Blank Mission"}

@@ -117,7 +117,10 @@ func inspectMission(agencDirpath string, missionID string) error {
 		fmt.Printf("Type:        🤖  Adjutant\n")
 	} else if mission.GitRepo != "" {
 		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
-		fmt.Printf("Title:       %s\n", formatRepoDisplay(mission.GitRepo, false, cfg))
+		repoDisplay := formatRepoDisplay(mission.GitRepo, false, cfg)
+		if repoDisplay != displayGitRepo(mission.GitRepo) {
+			fmt.Printf("Title:       %s\n", repoDisplay)
+		}
 	}
 	sessionName := resolveSessionName(mission)
 	if sessionName == "" {
