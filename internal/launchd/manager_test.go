@@ -20,19 +20,19 @@ func TestNewManager(t *testing.T) {
 
 func TestGetPlistPathForLabel(t *testing.T) {
 	tests := []struct {
-		name      string
-		label     string
-		wantLabel string
+		name         string
+		label        string
+		wantFilename string
 	}{
 		{
-			name:      "simple label",
-			label:     "agenc-cron-test",
-			wantLabel: "test",
+			name:         "current format with UUID",
+			label:        "agenc-cron.a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+			wantFilename: "agenc-cron.a1b2c3d4-e5f6-7890-abcd-ef1234567890.plist",
 		},
 		{
-			name:      "label with dashes",
-			label:     "agenc-cron-my-cron-job",
-			wantLabel: "my-cron-job",
+			name:         "legacy format with name",
+			label:        "agenc-cron-my-cron-job",
+			wantFilename: "agenc-cron.my-cron-job.plist",
 		},
 	}
 
@@ -42,9 +42,8 @@ func TestGetPlistPathForLabel(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetPlistPathForLabel() error = %v", err)
 			}
-			expectedFilename := "agenc-cron-" + tt.wantLabel + ".plist"
-			if filepath.Base(path) != expectedFilename {
-				t.Errorf("GetPlistPathForLabel() = %v, want filename %v", filepath.Base(path), expectedFilename)
+			if filepath.Base(path) != tt.wantFilename {
+				t.Errorf("GetPlistPathForLabel() filename = %v, want %v", filepath.Base(path), tt.wantFilename)
 			}
 		})
 	}

@@ -3,7 +3,6 @@ package launchd
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,7 +88,8 @@ func (m *Manager) RemovePlist(plistPath string) error {
 	return nil
 }
 
-// ListAgencCronJobs returns a list of all agenc-cron-* job labels currently loaded in launchd.
+// ListAgencCronJobs returns a list of all agenc cron job labels currently loaded in launchd.
+// Checks both the current prefix (agenc-cron.) and the legacy prefix (agenc-cron-).
 func (m *Manager) ListAgencCronJobs() ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), m.timeout)
 	defer cancel()
@@ -106,11 +106,10 @@ func (m *Manager) ListAgencCronJobs() ([]string, error) {
 	lines := strings.Split(out.String(), "\n")
 	for _, line := range lines {
 		// Each line format: "PID\tStatus\tLabel"
-		// We're looking for labels starting with "agenc-cron-"
 		fields := strings.Fields(line)
 		if len(fields) >= 3 {
 			label := fields[2]
-			if strings.HasPrefix(label, "agenc-cron-") {
+			if strings.HasPrefix(label, CronPlistPrefix) || strings.HasPrefix(label, LegacyCronPlistPrefix) {
 				cronJobs = append(cronJobs, label)
 			}
 		}
@@ -149,9 +148,14 @@ func (m *Manager) RemoveJobByLabel(label string) error {
 
 // GetPlistPathForLabel returns the expected plist file path for a given label.
 func GetPlistPathForLabel(label string) (string, error) {
-	// Extract cron name from label (agenc-cron-{cronName})
-	cronName := strings.TrimPrefix(label, "agenc-cron-")
-	filename := fmt.Sprintf("agenc-cron-%s.plist", cronName)
+	var cronID string
+	if strings.HasPrefix(label, CronPlistPrefix) {
+		cronID = strings.TrimPrefix(label, CronPlistPrefix)
+	} else {
+		// Legacy label format: agenc-cron-{name}
+		cronID = strings.TrimPrefix(label, LegacyCronPlistPrefix)
+	}
+	filename := CronToPlistFilename(cronID)
 	dirpath, err := PlistDirpath()
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to get plist directory")

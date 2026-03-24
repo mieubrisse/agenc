@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -157,16 +156,21 @@ func (p *Plist) WriteToDisk(targetPath string) error {
 	return nil
 }
 
-// specialCharsRegexp matches characters that are not alphanumeric, dash, or underscore.
-var specialCharsRegexp = regexp.MustCompile(`[^a-zA-Z0-9\-_]`)
+// CronPlistPrefix is the prefix for all cron plist filenames and launchd labels.
+const CronPlistPrefix = "agenc-cron."
 
-// CronToPlistFilename converts a cron name to a plist filename.
-// Spaces are replaced with hyphens and special characters (anything that is not
-// alphanumeric, dash, or underscore) are stripped.
-func CronToPlistFilename(cronName string) string {
-	sanitized := strings.ReplaceAll(cronName, " ", "-")
-	sanitized = specialCharsRegexp.ReplaceAllString(sanitized, "")
-	return fmt.Sprintf("agenc-cron-%s.plist", sanitized)
+// LegacyCronPlistPrefix is the old prefix used before the UUID-based naming switch.
+// Used only for migration cleanup.
+const LegacyCronPlistPrefix = "agenc-cron-"
+
+// CronToPlistFilename returns the plist filename for a cron job identified by its UUID.
+func CronToPlistFilename(cronID string) string {
+	return fmt.Sprintf("%s%s.plist", CronPlistPrefix, cronID)
+}
+
+// CronToLabel returns the launchd label for a cron job identified by its UUID.
+func CronToLabel(cronID string) string {
+	return CronPlistPrefix + cronID
 }
 
 // PlistDirpath returns the path to the LaunchAgents directory.

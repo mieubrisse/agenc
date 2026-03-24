@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/launchd"
 )
 
 func TestNewCronSyncer(t *testing.T) {
@@ -96,7 +97,7 @@ func TestSyncCronJob_UnchangedContentSkipsReload(t *testing.T) {
 
 	// Mark as loaded for second sync, reset call tracking
 	mock.loadCalls = nil
-	mock.loadedLabels["agenc-cron-test-job"] = true
+	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
 
 	// Second sync with same config: should NOT call load or unload
 	err = syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
@@ -134,7 +135,7 @@ func TestSyncCronJob_ContentChangeTriggersReload(t *testing.T) {
 	}
 
 	// Mark as loaded, reset call tracking
-	mock.loadedLabels["agenc-cron-test-job"] = true
+	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
 	mock.loadCalls = nil
 	mock.unloadCalls = nil
 
@@ -175,7 +176,7 @@ func TestSyncCronJob_NewCronWritesAndLoads(t *testing.T) {
 	}
 
 	// Should have written the plist file
-	plistPath := filepath.Join(plistDir, "agenc-cron-new-job.plist")
+	plistPath := filepath.Join(plistDir, launchd.CronToPlistFilename("new-uuid-5678"))
 	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
 		t.Error("expected plist file to be written")
 	}

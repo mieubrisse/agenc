@@ -48,9 +48,9 @@ func newCronSyncerWithManager(agencDirpath string, manager launchdManager) *Cron
 // This function is idempotent and can be called on server startup and whenever
 // the config changes.
 func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logger logger) error {
-	// First, reconcile orphaned plists on startup
-	if err := s.reconcileOrphanedPlists(crons, logger); err != nil {
-		logger.Printf("Cron syncer: warning - failed to reconcile orphaned plists: %v", err)
+	// Remove plists for crons that no longer exist in config (also cleans up legacy-format plists)
+	if err := s.removeUnmatchedPlists(crons, logger); err != nil {
+		logger.Printf("Cron syncer: warning - failed to remove unmatched plists: %v", err)
 	}
 
 	// Get the path to the agenc binary
@@ -82,11 +82,6 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 		}
 	}
 
-	// Remove plists for crons that no longer exist in config
-	if err := s.removeDeletedCronPlists(crons, logger); err != nil {
-		logger.Printf("Cron syncer: warning - failed to remove deleted cron plists: %v", err)
-	}
-
 	logger.Printf("Cron syncer: synced %d cron jobs to launchd", len(crons))
 	return nil
 }
@@ -95,9 +90,9 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 // launchd load state. Only writes the plist file and reloads launchd when the
 // generated content differs from the existing file on disk.
 func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDirpath string, execPath string, logger logger) error {
-	plistFilename := launchd.CronToPlistFilename(name)
+	plistFilename := launchd.CronToPlistFilename(cronCfg.ID)
 	plistPath := filepath.Join(plistDirpath, plistFilename)
-	label := fmt.Sprintf("agenc-cron-%s", name)
+	label := launchd.CronToLabel(cronCfg.ID)
 
 	// Parse the cron schedule
 	calInterval, err := launchd.ParseCronExpression(cronCfg.Schedule)
@@ -200,56 +195,62 @@ func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDi
 }
 
 // removeUnmatchedPlists removes plist files that don't correspond to any cron in the config.
-func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, logger logger, operation string) error {
+// Matches by UUID extracted from the filename (agenc-cron.{UUID}.plist).
+func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, logger logger) error {
 	plistDirpath, err := launchd.PlistDirpath()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get plist directory")
 	}
 
-	// List all agenc-cron-*.plist files
-	pattern := filepath.Join(plistDirpath, "agenc-cron-*.plist")
+	// Build set of known cron IDs for fast lookup
+	knownIDs := make(map[string]bool, len(crons))
+	for _, cronCfg := range crons {
+		if cronCfg.ID != "" {
+			knownIDs[cronCfg.ID] = true
+		}
+	}
+
+	// Scan for current-format plists: agenc-cron.*.plist
+	pattern := filepath.Join(plistDirpath, launchd.CronPlistPrefix+"*.plist")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to glob plist files")
 	}
 
 	for _, plistPath := range matches {
-		// Extract the cron name from the filename
 		filename := filepath.Base(plistPath)
-		// Remove "agenc-cron-" prefix and ".plist" suffix
-		cronName := strings.TrimPrefix(filename, "agenc-cron-")
-		cronName = strings.TrimSuffix(cronName, ".plist")
+		cronID := strings.TrimPrefix(filename, launchd.CronPlistPrefix)
+		cronID = strings.TrimSuffix(cronID, ".plist")
 
-		// Check if this cron exists in the config
-		// Cron names are used directly without sanitization
-		found := false
-		for name := range crons {
-			if name == cronName {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			logger.Printf("Cron syncer: %s plist for '%s'", operation, cronName)
+		if !knownIDs[cronID] {
+			logger.Printf("Cron syncer: removing orphaned plist for ID '%s'", cronID)
 			if err := s.manager.RemovePlist(plistPath); err != nil {
 				logger.Printf("Cron syncer: failed to remove plist '%s': %v", plistPath, err)
 			}
 		}
 	}
 
+	// Also clean up legacy-format plists: agenc-cron-*.plist
+	// These were created before the UUID-based naming switch and should all be removed.
+	legacyPattern := filepath.Join(plistDirpath, launchd.LegacyCronPlistPrefix+"*.plist")
+	legacyMatches, err := filepath.Glob(legacyPattern)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to glob legacy plist files")
+	}
+
+	for _, plistPath := range legacyMatches {
+		// Skip files that match the current format (agenc-cron.* starts with agenc-cron-)
+		filename := filepath.Base(plistPath)
+		if strings.HasPrefix(filename, launchd.CronPlistPrefix) {
+			continue
+		}
+		logger.Printf("Cron syncer: removing legacy plist '%s'", filename)
+		if err := s.manager.RemovePlist(plistPath); err != nil {
+			logger.Printf("Cron syncer: failed to remove legacy plist '%s': %v", plistPath, err)
+		}
+	}
+
 	return nil
-}
-
-// reconcileOrphanedPlists scans the LaunchAgents directory for agenc-cron-*.plist files
-// that are not in the current config and removes them (unload + delete).
-func (s *CronSyncer) reconcileOrphanedPlists(crons map[string]config.CronConfig, logger logger) error {
-	return s.removeUnmatchedPlists(crons, logger, "removing orphaned")
-}
-
-// removeDeletedCronPlists removes plists for crons that no longer exist in the config.
-func (s *CronSyncer) removeDeletedCronPlists(crons map[string]config.CronConfig, logger logger) error {
-	return s.removeUnmatchedPlists(crons, logger, "removing deleted")
 }
 
 // logger is a minimal interface for logging that's compatible with log.Logger.

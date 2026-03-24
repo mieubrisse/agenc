@@ -180,39 +180,37 @@ func TestParseCronExpression(t *testing.T) {
 
 func TestCronToPlistFilename(t *testing.T) {
 	tests := []struct {
-		name     string
-		cronName string
-		want     string
+		name   string
+		cronID string
+		want   string
 	}{
 		{
-			name:     "simple name",
-			cronName: "my-cron",
-			want:     "agenc-cron-my-cron.plist",
+			name:   "UUID-style ID",
+			cronID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+			want:   "agenc-cron.a1b2c3d4-e5f6-7890-abcd-ef1234567890.plist",
 		},
 		{
-			name:     "name with spaces",
-			cronName: "my cron job",
-			want:     "agenc-cron-my-cron-job.plist",
-		},
-		{
-			name:     "name with special characters",
-			cronName: "my@cron#job!",
-			want:     "agenc-cron-mycronjob.plist",
-		},
-		{
-			name:     "name with underscores",
-			cronName: "my_cron_job",
-			want:     "agenc-cron-my_cron_job.plist",
+			name:   "short ID",
+			cronID: "abc123",
+			want:   "agenc-cron.abc123.plist",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CronToPlistFilename(tt.cronName)
+			got := CronToPlistFilename(tt.cronID)
 			if got != tt.want {
 				t.Errorf("CronToPlistFilename() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCronToLabel(t *testing.T) {
+	got := CronToLabel("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	want := "agenc-cron.a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	if got != want {
+		t.Errorf("CronToLabel() = %v, want %v", got, want)
 	}
 }
 

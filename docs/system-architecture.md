@@ -571,7 +571,7 @@ config.yml → fsnotify → server → cron syncer → launchd plists → launch
 The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`) handles synchronization:
 
 **Plist management:**
-- Each cron job generates a plist file: `agenc-cron-{cronName}.plist`
+- Each cron job generates a plist file: `agenc-cron.{cronUUID}.plist` (UUID-based naming prevents collision and enables reliable reverse lookup)
 - Plists contain `StartCalendarInterval` scheduling directives parsed from cron expressions
 - Enabled crons: plist is written and loaded into launchd
 - Disabled crons: plist is unloaded from launchd (but file remains)
@@ -582,7 +582,7 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 **Sync triggers:**
 - On server startup: full sync of all crons
 - On `config.yml` change: incremental sync (debounced at 500ms)
-- Orphan cleanup: on startup, scans `~/Library/LaunchAgents/` for `agenc-cron-*.plist` files not in config and removes them (unload + delete)
+- Orphan cleanup: on each sync, scans `~/Library/LaunchAgents/` for `agenc-cron.*` plist files whose UUID is not in config and removes them (unload + delete). Also removes legacy `agenc-cron-*` plists from the pre-UUID naming scheme.
 
 **Execution flow:**
 1. launchd triggers at scheduled time
