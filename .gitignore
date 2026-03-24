@@ -35,4 +35,3 @@ internal/claudeconfig/prime_content.md
 .dolt/
 *.db
 .beads-credential-key
-AGENTS.md
