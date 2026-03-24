@@ -39,10 +39,12 @@ func TestSyncCronsToLaunchd_EmptyCrons(t *testing.T) {
 
 // mockLaunchdManager records calls for verification.
 type mockLaunchdManager struct {
-	loadedLabels map[string]bool
-	loadCalls    []string
-	unloadCalls  []string
-	removeCalls  []string
+	loadedLabels    map[string]bool
+	loadCalls       []string
+	unloadCalls     []string
+	removeCalls     []string
+	removeJobCalls  []string
+	loadedJobLabels []string // returned by ListAgencCronJobs
 }
 
 func newMockManager() *mockLaunchdManager {
@@ -71,10 +73,11 @@ func (m *mockLaunchdManager) RemovePlist(plistPath string) error {
 }
 
 func (m *mockLaunchdManager) ListAgencCronJobs() ([]string, error) {
-	return nil, nil
+	return m.loadedJobLabels, nil
 }
 
 func (m *mockLaunchdManager) RemoveJobByLabel(label string) error {
+	m.removeJobCalls = append(m.removeJobCalls, label)
 	return nil
 }
 
@@ -192,6 +195,124 @@ func TestSyncCronJob_NewCronWritesAndLoads(t *testing.T) {
 	// Should have called LoadPlist
 	if len(mock.loadCalls) != 1 {
 		t.Errorf("expected 1 load call, got %d", len(mock.loadCalls))
+	}
+}
+
+func TestSyncCronJob_DisabledCronUnloads(t *testing.T) {
+	agencDir := t.TempDir()
+	plistDir := t.TempDir()
+
+	mock := newMockManager()
+	syncer := newCronSyncerWithManager(agencDir, mock)
+
+	enabled := false
+	cronCfg := config.CronConfig{
+		ID:       "disabled-uuid",
+		Schedule: "0 9 * * *",
+		Prompt:   "disabled job",
+		Enabled:  &enabled,
+	}
+
+	testLog := &syncerTestLogger{}
+
+	// First sync with enabled to create the plist
+	enabledCfg := cronCfg
+	enabledVal := true
+	enabledCfg.Enabled = &enabledVal
+	err := syncer.syncCronJob("test-job", enabledCfg, plistDir, "/usr/bin/agenc", testLog)
+	if err != nil {
+		t.Fatalf("initial sync failed: %v", err)
+	}
+
+	// Mark as loaded, reset tracking
+	mock.loadedLabels[launchd.CronToLabel("disabled-uuid")] = true
+	mock.loadCalls = nil
+	mock.unloadCalls = nil
+
+	// Sync with disabled config: should unload
+	err = syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
+	if err != nil {
+		t.Fatalf("disabled sync failed: %v", err)
+	}
+	if len(mock.unloadCalls) != 1 {
+		t.Errorf("expected 1 unload call for disabled cron, got %d", len(mock.unloadCalls))
+	}
+	if len(mock.loadCalls) != 0 {
+		t.Errorf("expected 0 load calls for disabled cron, got %d", len(mock.loadCalls))
+	}
+}
+
+func TestSyncCronJob_DisabledNotLoadedIsNoop(t *testing.T) {
+	agencDir := t.TempDir()
+	plistDir := t.TempDir()
+
+	mock := newMockManager()
+	syncer := newCronSyncerWithManager(agencDir, mock)
+
+	enabled := false
+	cronCfg := config.CronConfig{
+		ID:       "disabled-uuid",
+		Schedule: "0 9 * * *",
+		Prompt:   "disabled job",
+		Enabled:  &enabled,
+	}
+
+	testLog := &syncerTestLogger{}
+
+	// Sync disabled cron that's not loaded: should not call unload or load
+	err := syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
+	if err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+	if len(mock.unloadCalls) != 0 {
+		t.Errorf("expected 0 unload calls, got %d", len(mock.unloadCalls))
+	}
+	if len(mock.loadCalls) != 0 {
+		t.Errorf("expected 0 load calls, got %d", len(mock.loadCalls))
+	}
+}
+
+func TestRemoveOrphanedLaunchdJobs(t *testing.T) {
+	agencDir := t.TempDir()
+
+	mock := newMockManager()
+	// Simulate launchd having jobs for known UUID, unknown UUID, and legacy label
+	mock.loadedJobLabels = []string{
+		launchd.CronToLabel("known-uuid"),
+		launchd.CronToLabel("orphan-uuid"),
+		"agenc-cron-legacy-name",
+	}
+
+	syncer := newCronSyncerWithManager(agencDir, mock)
+
+	crons := map[string]config.CronConfig{
+		"my-cron": {ID: "known-uuid", Schedule: "0 9 * * *", Prompt: "test"},
+	}
+
+	testLog := &syncerTestLogger{}
+	err := syncer.removeOrphanedLaunchdJobs(crons, testLog)
+	if err != nil {
+		t.Fatalf("removeOrphanedLaunchdJobs failed: %v", err)
+	}
+
+	// Should have removed the orphan UUID and legacy label, but NOT the known one
+	if len(mock.removeJobCalls) != 2 {
+		t.Fatalf("expected 2 removeJobByLabel calls, got %d: %v", len(mock.removeJobCalls), mock.removeJobCalls)
+	}
+
+	removed := make(map[string]bool)
+	for _, label := range mock.removeJobCalls {
+		removed[label] = true
+	}
+
+	if !removed[launchd.CronToLabel("orphan-uuid")] {
+		t.Error("expected orphan-uuid to be removed")
+	}
+	if !removed["agenc-cron-legacy-name"] {
+		t.Error("expected legacy label to be removed")
+	}
+	if removed[launchd.CronToLabel("known-uuid")] {
+		t.Error("known-uuid should NOT have been removed")
 	}
 }
 
