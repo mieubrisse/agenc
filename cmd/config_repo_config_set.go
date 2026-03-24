@@ -45,14 +45,12 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("repo must be in canonical format 'github.com/owner/repo'; got '%s'", repoName)
 	}
 
-	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
-	emojiChanged := cmd.Flags().Changed(repoConfigEmojiFlagName)
-	titleChanged := cmd.Flags().Changed(repoConfigTitleFlagName)
-	trustedChanged := cmd.Flags().Changed(repoConfigTrustedMcpServersFlagName)
-	defaultModelChanged := cmd.Flags().Changed(repoConfigDefaultModelFlagName)
-	postUpdateHookChanged := cmd.Flags().Changed(repoConfigPostUpdateHookFlagName)
-
-	if !alwaysSyncedChanged && !emojiChanged && !titleChanged && !trustedChanged && !defaultModelChanged && !postUpdateHookChanged {
+	allFlags := []string{
+		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName,
+		repoConfigTitleFlagName, repoConfigTrustedMcpServersFlagName,
+		repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName,
+	}
+	if !anyFlagChanged(cmd, allFlags) {
 		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, --%s, or --%s must be provided",
 			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName)
 	}
@@ -68,35 +66,33 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 
 	rc, _ := cfg.GetRepoConfig(repoName)
 
-	if alwaysSyncedChanged {
-		synced, err := cmd.Flags().GetBool(repoConfigAlwaysSyncedFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigAlwaysSyncedFlagName)
-		}
+	if err := applyBoolFlag(cmd, repoConfigAlwaysSyncedFlagName, func(synced bool) error {
 		rc.AlwaysSynced = synced
+		return nil
+	}); err != nil {
+		return err
 	}
 
-	if emojiChanged {
-		emoji, err := cmd.Flags().GetString(repoConfigEmojiFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigEmojiFlagName)
+	// Simple string fields that map directly to struct fields
+	simpleStringFields := []struct {
+		flagName string
+		target   *string
+	}{
+		{repoConfigEmojiFlagName, &rc.Emoji},
+		{repoConfigTitleFlagName, &rc.Title},
+		{repoConfigDefaultModelFlagName, &rc.DefaultModel},
+		{repoConfigPostUpdateHookFlagName, &rc.PostUpdateHook},
+	}
+	for _, f := range simpleStringFields {
+		if err := applyStringFlag(cmd, f.flagName, func(value string) error {
+			*f.target = value
+			return nil
+		}); err != nil {
+			return err
 		}
-		rc.Emoji = emoji
 	}
 
-	if titleChanged {
-		title, err := cmd.Flags().GetString(repoConfigTitleFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigTitleFlagName)
-		}
-		rc.Title = title
-	}
-
-	if trustedChanged {
-		raw, err := cmd.Flags().GetString(repoConfigTrustedMcpServersFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigTrustedMcpServersFlagName)
-		}
+	if err := applyStringFlag(cmd, repoConfigTrustedMcpServersFlagName, func(raw string) error {
 		if raw == "" {
 			rc.TrustedMcpServers = nil
 		} else if raw == "all" {
@@ -114,22 +110,9 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 			}
 			rc.TrustedMcpServers = &config.TrustedMcpServers{List: servers}
 		}
-	}
-
-	if defaultModelChanged {
-		model, err := cmd.Flags().GetString(repoConfigDefaultModelFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigDefaultModelFlagName)
-		}
-		rc.DefaultModel = model
-	}
-
-	if postUpdateHookChanged {
-		hook, err := cmd.Flags().GetString(repoConfigPostUpdateHookFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigPostUpdateHookFlagName)
-		}
-		rc.PostUpdateHook = hook
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	cfg.SetRepoConfig(repoName, rc)

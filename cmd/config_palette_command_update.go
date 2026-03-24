@@ -49,13 +49,12 @@ func init() {
 func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	titleChanged := cmd.Flags().Changed(paletteCommandTitleFlagName)
-	commandChanged := cmd.Flags().Changed(paletteCommandCommandFlagName)
-	keybindingChanged := cmd.Flags().Changed(paletteCommandKeybindingFlagName)
-	descriptionChanged := cmd.Flags().Changed(paletteCommandDescriptionFlagName)
-	disabledChanged := cmd.Flags().Changed(paletteCommandDisabledFlagName)
-
-	if !titleChanged && !commandChanged && !keybindingChanged && !descriptionChanged && !disabledChanged {
+	allFlags := []string{
+		paletteCommandTitleFlagName, paletteCommandCommandFlagName,
+		paletteCommandKeybindingFlagName, paletteCommandDescriptionFlagName,
+		paletteCommandDisabledFlagName,
+	}
+	if !anyFlagChanged(cmd, allFlags) {
 		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, or --%s must be provided",
 			paletteCommandTitleFlagName, paletteCommandCommandFlagName,
 			paletteCommandKeybindingFlagName, paletteCommandDescriptionFlagName,
@@ -80,45 +79,30 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 			name, agencCmdStr, configCmdStr, paletteCommandCmdStr, addCmdStr)
 	}
 
-	// Apply changes to the config entry
-	if titleChanged {
-		newTitle, err := cmd.Flags().GetString(paletteCommandTitleFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandTitleFlagName)
+	// Apply string flags that map to *string fields
+	stringPtrFields := []struct {
+		flagName string
+		target   **string
+	}{
+		{paletteCommandTitleFlagName, &existing.Title},
+		{paletteCommandCommandFlagName, &existing.Command},
+		{paletteCommandKeybindingFlagName, &existing.TmuxKeybinding},
+		{paletteCommandDescriptionFlagName, &existing.Description},
+	}
+	for _, f := range stringPtrFields {
+		if err := applyStringFlag(cmd, f.flagName, func(value string) error {
+			*f.target = config.StringPtr(value)
+			return nil
+		}); err != nil {
+			return err
 		}
-		existing.Title = config.StringPtr(newTitle)
 	}
 
-	if commandChanged {
-		newCommand, err := cmd.Flags().GetString(paletteCommandCommandFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandCommandFlagName)
-		}
-		existing.Command = config.StringPtr(newCommand)
-	}
-
-	if keybindingChanged {
-		newKeybinding, err := cmd.Flags().GetString(paletteCommandKeybindingFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandKeybindingFlagName)
-		}
-		existing.TmuxKeybinding = config.StringPtr(newKeybinding)
-	}
-
-	if descriptionChanged {
-		newDescription, err := cmd.Flags().GetString(paletteCommandDescriptionFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandDescriptionFlagName)
-		}
-		existing.Description = config.StringPtr(newDescription)
-	}
-
-	if disabledChanged {
-		newDisabled, err := cmd.Flags().GetBool(paletteCommandDisabledFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", paletteCommandDisabledFlagName)
-		}
-		existing.Disabled = newDisabled
+	if err := applyBoolFlag(cmd, paletteCommandDisabledFlagName, func(disabled bool) error {
+		existing.Disabled = disabled
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	if cfg.PaletteCommands == nil {

@@ -70,96 +70,8 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 			name, agencCmdStr, configCmdStr, cronCmdStr, addCmdStr, name)
 	}
 
-	// Track which flags were changed
-	scheduleChanged := cmd.Flags().Changed(cronConfigScheduleFlagName)
-	promptChanged := cmd.Flags().Changed(cronConfigPromptFlagName)
-	descriptionChanged := cmd.Flags().Changed(cronConfigDescriptionFlagName)
-	repoChanged := cmd.Flags().Changed(cronConfigRepoFlagName)
-	timeoutChanged := cmd.Flags().Changed(cronConfigTimeoutFlagName)
-	overlapChanged := cmd.Flags().Changed(cronConfigOverlapFlagName)
-	enabledChanged := cmd.Flags().Changed(cronConfigEnabledFlagName)
-
-	// Check that at least one flag was provided
-	if !scheduleChanged && !promptChanged && !descriptionChanged &&
-		!repoChanged && !timeoutChanged && !overlapChanged && !enabledChanged {
-		return stacktrace.NewError("at least one configuration flag must be provided")
-	}
-
-	// Update fields
-	if scheduleChanged {
-		schedule, err := cmd.Flags().GetString(cronConfigScheduleFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigScheduleFlagName)
-		}
-		if err := config.ValidateCronSchedule(schedule); err != nil {
-			return err
-		}
-		cronCfg.Schedule = schedule
-	}
-
-	if promptChanged {
-		prompt, err := cmd.Flags().GetString(cronConfigPromptFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigPromptFlagName)
-		}
-		if prompt == "" {
-			return stacktrace.NewError("prompt cannot be empty")
-		}
-		cronCfg.Prompt = prompt
-	}
-
-	if descriptionChanged {
-		description, err := cmd.Flags().GetString(cronConfigDescriptionFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigDescriptionFlagName)
-		}
-		cronCfg.Description = description
-	}
-
-	if repoChanged {
-		repo, err := cmd.Flags().GetString(cronConfigRepoFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigRepoFlagName)
-		}
-		if repo != "" {
-			result, err := ResolveRepoInput(repo, "Select repo: ")
-			if err != nil {
-				return stacktrace.Propagate(err, "failed to resolve repo")
-			}
-			repo = result.RepoName
-		}
-		cronCfg.Repo = repo
-	}
-
-	if timeoutChanged {
-		timeout, err := cmd.Flags().GetString(cronConfigTimeoutFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigTimeoutFlagName)
-		}
-		if err := config.ValidateCronTimeout(timeout); err != nil {
-			return err
-		}
-		cronCfg.Timeout = timeout
-	}
-
-	if overlapChanged {
-		overlap, err := cmd.Flags().GetString(cronConfigOverlapFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigOverlapFlagName)
-		}
-		overlapPolicy := config.CronOverlapPolicy(overlap)
-		if err := config.ValidateCronOverlapPolicy(overlapPolicy); err != nil {
-			return err
-		}
-		cronCfg.Overlap = overlapPolicy
-	}
-
-	if enabledChanged {
-		enabled, err := cmd.Flags().GetBool(cronConfigEnabledFlagName)
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigEnabledFlagName)
-		}
-		cronCfg.Enabled = &enabled
+	if err := applyCronUpdateFlags(cmd, &cronCfg); err != nil {
+		return err
 	}
 
 	cfg.Crons[name] = cronCfg
@@ -170,4 +82,86 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Updated cron job '%s'\n", name)
 	return nil
+}
+
+// applyCronUpdateFlags reads all changed flags from the command and applies
+// them to the cron config. Returns an error if no flags were changed or if
+// any flag value is invalid.
+func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error {
+	allFlags := []string{
+		cronConfigScheduleFlagName, cronConfigPromptFlagName,
+		cronConfigDescriptionFlagName, cronConfigRepoFlagName,
+		cronConfigTimeoutFlagName, cronConfigOverlapFlagName,
+		cronConfigEnabledFlagName,
+	}
+	if !anyFlagChanged(cmd, allFlags) {
+		return stacktrace.NewError("at least one configuration flag must be provided")
+	}
+
+	if err := applyStringFlag(cmd, cronConfigScheduleFlagName, func(schedule string) error {
+		if err := config.ValidateCronSchedule(schedule); err != nil {
+			return err
+		}
+		cronCfg.Schedule = schedule
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := applyStringFlag(cmd, cronConfigPromptFlagName, func(prompt string) error {
+		if prompt == "" {
+			return stacktrace.NewError("prompt cannot be empty")
+		}
+		cronCfg.Prompt = prompt
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := applyStringFlag(cmd, cronConfigDescriptionFlagName, func(description string) error {
+		cronCfg.Description = description
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := applyStringFlag(cmd, cronConfigRepoFlagName, func(repo string) error {
+		if repo != "" {
+			result, err := ResolveRepoInput(repo, "Select repo: ")
+			if err != nil {
+				return stacktrace.Propagate(err, "failed to resolve repo")
+			}
+			repo = result.RepoName
+		}
+		cronCfg.Repo = repo
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := applyStringFlag(cmd, cronConfigTimeoutFlagName, func(timeout string) error {
+		if err := config.ValidateCronTimeout(timeout); err != nil {
+			return err
+		}
+		cronCfg.Timeout = timeout
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if err := applyStringFlag(cmd, cronConfigOverlapFlagName, func(overlap string) error {
+		overlapPolicy := config.CronOverlapPolicy(overlap)
+		if err := config.ValidateCronOverlapPolicy(overlapPolicy); err != nil {
+			return err
+		}
+		cronCfg.Overlap = overlapPolicy
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	return applyBoolFlag(cmd, cronConfigEnabledFlagName, func(enabled bool) error {
+		cronCfg.Enabled = &enabled
+		return nil
+	})
 }
