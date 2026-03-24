@@ -122,7 +122,7 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigRepoFlagName)
 		}
 		if repo != "" {
-			result, err := ResolveRepoInput(agencDirpath, repo, "Select repo: ")
+			result, err := ResolveRepoInput(repo, "Select repo: ")
 			if err != nil {
 				return stacktrace.Propagate(err, "failed to resolve repo")
 			}

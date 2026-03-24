@@ -89,7 +89,7 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 
 	repo, _ := cmd.Flags().GetString(cronConfigRepoFlagName)
 	if repo != "" {
-		result, err := ResolveRepoInput(agencDirpath, repo, "Select repo: ")
+		result, err := ResolveRepoInput(repo, "Select repo: ")
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve repo")
 		}

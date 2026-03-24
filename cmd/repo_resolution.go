@@ -24,7 +24,7 @@ import (
 // If exactly one repo matches, it's auto-selected. Otherwise, the user is dropped into fzf.
 //
 // If fzfPrompt is empty, a default prompt is used.
-func ResolveRepoInput(agencDirpath string, input string, fzfPrompt string) (*repo.RepoResolutionResult, error) {
+func ResolveRepoInput(input string, fzfPrompt string) (*repo.RepoResolutionResult, error) {
 	// Normalize the input
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -34,16 +34,21 @@ func ResolveRepoInput(agencDirpath string, input string, fzfPrompt string) (*rep
 	// Check if input looks like a repo reference (vs search terms)
 	if repo.LooksLikeRepoReference(input) {
 		defaultGitHubUser := repo.GetDefaultGitHubUser()
-		return resolveAsRepoReferenceWithPrompt(agencDirpath, input, defaultGitHubUser)
+		return resolveAsRepoReferenceWithPrompt(input, defaultGitHubUser)
 	}
 
 	// Treat input as search terms
-	return resolveAsSearchTerms(agencDirpath, input, fzfPrompt)
+	return resolveAsSearchTerms(input, fzfPrompt)
 }
 
 // resolveAsRepoReferenceWithPrompt resolves a repo reference, prompting for
 // protocol preference interactively if no preference can be determined.
-func resolveAsRepoReferenceWithPrompt(agencDirpath string, input string, defaultGitHubUser string) (*repo.RepoResolutionResult, error) {
+func resolveAsRepoReferenceWithPrompt(input string, defaultGitHubUser string) (*repo.RepoResolutionResult, error) {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	// For local paths, delegate directly (no protocol preference needed)
 	if repo.IsLocalPath(input) {
 		return repo.ResolveAsRepoReference(agencDirpath, input, defaultGitHubUser)
@@ -62,7 +67,7 @@ func resolveAsRepoReferenceWithPrompt(agencDirpath string, input string, default
 			return nil, promptErr
 		}
 		// We have the user's preference now — use ParseRepoReference + clone directly
-		return resolveWithProtocol(agencDirpath, input, defaultGitHubUser, preferSSH)
+		return resolveWithProtocol(input, defaultGitHubUser, preferSSH)
 	}
 
 	// Preference exists, let the library handle it
@@ -70,7 +75,12 @@ func resolveAsRepoReferenceWithPrompt(agencDirpath string, input string, default
 }
 
 // resolveWithProtocol resolves a remote repo reference with an explicit protocol preference.
-func resolveWithProtocol(agencDirpath string, ref string, defaultOwner string, preferSSH bool) (*repo.RepoResolutionResult, error) {
+func resolveWithProtocol(ref string, defaultOwner string, preferSSH bool) (*repo.RepoResolutionResult, error) {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	repoName, cloneURL, err := mission.ParseRepoReference(ref, preferSSH, defaultOwner)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "invalid repo reference '%s'", ref)
@@ -124,7 +134,12 @@ func promptForProtocolPreference() (bool, error) {
 
 // resolveAsSearchTerms handles input that looks like search terms.
 // Searches the repo library using glob-style matching (*TERM1*TERM2*).
-func resolveAsSearchTerms(agencDirpath string, input string, fzfPrompt string) (*repo.RepoResolutionResult, error) {
+func resolveAsSearchTerms(input string, fzfPrompt string) (*repo.RepoResolutionResult, error) {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	terms := strings.Fields(input)
 
 	// Get the list of repos to search

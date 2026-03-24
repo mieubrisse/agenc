@@ -166,7 +166,7 @@ func runMissionNewWithPicker(args []string) error {
 
 	// Try to resolve as a git reference (URL, path, shorthand)
 	if repo.LooksLikeRepoReference(input) {
-		result, err := ResolveRepoInput(agencDirpath, input, "Select repo: ")
+		result, err := ResolveRepoInput(input, "Select repo: ")
 		if err != nil {
 			return err
 		}

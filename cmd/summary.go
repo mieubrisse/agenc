@@ -65,13 +65,8 @@ func runSummary(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
 
-	agencDirpath, err := config.GetAgencDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get agenc directory path")
-	}
-
 	// Gather statistics
-	stats, err := gatherDailyStats(agencDirpath, missions, dayStart, dayEnd)
+	stats, err := gatherDailyStats(missions, dayStart, dayEnd)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to gather daily statistics")
 	}
@@ -123,7 +118,7 @@ type SessionStat struct {
 }
 
 // gatherDailyStats collects all statistics for the given day.
-func gatherDailyStats(agencDirpath string, missions []*database.Mission, dayStart, dayEnd time.Time) (*DailyStats, error) {
+func gatherDailyStats(missions []*database.Mission, dayStart, dayEnd time.Time) (*DailyStats, error) {
 	stats := &DailyStats{
 		CommitsByRepo: make(map[string]int),
 	}
@@ -148,7 +143,7 @@ func gatherDailyStats(agencDirpath string, missions []*database.Mission, dayStar
 	}
 
 	// Count sessions and gather session statistics
-	sessionStats, err := gatherSessionStats(agencDirpath, missions, dayStart, dayEnd)
+	sessionStats, err := gatherSessionStats(missions, dayStart, dayEnd)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to gather session statistics")
 	}
@@ -173,7 +168,7 @@ func gatherDailyStats(agencDirpath string, missions []*database.Mission, dayStar
 	}
 
 	// Count git commits across all repos
-	commitStats, err := gatherCommitStats(agencDirpath, dayStart, dayEnd)
+	commitStats, err := gatherCommitStats(dayStart, dayEnd)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to gather commit statistics")
 	}
@@ -184,7 +179,12 @@ func gatherDailyStats(agencDirpath string, missions []*database.Mission, dayStar
 }
 
 // gatherSessionStats extracts statistics from Claude session JSONL files.
-func gatherSessionStats(agencDirpath string, missions []*database.Mission, dayStart, dayEnd time.Time) ([]SessionStat, error) {
+func gatherSessionStats(missions []*database.Mission, dayStart, dayEnd time.Time) ([]SessionStat, error) {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	var sessionStats []SessionStat
 
 	for _, m := range missions {
@@ -336,7 +336,12 @@ type CommitStats struct {
 }
 
 // gatherCommitStats collects git commit statistics across all repos.
-func gatherCommitStats(agencDirpath string, dayStart, dayEnd time.Time) (*CommitStats, error) {
+func gatherCommitStats(dayStart, dayEnd time.Time) (*CommitStats, error) {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
+	}
+
 	stats := &CommitStats{
 		CommitsByRepo: make(map[string]int),
 	}

@@ -113,7 +113,7 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 
 	if gitRepo != "" {
 		// Resolve git repo
-		result, err := ResolveRepoInput(agencDirpath, gitRepo, "Select repo: ")
+		result, err := ResolveRepoInput(gitRepo, "Select repo: ")
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve git repo")
 		}
