@@ -362,10 +362,12 @@ func IsCanonicalRepoName(name string) bool {
 // RepoConfig represents per-repo configuration in the repoConfig map.
 // All fields are optional: alwaysSynced controls whether the server keeps
 // the repo continuously fetched, emoji sets the display emoji for the repo,
-// and postUpdateHook specifies a shell command to run after repo updates.
+// title sets a user-friendly display name, and postUpdateHook specifies a
+// shell command to run after repo updates.
 type RepoConfig struct {
 	AlwaysSynced      bool               `yaml:"alwaysSynced,omitempty"`
 	Emoji             string             `yaml:"emoji,omitempty"`
+	Title             string             `yaml:"title,omitempty"`
 	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
 	DefaultModel      string             `yaml:"defaultModel,omitempty"`
 	PostUpdateHook    string             `yaml:"postUpdateHook,omitempty"`
@@ -465,6 +467,14 @@ func (c *AgencConfig) GetAllSyncedRepos() []string {
 func (c *AgencConfig) GetRepoEmoji(repoName string) string {
 	if rc, ok := c.RepoConfigs[repoName]; ok {
 		return rc.Emoji
+	}
+	return ""
+}
+
+// GetRepoTitle returns the configured title for a repo, or empty string if none is set.
+func (c *AgencConfig) GetRepoTitle(repoName string) string {
+	if rc, ok := c.RepoConfigs[repoName]; ok {
+		return rc.Title
 	}
 	return ""
 }

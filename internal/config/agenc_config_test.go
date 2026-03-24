@@ -241,6 +241,25 @@ func TestRepoConfig_GetRepoEmoji(t *testing.T) {
 	}
 }
 
+func TestRepoConfig_GetRepoTitle(t *testing.T) {
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {Title: "My App"},
+			"github.com/owner/repo2": {},
+		},
+	}
+
+	if got := cfg.GetRepoTitle("github.com/owner/repo1"); got != "My App" {
+		t.Errorf("expected 'My App', got '%s'", got)
+	}
+	if got := cfg.GetRepoTitle("github.com/owner/repo2"); got != "" {
+		t.Errorf("expected empty string for repo without title, got '%s'", got)
+	}
+	if got := cfg.GetRepoTitle("github.com/owner/nonexistent"); got != "" {
+		t.Errorf("expected empty string for nonexistent repo, got '%s'", got)
+	}
+}
+
 func TestRepoConfig_GetAllSyncedRepos(t *testing.T) {
 	cfg := &AgencConfig{
 		RepoConfigs: map[string]RepoConfig{
