@@ -40,7 +40,7 @@ func tryAcquireServerLock(lockFilepath string) (*os.File, error) {
 		return nil, stacktrace.Propagate(err, "failed to open lock file")
 	}
 
-	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) //nolint:gosec // G115: file descriptor fits in int
 	if err != nil {
 		f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {

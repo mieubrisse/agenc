@@ -83,7 +83,7 @@ func runSessionRename(cmd *cobra.Command, args []string) error {
 func promptForTitle() (string, error) {
 	fmt.Print("New title (empty to clear, ESC to cancel): ")
 
-	fd := int(os.Stdin.Fd())
+	fd := int(os.Stdin.Fd()) //nolint:gosec // G115: file descriptor fits in int
 	if !term.IsTerminal(fd) {
 		return readLineFromStdin()
 	}

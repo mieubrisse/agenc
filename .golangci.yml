@@ -55,7 +55,6 @@ linters:
         - G101  # Hardcoded credentials — false positives on const names
         - G104  # Errors unhandled — covered by errcheck with exclusions
         - G112  # Slowloris — internal unix socket server, not internet-facing
-        - G115  # Integer overflow conversion — false positive on uintptr->int
         - G122  # Filepath.Walk race — acceptable for config file operations
         - G204  # Subprocess with variable — unavoidable in a CLI tool
         - G301  # Directory permissions 0755 — standard for CLI tools

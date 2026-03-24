@@ -281,5 +281,5 @@ func ptrToString(p *int) string {
 	if p == nil {
 		return "nil"
 	}
-	return string(rune(*p + '0'))
+	return string(rune(*p + '0')) //nolint:gosec // G115: single-digit test helper
 }
