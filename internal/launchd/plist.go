@@ -183,6 +183,17 @@ func PlistDirpath() (string, error) {
 	return filepath.Join(homeDir, "Library", "LaunchAgents"), nil
 }
 
+// cronFieldDescriptor defines how to parse and validate a single cron field.
+type cronFieldDescriptor struct {
+	name   string
+	min    int
+	max    int
+	target **int
+	// normalize is an optional post-parse transform (e.g., weekday 7→0).
+	// nil means no transform is applied.
+	normalize func(int) int
+}
+
 // ParseCronExpression parses a cron expression into a CalendarInterval.
 // Returns error for unsupported expressions.
 // Supports: "minute hour * * *" format only (no */N, ranges, or lists)
@@ -192,72 +203,39 @@ func ParseCronExpression(cronExpr string) (*CalendarInterval, error) {
 		return nil, stacktrace.NewError("cron expression must have 5 fields (minute hour day month weekday)")
 	}
 
-	minute, hour, day, month, weekday := parts[0], parts[1], parts[2], parts[3], parts[4]
-
 	interval := &CalendarInterval{}
 
-	// Parse minute
-	if minute != "*" {
-		val, err := strconv.Atoi(minute)
-		if err != nil {
-			return nil, stacktrace.NewError("unsupported minute format: %s (must be integer or *)", minute)
-		}
-		if val < 0 || val > 59 {
-			return nil, stacktrace.NewError("minute must be between 0 and 59")
-		}
-		interval.Minute = &val
+	fields := []cronFieldDescriptor{
+		{name: "minute", min: 0, max: 59, target: &interval.Minute},
+		{name: "hour", min: 0, max: 23, target: &interval.Hour},
+		{name: "day", min: 1, max: 31, target: &interval.Day},
+		{name: "month", min: 1, max: 12, target: &interval.Month},
+		{name: "weekday", min: 0, max: 7, target: &interval.Weekday, normalize: func(v int) int {
+			// Normalize 7 to 0 (both represent Sunday)
+			if v == 7 {
+				return 0
+			}
+			return v
+		}},
 	}
 
-	// Parse hour
-	if hour != "*" {
-		val, err := strconv.Atoi(hour)
-		if err != nil {
-			return nil, stacktrace.NewError("unsupported hour format: %s (must be integer or *)", hour)
+	for i, field := range fields {
+		raw := parts[i]
+		if raw == "*" {
+			continue
 		}
-		if val < 0 || val > 23 {
-			return nil, stacktrace.NewError("hour must be between 0 and 23")
-		}
-		interval.Hour = &val
-	}
 
-	// Parse day
-	if day != "*" {
-		val, err := strconv.Atoi(day)
+		val, err := strconv.Atoi(raw)
 		if err != nil {
-			return nil, stacktrace.NewError("unsupported day format: %s (must be integer or *)", day)
+			return nil, stacktrace.NewError("unsupported %s format: %s (must be integer or *)", field.name, raw)
 		}
-		if val < 1 || val > 31 {
-			return nil, stacktrace.NewError("day must be between 1 and 31")
+		if val < field.min || val > field.max {
+			return nil, stacktrace.NewError("%s must be between %d and %d", field.name, field.min, field.max)
 		}
-		interval.Day = &val
-	}
-
-	// Parse month
-	if month != "*" {
-		val, err := strconv.Atoi(month)
-		if err != nil {
-			return nil, stacktrace.NewError("unsupported month format: %s (must be integer or *)", month)
+		if field.normalize != nil {
+			val = field.normalize(val)
 		}
-		if val < 1 || val > 12 {
-			return nil, stacktrace.NewError("month must be between 1 and 12")
-		}
-		interval.Month = &val
-	}
-
-	// Parse weekday (0-7, where 0 and 7 are Sunday)
-	if weekday != "*" {
-		val, err := strconv.Atoi(weekday)
-		if err != nil {
-			return nil, stacktrace.NewError("unsupported weekday format: %s (must be integer or *)", weekday)
-		}
-		if val < 0 || val > 7 {
-			return nil, stacktrace.NewError("weekday must be between 0 and 7")
-		}
-		// Normalize 7 to 0 (both represent Sunday)
-		if val == 7 {
-			val = 0
-		}
-		interval.Weekday = &val
+		*field.target = &val
 	}
 
 	return interval, nil
