@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,13 +46,19 @@ func runCronRun(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("cron job '%s' has no ID — re-create it or add an 'id' field to config.yml", name)
 	}
 
+	// Build source metadata as proper JSON to avoid injection from cron names
+	sourceMetadata, err := json.Marshal(map[string]string{"cron_name": name, "trigger": "manual"})
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal source metadata")
+	}
+
 	// Build the command arguments with source tracking
 	cmdArgs := []string{
 		"mission", "new",
 		"--headless",
 		"--source", "cron",
 		"--source-id", cronCfg.ID,
-		"--source-metadata", fmt.Sprintf(`{"cron_name":"%s","trigger":"manual"}`, name),
+		"--source-metadata", string(sourceMetadata),
 		"--prompt", cronCfg.Prompt,
 	}
 

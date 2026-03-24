@@ -2,10 +2,11 @@ package server
 
 import (
 	"bytes"
-	"fmt"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -26,6 +27,7 @@ type launchdManager interface {
 type CronSyncer struct {
 	agencDirpath string
 	manager      launchdManager
+	mu           sync.Mutex
 }
 
 // NewCronSyncer creates a new CronSyncer.
@@ -48,6 +50,9 @@ func newCronSyncerWithManager(agencDirpath string, manager launchdManager) *Cron
 // This function is idempotent and can be called on server startup and whenever
 // the config changes.
 func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logger logger) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Remove plists for crons that no longer exist in config (also cleans up legacy-format plists)
 	if err := s.removeUnmatchedPlists(crons, logger); err != nil {
 		logger.Printf("Cron syncer: warning - failed to remove unmatched plists: %v", err)
@@ -101,6 +106,12 @@ func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDi
 		return nil
 	}
 
+	// Build source metadata as proper JSON to avoid injection from cron names
+	sourceMetadata, err := json.Marshal(map[string]string{"cron_name": name})
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal source metadata for '%s'", name)
+	}
+
 	// Build the program arguments
 	programArgs := []string{
 		execPath,
@@ -109,7 +120,7 @@ func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDi
 		"--headless",
 		"--source", "cron",
 		"--source-id", cronCfg.ID,
-		"--source-metadata", fmt.Sprintf(`{"cron_name":"%s"}`, name),
+		"--source-metadata", string(sourceMetadata),
 		"--prompt", cronCfg.Prompt,
 	}
 
@@ -147,10 +158,15 @@ func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDi
 	}
 	// If ReadFile fails (file doesn't exist, permissions), treat as changed
 
-	// Write plist only if content changed
+	// Write plist atomically (temp file + rename) only if content changed
 	if contentChanged {
-		if err := os.WriteFile(plistPath, xmlData, 0644); err != nil {
-			return stacktrace.Propagate(err, "failed to write plist for '%s'", name)
+		tmpPath := plistPath + ".tmp"
+		if err := os.WriteFile(tmpPath, xmlData, 0644); err != nil {
+			return stacktrace.Propagate(err, "failed to write temp plist for '%s'", name)
+		}
+		if err := os.Rename(tmpPath, plistPath); err != nil {
+			_ = os.Remove(tmpPath)
+			return stacktrace.Propagate(err, "failed to rename temp plist for '%s'", name)
 		}
 	}
 
