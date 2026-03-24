@@ -29,7 +29,6 @@ linters:
         - os.RemoveAll
         - os.MkdirAll
         - os.Setenv
-        - os.Rename
         - os.Stdout.Write
         - (net/http.ResponseWriter).Write
         - (*encoding/json.Encoder).Encode

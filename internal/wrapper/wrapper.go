@@ -841,11 +841,15 @@ func rotateLogFileIfNeeded(logFilepath string) error {
 	for i := headlessLogMaxBackups - 1; i >= 1; i-- {
 		oldPath := logFilepath + "." + strconv.Itoa(i)
 		newPath := logFilepath + "." + strconv.Itoa(i+1)
-		os.Rename(oldPath, newPath) // Ignore errors
+		if err := os.Rename(oldPath, newPath); err != nil && !os.IsNotExist(err) {
+			slog.Warn("Failed to rotate log backup", "from", oldPath, "to", newPath, "error", err)
+		}
 	}
 
 	// Move current log to .1
-	os.Rename(logFilepath, logFilepath+".1")
+	if err := os.Rename(logFilepath, logFilepath+".1"); err != nil {
+		slog.Warn("Failed to rotate current log file", "from", logFilepath, "error", err)
+	}
 
 	return nil
 }
