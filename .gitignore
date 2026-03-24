@@ -1,11 +1,38 @@
+# Build output
 /agenc
 /dist/
 
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+
+# Claude Code
 .claude/settings.local.json
 
 # Generated at build time by cmd/genprime (embedded via go:embed)
 internal/claudeconfig/prime_content.md
 
-# Dolt database files (added by bd init)
+# Beads / Dolt runtime files (added by bd init)
 .dolt/
 *.db
+.beads-credential-key
+AGENTS.md

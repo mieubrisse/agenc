@@ -44,7 +44,10 @@ check: genprime
 	@echo "✓ Formatting OK"
 	@echo "Running go vet..."
 	@go vet ./...
-	@echo "✓ Static analysis OK"
+	@echo "✓ Vet OK"
+	@echo "Running golangci-lint..."
+	@golangci-lint run ./...
+	@echo "✓ Lint OK"
 	@echo "Running tests..."
 	@go test ./...
 	@echo "✓ Tests passed"
