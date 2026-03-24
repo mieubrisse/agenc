@@ -5,7 +5,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/mattn/go-runewidth"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
@@ -110,19 +109,13 @@ func resolveEmojiForMission(agencDirpath string, mission *database.Mission, cfg 
 	return "🦀"
 }
 
-// prependEmoji prepends an emoji with fixed-column-4 padding to a title.
-// The title text always starts at column 4 (minimum 1 space after emoji).
+// prependEmoji prepends an emoji with 2-space padding to a title.
 // Returns the original title unchanged if emoji is empty.
 func prependEmoji(emoji string, title string) string {
 	if emoji == "" {
 		return title
 	}
-	emojiWidth := runewidth.StringWidth(emoji)
-	padding := 4 - emojiWidth
-	if padding < 1 {
-		padding = 1
-	}
-	return emoji + strings.Repeat(" ", padding) + title
+	return emoji + "  " + title
 }
 
 // applyTmuxTitle applies a title to the tmux window for a mission, subject to

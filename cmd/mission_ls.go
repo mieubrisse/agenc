@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattn/go-runewidth"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/rodaine/table"
 	"github.com/spf13/cobra"
@@ -157,12 +156,7 @@ func formatRepoDisplay(repoName string, isAdjutant bool, cfg *config.AgencConfig
 	}
 
 	if emoji != "" {
-		emojiWidth := runewidth.StringWidth(emoji)
-		padding := 4 - emojiWidth
-		if padding < 1 {
-			padding = 1
-		}
-		return emoji + strings.Repeat(" ", padding) + displayName
+		return emoji + "  " + displayName
 	}
 
 	return displayName

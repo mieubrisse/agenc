@@ -219,7 +219,7 @@ func TestPrependEmoji(t *testing.T) {
 		{"", "my-title", "my-title"},
 		{"🔥", "my-title", "🔥  my-title"},
 		{"🤖", "my-title", "🤖  my-title"},
-		{"A", "my-title", "A   my-title"},
+		{"A", "my-title", "A  my-title"},
 	}
 
 	for _, tt := range tests {
