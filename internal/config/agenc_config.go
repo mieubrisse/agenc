@@ -561,64 +561,16 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		return nil, nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
 	}
 
-	if cfg.RepoConfigs == nil {
-		cfg.RepoConfigs = make(map[string]RepoConfig)
-	}
-	for repoName := range cfg.RepoConfigs {
-		if !canonicalRepoRegex.MatchString(repoName) {
-			return nil, nil, stacktrace.NewError(
-				"invalid repoConfig key '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				repoName, configFilepath,
-			)
-		}
+	if err := validateRepoConfigs(&cfg, configFilepath); err != nil {
+		return nil, nil, err
 	}
 
-	// Validate cron configurations
-	if cfg.Crons == nil {
-		cfg.Crons = make(map[string]CronConfig)
-	}
-	for name, cronCfg := range cfg.Crons {
-		if err := ValidateCronName(name); err != nil {
-			return nil, nil, stacktrace.Propagate(err, "invalid cron name in %s", configFilepath)
-		}
-		if err := ValidateCronSchedule(cronCfg.Schedule); err != nil {
-			return nil, nil, stacktrace.Propagate(err, "invalid schedule for cron '%s' in %s", name, configFilepath)
-		}
-		if cronCfg.Prompt == "" {
-			return nil, nil, stacktrace.NewError("cron '%s' in %s must have a prompt", name, configFilepath)
-		}
-		if cronCfg.Repo != "" && !canonicalRepoRegex.MatchString(cronCfg.Repo) {
-			return nil, nil, stacktrace.NewError(
-				"invalid repo '%s' for cron '%s' in %s; must be in canonical format 'github.com/owner/repo'",
-				cronCfg.Repo, name, configFilepath,
-			)
-		}
-		if err := ValidateCronOverlapPolicy(cronCfg.Overlap); err != nil {
-			return nil, nil, stacktrace.Propagate(err, "invalid overlap policy for cron '%s' in %s", name, configFilepath)
-		}
-		if err := ValidateCronTimeout(cronCfg.Timeout); err != nil {
-			return nil, nil, stacktrace.Propagate(err, "invalid timeout for cron '%s' in %s", name, configFilepath)
-		}
+	if err := validateCronConfigs(&cfg, configFilepath); err != nil {
+		return nil, nil, err
 	}
 
-	// Validate palette commands
-	if cfg.PaletteCommands == nil {
-		cfg.PaletteCommands = make(map[string]PaletteCommandConfig)
-	}
-	for name, cmdCfg := range cfg.PaletteCommands {
-		if err := ValidatePaletteCommandName(name); err != nil {
-			return nil, nil, stacktrace.Propagate(err, "invalid palette command name in %s", configFilepath)
-		}
-		// Custom (non-builtin) entries with content must have title and command
-		_, isBuiltin := BuiltinPaletteCommands[name]
-		if !isBuiltin && !cmdCfg.IsEmpty() && !cmdCfg.Disabled {
-			if cmdCfg.Title == nil || *cmdCfg.Title == "" {
-				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a title", name, configFilepath)
-			}
-			if cmdCfg.Command == nil || *cmdCfg.Command == "" {
-				return nil, nil, stacktrace.NewError("palette command '%s' in %s must have a command", name, configFilepath)
-			}
-		}
+	if err := validatePaletteCommandConfigs(&cfg, configFilepath); err != nil {
+		return nil, nil, err
 	}
 
 	// Validate uniqueness of titles and keybindings across the resolved set
@@ -632,6 +584,80 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 	}
 
 	return &cfg, cm, nil
+}
+
+// validateRepoConfigs initializes the RepoConfigs map if nil and validates that
+// every key matches the canonical "github.com/owner/repo" format.
+func validateRepoConfigs(cfg *AgencConfig, configFilepath string) error {
+	if cfg.RepoConfigs == nil {
+		cfg.RepoConfigs = make(map[string]RepoConfig)
+	}
+	for repoName := range cfg.RepoConfigs {
+		if !canonicalRepoRegex.MatchString(repoName) {
+			return stacktrace.NewError(
+				"invalid repoConfig key '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				repoName, configFilepath,
+			)
+		}
+	}
+	return nil
+}
+
+// validateCronConfigs initializes the Crons map if nil and validates each cron
+// entry's name, schedule, prompt, repo, overlap policy, and timeout.
+func validateCronConfigs(cfg *AgencConfig, configFilepath string) error {
+	if cfg.Crons == nil {
+		cfg.Crons = make(map[string]CronConfig)
+	}
+	for name, cronCfg := range cfg.Crons {
+		if err := ValidateCronName(name); err != nil {
+			return stacktrace.Propagate(err, "invalid cron name in %s", configFilepath)
+		}
+		if err := ValidateCronSchedule(cronCfg.Schedule); err != nil {
+			return stacktrace.Propagate(err, "invalid schedule for cron '%s' in %s", name, configFilepath)
+		}
+		if cronCfg.Prompt == "" {
+			return stacktrace.NewError("cron '%s' in %s must have a prompt", name, configFilepath)
+		}
+		if cronCfg.Repo != "" && !canonicalRepoRegex.MatchString(cronCfg.Repo) {
+			return stacktrace.NewError(
+				"invalid repo '%s' for cron '%s' in %s; must be in canonical format 'github.com/owner/repo'",
+				cronCfg.Repo, name, configFilepath,
+			)
+		}
+		if err := ValidateCronOverlapPolicy(cronCfg.Overlap); err != nil {
+			return stacktrace.Propagate(err, "invalid overlap policy for cron '%s' in %s", name, configFilepath)
+		}
+		if err := ValidateCronTimeout(cronCfg.Timeout); err != nil {
+			return stacktrace.Propagate(err, "invalid timeout for cron '%s' in %s", name, configFilepath)
+		}
+	}
+	return nil
+}
+
+// validatePaletteCommandConfigs initializes the PaletteCommands map if nil and
+// validates each entry's name, and requires title and command for non-builtin,
+// non-disabled entries that have content.
+func validatePaletteCommandConfigs(cfg *AgencConfig, configFilepath string) error {
+	if cfg.PaletteCommands == nil {
+		cfg.PaletteCommands = make(map[string]PaletteCommandConfig)
+	}
+	for name, cmdCfg := range cfg.PaletteCommands {
+		if err := ValidatePaletteCommandName(name); err != nil {
+			return stacktrace.Propagate(err, "invalid palette command name in %s", configFilepath)
+		}
+		// Custom (non-builtin) entries with content must have title and command
+		_, isBuiltin := BuiltinPaletteCommands[name]
+		if !isBuiltin && !cmdCfg.IsEmpty() && !cmdCfg.Disabled {
+			if cmdCfg.Title == nil || *cmdCfg.Title == "" {
+				return stacktrace.NewError("palette command '%s' in %s must have a title", name, configFilepath)
+			}
+			if cmdCfg.Command == nil || *cmdCfg.Command == "" {
+				return stacktrace.NewError("palette command '%s' in %s must have a command", name, configFilepath)
+			}
+		}
+	}
+	return nil
 }
 
 // WriteAgencConfig marshals and writes config.yml. Pass the yaml.CommentMap
