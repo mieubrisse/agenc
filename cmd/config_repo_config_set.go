@@ -32,6 +32,7 @@ func init() {
 	configRepoConfigCmd.AddCommand(configRepoConfigSetCmd)
 	configRepoConfigSetCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the server")
 	configRepoConfigSetCmd.Flags().String(repoConfigEmojiFlagName, "", "emoji to display for missions using this repo")
+	configRepoConfigSetCmd.Flags().String(repoConfigTitleFlagName, "", `friendly title for the repo (e.g., "Dotfiles")`)
 	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
 	configRepoConfigSetCmd.Flags().String(repoConfigDefaultModelFlagName, "", `default Claude model for missions using this repo (e.g., "opus", "sonnet")`)
 	configRepoConfigSetCmd.Flags().String(repoConfigPostUpdateHookFlagName, "", `shell command to run after repo updates (e.g., "make setup"); empty to clear`)
@@ -46,13 +47,14 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 
 	alwaysSyncedChanged := cmd.Flags().Changed(repoConfigAlwaysSyncedFlagName)
 	emojiChanged := cmd.Flags().Changed(repoConfigEmojiFlagName)
+	titleChanged := cmd.Flags().Changed(repoConfigTitleFlagName)
 	trustedChanged := cmd.Flags().Changed(repoConfigTrustedMcpServersFlagName)
 	defaultModelChanged := cmd.Flags().Changed(repoConfigDefaultModelFlagName)
 	postUpdateHookChanged := cmd.Flags().Changed(repoConfigPostUpdateHookFlagName)
 
-	if !alwaysSyncedChanged && !emojiChanged && !trustedChanged && !defaultModelChanged && !postUpdateHookChanged {
-		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, or --%s must be provided",
-			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName)
+	if !alwaysSyncedChanged && !emojiChanged && !titleChanged && !trustedChanged && !defaultModelChanged && !postUpdateHookChanged {
+		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, --%s, or --%s must be provided",
+			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName)
 	}
 
 	cfg, cm, err := readConfigWithComments()
@@ -80,6 +82,14 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigEmojiFlagName)
 		}
 		rc.Emoji = emoji
+	}
+
+	if titleChanged {
+		title, err := cmd.Flags().GetString(repoConfigTitleFlagName)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigTitleFlagName)
+		}
+		rc.Title = title
 	}
 
 	if trustedChanged {

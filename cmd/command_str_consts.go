@@ -123,6 +123,7 @@ const (
 	// repoConfig flags
 	repoConfigAlwaysSyncedFlagName      = "always-synced"
 	repoConfigEmojiFlagName             = "emoji"
+	repoConfigTitleFlagName             = "title"
 	repoConfigTrustedMcpServersFlagName = "trusted-mcp-servers"
 	repoConfigDefaultModelFlagName      = "default-model"
 	repoConfigPostUpdateHookFlagName    = "post-update-hook"

@@ -29,8 +29,9 @@ from existing repos in your library. If no repos exist, you'll be prompted
 to choose.
 
 Use --%s to keep the repo continuously synced by the server.
-Use --%s to set an emoji for the repo.`,
-		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName),
+Use --%s to set an emoji for the repo.
+Use --%s to set a friendly title for the repo.`,
+		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName),
 	Args: cobra.MinimumNArgs(1),
 	RunE: runRepoAdd,
 }
@@ -38,6 +39,7 @@ Use --%s to set an emoji for the repo.`,
 func init() {
 	repoAddCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the server")
 	repoAddCmd.Flags().String(repoConfigEmojiFlagName, "", "emoji to display for missions using this repo")
+	repoAddCmd.Flags().String(repoConfigTitleFlagName, "", `friendly title for the repo (e.g., "Dotfiles")`)
 	repoCmd.AddCommand(repoAddCmd)
 }
 
@@ -66,6 +68,14 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 				return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigEmojiFlagName)
 			}
 			req.Emoji = &emoji
+		}
+
+		if cmd.Flags().Changed(repoConfigTitleFlagName) {
+			title, err := cmd.Flags().GetString(repoConfigTitleFlagName)
+			if err != nil {
+				return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigTitleFlagName)
+			}
+			req.Title = &title
 		}
 
 		resp, err := client.AddRepo(req)
