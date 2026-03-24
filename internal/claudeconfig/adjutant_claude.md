@@ -67,20 +67,27 @@ After changing keybindings via `agenc config` commands, AgenC automatically rege
 Managing Cron Jobs
 ------------------
 
-**Always use `agenc config cron` commands for non-interactive cron management.** AgenC has two sets of cron commands:
+AgenC cron jobs are scheduled tasks that launch headless missions on a cron schedule via macOS launchd. Each cron mission behaves identically to a normal headless mission — it runs in a tmux pool window and uses the standard 30-minute idle timeout (no activity on the JSONL session file).
 
-- **`agenc cron`** — includes interactive commands (like `agenc cron new` wizard) and runtime commands (`history`, `logs`, `run`)
-- **`agenc config cron`** — non-interactive configuration commands with flags
+### How crons work
 
-**For Adjutant and other non-interactive contexts, use `agenc config cron`:**
+Each cron job is defined in `config.yml` with a name, schedule (cron expression), prompt, and optional repo. AgenC's server syncs cron definitions to macOS launchd plists (`~/Library/LaunchAgents/agenc-cron-*.plist`). When launchd fires, it runs `agenc mission new --headless` with source-tracking flags that link the mission back to its cron definition.
+
+Cron missions are tracked by a stable UUID (`id` field in the cron config). This ID is auto-generated when a cron is created. Commands like `history` and `run` use this ID to find missions belonging to a specific cron.
+
+### Two sets of cron commands
+
+- **`agenc config cron`** — non-interactive configuration commands with flags. **Use these in Adjutant contexts.**
+- **`agenc cron`** — includes interactive commands (like `agenc cron new` wizard) and runtime commands (`history`, `run`, `enable`, `disable`)
+
+### Configuring crons (non-interactive)
 
 ```bash
-# Add a new cron job (non-interactive)
+# Add a new cron job
 agenc config cron add daily-report \
   --schedule="0 9 * * *" \
   --prompt="Generate the daily status report" \
-  --repo=github.com/owner/my-repo \
-  --timeout=30m
+  --repo=github.com/owner/my-repo
 
 # List cron jobs
 agenc config cron ls
@@ -93,9 +100,33 @@ agenc config cron update daily-report --enabled=false
 agenc config cron rm daily-report
 ```
 
-The `agenc cron` commands are parallel commands that also work (`agenc cron ls`, `agenc cron rm`, `agenc cron enable/disable`). They have their own implementations — for example, `agenc cron ls` shows richer runtime info (last run, status, next run) from the server. However, `agenc config cron` provides the most flexible non-interactive interface with full flag support, so prefer it in the Adjutant context.
+Additional flags for `agenc config cron add`: `--description`, `--overlap` (`skip` or `allow`). The `agenc config cron update` command also supports `--description`, `--overlap`, and `--prompt`.
 
-Additional flags available on `agenc config cron add`: `--description` and `--overlap`. The `agenc config cron update` command also supports `--description`, `--overlap`, and `--prompt`.
+### Runtime cron commands
+
+```bash
+# Show run history for a cron job (lists past missions)
+agenc cron history daily-report
+agenc cron history daily-report --limit 50
+
+# Manually trigger a cron job immediately
+agenc cron run daily-report
+
+# Enable or disable a cron job
+agenc cron enable daily-report
+agenc cron disable daily-report
+
+# List cron jobs with runtime info (last run, status, next run)
+agenc cron ls
+```
+
+### Common user questions
+
+**"How do I see what my cron did?"** — Use `agenc cron history <name>` to see past runs. Each run is a mission; use `agenc mission inspect <id>` or `agenc mission print <id>` to see the full session transcript.
+
+**"My cron isn't running"** — Check that it's enabled (`agenc cron ls`). If enabled but not firing, check launchd status. The server must be running for cron sync to work (`agenc server status`).
+
+**"How do I test a cron before scheduling it?"** — Use `agenc cron run <name>` to trigger it manually. This creates a mission with the same prompt and repo, tracked in history alongside scheduled runs.
 
 Trusting MCP Servers
 --------------------
