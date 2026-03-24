@@ -42,10 +42,6 @@ linters:
         - golang.org/x/term.Restore
         # fsnotify watcher
         - (*github.com/fsnotify/fsnotify.Watcher).Close
-        # exec.Cmd in fire-and-forget contexts
-        - (*os/exec.Cmd).Run
-        - (*os/exec.Cmd).Wait
-        - (*os.Process).Kill
     gosec:
       excludes:
         - G101  # Hardcoded credentials — false positives on const names

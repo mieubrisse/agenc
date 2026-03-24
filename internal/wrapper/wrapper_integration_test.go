@@ -202,8 +202,8 @@ func TestGracefulRestart(t *testing.T) {
 	}
 	defer func() {
 		if mockCmd.Process != nil {
-			mockCmd.Process.Kill()
-			mockCmd.Wait()
+			_ = mockCmd.Process.Kill() // best-effort test cleanup
+			_ = mockCmd.Wait()         // reap process
 		}
 	}()
 
@@ -297,8 +297,8 @@ func TestHardRestart(t *testing.T) {
 	}
 	defer func() {
 		if mockCmd.Process != nil {
-			mockCmd.Process.Kill()
-			mockCmd.Wait()
+			_ = mockCmd.Process.Kill() // best-effort test cleanup
+			_ = mockCmd.Wait()         // reap process
 		}
 	}()
 
@@ -355,8 +355,8 @@ func TestRestartIdempotency(t *testing.T) {
 	}
 	defer func() {
 		if mockCmd.Process != nil {
-			mockCmd.Process.Kill()
-			mockCmd.Wait()
+			_ = mockCmd.Process.Kill() // best-effort test cleanup
+			_ = mockCmd.Wait()         // reap process
 		}
 	}()
 
@@ -450,8 +450,8 @@ func TestSocketProtocol(t *testing.T) {
 				}
 				t.Cleanup(func() {
 					if mockCmd.Process != nil {
-						mockCmd.Process.Kill()
-						mockCmd.Wait()
+						_ = mockCmd.Process.Kill() // best-effort test cleanup
+						_ = mockCmd.Wait()         // reap process
 					}
 				})
 				w.claudeCmd = mockCmd
@@ -565,8 +565,8 @@ func TestSignalHandling(t *testing.T) {
 	}
 	defer func() {
 		if mockCmd.Process != nil {
-			mockCmd.Process.Kill()
-			mockCmd.Wait()
+			_ = mockCmd.Process.Kill() // best-effort test cleanup
+			_ = mockCmd.Wait()         // reap process
 		}
 	}()
 

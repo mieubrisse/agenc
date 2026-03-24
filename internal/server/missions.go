@@ -1036,7 +1036,7 @@ func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID str
 	// Ensure cleanup
 	defer func() {
 		restoreCmd := exec.Command("tmux", "set-option", "-w", "-t", windowID, "remain-on-exit", "off")
-		restoreCmd.Run()
+		_ = restoreCmd.Run() // best-effort cleanup; nothing to do if it fails
 	}()
 
 	// Stop wrapper
