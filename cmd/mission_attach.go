@@ -54,7 +54,7 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 	}
 
 	sortMissionsForPicker(missions)
-	entries := buildMissionPickerEntries(missions, 100)
+	entries := buildMissionPickerEntries(missions, 60)
 
 	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
 		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
