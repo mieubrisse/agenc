@@ -45,7 +45,6 @@ linters:
         - golang.org/x/term.Restore
         # fsnotify watcher
         - (*github.com/fsnotify/fsnotify.Watcher).Close
-        - (*github.com/fsnotify/fsnotify.Watcher).Add
         # exec.Cmd in fire-and-forget contexts
         - (*os/exec.Cmd).Run
         - (*os/exec.Cmd).Wait

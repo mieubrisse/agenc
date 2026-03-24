@@ -188,10 +188,11 @@ func addWatchesRecursive(watcher *fsnotify.Watcher, dirpath string) {
 }
 
 // addWatch adds a path to the watcher, ignoring errors (e.g., already watched
-// or path doesn't exist).
+// or path doesn't exist). This is called during recursive directory walks where
+// individual watch failures are non-fatal — the watcher will still function for
+// paths that succeed.
 func addWatch(watcher *fsnotify.Watcher, path string) {
-	// Ignore errors — path may not exist or may already be watched
-	watcher.Add(path)
+	_ = watcher.Add(path) // intentionally ignored: path may not exist or may already be watched
 }
 
 // isTrackedPath returns true if the filesystem event path corresponds to a
