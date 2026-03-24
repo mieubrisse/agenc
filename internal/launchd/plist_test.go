@@ -2,7 +2,9 @@ package launchd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -281,5 +283,42 @@ func ptrToString(p *int) string {
 	if p == nil {
 		return "nil"
 	}
-	return string(rune(*p + '0')) //nolint:gosec // G115: single-digit test helper
+	return strconv.Itoa(*p)
+}
+
+func TestGeneratePlistXML_ValidPlist(t *testing.T) {
+	minute := 30
+	hour := 14
+	day := 15
+	month := 6
+	weekday := 2
+	p := &Plist{
+		Label:            "agenc-cron.test-uuid",
+		ProgramArguments: []string{"/usr/bin/agenc", "mission", "new", "--headless", "--prompt", "do stuff"},
+		StartCalendarInterval: &CalendarInterval{
+			Minute:  &minute,
+			Hour:    &hour,
+			Day:     &day,
+			Month:   &month,
+			Weekday: &weekday,
+		},
+		StandardOutPath:   "/tmp/out.log",
+		StandardErrorPath: "/tmp/err.log",
+	}
+	xmlData, err := p.GeneratePlistXML()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tmpDir := t.TempDir()
+	plistPath := filepath.Join(tmpDir, "test.plist")
+	if err := os.WriteFile(plistPath, xmlData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("plutil", "-lint", plistPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Errorf("plutil -lint failed: %v\nOutput: %s\nXML:\n%s", err, output, xmlData)
+	}
 }
