@@ -1,17 +1,15 @@
 ## agenc cron run
 
-Manually trigger a cron job (runs headless, untracked by cron_id)
+Manually trigger a cron job
 
 ### Synopsis
 
 Manually trigger a cron job to run immediately as a headless mission.
 
-The mission will NOT be tracked as a cron run (no cron_id/cron_name will be set).
-This is useful for testing cron jobs without affecting history/scheduling.
+The mission will be tracked with source flags so it appears in 'cron history'.
 
 Example:
   agenc cron run daily-report
-  agenc cron run daily-report --timeout 30m
 
 
 ```
@@ -21,8 +19,7 @@ agenc cron run <name> [flags]
 ### Options
 
 ```
-  -h, --help             help for run
-      --timeout string   override timeout (e.g., '1h', '30m')
+  -h, --help   help for run
 ```
 
 ### SEE ALSO

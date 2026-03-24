@@ -28,6 +28,7 @@ agenc config repoConfig set <repo> [flags]
       --emoji string                 emoji to display for missions using this repo
   -h, --help                         help for set
       --post-update-hook string      shell command to run after repo updates (e.g., "make setup"); empty to clear
+      --title string                 friendly title for the repo (e.g., "Dotfiles")
       --trusted-mcp-servers string   MCP server trust: "all", comma-separated server names, or "" to clear
 ```
 

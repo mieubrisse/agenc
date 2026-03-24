@@ -22,6 +22,7 @@ to choose.
 
 Use --always-synced to keep the repo continuously synced by the server.
 Use --emoji to set an emoji for the repo.
+Use --title to set a friendly title for the repo.
 
 ```
 agenc repo add <repo> [flags]
@@ -33,6 +34,7 @@ agenc repo add <repo> [flags]
       --always-synced   keep this repo continuously synced by the server
       --emoji string    emoji to display for missions using this repo
   -h, --help            help for add
+      --title string    friendly title for the repo (e.g., "Dotfiles")
 ```
 
 ### SEE ALSO
