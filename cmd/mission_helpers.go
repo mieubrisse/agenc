@@ -57,6 +57,7 @@ func allLookLikeMissionIDs(inputs []string) bool {
 // the same priority chain as tmux window title reconciliation:
 // ResolvedSessionTitle (custom_title > agenc_custom_title > auto_summary) > prompt.
 func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) []missionPickerEntry {
+	cfg, _ := readConfig()
 	entries := make([]missionPickerEntry, 0, len(missions))
 	for _, m := range missions {
 		sessionName := resolveSessionName(m)
@@ -64,6 +65,10 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 		repo := displayGitRepo(m.GitRepo)
 		if m.IsAdjutant {
 			repo = "🤖  Adjutant"
+		} else if cfg != nil {
+			if t := cfg.GetRepoTitle(m.GitRepo); t != "" {
+				repo = t
+			}
 		}
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,

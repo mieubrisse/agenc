@@ -65,6 +65,8 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
+	cfg, _ := readConfig()
+
 	var tbl table.Table
 	if lsAllFlag {
 		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "SESSION", "REPO")
@@ -77,6 +79,10 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 		repo := displayGitRepo(m.GitRepo)
 		if m.IsAdjutant {
 			repo = "🤖  Adjutant"
+		} else if cfg != nil {
+			if t := cfg.GetRepoTitle(m.GitRepo); t != "" {
+				repo = t
+			}
 		}
 
 		if lsAllFlag {

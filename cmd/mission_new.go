@@ -298,7 +298,13 @@ func selectFromRepoLibrary(agencDirpath string, entries []repoLibraryEntry, init
 				icon = e
 			}
 		}
-		rows = append(rows, []string{icon, displayGitRepo(entry.RepoName)})
+		displayName := displayGitRepo(entry.RepoName)
+		if cfg != nil {
+			if t := cfg.GetRepoTitle(entry.RepoName); t != "" {
+				displayName = t
+			}
+		}
+		rows = append(rows, []string{icon, displayName})
 	}
 
 	// Use sentinel row for NONE option (Blank Mission)

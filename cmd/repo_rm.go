@@ -61,6 +61,8 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		syncedMap[r.Name] = r.Synced
 	}
 
+	cfg, _ := readConfig()
+
 	result, err := Resolve(strings.Join(args, " "), Resolver[string]{
 		TryCanonical: func(input string) (string, bool, error) {
 			if !repo.LooksLikeRepoReference(input) {
@@ -73,10 +75,18 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 			}
 			return name, true, nil
 		},
-		GetItems:          func() ([]string, error) { return repoNames, nil },
-		FormatRow:         func(repoName string) []string { return []string{displayGitRepo(repoName)} },
+		GetItems: func() ([]string, error) { return repoNames, nil },
+		FormatRow: func(repoName string) []string {
+			title := "--"
+			if cfg != nil {
+				if t := cfg.GetRepoTitle(repoName); t != "" {
+					title = t
+				}
+			}
+			return []string{title, displayGitRepo(repoName)}
+		},
 		FzfPrompt:         "Select repos to remove (TAB to multi-select): ",
-		FzfHeaders:        []string{"REPO"},
+		FzfHeaders:        []string{"TITLE", "REPO"},
 		MultiSelect:       true,
 		NotCanonicalError: "not a valid repo reference",
 	})

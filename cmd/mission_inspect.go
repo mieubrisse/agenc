@@ -111,10 +111,16 @@ func inspectMission(agencDirpath string, missionID string) error {
 	fmt.Printf("ID:          %s\n", mission.ShortID)
 	fmt.Printf("Full ID:     %s\n", mission.ID)
 	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status, mission.ClaudeState))
+	cfg, _, _ := config.ReadAgencConfig(agencDirpath)
 	if config.IsMissionAdjutant(agencDirpath, missionID) {
 		fmt.Printf("Type:        🤖  Adjutant\n")
 	} else if mission.GitRepo != "" {
 		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
+		if cfg != nil {
+			if t := cfg.GetRepoTitle(mission.GitRepo); t != "" {
+				fmt.Printf("Title:       %s\n", t)
+			}
+		}
 	}
 	sessionName := resolveSessionName(mission)
 	if sessionName == "" {

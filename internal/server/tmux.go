@@ -40,7 +40,13 @@ func (s *Server) reconcileTmuxWindowTitle(missionID string) {
 	}
 
 	// Step 3: Determine the best title
-	bestTitle := determineBestTitle(activeSession, mission)
+	repoTitle := ""
+	cfg, _, cfgErr := config.ReadAgencConfig(s.agencDirpath)
+	if cfgErr == nil && cfg != nil && mission.GitRepo != "" {
+		repoTitle = cfg.GetRepoTitle(mission.GitRepo)
+	}
+
+	bestTitle := determineBestTitle(activeSession, mission, repoTitle)
 
 	s.logger.Printf("Tmux reconcile [%s]: bestTitle=%q (custom=%q, agencCustom=%q, auto=%q)",
 		mission.ShortID, bestTitle,
@@ -54,7 +60,7 @@ func (s *Server) reconcileTmuxWindowTitle(missionID string) {
 }
 
 // determineBestTitle picks the best available title using the priority chain.
-func determineBestTitle(activeSession *database.Session, mission *database.Mission) string {
+func determineBestTitle(activeSession *database.Session, mission *database.Mission, repoTitle string) string {
 	// Priority 1: custom_title from /rename
 	if activeSession != nil && activeSession.CustomTitle != "" {
 		return activeSession.CustomTitle
@@ -70,7 +76,10 @@ func determineBestTitle(activeSession *database.Session, mission *database.Missi
 		return activeSession.AutoSummary
 	}
 
-	// Priority 4: repo short name
+	// Priority 4: repo title (from config), falling back to repo short name
+	if repoTitle != "" {
+		return repoTitle
+	}
 	if mission.GitRepo != "" {
 		repoName := extractRepoShortName(mission.GitRepo)
 		if repoName != "" {

@@ -241,7 +241,7 @@ func TestDetermineBestTitle(t *testing.T) {
 		CustomTitle: "My Custom Name",
 		AutoSummary: "Auto generated summary",
 	}
-	if got := determineBestTitle(sessionWithCustom, mission); got != "My Custom Name" {
+	if got := determineBestTitle(sessionWithCustom, mission, ""); got != "My Custom Name" {
 		t.Errorf("with custom title: got %q, want %q", got, "My Custom Name")
 	}
 
@@ -249,18 +249,18 @@ func TestDetermineBestTitle(t *testing.T) {
 	sessionWithSummary := &database.Session{
 		AutoSummary: "Auto generated summary",
 	}
-	if got := determineBestTitle(sessionWithSummary, mission); got != "Auto generated summary" {
+	if got := determineBestTitle(sessionWithSummary, mission, ""); got != "Auto generated summary" {
 		t.Errorf("with auto summary: got %q, want %q", got, "Auto generated summary")
 	}
 
 	// No session -- falls back to repo name
-	if got := determineBestTitle(nil, mission); got != "my-project" {
+	if got := determineBestTitle(nil, mission, ""); got != "my-project" {
 		t.Errorf("no session: got %q, want %q", got, "my-project")
 	}
 
 	// No session, no repo -- falls back to short ID
 	missionNoRepo := &database.Mission{ShortID: "abc12345"}
-	if got := determineBestTitle(nil, missionNoRepo); got != "abc12345" {
+	if got := determineBestTitle(nil, missionNoRepo, ""); got != "abc12345" {
 		t.Errorf("no session, no repo: got %q, want %q", got, "abc12345")
 	}
 }

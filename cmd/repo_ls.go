@@ -37,16 +37,20 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 
 	cfg, _ := readConfig()
 
-	tbl := tableprinter.NewTable("EMOJI", "REPO", "SYNCED")
+	tbl := tableprinter.NewTable("EMOJI", "TITLE", "REPO", "SYNCED")
 	for _, r := range repos {
 		emoji := "--"
+		title := "--"
 		if cfg != nil {
 			if e := cfg.GetRepoEmoji(r.Name); e != "" {
 				emoji = e
 			}
+			if t := cfg.GetRepoTitle(r.Name); t != "" {
+				title = t
+			}
 		}
 		synced := formatCheckmark(r.Synced)
-		tbl.AddRow(emoji, displayGitRepo(r.Name), synced)
+		tbl.AddRow(emoji, title, displayGitRepo(r.Name), synced)
 	}
 	tbl.Print()
 
