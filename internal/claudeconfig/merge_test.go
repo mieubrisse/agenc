@@ -6,172 +6,145 @@ import (
 )
 
 func TestMergeCredentialJSON(t *testing.T) {
-	t.Run("overlay adds new mcpOAuth server", func(t *testing.T) {
-		base := `{"claudeAiOauth":{"accessToken":"base-token"}}`
-		overlay := `{"claudeAiOauth":{"accessToken":"base-token"},"mcpOAuth":{"todoist|abc":{"accessToken":"tok1","expiresAt":1000}}}`
+	boolPtr := func(b bool) *bool { return &b }
 
-		merged, changed, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !changed {
-			t.Fatal("expected changed=true")
-		}
+	tests := []struct {
+		name         string
+		base         string
+		overlay      string
+		expectError  bool
+		expectChange *bool
+		expectTokens map[string]string
+		customCheck  func(t *testing.T, merged []byte)
+	}{
+		{
+			name:         "overlay adds new mcpOAuth server",
+			base:         `{"claudeAiOauth":{"accessToken":"base-token"}}`,
+			overlay:      `{"claudeAiOauth":{"accessToken":"base-token"},"mcpOAuth":{"todoist|abc":{"accessToken":"tok1","expiresAt":1000}}}`,
+			expectChange: boolPtr(true),
+			customCheck: func(t *testing.T, merged []byte) {
+				var result map[string]json.RawMessage
+				if err := json.Unmarshal(merged, &result); err != nil {
+					t.Fatalf("failed to parse merged result: %v", err)
+				}
+				if _, ok := result["mcpOAuth"]; !ok {
+					t.Fatal("expected mcpOAuth in merged result")
+				}
+			},
+		},
+		{
+			name:         "overlay wins for non-mcpOAuth top-level keys",
+			base:         `{"claudeAiOauth":{"accessToken":"old-token"}}`,
+			overlay:      `{"claudeAiOauth":{"accessToken":"new-token"}}`,
+			expectChange: boolPtr(true),
+			customCheck: func(t *testing.T, merged []byte) {
+				var result map[string]json.RawMessage
+				if err := json.Unmarshal(merged, &result); err != nil {
+					t.Fatalf("failed to parse merged result: %v", err)
+				}
 
-		var result map[string]json.RawMessage
-		if err := json.Unmarshal(merged, &result); err != nil {
-			t.Fatalf("failed to parse merged result: %v", err)
-		}
-		if _, ok := result["mcpOAuth"]; !ok {
-			t.Fatal("expected mcpOAuth in merged result")
-		}
-	})
+				var oauth map[string]json.RawMessage
+				if err := json.Unmarshal(result["claudeAiOauth"], &oauth); err != nil {
+					t.Fatalf("failed to parse claudeAiOauth: %v", err)
+				}
 
-	t.Run("overlay wins for non-mcpOAuth top-level keys", func(t *testing.T) {
-		base := `{"claudeAiOauth":{"accessToken":"old-token"}}`
-		overlay := `{"claudeAiOauth":{"accessToken":"new-token"}}`
+				var token string
+				if err := json.Unmarshal(oauth["accessToken"], &token); err != nil {
+					t.Fatalf("failed to parse accessToken: %v", err)
+				}
+				if token != "new-token" {
+					t.Errorf("expected overlay token 'new-token', got %q", token)
+				}
+			},
+		},
+		{
+			name:         "mcpOAuth keeps newer expiresAt from overlay",
+			base:         `{"mcpOAuth":{"todoist|abc":{"accessToken":"old","expiresAt":1000}}}`,
+			overlay:      `{"mcpOAuth":{"todoist|abc":{"accessToken":"new","expiresAt":2000}}}`,
+			expectChange: boolPtr(true),
+			expectTokens: map[string]string{"todoist|abc": "new"},
+		},
+		{
+			name:         "mcpOAuth keeps newer expiresAt from base",
+			base:         `{"mcpOAuth":{"todoist|abc":{"accessToken":"base","expiresAt":3000}}}`,
+			overlay:      `{"mcpOAuth":{"todoist|abc":{"accessToken":"overlay","expiresAt":1000}}}`,
+			expectTokens: map[string]string{"todoist|abc": "base"},
+		},
+		{
+			name:         "mcpOAuth merges servers from both sides",
+			base:         `{"mcpOAuth":{"server-a|111":{"accessToken":"a","expiresAt":1000}}}`,
+			overlay:      `{"mcpOAuth":{"server-b|222":{"accessToken":"b","expiresAt":2000}}}`,
+			expectChange: boolPtr(true),
+			expectTokens: map[string]string{
+				"server-a|111": "a",
+				"server-b|222": "b",
+			},
+		},
+		{
+			name:         "no change when overlay equals base",
+			base:         `{"claudeAiOauth":{"accessToken":"same"}}`,
+			overlay:      `{"claudeAiOauth":{"accessToken":"same"}}`,
+			expectChange: boolPtr(false),
+		},
+		{
+			name:         "missing expiresAt defaults to zero",
+			base:         `{"mcpOAuth":{"s|1":{"accessToken":"base"}}}`,
+			overlay:      `{"mcpOAuth":{"s|1":{"accessToken":"overlay","expiresAt":100}}}`,
+			expectTokens: map[string]string{"s|1": "overlay"},
+		},
+		{
+			name:        "invalid base JSON returns error",
+			base:        "not json",
+			overlay:     `{}`,
+			expectError: true,
+		},
+		{
+			name:        "invalid overlay JSON returns error",
+			base:        `{}`,
+			overlay:     "not json",
+			expectError: true,
+		},
+		{
+			name:         "base-only mcpOAuth preserved when overlay has no mcpOAuth",
+			base:         `{"mcpOAuth":{"s|1":{"accessToken":"base","expiresAt":1000}}}`,
+			overlay:      `{"claudeAiOauth":{"accessToken":"new"}}`,
+			expectChange: boolPtr(true),
+			expectTokens: map[string]string{"s|1": "base"},
+		},
+	}
 
-		merged, changed, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !changed {
-			t.Fatal("expected changed=true")
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			merged, changed, err := MergeCredentialJSON([]byte(tc.base), []byte(tc.overlay))
 
-		var result map[string]json.RawMessage
-		if err := json.Unmarshal(merged, &result); err != nil {
-			t.Fatalf("failed to parse merged result: %v", err)
-		}
+			if tc.expectError {
+				if err == nil {
+					t.Fatal("expected error but got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-		var oauth map[string]json.RawMessage
-		if err := json.Unmarshal(result["claudeAiOauth"], &oauth); err != nil {
-			t.Fatalf("failed to parse claudeAiOauth: %v", err)
-		}
+			if tc.expectChange != nil {
+				if changed != *tc.expectChange {
+					t.Fatalf("expected changed=%v, got %v", *tc.expectChange, changed)
+				}
+			}
 
-		var token string
-		if err := json.Unmarshal(oauth["accessToken"], &token); err != nil {
-			t.Fatalf("failed to parse accessToken: %v", err)
-		}
-		if token != "new-token" {
-			t.Errorf("expected overlay token 'new-token', got %q", token)
-		}
-	})
+			for serverKey, wantToken := range tc.expectTokens {
+				gotToken := extractMcpOAuthToken(t, merged, serverKey)
+				if gotToken != wantToken {
+					t.Errorf("server %q: expected token %q, got %q", serverKey, wantToken, gotToken)
+				}
+			}
 
-	t.Run("mcpOAuth keeps newer expiresAt from overlay", func(t *testing.T) {
-		base := `{"mcpOAuth":{"todoist|abc":{"accessToken":"old","expiresAt":1000}}}`
-		overlay := `{"mcpOAuth":{"todoist|abc":{"accessToken":"new","expiresAt":2000}}}`
-
-		merged, changed, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !changed {
-			t.Fatal("expected changed=true")
-		}
-
-		token := extractMcpOAuthToken(t, merged, "todoist|abc")
-		if token != "new" {
-			t.Errorf("expected overlay token 'new', got %q", token)
-		}
-	})
-
-	t.Run("mcpOAuth keeps newer expiresAt from base", func(t *testing.T) {
-		base := `{"mcpOAuth":{"todoist|abc":{"accessToken":"base","expiresAt":3000}}}`
-		overlay := `{"mcpOAuth":{"todoist|abc":{"accessToken":"overlay","expiresAt":1000}}}`
-
-		merged, _, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		token := extractMcpOAuthToken(t, merged, "todoist|abc")
-		if token != "base" {
-			t.Errorf("expected base token 'base', got %q", token)
-		}
-	})
-
-	t.Run("mcpOAuth merges servers from both sides", func(t *testing.T) {
-		base := `{"mcpOAuth":{"server-a|111":{"accessToken":"a","expiresAt":1000}}}`
-		overlay := `{"mcpOAuth":{"server-b|222":{"accessToken":"b","expiresAt":2000}}}`
-
-		merged, changed, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !changed {
-			t.Fatal("expected changed=true")
-		}
-
-		tokenA := extractMcpOAuthToken(t, merged, "server-a|111")
-		tokenB := extractMcpOAuthToken(t, merged, "server-b|222")
-		if tokenA != "a" {
-			t.Errorf("expected server-a token 'a', got %q", tokenA)
-		}
-		if tokenB != "b" {
-			t.Errorf("expected server-b token 'b', got %q", tokenB)
-		}
-	})
-
-	t.Run("no change when overlay equals base", func(t *testing.T) {
-		base := `{"claudeAiOauth":{"accessToken":"same"}}`
-		overlay := `{"claudeAiOauth":{"accessToken":"same"}}`
-
-		_, changed, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if changed {
-			t.Fatal("expected changed=false when overlay equals base")
-		}
-	})
-
-	t.Run("missing expiresAt defaults to zero", func(t *testing.T) {
-		base := `{"mcpOAuth":{"s|1":{"accessToken":"base"}}}`
-		overlay := `{"mcpOAuth":{"s|1":{"accessToken":"overlay","expiresAt":100}}}`
-
-		merged, _, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		token := extractMcpOAuthToken(t, merged, "s|1")
-		if token != "overlay" {
-			t.Errorf("expected overlay to win when base lacks expiresAt, got %q", token)
-		}
-	})
-
-	t.Run("invalid base JSON returns error", func(t *testing.T) {
-		_, _, err := MergeCredentialJSON([]byte("not json"), []byte(`{}`))
-		if err == nil {
-			t.Fatal("expected error for invalid base JSON")
-		}
-	})
-
-	t.Run("invalid overlay JSON returns error", func(t *testing.T) {
-		_, _, err := MergeCredentialJSON([]byte(`{}`), []byte("not json"))
-		if err == nil {
-			t.Fatal("expected error for invalid overlay JSON")
-		}
-	})
-
-	t.Run("base-only mcpOAuth preserved when overlay has no mcpOAuth", func(t *testing.T) {
-		base := `{"mcpOAuth":{"s|1":{"accessToken":"base","expiresAt":1000}}}`
-		overlay := `{"claudeAiOauth":{"accessToken":"new"}}`
-
-		merged, changed, err := MergeCredentialJSON([]byte(base), []byte(overlay))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !changed {
-			t.Fatal("expected changed=true")
-		}
-
-		token := extractMcpOAuthToken(t, merged, "s|1")
-		if token != "base" {
-			t.Errorf("expected base mcpOAuth to be preserved, got token %q", token)
-		}
-	})
+			if tc.customCheck != nil {
+				tc.customCheck(t, merged)
+			}
+		})
+	}
 }
 
 // extractMcpOAuthToken is a test helper that extracts the accessToken for a
