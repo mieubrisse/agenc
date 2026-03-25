@@ -22,7 +22,6 @@ linters:
         - (*net/http.Server).Close
         - (io.Closer).Close
         - (net.Listener).Close
-        - os.Stdout.Write
         - (net/http.ResponseWriter).Write
         - fmt.Fprint
         - fmt.Fprintln
@@ -57,7 +56,6 @@ linters:
         - "-QF*"   # Disable quickfix suggestions — style, not correctness
         - "-ST1000" # Package comments — not enforced yet
         - "-ST1003" # Naming conventions (e.g., JSON vs Json) — fix over time
-        - "-SA1019" # Deprecated usage — fix when removing deprecated code
 
 run:
   timeout: 5m

@@ -49,7 +49,7 @@ func checkServerVersion(agencDirpath string) {
 // with a running process. This function sends SIGTERM and cleans up. All errors
 // are silently ignored.
 func stopStaleDaemon(agencDirpath string) {
-	daemonPIDFilepath := config.GetDaemonPIDFilepath(agencDirpath)
+	daemonPIDFilepath := config.GetDaemonPIDFilepath(agencDirpath) //nolint:staticcheck // intentional: cleaning up deprecated daemon artifacts
 
 	if !server.IsRunning(daemonPIDFilepath) {
 		return
@@ -64,6 +64,6 @@ func stopStaleDaemon(agencDirpath string) {
 // are silently ignored — cleanup must never block server start.
 func cleanupDaemonDir(agencDirpath string) {
 	stopStaleDaemon(agencDirpath)
-	daemonDirpath := config.GetDaemonDirpath(agencDirpath)
+	daemonDirpath := config.GetDaemonDirpath(agencDirpath) //nolint:staticcheck // intentional: cleaning up deprecated daemon artifacts
 	_ = os.RemoveAll(daemonDirpath)
 }
