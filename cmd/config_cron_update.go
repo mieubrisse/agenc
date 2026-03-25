@@ -43,8 +43,6 @@ func init() {
 	configCronUpdateCmd.Flags().String(cronConfigPromptFlagName, "", "initial prompt for the Claude mission")
 	configCronUpdateCmd.Flags().String(cronConfigDescriptionFlagName, "", "human-readable description")
 	configCronUpdateCmd.Flags().String(cronConfigRepoFlagName, "", "repository to clone (e.g., github.com/owner/repo)")
-	configCronUpdateCmd.Flags().String(cronConfigTimeoutFlagName, "", "maximum runtime (e.g., '1h', '30m')")
-	configCronUpdateCmd.Flags().String(cronConfigOverlapFlagName, "", "overlap policy: 'skip' or 'allow'")
 	configCronUpdateCmd.Flags().Bool(cronConfigEnabledFlagName, true, "whether the cron job is enabled")
 }
 
@@ -92,7 +90,6 @@ func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error 
 	allFlags := []string{
 		cronConfigScheduleFlagName, cronConfigPromptFlagName,
 		cronConfigDescriptionFlagName, cronConfigRepoFlagName,
-		cronConfigTimeoutFlagName, cronConfigOverlapFlagName,
 		cronConfigEnabledFlagName,
 	}
 	if !anyFlagChanged(cmd, allFlags) {
@@ -135,27 +132,6 @@ func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error 
 			repo = result.RepoName
 		}
 		cronCfg.Repo = repo
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	if err := applyStringFlag(cmd, cronConfigTimeoutFlagName, func(timeout string) error {
-		if err := config.ValidateCronTimeout(timeout); err != nil {
-			return err
-		}
-		cronCfg.Timeout = timeout
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	if err := applyStringFlag(cmd, cronConfigOverlapFlagName, func(overlap string) error {
-		overlapPolicy := config.CronOverlapPolicy(overlap)
-		if err := config.ValidateCronOverlapPolicy(overlapPolicy); err != nil {
-			return err
-		}
-		cronCfg.Overlap = overlapPolicy
 		return nil
 	}); err != nil {
 		return err

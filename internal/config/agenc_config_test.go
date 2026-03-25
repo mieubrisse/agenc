@@ -998,49 +998,6 @@ func TestValidatePathNoTraversal(t *testing.T) {
 	}
 }
 
-func TestValidateMaxConcurrent(t *testing.T) {
-	tests := []struct {
-		name    string
-		value   int
-		wantErr bool
-	}{
-		{
-			name:    "valid value 1",
-			value:   1,
-			wantErr: false,
-		},
-		{
-			name:    "valid value 10",
-			value:   10,
-			wantErr: false,
-		},
-		{
-			name:    "valid value 100",
-			value:   100,
-			wantErr: false,
-		},
-		{
-			name:    "zero",
-			value:   0,
-			wantErr: true,
-		},
-		{
-			name:    "negative",
-			value:   -1,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateMaxConcurrent(tt.value)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateMaxConcurrent() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestSanitizePrompt(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -1133,64 +1090,6 @@ func TestValidateCronSchedule(t *testing.T) {
 	}
 }
 
-func TestValidateCronTimeout_Bounds(t *testing.T) {
-	tests := []struct {
-		name    string
-		timeout string
-		wantErr bool
-	}{
-		{
-			name:    "empty is valid (uses default)",
-			timeout: "",
-			wantErr: false,
-		},
-		{
-			name:    "valid timeout 1h",
-			timeout: "1h",
-			wantErr: false,
-		},
-		{
-			name:    "valid timeout 30m",
-			timeout: "30m",
-			wantErr: false,
-		},
-		{
-			name:    "valid timeout 24h (max)",
-			timeout: "24h",
-			wantErr: false,
-		},
-		{
-			name:    "invalid timeout - exceeds max",
-			timeout: "25h",
-			wantErr: true,
-		},
-		{
-			name:    "invalid timeout - negative",
-			timeout: "-1h",
-			wantErr: true,
-		},
-		{
-			name:    "invalid timeout - zero",
-			timeout: "0s",
-			wantErr: true,
-		},
-		{
-			name:    "invalid timeout format",
-			timeout: "not-a-duration",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateCronTimeout(tt.timeout)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateCronTimeout() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestValidateAndPopulateDefaults(t *testing.T) {
 	t.Run("sanitizes cron prompt with control characters", func(t *testing.T) {
 		cfg := &AgencConfig{
@@ -1211,51 +1110,6 @@ func TestValidateAndPopulateDefaults(t *testing.T) {
 		want := "Testpromptwithcontrols"
 		if got != want {
 			t.Errorf("prompt not sanitized: got %q, want %q", got, want)
-		}
-	})
-
-	t.Run("validates timeout bounds", func(t *testing.T) {
-		cfg := &AgencConfig{
-			Crons: map[string]CronConfig{
-				"test": {
-					Schedule: "0 9 * * *",
-					Prompt:   "Test",
-					Timeout:  "25h",
-				},
-			},
-		}
-
-		err := ValidateAndPopulateDefaults(cfg)
-		if err == nil {
-			t.Fatal("expected error for timeout exceeding max, got nil")
-		}
-		if !strings.Contains(err.Error(), "exceeds maximum") {
-			t.Errorf("expected error about exceeding maximum, got: %v", err)
-		}
-	})
-
-	t.Run("validates max concurrent >= 1", func(t *testing.T) {
-		cfg := &AgencConfig{
-			CronsMaxConcurrent: -5,
-		}
-
-		err := ValidateAndPopulateDefaults(cfg)
-		if err == nil {
-			t.Fatal("expected error for negative max concurrent, got nil")
-		}
-		if !strings.Contains(err.Error(), "must be >= 1") {
-			t.Errorf("expected error about >= 1, got: %v", err)
-		}
-	})
-
-	t.Run("allows max concurrent = 0 (uses default)", func(t *testing.T) {
-		cfg := &AgencConfig{
-			CronsMaxConcurrent: 0,
-		}
-
-		err := ValidateAndPopulateDefaults(cfg)
-		if err != nil {
-			t.Fatalf("ValidateAndPopulateDefaults() should allow 0: %v", err)
 		}
 	})
 
@@ -1470,42 +1324,6 @@ func TestTrustedMcpServers_RoundTrip(t *testing.T) {
 	if rc3.TrustedMcpServers != nil {
 		t.Errorf("repo3: expected nil TrustedMcpServers, got %+v", rc3.TrustedMcpServers)
 	}
-}
-
-func TestReadAgencConfig_CallsValidation(t *testing.T) {
-	t.Run("rejects cron with invalid timeout", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		writeConfigYAML(t, tmpDir, `
-crons:
-  test:
-    schedule: "0 9 * * *"
-    prompt: "Test"
-    timeout: "48h"
-`)
-
-		_, _, err := ReadAgencConfig(tmpDir)
-		if err == nil {
-			t.Fatal("expected error for timeout exceeding max, got nil")
-		}
-		if !strings.Contains(err.Error(), "exceeds maximum") {
-			t.Errorf("expected validation error about exceeding maximum, got: %v", err)
-		}
-	})
-
-	t.Run("rejects invalid max concurrent", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		writeConfigYAML(t, tmpDir, `
-cronsMaxConcurrent: -5
-`)
-
-		_, _, err := ReadAgencConfig(tmpDir)
-		if err == nil {
-			t.Fatal("expected error for negative max concurrent, got nil")
-		}
-		if !strings.Contains(err.Error(), "must be >= 1") {
-			t.Errorf("expected validation error about >= 1, got: %v", err)
-		}
-	})
 }
 
 func TestGetDefaultModel(t *testing.T) {

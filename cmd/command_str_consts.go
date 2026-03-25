@@ -142,7 +142,5 @@ const (
 	cronConfigPromptFlagName      = "prompt"
 	cronConfigDescriptionFlagName = "description"
 	cronConfigRepoFlagName        = "repo"
-	cronConfigTimeoutFlagName     = "timeout"
-	cronConfigOverlapFlagName     = "overlap"
 	cronConfigEnabledFlagName     = "enabled"
 )

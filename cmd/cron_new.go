@@ -135,23 +135,12 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "")
 	}
 
-	timeout, err := readPromptLine(reader, "\nTimeout (e.g., '1h', '30m'; press Enter for default 1h): ")
-	if err != nil {
-		return stacktrace.Propagate(err, "")
-	}
-	if timeout != "" {
-		if err := config.ValidateCronTimeout(timeout); err != nil {
-			return stacktrace.Propagate(err, "")
-		}
-	}
-
 	// Create the cron config
 	cronCfg := config.CronConfig{
 		ID:       uuid.New().String(),
 		Schedule: schedule,
 		Prompt:   prompt,
 		Repo:     gitRepo,
-		Timeout:  timeout,
 	}
 
 	if cfg.Crons == nil {
