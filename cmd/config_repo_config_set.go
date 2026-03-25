@@ -71,7 +71,7 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 		rc.AlwaysSynced = synced
 		return nil
 	}); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply always-synced flag")
 	}
 
 	// Simple string fields that map directly to struct fields
@@ -89,7 +89,7 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 			*f.target = value
 			return nil
 		}); err != nil {
-			return err
+			return stacktrace.Propagate(err, "failed to apply repo config string flag")
 		}
 	}
 
@@ -113,7 +113,7 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 		}
 		return nil
 	}); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply trusted MCP servers flag")
 	}
 
 	cfg.SetRepoConfig(repoName, rc)

@@ -95,7 +95,7 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 			*f.target = config.StringPtr(value)
 			return nil
 		}); err != nil {
-			return err
+			return stacktrace.Propagate(err, "failed to apply palette command string flag")
 		}
 	}
 
@@ -103,7 +103,7 @@ func runConfigPaletteCommandUpdate(cmd *cobra.Command, args []string) error {
 		existing.Disabled = disabled
 		return nil
 	}); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply palette command disabled flag")
 	}
 
 	if cfg.PaletteCommands == nil {

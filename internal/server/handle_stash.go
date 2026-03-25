@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mieubrisse/stacktrace"
+
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
@@ -137,7 +139,7 @@ func (s *Server) handlePushStash(w http.ResponseWriter, r *http.Request) error {
 
 	responses, err := s.findRunningMissionResponses()
 	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to find running missions for stash")
 	}
 
 	if len(responses) == 0 {
@@ -160,7 +162,7 @@ func (s *Server) handlePushStash(w http.ResponseWriter, r *http.Request) error {
 	stashID, stashMissions, err := s.buildAndWriteStash(responses)
 	if err != nil {
 		s.stashInProgress.Store(false)
-		return err
+		return stacktrace.Propagate(err, "failed to build and write stash")
 	}
 
 	// Immediately unlink all windows from user sessions for fast visual feedback.
@@ -327,7 +329,7 @@ func (s *Server) handlePopStash(w http.ResponseWriter, r *http.Request) error {
 
 	stashID, stashFilepath, stashFile, err := s.resolveStash(req.StashID)
 	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to resolve stash")
 	}
 
 	// Block mutating mission requests during restore

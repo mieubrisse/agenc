@@ -70,7 +70,7 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := applyCronUpdateFlags(cmd, &cronCfg); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply cron update flags")
 	}
 
 	cfg.Crons[name] = cronCfg
@@ -98,12 +98,12 @@ func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error 
 
 	if err := applyStringFlag(cmd, cronConfigScheduleFlagName, func(schedule string) error {
 		if err := config.ValidateCronSchedule(schedule); err != nil {
-			return err
+			return stacktrace.Propagate(err, "invalid cron schedule")
 		}
 		cronCfg.Schedule = schedule
 		return nil
 	}); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply schedule flag")
 	}
 
 	if err := applyStringFlag(cmd, cronConfigPromptFlagName, func(prompt string) error {
@@ -113,14 +113,14 @@ func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error 
 		cronCfg.Prompt = prompt
 		return nil
 	}); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply prompt flag")
 	}
 
 	if err := applyStringFlag(cmd, cronConfigDescriptionFlagName, func(description string) error {
 		cronCfg.Description = description
 		return nil
 	}); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply description flag")
 	}
 
 	if err := applyStringFlag(cmd, cronConfigRepoFlagName, func(repo string) error {
@@ -134,11 +134,15 @@ func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error 
 		cronCfg.Repo = repo
 		return nil
 	}); err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to apply repo flag")
 	}
 
-	return applyBoolFlag(cmd, cronConfigEnabledFlagName, func(enabled bool) error {
+	if err := applyBoolFlag(cmd, cronConfigEnabledFlagName, func(enabled bool) error {
 		cronCfg.Enabled = &enabled
 		return nil
-	})
+	}); err != nil {
+		return stacktrace.Propagate(err, "failed to apply enabled flag")
+	}
+
+	return nil
 }

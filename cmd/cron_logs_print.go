@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 )
 
@@ -34,12 +35,12 @@ func init() {
 func runCronLogsPrint(cmd *cobra.Command, args []string) error {
 	client, err := serverClient()
 	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to connect to server")
 	}
 
 	cronID, err := resolveCronID(client, args[0])
 	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to resolve cron job identifier")
 	}
 
 	body, err := client.GetCronLogs(cronID, cronLogsPrintAllFlag)

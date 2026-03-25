@@ -308,7 +308,7 @@ func (w *Wrapper) spawnClaude(isResume bool) error {
 	}
 
 	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to spawn claude process")
 	}
 	w.claudeCmd = cmd
 	return nil
@@ -320,7 +320,7 @@ func (w *Wrapper) spawnClaude(isResume bool) error {
 func (w *Wrapper) Run(isResume bool) error {
 	res, cleanup, err := w.setupRun(isResume)
 	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "failed to initialize wrapper")
 	}
 	defer cleanup()
 
@@ -339,7 +339,10 @@ func (w *Wrapper) Run(isResume bool) error {
 		case exitErr := <-w.claudeExited:
 			done, err := w.handleClaudeExit(exitErr)
 			if done {
-				return err
+				if err != nil {
+					return stacktrace.Propagate(err, "failed to handle claude exit")
+				}
+				return nil
 			}
 		}
 	}
