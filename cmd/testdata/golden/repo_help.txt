@@ -1,0 +1,14 @@
+Manage the repo library
+
+Usage:
+  agenc repo [command]
+
+Available Commands:
+  add         Add a repository to the repo library
+  ls          List repositories in the repo library
+  rm          Remove a repository from the repo library
+
+Flags:
+  -h, --help   help for repo
+
+Use "agenc repo [command] --help" for more information about a command.

@@ -1,0 +1,25 @@
+Manage agent missions
+
+Usage:
+  agenc mission [command]
+
+Available Commands:
+  archive     Stop and archive one or more missions
+  attach      Attach a mission to the current tmux session
+  detach      Detach a mission from the current tmux session
+  inspect     Print information about a mission
+  ls          List active missions
+  new         Create a new mission and launch claude
+  nuke        Stop and permanently remove ALL missions
+  print       Print a mission's current session transcript (human-readable text by default)
+  reconfig    Apply your latest ~/.claude config to a mission
+  reload      Reload one or more missions in-place (preserves tmux pane)
+  rename      Rename the active session's window title for a mission
+  rm          Stop and permanently remove one or more missions
+  send-keys   Send keystrokes to a running mission's tmux pane
+  stop        Stop one or more mission wrapper processes
+
+Flags:
+  -h, --help   help for mission
+
+Use "agenc mission [command] --help" for more information about a command.
