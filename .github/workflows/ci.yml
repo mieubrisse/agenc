@@ -19,10 +19,12 @@ jobs:
           go-version-file: go.mod
 
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        # Pinned version — update deliberately, not via @latest
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.11.4
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        # Pinned version — update deliberately, not via @latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
       - name: Run checks
         run: make check
