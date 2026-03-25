@@ -242,6 +242,36 @@ func ingestFile(srcFilepath string, dstFilepath string) (bool, error) {
 	return true, nil
 }
 
+// handleSymlinkEntry handles a symlink encountered during directory walking.
+// Returns (skipEntry, error) where skipEntry=true means the caller should
+// return nil from the walk callback (the symlink was fully handled).
+func handleSymlinkEntry(path string, srcDirpath string, dstPath string, relPath string, changed *bool) (bool, error) {
+	resolvedPath, resolveErr := resolveSymlink(path)
+	if resolveErr != nil {
+		if os.IsNotExist(resolveErr) {
+			return true, nil // Dangling symlink, skip
+		}
+		return false, stacktrace.Propagate(resolveErr, "failed to resolve symlink '%s'", path)
+	}
+	resolvedInfo, statErr := os.Stat(resolvedPath)
+	if statErr != nil {
+		return false, stacktrace.Propagate(statErr, "failed to stat resolved symlink '%s'", resolvedPath)
+	}
+	if resolvedInfo.IsDir() {
+		origDirpath := filepath.Join(srcDirpath, relPath)
+		didChange, ingestErr := ingestDir(origDirpath, dstPath)
+		if ingestErr != nil {
+			return false, stacktrace.Propagate(ingestErr, "failed to ingest symlinked directory '%s'", origDirpath)
+		}
+		if didChange {
+			*changed = true
+		}
+		return true, nil
+	}
+	// Symlink to file: caller should fall through to ingestFile
+	return false, nil
+}
+
 // ingestDir copies a directory from src to dst as-is (no path transformation).
 // Returns true if any files were changed or removed.
 // If the source doesn't exist, removes the destination if it exists.
@@ -289,27 +319,11 @@ func ingestDir(srcDirpath string, dstDirpath string) (bool, error) {
 
 		// Handle symlinks explicitly — Walk doesn't follow them
 		if info.Mode()&os.ModeSymlink != 0 {
-			resolvedPath, resolveErr := resolveSymlink(path)
-			if resolveErr != nil {
-				if os.IsNotExist(resolveErr) {
-					return nil // Dangling symlink, skip
-				}
-				return stacktrace.Propagate(resolveErr, "failed to resolve symlink '%s'", path)
+			handled, symlinkErr := handleSymlinkEntry(path, srcDirpath, dstPath, relPath, &changed)
+			if symlinkErr != nil {
+				return symlinkErr
 			}
-			resolvedInfo, statErr := os.Stat(resolvedPath)
-			if statErr != nil {
-				return stacktrace.Propagate(statErr, "failed to stat resolved symlink '%s'", resolvedPath)
-			}
-			if resolvedInfo.IsDir() {
-				// Symlink to directory: recursively ingest it
-				origDirpath := filepath.Join(srcDirpath, relPath)
-				didChange, ingestErr := ingestDir(origDirpath, dstPath)
-				if ingestErr != nil {
-					return stacktrace.Propagate(ingestErr, "failed to ingest symlinked directory '%s'", origDirpath)
-				}
-				if didChange {
-					changed = true
-				}
+			if handled {
 				return nil
 			}
 			// Symlink to file: fall through to ingestFile below

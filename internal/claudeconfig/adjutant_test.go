@@ -63,15 +63,38 @@ func TestBuildAdjutantDenyEntries(t *testing.T) {
 	}
 }
 
+// setupAdjutantAgentConfig creates a temp dir, writes the adjutant agent config into it,
+// and returns the agent dirpath. Fails the test on error.
+func setupAdjutantAgentConfig(t *testing.T, agencDirpath string) string {
+	t.Helper()
+	agentDirpath := t.TempDir()
+	if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return agentDirpath
+}
+
+// readAdjutantSettings reads and parses the settings.json written by writeAdjutantAgentConfig.
+// Fails the test on error.
+func readAdjutantSettings(t *testing.T, agentDirpath string) map[string]json.RawMessage {
+	t.Helper()
+	settingsFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, "settings.json")
+	data, err := os.ReadFile(settingsFilepath)
+	if err != nil {
+		t.Fatalf("failed to read settings.json: %v", err)
+	}
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("failed to parse settings: %v", err)
+	}
+	return settings
+}
+
 func TestWriteAdjutantAgentConfig(t *testing.T) {
 	agencDirpath := "/home/user/.agenc"
 
 	t.Run("writes CLAUDE.md to agent directory", func(t *testing.T) {
-		agentDirpath := t.TempDir()
-
-		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		agentDirpath := setupAdjutantAgentConfig(t, agencDirpath)
 
 		data, err := os.ReadFile(filepath.Join(agentDirpath, "CLAUDE.md"))
 		if err != nil {
@@ -88,22 +111,8 @@ func TestWriteAdjutantAgentConfig(t *testing.T) {
 	})
 
 	t.Run("writes settings.json to agent/.claude directory", func(t *testing.T) {
-		agentDirpath := t.TempDir()
-
-		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		settingsFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, "settings.json")
-		data, err := os.ReadFile(settingsFilepath)
-		if err != nil {
-			t.Fatalf("failed to read settings.json: %v", err)
-		}
-
-		var settings map[string]json.RawMessage
-		if err := json.Unmarshal(data, &settings); err != nil {
-			t.Fatalf("failed to parse settings: %v", err)
-		}
+		agentDirpath := setupAdjutantAgentConfig(t, agencDirpath)
+		settings := readAdjutantSettings(t, agentDirpath)
 
 		var perms map[string]json.RawMessage
 		if err := json.Unmarshal(settings["permissions"], &perms); err != nil {
@@ -130,22 +139,8 @@ func TestWriteAdjutantAgentConfig(t *testing.T) {
 	})
 
 	t.Run("settings contains permissions and hooks", func(t *testing.T) {
-		agentDirpath := t.TempDir()
-
-		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		settingsFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, "settings.json")
-		data, err := os.ReadFile(settingsFilepath)
-		if err != nil {
-			t.Fatalf("failed to read settings.json: %v", err)
-		}
-
-		var settings map[string]json.RawMessage
-		if err := json.Unmarshal(data, &settings); err != nil {
-			t.Fatalf("failed to parse settings: %v", err)
-		}
+		agentDirpath := setupAdjutantAgentConfig(t, agencDirpath)
+		settings := readAdjutantSettings(t, agentDirpath)
 
 		if len(settings) != 2 {
 			t.Errorf("expected settings to contain 'permissions' and 'hooks' keys, got %d keys", len(settings))
@@ -161,20 +156,12 @@ func TestWriteAdjutantAgentConfig(t *testing.T) {
 	})
 
 	t.Run("settings has SessionStart hook running agenc prime", func(t *testing.T) {
-		agentDirpath := t.TempDir()
-
-		if err := writeAdjutantAgentConfig(agentDirpath, agencDirpath); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		settingsFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, "settings.json")
-		data, err := os.ReadFile(settingsFilepath)
-		if err != nil {
-			t.Fatalf("failed to read settings.json: %v", err)
-		}
+		agentDirpath := setupAdjutantAgentConfig(t, agencDirpath)
+		settings := readAdjutantSettings(t, agentDirpath)
 
 		// Verify the JSON contains the SessionStart hook with "agenc prime"
-		content := string(data)
+		settingsJSON, _ := json.Marshal(settings)
+		content := string(settingsJSON)
 		if !strings.Contains(content, "SessionStart") {
 			t.Error("settings missing SessionStart hook")
 		}

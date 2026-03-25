@@ -77,6 +77,82 @@ func runSessionRename(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// handleRawKeystroke processes a single byte read from stdin in raw terminal mode.
+// It modifies the runes buffer in place and returns:
+//   - done=true with the trimmed string when Enter is pressed
+//   - done=true with errPromptCancelled when ESC or Ctrl+C is pressed
+//   - done=false to continue reading
+func handleRawKeystroke(b byte, runes *[]rune, buf []byte) (result string, done bool, err error) {
+	switch {
+	case b == 0x1B: // ESC byte
+		if isStandaloneEsc() {
+			fmt.Print("\r\n")
+			return "", true, errPromptCancelled
+		}
+
+	case b == 0x03: // Ctrl+C
+		fmt.Print("\r\n")
+		return "", true, errPromptCancelled
+
+	case b == 0x0D: // Enter (carriage return in raw mode)
+		fmt.Print("\r\n")
+		return strings.TrimSpace(string(*runes)), true, nil
+
+	case b == 0x15: // Ctrl+U — clear entire line
+		eraseLineDisplay(runes)
+
+	case b == 0x7F || b == 0x08: // Backspace
+		handleBackspace(runes)
+
+	case b >= 0xC0: // UTF-8 multi-byte leading byte
+		handleMultibyteRune(b, runes, buf)
+
+	case b >= 0x20 && b < 0x7F: // Printable ASCII
+		*runes = append(*runes, rune(b))
+		os.Stdout.Write(buf[:1])
+	}
+
+	return "", false, nil
+}
+
+// eraseLineDisplay clears the entire line of runes from the terminal display.
+func eraseLineDisplay(runes *[]rune) {
+	if len(*runes) > 0 {
+		totalWidth := 0
+		for _, r := range *runes {
+			totalWidth += runewidth.RuneWidth(r)
+		}
+		*runes = (*runes)[:0]
+		fmt.Print(strings.Repeat("\b", totalWidth) + strings.Repeat(" ", totalWidth) + strings.Repeat("\b", totalWidth))
+	}
+}
+
+// handleBackspace removes the last rune from the buffer and erases it from the display.
+func handleBackspace(runes *[]rune) {
+	if len(*runes) > 0 {
+		removed := (*runes)[len(*runes)-1]
+		*runes = (*runes)[:len(*runes)-1]
+		w := runewidth.RuneWidth(removed)
+		fmt.Print(strings.Repeat("\b", w) + strings.Repeat(" ", w) + strings.Repeat("\b", w))
+	}
+}
+
+// handleMultibyteRune reads the remaining bytes of a multi-byte UTF-8 sequence
+// and appends the decoded rune to the buffer.
+func handleMultibyteRune(leadByte byte, runes *[]rune, buf []byte) {
+	seqLen := utf8LeadByteLen(leadByte)
+	buf[0] = leadByte
+	for i := 1; i < seqLen; i++ {
+		if _, err := os.Stdin.Read(buf[i : i+1]); err != nil {
+			break
+		}
+	}
+	if r, _ := utf8.DecodeRune(buf[:seqLen]); r != utf8.RuneError {
+		*runes = append(*runes, r)
+		os.Stdout.Write(buf[:seqLen])
+	}
+}
+
 // promptForTitle reads a title interactively from the terminal. The user can
 // press Enter to submit, or ESC/Ctrl+C to cancel. Returns errPromptCancelled
 // when the user cancels. Falls back to simple line reading for non-terminal stdin.
@@ -103,58 +179,9 @@ func promptForTitle() (string, error) {
 			return "", stacktrace.Propagate(err, "failed to read input")
 		}
 
-		b := buf[0]
-
-		switch {
-		case b == 0x1B: // ESC byte
-			if isStandaloneEsc() {
-				fmt.Print("\r\n")
-				return "", errPromptCancelled
-			}
-			// Escape sequence (arrow key, etc.) consumed — ignore
-
-		case b == 0x03: // Ctrl+C
-			fmt.Print("\r\n")
-			return "", errPromptCancelled
-
-		case b == 0x0D: // Enter (carriage return in raw mode)
-			fmt.Print("\r\n")
-			return strings.TrimSpace(string(runes)), nil
-
-		case b == 0x15: // Ctrl+U — clear entire line
-			if len(runes) > 0 {
-				totalWidth := 0
-				for _, r := range runes {
-					totalWidth += runewidth.RuneWidth(r)
-				}
-				runes = runes[:0]
-				fmt.Print(strings.Repeat("\b", totalWidth) + strings.Repeat(" ", totalWidth) + strings.Repeat("\b", totalWidth))
-			}
-
-		case b == 0x7F || b == 0x08: // Backspace
-			if len(runes) > 0 {
-				removed := runes[len(runes)-1]
-				runes = runes[:len(runes)-1]
-				w := runewidth.RuneWidth(removed)
-				fmt.Print(strings.Repeat("\b", w) + strings.Repeat(" ", w) + strings.Repeat("\b", w))
-			}
-
-		case b >= 0xC0: // UTF-8 multi-byte leading byte
-			seqLen := utf8LeadByteLen(b)
-			buf[0] = b
-			for i := 1; i < seqLen; i++ {
-				if _, err := os.Stdin.Read(buf[i : i+1]); err != nil {
-					break
-				}
-			}
-			if r, _ := utf8.DecodeRune(buf[:seqLen]); r != utf8.RuneError {
-				runes = append(runes, r)
-				os.Stdout.Write(buf[:seqLen])
-			}
-
-		case b >= 0x20 && b < 0x7F: // Printable ASCII
-			runes = append(runes, rune(b))
-			os.Stdout.Write(buf[:1])
+		result, done, keystrokeErr := handleRawKeystroke(buf[0], &runes, buf)
+		if done {
+			return result, keystrokeErr
 		}
 	}
 }

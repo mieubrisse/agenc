@@ -407,6 +407,61 @@ func countCommitsInRange(repoPath string, dayStart, dayEnd time.Time) (int, erro
 	return len(lines), nil
 }
 
+// formatActiveHours returns a human-readable string describing the active development window.
+func formatActiveHours(stats *DailyStats) string {
+	if stats.FirstActivity != nil && stats.LastActivity != nil {
+		duration := stats.LastActivity.Sub(*stats.FirstActivity)
+		hours := int(duration.Hours())
+		return fmt.Sprintf("~%d hours of active development (%s to %s)",
+			hours,
+			stats.FirstActivity.Format("3:04 PM"),
+			stats.LastActivity.Format("3:04 PM"))
+	}
+	return "No activity recorded"
+}
+
+// printCommitStats prints the commit count line with repo context.
+func printCommitStats(stats *DailyStats) {
+	if stats.TotalCommits == 0 {
+		return
+	}
+	var primaryRepo string
+	maxCommits := 0
+	for repo, count := range stats.CommitsByRepo {
+		if count > maxCommits {
+			primaryRepo = repo
+			maxCommits = count
+		}
+	}
+	fmt.Printf("  - %d commits pushed", stats.TotalCommits)
+	if primaryRepo != "" && len(stats.CommitsByRepo) == 1 {
+		fmt.Printf(" to the %s repository\n", primaryRepo)
+	} else if primaryRepo != "" {
+		fmt.Printf(" across %d repositories\n", len(stats.CommitsByRepo))
+	} else {
+		fmt.Println()
+	}
+}
+
+// formatPeakHour returns a parenthetical peak-hour annotation, or empty string if none.
+func formatPeakHour(stats *DailyStats) string {
+	if stats.PeakHourSessions == 0 {
+		return ""
+	}
+	hour := stats.PeakHour
+	period := "AM"
+	if hour >= 12 {
+		period = "PM"
+		if hour > 12 {
+			hour = hour - 12
+		}
+	}
+	if hour == 0 {
+		hour = 12
+	}
+	return fmt.Sprintf(" (peak hour: %d %s with %d sessions)", hour, period, stats.PeakHourSessions)
+}
+
 // printDailySummary displays the formatted daily summary.
 func printDailySummary(date time.Time, stats *DailyStats) {
 	fmt.Println()
@@ -416,63 +471,17 @@ func printDailySummary(date time.Time, stats *DailyStats) {
 	fmt.Println("  📊 By The Numbers")
 	fmt.Println()
 
-	// Calculate active hours
-	var activeHours string
-	if stats.FirstActivity != nil && stats.LastActivity != nil {
-		duration := stats.LastActivity.Sub(*stats.FirstActivity)
-		hours := int(duration.Hours())
-		activeHours = fmt.Sprintf("~%d hours of active development (%s to %s)",
-			hours,
-			stats.FirstActivity.Format("3:04 PM"),
-			stats.LastActivity.Format("3:04 PM"))
-	} else {
-		activeHours = "No activity recorded"
-	}
-
-	// Show basic statistics
-	if stats.TotalCommits > 0 {
-		// Find primary repo (most commits)
-		var primaryRepo string
-		maxCommits := 0
-		for repo, count := range stats.CommitsByRepo {
-			if count > maxCommits {
-				primaryRepo = repo
-				maxCommits = count
-			}
-		}
-		fmt.Printf("  - %d commits pushed", stats.TotalCommits)
-		if primaryRepo != "" && len(stats.CommitsByRepo) == 1 {
-			fmt.Printf(" to the %s repository\n", primaryRepo)
-		} else if primaryRepo != "" {
-			fmt.Printf(" across %d repositories\n", len(stats.CommitsByRepo))
-		} else {
-			fmt.Println()
-		}
-	}
+	printCommitStats(stats)
 
 	if stats.SessionsCreated > 0 {
-		peakHourDisplay := ""
-		if stats.PeakHourSessions > 0 {
-			hour := stats.PeakHour
-			period := "AM"
-			if hour >= 12 {
-				period = "PM"
-				if hour > 12 {
-					hour = hour - 12
-				}
-			}
-			if hour == 0 {
-				hour = 12
-			}
-			peakHourDisplay = fmt.Sprintf(" (peak hour: %d %s with %d sessions)", hour, period, stats.PeakHourSessions)
-		}
-		fmt.Printf("  - %d Claude sessions created%s\n", stats.SessionsCreated, peakHourDisplay)
+		fmt.Printf("  - %d Claude sessions created%s\n", stats.SessionsCreated, formatPeakHour(stats))
 	}
 
 	if stats.MissionsCreated > 0 {
 		fmt.Printf("  - %d missions created\n", stats.MissionsCreated)
 	}
 
+	activeHours := formatActiveHours(stats)
 	if activeHours != "" {
 		fmt.Printf("  - %s\n", activeHours)
 	}

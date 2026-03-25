@@ -13,6 +13,39 @@ type DB struct {
 	conn *sql.DB
 }
 
+// migrationStep pairs a migration function with a human-readable description
+// used in error messages.
+type migrationStep struct {
+	fn   func(*sql.DB) error
+	desc string
+}
+
+// getMigrationSteps returns the ordered list of database migrations to run after
+// the initial table creation.
+func getMigrationSteps() []migrationStep {
+	return []migrationStep{
+		{migrateWorktreeSourceToGitRepo, "migrate worktree_source to git_repo column"},
+		{migrateAddLastHeartbeat, "add last_heartbeat column"},
+		{migrateAddShortID, "add short_id column"},
+		{migrateAddSessionName, "add session_name columns"},
+		{migrateAddCronColumns, "add cron columns"},
+		{migrateDropAgentTemplate, "drop agent_template column"},
+		{migrateAddConfigCommit, "add config_commit column"},
+		{migrateAddTmuxPane, "add tmux_pane column"},
+		{migrateAddAISummary, "add AI summary columns"},
+		{migrateAddTmuxWindowTitle, "add tmux_window_title column"},
+		{migrateClearTmuxWindowTitle, "clear tmux_window_title column"},
+		{migrateAddQueryIndices, "add query performance indices"},
+		{migrateCreateSessionsTable, "create sessions table"},
+		{migrateDropLastActive, "drop last_active column"},
+		{migrateAddAgencCustomTitle, "add agenc_custom_title column to sessions"},
+		{migrateAddSessionShortID, "add short_id column to sessions"},
+		{migrateCleanOrphanedSessions, "clean orphaned sessions"},
+		{migrateAddLastUserPromptAt, "add last_user_prompt_at column"},
+		{migrateAddSourceColumns, "add source columns"},
+	}
+}
+
 // Open opens or creates the SQLite database at the given filepath
 // and runs auto-migration.
 func Open(dbFilepath string) (*DB, error) {
@@ -26,113 +59,24 @@ func Open(dbFilepath string) (*DB, error) {
 	// to avoid unnecessary contention between connections in the same process.
 	conn.SetMaxOpenConns(1)
 
-	migrations := []string{createMissionsTableSQL}
-	for _, migrationSQL := range migrations {
-		if _, err := conn.Exec(migrationSQL); err != nil {
+	// Initial table creation
+	if _, err := conn.Exec(createMissionsTableSQL); err != nil {
+		conn.Close()
+		return nil, stacktrace.Propagate(err, "failed to auto-migrate database")
+	}
+
+	// Run all migration steps
+	for _, step := range getMigrationSteps() {
+		if err := step.fn(conn); err != nil {
 			conn.Close()
-			return nil, stacktrace.Propagate(err, "failed to auto-migrate database")
+			return nil, stacktrace.Propagate(err, "failed to %s", step.desc)
 		}
-	}
-
-	if err := migrateWorktreeSourceToGitRepo(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to migrate worktree_source to git_repo column")
-	}
-
-	if err := migrateAddLastHeartbeat(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add last_heartbeat column")
-	}
-
-	if err := migrateAddShortID(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add short_id column")
-	}
-
-	if err := migrateAddSessionName(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add session_name columns")
-	}
-
-	if err := migrateAddCronColumns(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add cron columns")
-	}
-
-	if err := migrateDropAgentTemplate(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to drop agent_template column")
-	}
-
-	if err := migrateAddConfigCommit(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add config_commit column")
-	}
-
-	if err := migrateAddTmuxPane(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add tmux_pane column")
-	}
-
-	if err := migrateAddAISummary(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add AI summary columns")
-	}
-
-	if err := migrateAddTmuxWindowTitle(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add tmux_window_title column")
-	}
-
-	if err := migrateClearTmuxWindowTitle(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to clear tmux_window_title column")
-	}
-
-	if err := migrateAddQueryIndices(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add query performance indices")
-	}
-
-	if err := migrateCreateSessionsTable(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to create sessions table")
-	}
-
-	if err := migrateDropLastActive(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to drop last_active column")
-	}
-
-	if err := migrateAddAgencCustomTitle(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add agenc_custom_title column to sessions")
-	}
-
-	if err := migrateAddSessionShortID(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add short_id column to sessions")
 	}
 
 	// Drop legacy mission_descriptions table
 	if _, err := conn.Exec(dropMissionDescriptionsTableSQL); err != nil {
 		conn.Close()
 		return nil, stacktrace.Propagate(err, "failed to drop mission_descriptions table")
-	}
-
-	if err := migrateCleanOrphanedSessions(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to clean orphaned sessions")
-	}
-
-	if err := migrateAddLastUserPromptAt(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add last_user_prompt_at column")
-	}
-
-	if err := migrateAddSourceColumns(conn); err != nil {
-		conn.Close()
-		return nil, stacktrace.Propagate(err, "failed to add source columns")
 	}
 
 	return &DB{conn: conn}, nil

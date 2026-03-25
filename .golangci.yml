@@ -10,7 +10,7 @@ linters:
     - gocyclo       # Computes and checks the cyclomatic complexity of functions
   settings:
     gocyclo:
-      min-complexity: 35  # Start permissive, tighten over time
+      min-complexity: 20
     errcheck:
       exclude-functions:
         # Close/cleanup in defer — nothing useful to do with the error

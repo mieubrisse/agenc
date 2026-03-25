@@ -182,6 +182,39 @@ const maxMetadataLineLen = 10 * 1024 // 10 KB
 // longer prompts while still skipping multi-MB assistant response lines.
 const maxUserMessageLineLen = 100 * 1024 // 100 KB
 
+// tryExtractCustomTitle checks whether line contains a custom-title metadata entry
+// and returns the title if found.
+func tryExtractCustomTitle(line string) string {
+	if len(line) > maxMetadataLineLen || !strings.Contains(line, `"custom-title"`) {
+		return ""
+	}
+	var entry jsonlMetadataEntry
+	if err := json.Unmarshal([]byte(line), &entry); err != nil {
+		return ""
+	}
+	if entry.Type == "custom-title" && entry.CustomTitle != "" {
+		return entry.CustomTitle
+	}
+	return ""
+}
+
+// tryExtractUserMessage checks whether line contains a user message entry
+// and returns the message content if found.
+func tryExtractUserMessage(line string) string {
+	if len(line) > maxUserMessageLineLen || !strings.Contains(line, `"type":"user"`) {
+		return ""
+	}
+	var entry jsonlUserEntry
+	if err := json.Unmarshal([]byte(line), &entry); err != nil || entry.Type != "user" {
+		return ""
+	}
+	var msg jsonlUserMessage
+	if err := json.Unmarshal(entry.Message, &msg); err != nil || msg.Content == "" {
+		return ""
+	}
+	return msg.Content
+}
+
 // scanJSONLFromOffset reads a JSONL file starting at the given byte offset and
 // returns any custom-title values found in the new data, plus optionally the
 // first user message if extractUserMessage is true.
@@ -209,29 +242,14 @@ func scanJSONLFromOffset(jsonlFilepath string, offset int64, extractUserMessage 
 	for {
 		line, err := reader.ReadString('\n')
 		if len(line) > 0 {
-			lineLen := len(line)
-
-			// Check for custom-title metadata (small lines only)
-			if lineLen <= maxMetadataLineLen && strings.Contains(line, `"custom-title"`) {
-				var entry jsonlMetadataEntry
-				if jsonErr := json.Unmarshal([]byte(line), &entry); jsonErr == nil {
-					if entry.Type == "custom-title" && entry.CustomTitle != "" {
-						result.customTitle = entry.CustomTitle
-					}
-				}
+			if title := tryExtractCustomTitle(line); title != "" {
+				result.customTitle = title
 			}
 
-			// Check for first user message if requested and not yet found
-			if extractUserMessage && !foundUserMessage && lineLen <= maxUserMessageLineLen {
-				if strings.Contains(line, `"type":"user"`) {
-					var entry jsonlUserEntry
-					if jsonErr := json.Unmarshal([]byte(line), &entry); jsonErr == nil && entry.Type == "user" {
-						var msg jsonlUserMessage
-						if jsonErr := json.Unmarshal(entry.Message, &msg); jsonErr == nil && msg.Content != "" {
-							result.firstUserMessage = msg.Content
-							foundUserMessage = true
-						}
-					}
+			if extractUserMessage && !foundUserMessage {
+				if msg := tryExtractUserMessage(line); msg != "" {
+					result.firstUserMessage = msg
+					foundUserMessage = true
 				}
 			}
 		}

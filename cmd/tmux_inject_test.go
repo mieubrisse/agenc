@@ -1,11 +1,42 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// removeSentinelBlock removes the sentinel block (begin marker through end marker)
+// from the given content string, trimming extra blank lines around the block.
+// Returns the content with the block removed, or an error if markers are not found.
+func removeSentinelBlock(content string) (string, error) {
+	beginIdx := strings.Index(content, sentinelBegin)
+	endIdx := strings.Index(content, sentinelEnd)
+
+	if beginIdx < 0 || endIdx < 0 {
+		return "", fmt.Errorf("sentinel markers not found")
+	}
+
+	beforeBlock := strings.TrimRight(content[:beginIdx], "\n")
+	afterBlock := strings.TrimLeft(content[endIdx+len(sentinelEnd):], "\n")
+
+	var result string
+	if len(beforeBlock) > 0 && len(afterBlock) > 0 {
+		result = beforeBlock + "\n" + afterBlock
+	} else if len(afterBlock) > 0 {
+		result = afterBlock
+	} else {
+		result = beforeBlock
+	}
+
+	if len(result) > 0 && !strings.HasSuffix(result, "\n") {
+		result += "\n"
+	}
+
+	return result, nil
+}
 
 func TestInjectUninjectRoundtrip(t *testing.T) {
 	// Create a temporary directory for test files
@@ -47,32 +78,11 @@ func TestInjectUninjectRoundtrip(t *testing.T) {
 			t.Fatal("sentinel block not found after injection")
 		}
 
-		// Now remove it (simulating uninject)
+		// Remove sentinel block
 		content, _ = os.ReadFile(tmuxConfFilepath)
-		fileContent := string(content)
-
-		beginIdx := strings.Index(fileContent, sentinelBegin)
-		endIdx := strings.Index(fileContent, sentinelEnd)
-
-		if beginIdx < 0 || endIdx < 0 {
-			t.Fatal("sentinel markers not found")
-		}
-
-		beforeBlock := fileContent[:beginIdx]
-		afterBlock := fileContent[endIdx+len(sentinelEnd):]
-
-		beforeBlock = strings.TrimRight(beforeBlock, "\n")
-		afterBlock = strings.TrimLeft(afterBlock, "\n")
-
-		newContent := beforeBlock
-		if len(beforeBlock) > 0 && len(afterBlock) > 0 {
-			newContent += "\n"
-		}
-		if len(afterBlock) > 0 {
-			newContent += afterBlock
-		}
-		if len(newContent) > 0 && !strings.HasSuffix(newContent, "\n") {
-			newContent += "\n"
+		newContent, err := removeSentinelBlock(string(content))
+		if err != nil {
+			t.Fatalf("failed to remove sentinel block: %v", err)
 		}
 
 		if err := os.WriteFile(tmuxConfFilepath, []byte(newContent), 0644); err != nil {
@@ -101,26 +111,9 @@ func TestInjectUninjectRoundtrip(t *testing.T) {
 
 		// Remove the block
 		fileContent, _ := os.ReadFile(tmuxConfFilepath)
-		contentStr := string(fileContent)
-
-		beginIdx := strings.Index(contentStr, sentinelBegin)
-		endIdx := strings.Index(contentStr, sentinelEnd)
-
-		beforeBlock := contentStr[:beginIdx]
-		afterBlock := contentStr[endIdx+len(sentinelEnd):]
-
-		beforeBlock = strings.TrimRight(beforeBlock, "\n")
-		afterBlock = strings.TrimLeft(afterBlock, "\n")
-
-		newContent := beforeBlock
-		if len(beforeBlock) > 0 && len(afterBlock) > 0 {
-			newContent += "\n"
-		}
-		if len(afterBlock) > 0 {
-			newContent += afterBlock
-		}
-		if len(newContent) > 0 && !strings.HasSuffix(newContent, "\n") {
-			newContent += "\n"
+		newContent, err := removeSentinelBlock(string(fileContent))
+		if err != nil {
+			t.Fatalf("failed to remove sentinel block: %v", err)
 		}
 
 		if err := os.WriteFile(tmuxConfFilepath, []byte(newContent), 0644); err != nil {

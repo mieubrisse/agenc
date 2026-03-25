@@ -34,6 +34,61 @@ func init() {
 	cronCmd.AddCommand(cronNewCmd)
 }
 
+// readPromptLine reads a line from the reader, trims whitespace, and returns it.
+func readPromptLine(reader *bufio.Reader, prompt string) (string, error) {
+	fmt.Print(prompt)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to read input")
+	}
+	return strings.TrimSpace(input), nil
+}
+
+// promptCronName returns the cron name from args or prompts the user interactively.
+func promptCronName(reader *bufio.Reader, args []string) (string, error) {
+	if len(args) > 0 {
+		return args[0], nil
+	}
+	return readPromptLine(reader, "Cron job name: ")
+}
+
+// promptCronSchedule displays schedule instructions and reads the schedule from stdin.
+func promptCronSchedule(reader *bufio.Reader) (string, error) {
+	fmt.Println("\nEnter cron schedule (e.g., '0 9 * * *' for 9am daily):")
+	fmt.Println("  Format: minute hour day-of-month month day-of-week")
+	fmt.Println("  Only simple integers and '*' are supported (no ranges, lists, or step values).")
+	fmt.Println("  Common examples:")
+	fmt.Println("    0 9 * * *     - 9am every day")
+	fmt.Println("    0 9 * * 1     - 9am every Monday")
+	fmt.Println("    0 0 * * 0     - midnight on Sundays")
+	fmt.Println("    0 0 1 * *     - midnight on the 1st of each month")
+
+	schedule, err := readPromptLine(reader, "\nSchedule: ")
+	if err != nil {
+		return "", stacktrace.Propagate(err, "")
+	}
+	if err := config.ValidateCronSchedule(schedule); err != nil {
+		return "", stacktrace.Propagate(err, "")
+	}
+	return schedule, nil
+}
+
+// promptCronGitRepo prompts for an optional git repo and resolves it if provided.
+func promptCronGitRepo(reader *bufio.Reader) (string, error) {
+	gitRepo, err := readPromptLine(reader, "\nGit repo to clone (press Enter to skip): ")
+	if err != nil {
+		return "", stacktrace.Propagate(err, "")
+	}
+	if gitRepo == "" {
+		return "", nil
+	}
+	result, err := ResolveRepoInput(gitRepo, "Select repo: ")
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to resolve git repo")
+	}
+	return result.RepoName, nil
+}
+
 func runCronNew(cmd *cobra.Command, args []string) error {
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
 		return stacktrace.NewError("interactive mode requires a terminal; provide arguments or edit config.yml directly")
@@ -41,7 +96,7 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 
 	cfg, cm, release, err := readConfigWithComments()
 	if err != nil {
-		return err
+		return stacktrace.Propagate(err, "")
 	}
 	defer release()
 	agencDirpath, err := config.GetAgencDirpath()
@@ -51,88 +106,42 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	// Get cron name
-	var name string
-	if len(args) > 0 {
-		name = args[0]
-	} else {
-		fmt.Print("Cron job name: ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to read input")
-		}
-		name = strings.TrimSpace(input)
+	name, err := promptCronName(reader, args)
+	if err != nil {
+		return stacktrace.Propagate(err, "")
 	}
-
 	if err := config.ValidateCronName(name); err != nil {
-		return err
+		return stacktrace.Propagate(err, "")
 	}
-
 	if _, exists := cfg.Crons[name]; exists {
 		return stacktrace.NewError("cron job '%s' already exists", name)
 	}
 
-	// Get schedule
-	fmt.Println("\nEnter cron schedule (e.g., '0 9 * * *' for 9am daily):")
-	fmt.Println("  Format: minute hour day-of-month month day-of-week")
-	fmt.Println("  Only simple integers and '*' are supported (no ranges, lists, or step values).")
-	fmt.Println("  Common examples:")
-	fmt.Println("    0 9 * * *     - 9am every day")
-	fmt.Println("    0 9 * * 1     - 9am every Monday")
-	fmt.Println("    0 0 * * 0     - midnight on Sundays")
-	fmt.Println("    0 0 1 * *     - midnight on the 1st of each month")
-	fmt.Print("\nSchedule: ")
-
-	scheduleInput, err := reader.ReadString('\n')
+	schedule, err := promptCronSchedule(reader)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
-	}
-	schedule := strings.TrimSpace(scheduleInput)
-
-	if err := config.ValidateCronSchedule(schedule); err != nil {
-		return err
+		return stacktrace.Propagate(err, "")
 	}
 
-	// Get prompt
-	fmt.Print("\nPrompt (what should the agent do?): ")
-	promptInput, err := reader.ReadString('\n')
+	prompt, err := readPromptLine(reader, "\nPrompt (what should the agent do?): ")
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
+		return stacktrace.Propagate(err, "")
 	}
-	prompt := strings.TrimSpace(promptInput)
-
 	if prompt == "" {
 		return stacktrace.NewError("prompt cannot be empty")
 	}
 
-	// Optional: git repo
-	fmt.Print("\nGit repo to clone (press Enter to skip): ")
-	gitInput, err := reader.ReadString('\n')
+	gitRepo, err := promptCronGitRepo(reader)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
-	}
-	gitRepo := strings.TrimSpace(gitInput)
-
-	if gitRepo != "" {
-		// Resolve git repo
-		result, err := ResolveRepoInput(gitRepo, "Select repo: ")
-		if err != nil {
-			return stacktrace.Propagate(err, "failed to resolve git repo")
-		}
-		gitRepo = result.RepoName
+		return stacktrace.Propagate(err, "")
 	}
 
-	// Optional: timeout
-	fmt.Print("\nTimeout (e.g., '1h', '30m'; press Enter for default 1h): ")
-	timeoutInput, err := reader.ReadString('\n')
+	timeout, err := readPromptLine(reader, "\nTimeout (e.g., '1h', '30m'; press Enter for default 1h): ")
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to read input")
+		return stacktrace.Propagate(err, "")
 	}
-	timeout := strings.TrimSpace(timeoutInput)
-
 	if timeout != "" {
 		if err := config.ValidateCronTimeout(timeout); err != nil {
-			return err
+			return stacktrace.Propagate(err, "")
 		}
 	}
 

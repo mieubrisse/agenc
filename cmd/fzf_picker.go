@@ -51,6 +51,102 @@ func runFzfPickerWithSentinel(cfg FzfPickerConfig, sentinelRow []string) ([]int,
 	return runFzfPickerCore(cfg, sentinelRow)
 }
 
+// toAnySlice converts a string slice to an any slice for tableprinter.
+func toAnySlice(strs []string) []any {
+	result := make([]any, len(strs))
+	for i, s := range strs {
+		result[i] = s
+	}
+	return result
+}
+
+// buildFzfTableInput renders cfg.Rows (and optional sentinelRow) through the
+// tableprinter, then prepends hidden index columns for fzf selection.
+func buildFzfTableInput(cfg FzfPickerConfig, sentinelRow []string) string {
+	hasSentinel := len(sentinelRow) > 0
+
+	var buf bytes.Buffer
+	tbl := tableprinter.NewTable(toAnySlice(cfg.Headers)...).WithWriter(&buf)
+
+	if hasSentinel {
+		tbl.AddRow(toAnySlice(sentinelRow)...)
+	}
+	for _, row := range cfg.Rows {
+		tbl.AddRow(toAnySlice(row)...)
+	}
+	tbl.Print()
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var fzfInput strings.Builder
+	headerIdx := "-1"
+	if hasSentinel {
+		headerIdx = "-2"
+	}
+	fzfInput.WriteString(headerIdx)
+	fzfInput.WriteString("\t")
+	fzfInput.WriteString(lines[0])
+	fzfInput.WriteString("\n")
+
+	dataStartIdx := 1
+	if hasSentinel && len(lines) > 1 {
+		fzfInput.WriteString("-1\t")
+		fzfInput.WriteString(lines[1])
+		fzfInput.WriteString("\n")
+		dataStartIdx = 2
+	}
+
+	for i, line := range lines[dataStartIdx:] {
+		fzfInput.WriteString(strconv.Itoa(i))
+		fzfInput.WriteString("\t")
+		fzfInput.WriteString(line)
+		fzfInput.WriteString("\n")
+	}
+
+	return fzfInput.String()
+}
+
+// buildFzfArgs assembles the fzf command-line arguments from the picker config.
+func buildFzfArgs(cfg FzfPickerConfig) []string {
+	args := []string{
+		"--ansi",
+		"--header-lines", "1",
+		"--with-nth", "2..",
+		"--prompt", cfg.Prompt,
+	}
+	if cfg.MultiSelect {
+		args = append(args, "--multi")
+	}
+	if cfg.InitialQuery != "" {
+		args = append(args, "--query", cfg.InitialQuery)
+	}
+	return args
+}
+
+// parseFzfOutput extracts selected row indices from fzf's tab-prefixed output.
+func parseFzfOutput(output []byte) []int {
+	var indices []int
+	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		idxStr, _, found := strings.Cut(line, "\t")
+		if !found {
+			continue
+		}
+		idx, parseErr := strconv.Atoi(idxStr)
+		if parseErr != nil {
+			continue
+		}
+		indices = append(indices, idx)
+	}
+	return indices
+}
+
 // runFzfPickerCore is the shared implementation for fzf pickers. When sentinelRow
 // is nil, it behaves like runFzfPicker. When sentinelRow is provided, it behaves
 // like runFzfPickerWithSentinel.
@@ -60,7 +156,7 @@ func runFzfPickerCore(cfg FzfPickerConfig, sentinelRow []string) ([]int, error) 
 	}
 
 	if err := validateHeaders(cfg.Headers); err != nil {
-		return nil, err
+		return nil, stacktrace.Propagate(err, "")
 	}
 
 	hasSentinel := len(sentinelRow) > 0
@@ -73,116 +169,22 @@ func runFzfPickerCore(cfg FzfPickerConfig, sentinelRow []string) ([]int, error) 
 		return nil, stacktrace.Propagate(err, "'fzf' binary not found in PATH")
 	}
 
-	// Build the table output with hidden index column
-	var buf bytes.Buffer
-
-	// Convert headers to any slice for tableprinter
-	headerRow := make([]any, len(cfg.Headers))
-	for i, h := range cfg.Headers {
-		headerRow[i] = h
-	}
-	tbl := tableprinter.NewTable(headerRow...).WithWriter(&buf)
-
-	// Add sentinel row first (if provided)
-	if hasSentinel {
-		sentinelAny := make([]any, len(sentinelRow))
-		for i, v := range sentinelRow {
-			sentinelAny[i] = v
-		}
-		tbl.AddRow(sentinelAny...)
-	}
-
-	// Add all data rows to the table
-	for _, row := range cfg.Rows {
-		rowAny := make([]any, len(row))
-		for i, v := range row {
-			rowAny[i] = v
-		}
-		tbl.AddRow(rowAny...)
-	}
-	tbl.Print()
-
-	// Parse the table output and prepend indices
-	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
-	if len(lines) == 0 {
+	fzfInput := buildFzfTableInput(cfg, sentinelRow)
+	if fzfInput == "" {
 		return nil, nil
 	}
 
-	// Build fzf input with index prefixes
-	// Without sentinel: header=-1, data starts at 0
-	// With sentinel: header=-2, sentinel=-1, data starts at 0
-	var fzfInput strings.Builder
-	headerIdx := "-1"
-	if hasSentinel {
-		headerIdx = "-2"
-	}
-	fzfInput.WriteString(headerIdx)
-	fzfInput.WriteString("\t")
-	fzfInput.WriteString(lines[0]) // header line
-	fzfInput.WriteString("\n")
-
-	dataStartIdx := 1
-	if hasSentinel && len(lines) > 1 {
-		fzfInput.WriteString("-1\t")
-		fzfInput.WriteString(lines[1]) // sentinel row
-		fzfInput.WriteString("\n")
-		dataStartIdx = 2
-	}
-
-	for i, line := range lines[dataStartIdx:] {
-		fzfInput.WriteString(strconv.Itoa(i))
-		fzfInput.WriteString("\t")
-		fzfInput.WriteString(line)
-		fzfInput.WriteString("\n")
-	}
-
-	// Build fzf arguments
-	fzfArgs := []string{
-		"--ansi",
-		"--header-lines", "1",
-		"--with-nth", "2..",
-		"--prompt", cfg.Prompt,
-	}
-
-	if cfg.MultiSelect {
-		fzfArgs = append(fzfArgs, "--multi")
-	}
-
-	if cfg.InitialQuery != "" {
-		fzfArgs = append(fzfArgs, "--query", cfg.InitialQuery)
-	}
-
-	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
-	fzfCmd.Stdin = strings.NewReader(fzfInput.String())
+	fzfCmd := exec.Command(fzfBinary, buildFzfArgs(cfg)...)
+	fzfCmd.Stdin = strings.NewReader(fzfInput)
 	fzfCmd.Stderr = os.Stderr
 
 	output, err := fzfCmd.Output()
 	if err != nil {
-		// fzf returns exit code 130 on Ctrl-C, and exit code 1 when no match
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
 			return nil, nil
 		}
 		return nil, stacktrace.Propagate(err, "fzf selection failed")
 	}
 
-	// Parse selected indices from output
-	var indices []int
-	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Extract the index from the first tab-separated field
-		idxStr, _, found := strings.Cut(line, "\t")
-		if !found {
-			continue
-		}
-		idx, parseErr := strconv.Atoi(idxStr)
-		if parseErr != nil {
-			continue
-		}
-		indices = append(indices, idx)
-	}
-
-	return indices, nil
+	return parseFzfOutput(output), nil
 }
