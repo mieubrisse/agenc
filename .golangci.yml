@@ -24,9 +24,7 @@ linters:
         - (*net/http.Server).Close
         - (io.Closer).Close
         - (net.Listener).Close
-        - io.Copy
         - os.MkdirAll
-        - os.Setenv
         - os.Stdout.Write
         - (net/http.ResponseWriter).Write
         - (*encoding/json.Encoder).Encode

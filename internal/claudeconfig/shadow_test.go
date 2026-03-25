@@ -636,9 +636,7 @@ func TestCopyAndPatchClaudeJSON(t *testing.T) {
 	}
 
 	// Temporarily override HOME so copyAndPatchClaudeJSON finds our source
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", filepath.Join(tmpDir, "source"))
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", filepath.Join(tmpDir, "source"))
 
 	missionAgentDirpath := "/tmp/claude/missions/test-123/agent"
 	if err := copyAndPatchClaudeJSON(destDirpath, missionAgentDirpath, nil); err != nil {
