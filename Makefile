@@ -38,7 +38,7 @@ COVERAGE_EXCLUDE_PATTERNS := \
 	/cmd/genprime$$ \
 	/internal/version$$
 
-.PHONY: bin build check clean compile docs genprime setup test test-env test-env-clean
+.PHONY: bin build check clean compile docs e2e genprime setup test test-env test-env-clean
 
 setup:
 	@if git rev-parse --git-dir >/dev/null 2>&1; then \
@@ -156,6 +156,9 @@ test:
 	@echo "Running tests with coverage..."
 	@go test -race -cover ./...
 	@echo "✓ Tests passed"
+
+e2e: bin test-env
+	@scripts/e2e-test.sh; rc=$$?; $(MAKE) test-env-clean; exit $$rc
 
 test-env:
 	@echo "Creating test environment at $(TEST_ENV_DIR)/..."
