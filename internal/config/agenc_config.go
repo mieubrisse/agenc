@@ -97,7 +97,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"switchMission": {
 		Title:          StringPtr("🔀  Attach Mission"),
 		Description:    StringPtr("Attach a mission to this tmux session (auto-resumes stopped/archived missions)"),
-		Command:        StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission attach"`),
+		Command:        StringPtr(`tmux display-popup -E -w 80% -h 80% "agenc mission attach"`),
 		TmuxKeybinding: StringPtr("-n C-m"),
 	},
 	"detachMission": {
