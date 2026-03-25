@@ -85,6 +85,15 @@ test-env:
 	@echo "Creating test environment at $(TEST_ENV_DIR)/..."
 	@mkdir -p $(TEST_ENV_DIR)/config
 	@cd $(TEST_ENV_DIR)/config && git init --quiet 2>/dev/null || true
+	@# Copy OAuth token from the real installation so missions can authenticate
+	@real_token="$${HOME}/.agenc/cache/oauth-token"; \
+	if [ -f "$${real_token}" ]; then \
+		mkdir -p $(TEST_ENV_DIR)/cache; \
+		cp "$${real_token}" $(TEST_ENV_DIR)/cache/oauth-token; \
+		echo "  Copied OAuth token from ~/.agenc"; \
+	else \
+		echo "  ⚠ No OAuth token found at ~/.agenc/cache/oauth-token — missions will prompt for auth"; \
+	fi
 	@echo "✓ Test environment ready"
 	@echo "  Run with: $(BUILD_DIR)/agenc-test"
 
