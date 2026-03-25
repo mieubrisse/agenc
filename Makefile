@@ -66,6 +66,9 @@ check: genprime
 	@echo "Running golangci-lint..."
 	@golangci-lint run ./...
 	@echo "✓ Lint OK"
+	@echo "Running govulncheck..."
+	@govulncheck ./...
+	@echo "✓ Vulncheck OK"
 	@echo "Running tests with coverage..."
 	@set -o pipefail; go test -race -coverprofile=coverage.out ./... 2>&1 | tee coverage-test.log
 	@echo "✓ Tests passed"
