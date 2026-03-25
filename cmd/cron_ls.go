@@ -29,7 +29,7 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 
 	if len(cfg.Crons) == 0 {
 		fmt.Println("No cron jobs defined.")
-		fmt.Println("\nTo create a cron job, use 'agenc cron create' or ask the Adjutant.")
+		fmt.Println("\nTo create a cron job, use 'agenc cron new' or ask the Adjutant.")
 		return nil
 	}
 

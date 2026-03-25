@@ -35,11 +35,9 @@ agenc config cron add <name> [flags]
 ```
       --description string   human-readable description (optional)
   -h, --help                 help for add
-      --overlap string       overlap policy: 'skip' or 'allow' (optional)
       --prompt string        initial prompt for the Claude mission (required)
       --repo string          repository to clone (e.g., github.com/owner/repo) (optional)
       --schedule string      cron schedule expression (e.g., '0 9 * * *') (required)
-      --timeout string       maximum runtime (e.g., '1h', '30m') (optional)
 ```
 
 ### SEE ALSO

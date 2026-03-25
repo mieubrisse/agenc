@@ -36,11 +36,9 @@ agenc config cron update <name> [flags]
       --description string   human-readable description
       --enabled              whether the cron job is enabled (default true)
   -h, --help                 help for update
-      --overlap string       overlap policy: 'skip' or 'allow'
       --prompt string        initial prompt for the Claude mission
       --repo string          repository to clone (e.g., github.com/owner/repo)
       --schedule string      cron schedule expression (e.g., '0 9 * * *')
-      --timeout string       maximum runtime (e.g., '1h', '30m')
 ```
 
 ### SEE ALSO
