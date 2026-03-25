@@ -409,20 +409,7 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	// Build the wrapper command for the pool window.
 	// --run-wrapper tells the resume command to run the wrapper directly
 	// in the current process rather than going through the attach flow.
-	//
-	// When running with a non-default AGENC_DIRPATH (e.g. test environments),
-	// we must export it into the tmux pane's shell since the pane doesn't
-	// inherit the server process's environment. AGENC_TEST_ENV is also
-	// propagated so the wrapper knows to skip test-incompatible operations.
-	var envPrefix string
-	if config.GetNamespaceSuffix(s.agencDirpath) != "" {
-		envPrefix = fmt.Sprintf("export AGENC_DIRPATH='%s'", s.agencDirpath)
-		if config.IsTestEnv() {
-			envPrefix += " AGENC_TEST_ENV=1"
-		}
-		envPrefix += "; "
-	}
-	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", envPrefix, agencBinpath, missionRecord.ID)
+	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", s.tmuxEnvPrefix(), agencBinpath, missionRecord.ID)
 	if req.Prompt != "" {
 		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(req.Prompt, "'", "'\\''"))
 	}
@@ -841,7 +828,7 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
 	}
 
-	resumeCmd := fmt.Sprintf("'%s' mission resume --run-wrapper %s", agencBinpath, missionRecord.ID)
+	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", s.tmuxEnvPrefix(), agencBinpath, missionRecord.ID)
 	poolWindowTarget, paneID, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create pool window: %w", err)
@@ -1063,11 +1050,27 @@ func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID str
 		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
 	}
 
-	resumeCommand := fmt.Sprintf("'%s' mission resume --run-wrapper %s", agencBinpath, missionRecord.ID)
+	resumeCommand := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", s.tmuxEnvPrefix(), agencBinpath, missionRecord.ID)
 	respawnCmd := exec.Command("tmux", "respawn-pane", "-k", "-t", targetPane, resumeCommand)
 	if output, err := respawnCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux respawn-pane failed: %v (output: %s)", err, string(output))
 	}
 
 	return nil
+}
+
+// tmuxEnvPrefix returns a shell export prefix for commands executed in tmux
+// panes. When running with a non-default AGENC_DIRPATH (e.g. test environments),
+// tmux panes don't inherit the server's environment, so we must explicitly
+// export AGENC_DIRPATH (and AGENC_TEST_ENV when applicable) into the pane's shell.
+// Returns "" for the default installation (no prefix needed).
+func (s *Server) tmuxEnvPrefix() string {
+	if config.GetNamespaceSuffix(s.agencDirpath) == "" {
+		return ""
+	}
+	prefix := fmt.Sprintf("export AGENC_DIRPATH='%s'", s.agencDirpath)
+	if config.IsTestEnv() {
+		prefix += " AGENC_TEST_ENV=1"
+	}
+	return prefix + "; "
 }

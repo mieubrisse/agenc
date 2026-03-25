@@ -7,6 +7,8 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
+
+	"github.com/odyssey/agenc/internal/config"
 )
 
 var tmuxAttachCmd = &cobra.Command{
@@ -87,6 +89,10 @@ func createTmuxSession(agencBinaryPath string, sessionName string) error {
 	if dirpathValue != "" {
 		initialCmd = agencDirpathEnvVar + "=" + shellQuote(dirpathValue) + " "
 	}
+	testEnvValue := os.Getenv(config.TestEnvVar)
+	if testEnvValue != "" {
+		initialCmd += config.TestEnvVar + "=" + shellQuote(testEnvValue) + " "
+	}
 	initialCmd += agencBinaryPath + " " + missionCmdStr + " " + newCmdStr
 
 	newSessionCmd := exec.Command("tmux",
@@ -101,6 +107,11 @@ func createTmuxSession(agencBinaryPath string, sessionName string) error {
 
 	if dirpathValue != "" {
 		if err := setTmuxSessionEnv(sessionName, agencDirpathEnvVar, dirpathValue); err != nil {
+			return err
+		}
+	}
+	if testEnvValue != "" {
+		if err := setTmuxSessionEnv(sessionName, config.TestEnvVar, testEnvValue); err != nil {
 			return err
 		}
 	}

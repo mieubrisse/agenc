@@ -235,18 +235,22 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	}
 
 	// Commands are self-contained (they include their own tmux primitives),
-	// so we use them directly. For mission-scoped commands, prepend env
-	// exports so shell variable references (e.g. $AGENC_CALLING_MISSION_UUID)
-	// resolve correctly in the tmux server's environment.
-	fullCommand := selectedEntry.Command
-	if selectedEntry.IsMissionScoped() && callingMissionUUID != "" {
-		envPrefix := fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
-		agencDirpath, err := config.GetAgencDirpath()
-		if err == nil {
-			envPrefix += fmt.Sprintf("export AGENC_DIRPATH=%s; ", agencDirpath)
+	// so we use them directly. Prepend env exports so AGENC_DIRPATH and
+	// AGENC_TEST_ENV are available in the tmux run-shell context (which
+	// doesn't inherit the server's environment). For mission-scoped commands,
+	// also export AGENC_CALLING_MISSION_UUID.
+	var envPrefix string
+	agencDirpath, err := config.GetAgencDirpath()
+	if err == nil && config.GetNamespaceSuffix(agencDirpath) != "" {
+		envPrefix = fmt.Sprintf("export AGENC_DIRPATH=%s; ", agencDirpath)
+		if config.IsTestEnv() {
+			envPrefix += "export AGENC_TEST_ENV=1; "
 		}
-		fullCommand = envPrefix + selectedEntry.Command
 	}
+	if selectedEntry.IsMissionScoped() && callingMissionUUID != "" {
+		envPrefix += fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
+	}
+	fullCommand := envPrefix + selectedEntry.Command
 
 	// Resolve the log file path for output capture.
 	// tmux run-shell captures stdout and echoes it into the active pane;

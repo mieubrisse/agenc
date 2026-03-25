@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	testEnvVar     = "AGENC_TEST_ENV"
+	TestEnvVar     = "AGENC_TEST_ENV"
 	baseNamePrefix = "agenc"
 )
 
@@ -54,5 +54,5 @@ func GetCronPlistPrefix(agencDirpath string) string {
 
 // IsTestEnv returns true if AGENC_TEST_ENV is set (to any non-empty value).
 func IsTestEnv() bool {
-	return os.Getenv(testEnvVar) != ""
+	return os.Getenv(TestEnvVar) != ""
 }
