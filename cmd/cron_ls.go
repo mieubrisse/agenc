@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -42,7 +43,14 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 
 	tbl := tableprinter.NewTable("NAME", "SCHEDULE", "ENABLED", "LAST RUN", "STATUS", "NEXT RUN")
 
-	for name, cronCfg := range cfg.Crons {
+	names := make([]string, 0, len(cfg.Crons))
+	for name := range cfg.Crons {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		cronCfg := cfg.Crons[name]
 		enabled := "yes"
 		if !cronCfg.IsEnabled() {
 			enabled = ansiYellow + "no" + ansiReset
