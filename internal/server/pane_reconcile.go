@@ -25,7 +25,7 @@ func (s *Server) reconcilePaneIDs() {
 	}
 
 	// Step 2: Query agenc-pool for (paneID, panePID) pairs
-	poolPanes, err := listPoolPanesWithPIDs()
+	poolPanes, err := listPoolPanesWithPIDs(s.getPoolSessionName())
 	if err != nil {
 		s.logger.Printf("Pane reconciliation: pool session not available (%v), skipping", err)
 		return
@@ -80,7 +80,7 @@ type poolPaneInfo struct {
 
 // listPoolPanesWithPIDs queries tmux for all panes in the agenc-pool session
 // and returns their pane IDs (without "%" prefix) and process PIDs.
-func listPoolPanesWithPIDs() ([]poolPaneInfo, error) {
+func listPoolPanesWithPIDs(poolSessionName string) ([]poolPaneInfo, error) {
 	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+poolSessionName, "-F", "#{pane_id} #{pane_pid}")
 	output, err := cmd.Output()
 	if err != nil {

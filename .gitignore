@@ -1,6 +1,9 @@
 # Build output
-/agenc
+/_build/
 /dist/
+
+# Test environment
+/_test-env/
 
 # Go
 *.exe

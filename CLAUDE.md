@@ -42,7 +42,7 @@ make build
 # Quality checks only (formatting, vet, tests — no binary)
 make check
 
-# Wrong — version will show "unknown"
+# Wrong — version will show "unknown" and binary ends up in wrong place
 go build -o agenc .
 ```
 
@@ -55,18 +55,50 @@ Do NOT use `--no-verify` to skip hooks.
 Running the Binary
 ------------------
 
-When running or testing the `agenc` binary, **always** use the relative path `./agenc` — never the full absolute path.
+The build output lives in `_build/`. Two binaries are produced:
+
+- **`_build/agenc`** — the production binary, uses `~/.agenc` by default
+- **`_build/agenc-test`** — wrapper script that sets `AGENC_DIRPATH=_test-env` and `AGENC_TEST_ENV=1`, then execs `_build/agenc`
+
+When running the binary, **always** use relative paths — never full absolute paths.
 
 ```
-# Correct
-./agenc mission new "my mission"
-./agenc mission ls
+# Production binary
+./_build/agenc mission ls
+
+# Test environment (isolated — does not touch ~/.agenc)
+./_build/agenc-test mission ls
 
 # Wrong — will trigger unnecessary permission prompts
-/Users/odyssey/code/agent-factory/agenc mission new "my mission"
+/Users/odyssey/code/agent-factory/_build/agenc mission ls
 ```
 
-The project's `.claude/settings.json` allows `Bash(./agenc:*)`. Using the absolute path does not match this pattern and will cause avoidable permission prompts on every invocation.
+The project's `.claude/settings.json` allows `Bash(./_build/agenc:*)` and `Bash(./_build/agenc-test:*)`.
+
+Test Environment
+----------------
+
+The test environment provides a self-contained AgenC installation at `_test-env/` for end-to-end validation without affecting the user's real AgenC at `~/.agenc`.
+
+```
+# Create the test environment directory structure
+make test-env
+
+# Run agenc against the test environment
+./_build/agenc-test server start
+./_build/agenc-test mission ls
+
+# Tear down the test environment (does NOT remove _build/)
+make test-env-clean
+```
+
+The `agenc-test` wrapper sets two environment variables:
+- `AGENC_DIRPATH` — points to `_test-env/` so all data (database, missions, config) is isolated
+- `AGENC_TEST_ENV=1` — disables features that would conflict with the global installation (e.g., tmux keybinding injection)
+
+`_build/` and `_test-env/` have independent lifecycles: `make clean` removes `_build/`, `make test-env-clean` removes `_test-env/`. Neither affects the other.
+
+Namespace isolation ensures tmux session names and launchd plist labels derived from a non-default `AGENC_DIRPATH` get a deterministic hash suffix (e.g., `agenc-a1b2c3d4`, `agenc-a1b2c3d4-pool`) to prevent collisions with the user's real installation.
 
 Accessing $AGENC_DIRPATH
 ------------------------

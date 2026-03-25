@@ -134,21 +134,20 @@ type integerValue struct {
 	Value   int      `xml:",chardata"`
 }
 
-// CronPlistPrefix is the prefix for all cron plist filenames and launchd labels.
-const CronPlistPrefix = "agenc-cron."
-
 // LegacyCronPlistPrefix is the old prefix used before the UUID-based naming switch.
 // Used only for migration cleanup.
 const LegacyCronPlistPrefix = "agenc-cron-"
 
 // CronToPlistFilename returns the plist filename for a cron job identified by its UUID.
-func CronToPlistFilename(cronID string) string {
-	return fmt.Sprintf("%s%s.plist", CronPlistPrefix, cronID)
+// cronPlistPrefix is the namespace-aware prefix (e.g., "agenc-cron." or "agenc-a1b2c3d4-cron.").
+func CronToPlistFilename(cronPlistPrefix string, cronID string) string {
+	return fmt.Sprintf("%s%s.plist", cronPlistPrefix, cronID)
 }
 
 // CronToLabel returns the launchd label for a cron job identified by its UUID.
-func CronToLabel(cronID string) string {
-	return CronPlistPrefix + cronID
+// cronPlistPrefix is the namespace-aware prefix (e.g., "agenc-cron." or "agenc-a1b2c3d4-cron.").
+func CronToLabel(cronPlistPrefix string, cronID string) string {
+	return cronPlistPrefix + cronID
 }
 
 // PlistDirpath returns the path to the LaunchAgents directory.

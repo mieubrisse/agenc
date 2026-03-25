@@ -20,7 +20,10 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
-.PHONY: bin build check clean compile docs genprime setup test
+TEST_ENV_DIR := _test-env
+BUILD_DIR    := _build
+
+.PHONY: bin build check clean compile docs genprime setup test test-env test-env-clean
 
 setup:
 	@if git rev-parse --git-dir >/dev/null 2>&1; then \
@@ -54,8 +57,12 @@ check: genprime
 
 compile:
 	@echo "Building agenc..."
-	@go build -ldflags "$(LDFLAGS)" -o agenc .
-	@echo "✓ Build complete"
+	@mkdir -p $(BUILD_DIR)
+	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/agenc .
+	@# Create wrapper script that sets test-env variables
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nscript_dirpath="$$(cd "$$(dirname "$${0}")" && pwd)"\nexport AGENC_DIRPATH="$${script_dirpath}/../$(TEST_ENV_DIR)"\nexport AGENC_TEST_ENV=1\nexec "$${script_dirpath}/agenc" "$$@"\n' > $(BUILD_DIR)/agenc-test
+	@chmod +x $(BUILD_DIR)/agenc-test
+	@echo "✓ Build complete ($(BUILD_DIR)/agenc, $(BUILD_DIR)/agenc-test)"
 
 bin: genprime compile
 
@@ -74,5 +81,17 @@ test:
 	@go test ./...
 	@echo "✓ Tests passed"
 
+test-env:
+	@echo "Creating test environment at $(TEST_ENV_DIR)/..."
+	@mkdir -p $(TEST_ENV_DIR)/config
+	@cd $(TEST_ENV_DIR)/config && git init --quiet 2>/dev/null || true
+	@echo "✓ Test environment ready"
+	@echo "  Run with: $(BUILD_DIR)/agenc-test"
+
+test-env-clean:
+	@echo "Removing test environment..."
+	@rm -rf $(TEST_ENV_DIR)
+	@echo "✓ Test environment removed"
+
 clean:
-	rm -f agenc
+	rm -rf $(BUILD_DIR)

@@ -239,7 +239,7 @@ func (s *Server) findNonIdleMissions(responses []MissionResponse) []NonIdleMissi
 // buildAndWriteStash builds the stash data from enriched mission responses,
 // writes the stash file to disk, and returns the stash ID and mission entries.
 func (s *Server) buildAndWriteStash(responses []MissionResponse) (string, []StashMission, error) {
-	paneSessions := getLinkedPaneSessions()
+	paneSessions := getLinkedPaneSessions(s.getPoolSessionName())
 
 	now := time.Now().UTC()
 	stashID := now.Format("2006-01-02T15-04-05")

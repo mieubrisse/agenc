@@ -51,7 +51,7 @@ func (s *Server) runSessionScannerLoop(ctx context.Context) {
 // path directly (no glob), lists JSONL files in that directory, and
 // incrementally scans for metadata changes.
 func (s *Server) runSessionScannerCycle() {
-	paneIDs := listPoolPaneIDs()
+	paneIDs := listPoolPaneIDs(s.getPoolSessionName())
 
 	for _, paneID := range paneIDs {
 		mission, err := s.db.GetMissionByTmuxPane(paneID)

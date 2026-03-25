@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/tmux"
 )
 
@@ -33,8 +34,12 @@ func (s *Server) runKeybindingsWriterLoop(ctx context.Context) {
 }
 
 // writeAndSourceKeybindings regenerates the keybindings file and sources it
-// into any running tmux server.
+// into any running tmux server. In test environments (AGENC_TEST_ENV set),
+// keybinding injection is skipped to avoid modifying the global tmux config.
 func (s *Server) writeAndSourceKeybindings() {
+	if config.IsTestEnv() {
+		return
+	}
 	if err := tmux.RefreshKeybindings(s.agencDirpath); err != nil {
 		s.logger.Printf("Keybindings writer: %v", err)
 	}

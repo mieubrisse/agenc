@@ -62,7 +62,7 @@ func (s *Server) runIdleTimeoutCycle() {
 	now := time.Now()
 	s.reapStalePaneIDs(missions, now)
 
-	linkedPaneIDs := getLinkedPaneIDs()
+	linkedPaneIDs := getLinkedPaneIDs(s.getPoolSessionName())
 
 	for _, m := range missions {
 		if !s.isWrapperRunning(m.ID) {

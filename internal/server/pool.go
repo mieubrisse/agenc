@@ -8,28 +8,32 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
 
-const (
-	poolSessionName = "agenc-pool"
-)
+// getPoolSessionName returns the pool tmux session name for this server's
+// agenc installation, derived from agencDirpath for namespace isolation.
+func (s *Server) getPoolSessionName() string {
+	return config.GetPoolSessionName(s.agencDirpath)
+}
 
-// ensurePoolSession creates the agenc-pool tmux session if it doesn't already exist.
+// ensurePoolSession creates the pool tmux session if it doesn't already exist.
 // The session is created detached with a single placeholder window that is
 // destroyed once real mission windows are added.
 func (s *Server) ensurePoolSession() error {
-	if poolSessionExists() {
+	poolName := s.getPoolSessionName()
+	if tmuxSessionExists(poolName) {
 		return nil
 	}
 
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", poolSessionName, "-x", "200", "-y", "50")
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", poolName, "-x", "200", "-y", "50")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return stacktrace.NewError("failed to create pool session: %v (output: %s)", err, string(output))
 	}
 
-	s.logger.Printf("Created tmux pool session: %s", poolSessionName)
+	s.logger.Printf("Created tmux pool session: %s", poolName)
 	return nil
 }
 
@@ -40,12 +44,7 @@ func tmuxSessionExists(sessionName string) bool {
 	return exec.Command("tmux", "has-session", "-t", "="+sessionName).Run() == nil
 }
 
-// poolSessionExists checks whether the agenc-pool tmux session exists.
-func poolSessionExists() bool {
-	return tmuxSessionExists(poolSessionName)
-}
-
-// createPoolWindow creates a new window in the agenc-pool session for the given
+// createPoolWindow creates a new window in the pool session for the given
 // mission. The window runs the specified command and is named with the short
 // mission ID for easy identification.
 func (s *Server) createPoolWindow(missionID string, command string) (string, string, error) {
@@ -53,8 +52,9 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 		return "", "", err
 	}
 
+	poolName := s.getPoolSessionName()
 	windowName := database.ShortID(missionID)
-	target := fmt.Sprintf("=%s:", poolSessionName)
+	target := fmt.Sprintf("=%s:", poolName)
 
 	cmd := exec.Command("tmux", "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", target, "-n", windowName, command)
 	output, err := cmd.CombinedOutput()
@@ -67,8 +67,7 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	paneID := strings.TrimSpace(string(output))
 	paneID = strings.TrimPrefix(paneID, "%")
 
-	// Return the full target for linking: "agenc-pool:<windowName>"
-	windowTarget := fmt.Sprintf("%s:%s", poolSessionName, windowName)
+	windowTarget := fmt.Sprintf("%s:%s", poolName, windowName)
 	s.logger.Printf("Created pool window %s (pane %s) for mission %s", windowTarget, paneID, database.ShortID(missionID))
 	return windowTarget, paneID, nil
 }
@@ -76,7 +75,7 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 // unlinkPoolWindowByPane unlinks the window containing the given pane from the
 // target session. Uses the pane ID (immutable) rather than the window name
 // (which may have been changed by title reconciliation).
-// The window continues to exist in the agenc-pool session.
+// The window continues to exist in the pool session.
 func unlinkPoolWindowByPane(paneID string, targetSession string) error {
 	paneTarget := "%" + paneID
 	// Find the window index in the target session that contains this pane
@@ -110,7 +109,7 @@ func unlinkPoolWindowByPane(paneID string, targetSession string) error {
 // that are NOT keepPaneID. This cleans up side shell panes (created by the user
 // via tmux split-window) so they don't linger in the pool after detach.
 // Best-effort: logs warnings but does not return errors.
-func killExtraPanesInWindow(keepPaneID string, logger interface{ Printf(string, ...any) }) {
+func killExtraPanesInWindow(keepPaneID string, poolSessionName string, logger interface{ Printf(string, ...any) }) {
 	if keepPaneID == "" {
 		return
 	}
@@ -172,10 +171,10 @@ func (s *Server) destroyPoolWindow(paneID string) {
 	}
 }
 
-// poolWindowExistsByPane checks whether the given pane exists in the agenc-pool
+// poolWindowExistsByPane checks whether the given pane exists in the pool
 // session. Uses the pane ID (immutable) rather than the window name (which may
 // have been changed by title reconciliation).
-func poolWindowExistsByPane(paneID string) bool {
+func poolWindowExistsByPane(paneID string, poolSessionName string) bool {
 	if paneID == "" {
 		return false
 	}
@@ -183,14 +182,14 @@ func poolWindowExistsByPane(paneID string) bool {
 }
 
 // getLinkedPaneIDs returns the set of tmux pane IDs (without the "%" prefix)
-// that are visible in at least one tmux session besides agenc-pool. This uses
+// that are visible in at least one tmux session besides the pool. This uses
 // pane IDs rather than window names because window names can be renamed by tmux
 // or by the running process, making them unreliable identifiers. Pane IDs are
 // immutable for the lifetime of the pane.
 //
 // If the tmux command fails (e.g., no server running), returns an empty map so
 // the caller falls through to the existing idle-kill behavior.
-func getLinkedPaneIDs() map[string]bool {
+func getLinkedPaneIDs(poolSessionName string) map[string]bool {
 	cmd := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
@@ -213,7 +212,7 @@ func getLinkedPaneIDs() map[string]bool {
 		paneSessions[paneID][sessionName] = true
 	}
 
-	// A pane is "linked" if it appears in any session besides agenc-pool
+	// A pane is "linked" if it appears in any session besides the pool
 	linked := make(map[string]bool)
 	for paneID, sessions := range paneSessions {
 		for sessionName := range sessions {
@@ -227,11 +226,11 @@ func getLinkedPaneIDs() map[string]bool {
 }
 
 // getLinkedPaneSessions returns a map of pane IDs to the list of tmux session
-// names they are linked into (excluding the agenc-pool session). Pane IDs are
+// names they are linked into (excluding the pool session). Pane IDs are
 // returned without the "%" prefix to match the database convention.
 //
 // If the tmux command fails (e.g., no server running), returns an empty map.
-func getLinkedPaneSessions() map[string][]string {
+func getLinkedPaneSessions(poolSessionName string) map[string][]string {
 	cmd := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
@@ -324,9 +323,9 @@ func focusPaneInSession(paneID string, sessionName string) {
 }
 
 // listPoolPaneIDs returns the pane IDs (without "%" prefix) of all panes
-// currently running in the agenc-pool tmux session. Returns an empty slice
+// currently running in the pool tmux session. Returns an empty slice
 // if the pool doesn't exist or tmux is not running.
-func listPoolPaneIDs() []string {
+func listPoolPaneIDs(poolSessionName string) []string {
 	cmd := exec.Command("tmux", "list-panes", "-s", "-t", "="+poolSessionName, "-F", "#{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {

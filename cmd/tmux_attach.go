@@ -41,15 +41,20 @@ func runTmuxAttach(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !tmuxSessionExists(tmuxSessionName) {
-		if err := createTmuxSession(agencBinaryPath); err != nil {
+	sessionName, err := getTmuxSessionName()
+	if err != nil {
+		return err
+	}
+
+	if !tmuxSessionExists(sessionName) {
+		if err := createTmuxSession(agencBinaryPath, sessionName); err != nil {
 			return err
 		}
 	}
 
 	// Attach to the session. If the session was destroyed (e.g. user cancelled
 	// the picker before we attached), exit cleanly.
-	attachCmd := exec.Command("tmux", "attach-session", "-t", "="+tmuxSessionName)
+	attachCmd := exec.Command("tmux", "attach-session", "-t", "="+sessionName)
 	attachCmd.Stdin = os.Stdin
 	attachCmd.Stdout = os.Stdout
 	attachCmd.Stderr = os.Stderr
@@ -59,7 +64,7 @@ func runTmuxAttach(cmd *cobra.Command, args []string) error {
 		// "session not found" means the initial command exited before we attached.
 		// This is expected when the user cancels the repo picker quickly.
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
-			if !tmuxSessionExists(tmuxSessionName) {
+			if !tmuxSessionExists(sessionName) {
 				return nil
 			}
 		}
@@ -71,7 +76,7 @@ func runTmuxAttach(cmd *cobra.Command, args []string) error {
 
 // createTmuxSession creates the agenc tmux session with 'agenc mission new'
 // as the initial command.
-func createTmuxSession(agencBinaryPath string) error {
+func createTmuxSession(agencBinaryPath string, sessionName string) error {
 	// Build the initial command with inline env vars. tmux runs the command
 	// through a shell, so VAR=val syntax works. We must embed the env vars in
 	// the command string because set-environment only affects windows created
@@ -87,7 +92,7 @@ func createTmuxSession(agencBinaryPath string) error {
 	newSessionCmd := exec.Command("tmux",
 		"new-session",
 		"-d",
-		"-s", tmuxSessionName,
+		"-s", sessionName,
 		initialCmd,
 	)
 	if err := newSessionCmd.Run(); err != nil {
@@ -95,7 +100,7 @@ func createTmuxSession(agencBinaryPath string) error {
 	}
 
 	if dirpathValue != "" {
-		if err := setTmuxSessionEnv(agencDirpathEnvVar, dirpathValue); err != nil {
+		if err := setTmuxSessionEnv(sessionName, agencDirpathEnvVar, dirpathValue); err != nil {
 			return err
 		}
 	}
@@ -109,9 +114,9 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
-// setTmuxSessionEnv sets an environment variable on the agenc tmux session.
-func setTmuxSessionEnv(key string, value string) error {
-	err := exec.Command("tmux", "set-environment", "-t", "="+tmuxSessionName, key, value).Run()
+// setTmuxSessionEnv sets an environment variable on the given tmux session.
+func setTmuxSessionEnv(sessionName string, key string, value string) error {
+	err := exec.Command("tmux", "set-environment", "-t", "="+sessionName, key, value).Run()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to set tmux session environment variable %s", key)
 	}

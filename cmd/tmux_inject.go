@@ -39,6 +39,10 @@ func init() {
 }
 
 func runTmuxInject(cmd *cobra.Command, args []string) error {
+	if config.IsTestEnv() {
+		return stacktrace.NewError("tmux keybinding injection is disabled in test environments (AGENC_TEST_ENV is set)")
+	}
+
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to resolve agenc directory")

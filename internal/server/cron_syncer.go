@@ -21,30 +21,33 @@ type launchdManager interface {
 	LoadPlist(plistPath string) error
 	UnloadPlist(plistPath string) error
 	RemovePlist(plistPath string) error
-	ListAgencCronJobs() ([]string, error)
+	ListAgencCronJobs(cronPlistPrefix string) ([]string, error)
 	RemoveJobByLabel(label string) error
 }
 
 // CronSyncer manages synchronization of cron jobs to launchd plists.
 type CronSyncer struct {
-	agencDirpath string
-	manager      launchdManager
-	mu           sync.Mutex
+	agencDirpath    string
+	cronPlistPrefix string
+	manager         launchdManager
+	mu              sync.Mutex
 }
 
 // NewCronSyncer creates a new CronSyncer.
 func NewCronSyncer(agencDirpath string) *CronSyncer {
 	return &CronSyncer{
-		agencDirpath: agencDirpath,
-		manager:      launchd.NewManager(),
+		agencDirpath:    agencDirpath,
+		cronPlistPrefix: config.GetCronPlistPrefix(agencDirpath),
+		manager:         launchd.NewManager(),
 	}
 }
 
 // newCronSyncerWithManager creates a CronSyncer with a custom manager (for testing).
 func newCronSyncerWithManager(agencDirpath string, manager launchdManager) *CronSyncer {
 	return &CronSyncer{
-		agencDirpath: agencDirpath,
-		manager:      manager,
+		agencDirpath:    agencDirpath,
+		cronPlistPrefix: config.GetCronPlistPrefix(agencDirpath),
+		manager:         manager,
 	}
 }
 
@@ -103,9 +106,9 @@ func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logg
 // launchd load state. Only writes the plist file and reloads launchd when the
 // generated content differs from the existing file on disk.
 func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDirpath string, execPath string, logger logger) error {
-	plistFilename := launchd.CronToPlistFilename(cronCfg.ID)
+	plistFilename := launchd.CronToPlistFilename(s.cronPlistPrefix, cronCfg.ID)
 	plistPath := filepath.Join(plistDirpath, plistFilename)
-	label := launchd.CronToLabel(cronCfg.ID)
+	label := launchd.CronToLabel(s.cronPlistPrefix, cronCfg.ID)
 
 	// Parse the cron schedule
 	calInterval, err := launchd.ParseCronExpression(cronCfg.Schedule)
@@ -239,8 +242,8 @@ func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, l
 		}
 	}
 
-	// Scan for current-format plists: agenc-cron.*.plist
-	pattern := filepath.Join(plistDirpath, launchd.CronPlistPrefix+"*.plist")
+	// Scan for current-format plists: {cronPlistPrefix}*.plist
+	pattern := filepath.Join(plistDirpath, s.cronPlistPrefix+"*.plist")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to glob plist files")
@@ -248,7 +251,7 @@ func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, l
 
 	for _, plistPath := range matches {
 		filename := filepath.Base(plistPath)
-		cronID := strings.TrimPrefix(filename, launchd.CronPlistPrefix)
+		cronID := strings.TrimPrefix(filename, s.cronPlistPrefix)
 		cronID = strings.TrimSuffix(cronID, ".plist")
 
 		if !knownIDs[cronID] {
@@ -270,7 +273,7 @@ func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, l
 	for _, plistPath := range legacyMatches {
 		// Skip files that match the current format (agenc-cron.* starts with agenc-cron-)
 		filename := filepath.Base(plistPath)
-		if strings.HasPrefix(filename, launchd.CronPlistPrefix) {
+		if strings.HasPrefix(filename, s.cronPlistPrefix) {
 			continue
 		}
 		logger.Printf("Cron syncer: removing legacy plist '%s'", filename)
@@ -286,7 +289,7 @@ func (s *CronSyncer) removeUnmatchedPlists(crons map[string]config.CronConfig, l
 // in the current config and removes them. This catches phantom jobs that persist
 // when a plist file is deleted while the job is still loaded.
 func (s *CronSyncer) removeOrphanedLaunchdJobs(crons map[string]config.CronConfig, logger logger) error {
-	loadedJobs, err := s.manager.ListAgencCronJobs()
+	loadedJobs, err := s.manager.ListAgencCronJobs(s.cronPlistPrefix)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list loaded cron jobs")
 	}
@@ -300,11 +303,11 @@ func (s *CronSyncer) removeOrphanedLaunchdJobs(crons map[string]config.CronConfi
 	}
 
 	for _, label := range loadedJobs {
-		// Extract the ID from the label (agenc-cron.{UUID})
-		cronID := strings.TrimPrefix(label, launchd.CronPlistPrefix)
+		// Extract the ID from the label ({cronPlistPrefix}{UUID})
+		cronID := strings.TrimPrefix(label, s.cronPlistPrefix)
 
 		// Legacy labels (agenc-cron-{name}) won't match any UUID — always remove them
-		if strings.HasPrefix(label, launchd.LegacyCronPlistPrefix) && !strings.HasPrefix(label, launchd.CronPlistPrefix) {
+		if strings.HasPrefix(label, launchd.LegacyCronPlistPrefix) && !strings.HasPrefix(label, s.cronPlistPrefix) {
 			logger.Printf("Cron syncer: removing orphaned legacy launchd job '%s'", label)
 			if err := s.manager.RemoveJobByLabel(label); err != nil {
 				logger.Printf("Cron syncer: failed to remove orphaned job '%s': %v", label, err)

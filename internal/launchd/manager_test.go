@@ -19,6 +19,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestGetPlistPathForLabel(t *testing.T) {
+	defaultPrefix := "agenc-cron."
 	tests := []struct {
 		name         string
 		label        string
@@ -38,7 +39,7 @@ func TestGetPlistPathForLabel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path, err := GetPlistPathForLabel(tt.label)
+			path, err := GetPlistPathForLabel(defaultPrefix, tt.label)
 			if err != nil {
 				t.Fatalf("GetPlistPathForLabel() error = %v", err)
 			}

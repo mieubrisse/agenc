@@ -77,7 +77,7 @@ func (m *mockLaunchdManager) RemovePlist(plistPath string) error {
 	return nil
 }
 
-func (m *mockLaunchdManager) ListAgencCronJobs() ([]string, error) {
+func (m *mockLaunchdManager) ListAgencCronJobs(_ string) ([]string, error) {
 	return m.loadedJobLabels, nil
 }
 
@@ -113,7 +113,7 @@ func TestSyncCronJob_UnchangedContentSkipsReload(t *testing.T) {
 
 	// Mark as loaded for second sync, reset call tracking
 	mock.loadCalls = nil
-	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
+	mock.loadedLabels[launchd.CronToLabel(syncer.cronPlistPrefix, "test-uuid-1234")] = true
 
 	// Second sync with same config: should NOT call load or unload
 	err = syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
@@ -151,7 +151,7 @@ func TestSyncCronJob_ContentChangeTriggersReload(t *testing.T) {
 	}
 
 	// Mark as loaded, reset call tracking
-	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
+	mock.loadedLabels[launchd.CronToLabel(syncer.cronPlistPrefix, "test-uuid-1234")] = true
 	mock.loadCalls = nil
 	mock.unloadCalls = nil
 
@@ -194,7 +194,7 @@ func TestSyncCronJob_UnloadFailsFallsBackToRemoveJobByLabel(t *testing.T) {
 	}
 
 	// Mark as loaded, configure unload to fail, reset tracking
-	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
+	mock.loadedLabels[launchd.CronToLabel(syncer.cronPlistPrefix, "test-uuid-1234")] = true
 	mock.unloadErr = errors.New("simulated unload failure")
 	mock.loadCalls = nil
 	mock.unloadCalls = nil
@@ -242,7 +242,7 @@ func TestSyncCronJob_UnloadAndRemoveBothFail(t *testing.T) {
 	}
 
 	// Mark as loaded, configure both unload and remove to fail
-	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
+	mock.loadedLabels[launchd.CronToLabel(syncer.cronPlistPrefix, "test-uuid-1234")] = true
 	mock.unloadErr = errors.New("unload failed")
 	mock.removeJobErr = errors.New("remove failed")
 	mock.loadCalls = nil
@@ -282,7 +282,7 @@ func TestSyncCronJob_NewCronWritesAndLoads(t *testing.T) {
 	}
 
 	// Should have written the plist file
-	plistPath := filepath.Join(plistDir, launchd.CronToPlistFilename("new-uuid-5678"))
+	plistPath := filepath.Join(plistDir, launchd.CronToPlistFilename(syncer.cronPlistPrefix, "new-uuid-5678"))
 	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
 		t.Error("expected plist file to be written")
 	}
@@ -320,7 +320,7 @@ func TestSyncCronJob_DisabledCronUnloads(t *testing.T) {
 	}
 
 	// Mark as loaded, reset tracking
-	mock.loadedLabels[launchd.CronToLabel("disabled-uuid")] = true
+	mock.loadedLabels[launchd.CronToLabel(syncer.cronPlistPrefix, "disabled-uuid")] = true
 	mock.loadCalls = nil
 	mock.unloadCalls = nil
 
@@ -371,14 +371,14 @@ func TestRemoveOrphanedLaunchdJobs(t *testing.T) {
 	agencDir := t.TempDir()
 
 	mock := newMockManager()
+	syncer := newCronSyncerWithManager(agencDir, mock)
+
 	// Simulate launchd having jobs for known UUID, unknown UUID, and legacy label
 	mock.loadedJobLabels = []string{
-		launchd.CronToLabel("known-uuid"),
-		launchd.CronToLabel("orphan-uuid"),
+		launchd.CronToLabel(syncer.cronPlistPrefix, "known-uuid"),
+		launchd.CronToLabel(syncer.cronPlistPrefix, "orphan-uuid"),
 		"agenc-cron-legacy-name",
 	}
-
-	syncer := newCronSyncerWithManager(agencDir, mock)
 
 	crons := map[string]config.CronConfig{
 		"my-cron": {ID: "known-uuid", Schedule: "0 9 * * *", Prompt: "test"},
@@ -400,13 +400,13 @@ func TestRemoveOrphanedLaunchdJobs(t *testing.T) {
 		removed[label] = true
 	}
 
-	if !removed[launchd.CronToLabel("orphan-uuid")] {
+	if !removed[launchd.CronToLabel(syncer.cronPlistPrefix, "orphan-uuid")] {
 		t.Error("expected orphan-uuid to be removed")
 	}
 	if !removed["agenc-cron-legacy-name"] {
 		t.Error("expected legacy label to be removed")
 	}
-	if removed[launchd.CronToLabel("known-uuid")] {
+	if removed[launchd.CronToLabel(syncer.cronPlistPrefix, "known-uuid")] {
 		t.Error("known-uuid should NOT have been removed")
 	}
 }

@@ -6,12 +6,11 @@ import (
 	"os/exec"
 
 	"github.com/mieubrisse/stacktrace"
+	"github.com/odyssey/agenc/internal/config"
 	agentmux "github.com/odyssey/agenc/internal/tmux"
 )
 
 const (
-	tmuxSessionName = "agenc"
-
 	// Environment variable propagated to tmux sessions so all windows share the same agenc configuration.
 	agencDirpathEnvVar = "AGENC_DIRPATH"
 
@@ -19,6 +18,15 @@ const (
 	minTmuxMajor = 3
 	minTmuxMinor = 0
 )
+
+// getTmuxSessionName resolves the agenc tmux session name for this installation.
+func getTmuxSessionName() (string, error) {
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to resolve agenc directory")
+	}
+	return config.GetTmuxSessionName(agencDirpath), nil
+}
 
 // checkTmuxVersion verifies that the installed tmux version meets the minimum
 // requirement. Returns an error if tmux is not found or the version is too old.

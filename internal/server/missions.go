@@ -733,7 +733,7 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 
 	// Clean up any side shell panes the user created (via tmux split-window)
 	// so they don't linger in the pool after detach.
-	killExtraPanesInWindow(*missionRecord.TmuxPane, s.logger)
+	killExtraPanesInWindow(*missionRecord.TmuxPane, s.getPoolSessionName(), s.logger)
 
 	s.logger.Printf("Detached mission %s from session %s", database.ShortID(resolvedID), req.TmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
@@ -785,7 +785,7 @@ func (s *Server) handleSendKeys(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	paneID := *missionRecord.TmuxPane
-	if !poolWindowExistsByPane(paneID) {
+	if !poolWindowExistsByPane(paneID, s.getPoolSessionName()) {
 		return newHTTPErrorf(http.StatusInternalServerError,
 			"mission %s has a stale pane reference — try: agenc mission reload %s",
 			shortID, shortID)
@@ -813,7 +813,7 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 		if missionRecord.TmuxPane != nil {
 			paneID = *missionRecord.TmuxPane
 		}
-		if poolWindowExistsByPane(paneID) {
+		if poolWindowExistsByPane(paneID, s.getPoolSessionName()) {
 			return nil
 		}
 		// Wrapper running but no pool window (orphan from before pool existed).

@@ -179,6 +179,7 @@ func TestParseCronExpression(t *testing.T) {
 }
 
 func TestCronToPlistFilename(t *testing.T) {
+	defaultPrefix := "agenc-cron."
 	tests := []struct {
 		name   string
 		cronID string
@@ -198,7 +199,7 @@ func TestCronToPlistFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CronToPlistFilename(tt.cronID)
+			got := CronToPlistFilename(defaultPrefix, tt.cronID)
 			if got != tt.want {
 				t.Errorf("CronToPlistFilename() = %v, want %v", got, tt.want)
 			}
@@ -207,7 +208,8 @@ func TestCronToPlistFilename(t *testing.T) {
 }
 
 func TestCronToLabel(t *testing.T) {
-	got := CronToLabel("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	defaultPrefix := "agenc-cron."
+	got := CronToLabel(defaultPrefix, "a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 	want := "agenc-cron.a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 	if got != want {
 		t.Errorf("CronToLabel() = %v, want %v", got, want)

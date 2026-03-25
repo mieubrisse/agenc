@@ -95,8 +95,9 @@ func (m *Manager) RemovePlist(plistPath string) error {
 }
 
 // ListAgencCronJobs returns a list of all agenc cron job labels currently loaded in launchd.
-// Checks both the current prefix (agenc-cron.) and the legacy prefix (agenc-cron-).
-func (m *Manager) ListAgencCronJobs() ([]string, error) {
+// Checks both the current prefix and the legacy prefix (agenc-cron-).
+// cronPlistPrefix is the namespace-aware prefix (e.g., "agenc-cron." or "agenc-a1b2c3d4-cron.").
+func (m *Manager) ListAgencCronJobs(cronPlistPrefix string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), m.timeout)
 	defer cancel()
 
@@ -115,7 +116,7 @@ func (m *Manager) ListAgencCronJobs() ([]string, error) {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 {
 			label := fields[2]
-			if strings.HasPrefix(label, CronPlistPrefix) || strings.HasPrefix(label, LegacyCronPlistPrefix) {
+			if strings.HasPrefix(label, cronPlistPrefix) || strings.HasPrefix(label, LegacyCronPlistPrefix) {
 				cronJobs = append(cronJobs, label)
 			}
 		}
@@ -153,15 +154,16 @@ func (m *Manager) RemoveJobByLabel(label string) error {
 }
 
 // GetPlistPathForLabel returns the expected plist file path for a given label.
-func GetPlistPathForLabel(label string) (string, error) {
+// cronPlistPrefix is the namespace-aware prefix (e.g., "agenc-cron." or "agenc-a1b2c3d4-cron.").
+func GetPlistPathForLabel(cronPlistPrefix string, label string) (string, error) {
 	var cronID string
-	if strings.HasPrefix(label, CronPlistPrefix) {
-		cronID = strings.TrimPrefix(label, CronPlistPrefix)
+	if strings.HasPrefix(label, cronPlistPrefix) {
+		cronID = strings.TrimPrefix(label, cronPlistPrefix)
 	} else {
 		// Legacy label format: agenc-cron-{name}
 		cronID = strings.TrimPrefix(label, LegacyCronPlistPrefix)
 	}
-	filename := CronToPlistFilename(cronID)
+	filename := CronToPlistFilename(cronPlistPrefix, cronID)
 	dirpath, err := PlistDirpath()
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to get plist directory")
