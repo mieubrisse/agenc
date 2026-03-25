@@ -69,6 +69,13 @@ check: genprime
 	@echo "Running govulncheck..."
 	@govulncheck ./...
 	@echo "✓ Vulncheck OK"
+	@echo "Running deadcode analysis..."
+	@output=$$(deadcode ./... 2>&1); \
+	if [ -n "$$output" ]; then \
+		echo "⚠ Dead code found (informational — will become a hard error after cleanup):"; \
+		echo "$$output"; \
+	fi
+	@echo "✓ Deadcode OK"
 	@echo "Running tests with coverage..."
 	@set -o pipefail; go test -race -coverprofile=coverage.out ./... 2>&1 | tee coverage-test.log
 	@echo "✓ Tests passed"

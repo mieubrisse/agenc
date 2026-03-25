@@ -26,5 +26,9 @@ jobs:
         # Pinned version — update deliberately, not via @latest
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
+      - name: Install deadcode
+        # Pinned version — update deliberately, not via @latest
+        run: go install golang.org/x/tools/cmd/deadcode@v0.43.0
+
       - name: Run checks
         run: make check
