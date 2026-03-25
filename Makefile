@@ -71,6 +71,12 @@ check: genprime
 	@echo "✓ Vulncheck OK"
 	@echo "Running deadcode analysis..."
 	@output=$$(deadcode ./... 2>&1); \
+	rc=$$?; \
+	if [ "$$rc" -ne 0 ]; then \
+		echo "❌ deadcode failed:"; \
+		echo "$$output"; \
+		exit 1; \
+	fi; \
 	if [ -n "$$output" ]; then \
 		echo "⚠ Dead code found (informational — will become a hard error after cleanup):"; \
 		echo "$$output"; \
