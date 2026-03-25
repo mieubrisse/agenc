@@ -500,9 +500,47 @@ rm -rf ~/.agenc
 
 If you customized `AGENC_DIRPATH`, remove that directory instead.
 
-Development
------------
-Clone the repo and run `make build`.
+Local Development
+-----------------
+
+### Prerequisites
+
+- **Go** (version specified in `go.mod`)
+- **golangci-lint**, **govulncheck**, and **deadcode** (see below)
+
+### Install development tools
+
+```bash
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.11.4
+go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+go install golang.org/x/tools/cmd/deadcode@v0.43.0
+```
+
+These are the same versions pinned in CI. `govulncheck` and `deadcode` are official Go team tools from the `golang.org/x/` extended repositories.
+
+### Build
+
+```bash
+make build
+```
+
+This runs code generation, quality checks (formatting, vet, lint, vulnerability scan, dead code analysis, tests with race detection and coverage), and compiles the binary to `_build/agenc`.
+
+### Quality checks only
+
+```bash
+make check
+```
+
+The pre-commit hook runs `make check` automatically on every commit, so you generally don't need to run this manually.
+
+### E2E tests
+
+```bash
+make e2e
+```
+
+Builds the binary, creates an isolated test environment, runs integration tests against it, and tears down the environment.
 
 CLI Reference
 -------------
