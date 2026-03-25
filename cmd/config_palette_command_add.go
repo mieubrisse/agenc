@@ -81,10 +81,11 @@ func runConfigPaletteCommandAdd(cmd *cobra.Command, args []string) error {
 	keybinding, _ := cmd.Flags().GetString(paletteCommandKeybindingFlagName)
 	description, _ := cmd.Flags().GetString(paletteCommandDescriptionFlagName)
 
-	cfg, cm, err := readConfigWithComments()
+	cfg, cm, release, err := readConfigWithComments()
 	if err != nil {
 		return err
 	}
+	defer release()
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")

@@ -29,10 +29,11 @@ func init() {
 func runConfigRepoConfigRm(cmd *cobra.Command, args []string) error {
 	repoName := args[0]
 
-	cfg, cm, err := readConfigWithComments()
+	cfg, cm, release, err := readConfigWithComments()
 	if err != nil {
 		return err
 	}
+	defer release()
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")

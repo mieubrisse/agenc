@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -537,6 +538,31 @@ func (c *AgencConfig) GetDefaultModel(repoName string) string {
 // GetConfigFilepath returns the path to config.yml inside the config directory.
 func GetConfigFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ConfigDirname, ConfigFilename)
+}
+
+// AcquireConfigLock acquires an advisory file lock on config.yml.lock to
+// prevent concurrent read-modify-write races across CLI processes.
+// Returns a release function that must be called (typically via defer) when
+// the caller is done with the config. The lock file is created if it does
+// not exist.
+func AcquireConfigLock(agencDirpath string) (func(), error) {
+	lockFilepath := GetConfigFilepath(agencDirpath) + ".lock"
+	f, err := os.OpenFile(lockFilepath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to open config lock file")
+	}
+
+	fd := int(f.Fd()) //nolint:gosec // file descriptor fits in int on all supported platforms
+	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, stacktrace.Propagate(err, "failed to acquire config lock")
+	}
+
+	release := func() {
+		_ = syscall.Flock(fd, syscall.LOCK_UN)
+		f.Close()
+	}
+	return release, nil
 }
 
 // ReadAgencConfig reads and parses config.yml. Returns an empty config if the

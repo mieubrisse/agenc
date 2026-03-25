@@ -36,6 +36,12 @@ func runConfigUnset(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	release, err := config.AcquireConfigLock(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to acquire config lock")
+	}
+	defer release()
+
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read config")

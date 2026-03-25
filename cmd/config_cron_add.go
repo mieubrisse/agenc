@@ -57,10 +57,11 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cfg, cm, err := readConfigWithComments()
+	cfg, cm, release, err := readConfigWithComments()
 	if err != nil {
 		return err
 	}
+	defer release()
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")

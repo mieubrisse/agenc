@@ -39,10 +39,11 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("interactive mode requires a terminal; provide arguments or edit config.yml directly")
 	}
 
-	cfg, cm, err := readConfigWithComments()
+	cfg, cm, release, err := readConfigWithComments()
 	if err != nil {
 		return err
 	}
+	defer release()
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")

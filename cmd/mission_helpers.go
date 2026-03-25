@@ -178,17 +178,27 @@ func readConfig() (*config.AgencConfig, error) {
 
 // readConfigWithComments reads the config and returns the comment map needed
 // for write-back operations that preserve YAML comments.
-func readConfigWithComments() (*config.AgencConfig, yaml.CommentMap, error) {
+// Also acquires an advisory file lock on config.yml.lock to prevent concurrent
+// read-modify-write races. The returned release function MUST be called (via
+// defer) when the caller is done writing — it releases the lock.
+func readConfigWithComments() (*config.AgencConfig, yaml.CommentMap, func(), error) {
 	agencDirpath, err := ensureConfigured()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	checkServerVersion(agencDirpath)
+
+	release, err := config.AcquireConfigLock(agencDirpath)
+	if err != nil {
+		return nil, nil, nil, stacktrace.Propagate(err, "failed to acquire config lock")
+	}
+
 	cfg, cm, err := config.ReadAgencConfig(agencDirpath)
 	if err != nil {
-		return nil, nil, stacktrace.Propagate(err, "failed to read config")
+		release()
+		return nil, nil, nil, stacktrace.Propagate(err, "failed to read config")
 	}
-	return cfg, cm, nil
+	return cfg, cm, release, nil
 }
 
 // resolveCronID resolves a cron name or UUID to a cron ID using the server API.
