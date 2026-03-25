@@ -18,7 +18,6 @@ linters:
         - (*database/sql.Conn).Close
         - (*database/sql.Rows).Close
         - (*os.File).Close
-        - (*os.File).Write
         - (*bufio.Reader).ReadBytes
         - (*net/http.Response).Body.Close
         - (*net/http.Server).Close

@@ -109,7 +109,7 @@ func handleRawKeystroke(b byte, runes *[]rune, buf []byte) (result string, done 
 
 	case b >= 0x20 && b < 0x7F: // Printable ASCII
 		*runes = append(*runes, rune(b))
-		os.Stdout.Write(buf[:1])
+		_, _ = os.Stdout.Write(buf[:1]) // stdout write failure is unrecoverable
 	}
 
 	return "", false, nil
@@ -149,7 +149,7 @@ func handleMultibyteRune(leadByte byte, runes *[]rune, buf []byte) {
 	}
 	if r, _ := utf8.DecodeRune(buf[:seqLen]); r != utf8.RuneError {
 		*runes = append(*runes, r)
-		os.Stdout.Write(buf[:seqLen])
+		_, _ = os.Stdout.Write(buf[:seqLen]) // stdout write failure is unrecoverable
 	}
 }
 

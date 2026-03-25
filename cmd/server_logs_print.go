@@ -46,6 +46,6 @@ func runServerLogsPrint(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to fetch server logs: %w", err)
 	}
 
-	os.Stdout.Write(body)
+	_, _ = os.Stdout.Write(body) // stdout write failure is unrecoverable
 	return nil
 }

@@ -48,6 +48,6 @@ func runCronLogsPrint(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to fetch cron logs: %w", err)
 	}
 
-	os.Stdout.Write(body)
+	_, _ = os.Stdout.Write(body) // stdout write failure is unrecoverable
 	return nil
 }
