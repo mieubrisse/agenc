@@ -60,7 +60,7 @@ compile:
 	@mkdir -p $(BUILD_DIR)
 	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/agenc .
 	@# Create wrapper script that sets test-env variables
-	@printf '#!/usr/bin/env bash\nset -euo pipefail\nscript_dirpath="$$(cd "$$(dirname "$${0}")" && pwd)"\nexport AGENC_DIRPATH="$${script_dirpath}/../$(TEST_ENV_DIR)"\nexport AGENC_TEST_ENV=1\nexec "$${script_dirpath}/agenc" "$$@"\n' > $(BUILD_DIR)/agenc-test
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nscript_dirpath="$$(cd "$$(dirname "$${0}")" && pwd)"\nexport AGENC_DIRPATH="$$(cd "$${script_dirpath}/../$(TEST_ENV_DIR)" 2>/dev/null && pwd || echo "$${script_dirpath}/../$(TEST_ENV_DIR)")"\nexport AGENC_TEST_ENV=1\nexec "$${script_dirpath}/agenc" "$$@"\n' > $(BUILD_DIR)/agenc-test
 	@chmod +x $(BUILD_DIR)/agenc-test
 	@echo "✓ Build complete ($(BUILD_DIR)/agenc, $(BUILD_DIR)/agenc-test)"
 
@@ -89,7 +89,16 @@ test-env:
 	@echo "  Run with: $(BUILD_DIR)/agenc-test"
 
 test-env-clean:
-	@echo "Removing test environment..."
+	@echo "Tearing down test environment..."
+	@# Stop the server if the binary and test env exist
+	@if [ -x "$(BUILD_DIR)/agenc-test" ] && [ -f "$(TEST_ENV_DIR)/server/server.pid" ]; then \
+		"$(BUILD_DIR)/agenc-test" server stop 2>/dev/null || true; \
+	fi
+	@# Kill namespaced tmux sessions (agenc-HASH and agenc-HASH-pool)
+	@test_env_abs="$$(cd "$(CURDIR)/$(TEST_ENV_DIR)" 2>/dev/null && pwd || echo "$(CURDIR)/$(TEST_ENV_DIR)")"; \
+	pool_hash=$$(printf '%s' "$${test_env_abs}" | shasum -a 256 | cut -c1-8); \
+	tmux kill-session -t "=agenc-$${pool_hash}" 2>/dev/null || true; \
+	tmux kill-session -t "=agenc-$${pool_hash}-pool" 2>/dev/null || true
 	@rm -rf $(TEST_ENV_DIR)
 	@echo "✓ Test environment removed"
 
