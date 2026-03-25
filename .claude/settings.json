@@ -53,10 +53,9 @@
         "filesystem": {
             "allowWrite": ["//tmp", "//private/tmp/claude"]
         },
-        "excludedCommands": ["bd", "dolt"],
         "network": {
             "allowLocalBinding": true,
-            "allowedDomains": ["127.0.0.1", "localhost", "vuln.go.dev"],
+            "allowedDomains": ["vuln.go.dev"],
             "allowUnixSockets": ["//tmp/claude", "//private/tmp/claude"]
         }
     },
