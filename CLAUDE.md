@@ -94,11 +94,18 @@ make test-env-clean
 
 The `agenc-test` wrapper sets two environment variables:
 - `AGENC_DIRPATH` — points to `_test-env/` so all data (database, missions, config) is isolated
-- `AGENC_TEST_ENV=1` — disables features that would conflict with the global installation (e.g., tmux keybinding injection)
+- `AGENC_TEST_ENV=1` — disables features that would conflict with the global installation (e.g., tmux keybinding injection, launchd plist creation)
 
 `_build/` and `_test-env/` have independent lifecycles: `make clean` removes `_build/`, `make test-env-clean` removes `_test-env/`. Neither affects the other.
 
-Namespace isolation ensures tmux session names and launchd plist labels derived from a non-default `AGENC_DIRPATH` get a deterministic hash suffix (e.g., `agenc-a1b2c3d4`, `agenc-a1b2c3d4-pool`) to prevent collisions with the user's real installation.
+Namespace isolation ensures tmux session names and launchd plist labels derived from a non-default `AGENC_DIRPATH` get a deterministic hash suffix (e.g., `agenc-a1b2c3d4`, `agenc-a1b2c3d4-pool`) to prevent collisions with the user's real installation. The namespace hash is written to `_test-env/namespace` during setup. To find your test environment's namespace:
+
+```
+cat _test-env/namespace
+# => 314b3a2d
+```
+
+Use this hash to identify your test environment's tmux sessions (`agenc-HASH-pool`) and verify you are not accidentally interacting with another agent's test environment or the real installation. **Never operate on tmux sessions or agenc resources that don't match your namespace hash.**
 
 Accessing $AGENC_DIRPATH
 ------------------------

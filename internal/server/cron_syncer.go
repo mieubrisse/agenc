@@ -54,7 +54,14 @@ func newCronSyncerWithManager(agencDirpath string, manager launchdManager) *Cron
 // SyncCronsToLaunchd synchronizes the cron configuration to launchd plists.
 // This function is idempotent and can be called on server startup and whenever
 // the config changes.
+//
+// In test environments (AGENC_TEST_ENV=1), plist creation is skipped entirely
+// to avoid polluting ~/Library/LaunchAgents with test plists.
 func (s *CronSyncer) SyncCronsToLaunchd(crons map[string]config.CronConfig, logger logger) error {
+	if config.IsTestEnv() {
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

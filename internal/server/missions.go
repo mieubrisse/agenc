@@ -412,10 +412,15 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	//
 	// When running with a non-default AGENC_DIRPATH (e.g. test environments),
 	// we must export it into the tmux pane's shell since the pane doesn't
-	// inherit the server process's environment.
+	// inherit the server process's environment. AGENC_TEST_ENV is also
+	// propagated so the wrapper knows to skip test-incompatible operations.
 	var envPrefix string
 	if config.GetNamespaceSuffix(s.agencDirpath) != "" {
-		envPrefix = fmt.Sprintf("export AGENC_DIRPATH='%s'; ", s.agencDirpath)
+		envPrefix = fmt.Sprintf("export AGENC_DIRPATH='%s'", s.agencDirpath)
+		if config.IsTestEnv() {
+			envPrefix += " AGENC_TEST_ENV=1"
+		}
+		envPrefix += "; "
 	}
 	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", envPrefix, agencBinpath, missionRecord.ID)
 	if req.Prompt != "" {

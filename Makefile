@@ -140,18 +140,34 @@ test-env:
 	else \
 		echo "  ⚠ No OAuth token found at ~/.agenc/cache/oauth-token — missions will prompt for auth"; \
 	fi
+	@# Write namespace hash so agents know their isolated namespace
+	@test_env_abs="$$(cd "$(CURDIR)/$(TEST_ENV_DIR)" && pwd)"; \
+	ns_hash=$$(printf '%s' "$${test_env_abs}" | shasum -a 256 | cut -c1-8); \
+	echo "$${ns_hash}" > $(TEST_ENV_DIR)/namespace; \
+	echo "  Namespace: agenc-$${ns_hash}"
 	@echo "✓ Test environment ready"
 	@echo "  Run with: $(BUILD_DIR)/agenc-test"
 
 test-env-clean:
 	@echo "Tearing down test environment..."
-	@# Stop the server if the binary and test env exist
+	@# Stop the server: prefer agenc-test binary, fall back to direct PID kill
 	@if [ -x "$(BUILD_DIR)/agenc-test" ] && [ -f "$(TEST_ENV_DIR)/server/server.pid" ]; then \
 		"$(BUILD_DIR)/agenc-test" server stop 2>/dev/null || true; \
+	elif [ -f "$(TEST_ENV_DIR)/server/server.pid" ]; then \
+		pid=$$(cat "$(TEST_ENV_DIR)/server/server.pid" 2>/dev/null); \
+		if [ -n "$${pid}" ] && kill -0 "$${pid}" 2>/dev/null; then \
+			kill "$${pid}" 2>/dev/null || true; \
+			echo "  Killed server process $${pid} (binary not available for graceful stop)"; \
+		fi; \
 	fi
-	@# Kill namespaced tmux sessions (agenc-HASH and agenc-HASH-pool)
-	@test_env_abs="$$(cd "$(CURDIR)/$(TEST_ENV_DIR)" 2>/dev/null && pwd || echo "$(CURDIR)/$(TEST_ENV_DIR)")"; \
-	pool_hash=$$(printf '%s' "$${test_env_abs}" | shasum -a 256 | cut -c1-8); \
+	@# Kill namespaced tmux sessions (agenc-HASH and agenc-HASH-pool).
+	@# Read the hash from the namespace file if available, otherwise compute it.
+	@if [ -f "$(TEST_ENV_DIR)/namespace" ]; then \
+		pool_hash=$$(cat "$(TEST_ENV_DIR)/namespace"); \
+	else \
+		test_env_abs="$$(cd "$(CURDIR)/$(TEST_ENV_DIR)" 2>/dev/null && pwd || echo "$(CURDIR)/$(TEST_ENV_DIR)")"; \
+		pool_hash=$$(printf '%s' "$${test_env_abs}" | shasum -a 256 | cut -c1-8); \
+	fi; \
 	tmux kill-session -t "=agenc-$${pool_hash}" 2>/dev/null || true; \
 	tmux kill-session -t "=agenc-$${pool_hash}-pool" 2>/dev/null || true
 	@rm -rf $(TEST_ENV_DIR)
