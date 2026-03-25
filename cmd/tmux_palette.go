@@ -254,7 +254,9 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	// for debugging.
 	agencDirpathForLog, _ := config.GetAgencDirpath()
 	logFilepath := config.GetPaletteLogFilepath(agencDirpathForLog)
-	os.MkdirAll(filepath.Dir(logFilepath), 0755)
+	// Non-fatal: if we can't create the log directory, the palette command
+	// should still execute — the log output will simply be lost.
+	_ = os.MkdirAll(filepath.Dir(logFilepath), 0755)
 	fullCommand += fmt.Sprintf(" >> %s 2>&1", logFilepath)
 
 	runShellCmd := exec.Command("tmux", "run-shell", "-b", fullCommand)
