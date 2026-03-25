@@ -259,6 +259,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /stash/push", appHandler(s.requestLogger, s.stashGuard(s.handlePushStash)))
 	mux.Handle("POST /stash/pop", appHandler(s.requestLogger, s.stashGuard(s.handlePopStash)))
 
+	// Cron endpoints
+	mux.Handle("GET /crons", appHandler(s.requestLogger, s.handleListCrons))
+	mux.Handle("GET /crons/{id}/logs", appHandler(s.requestLogger, s.handleCronLogs))
+
 	// Claude-modifications config file endpoints
 	mux.Handle("GET /config/claude-md", appHandler(s.requestLogger, s.handleGetClaudeMd))
 	mux.Handle("PUT /config/claude-md", appHandler(s.requestLogger, s.handleUpdateClaudeMd))

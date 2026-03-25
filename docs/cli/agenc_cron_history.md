@@ -6,15 +6,18 @@ Show run history for a cron job
 
 Show the history of runs for a specific cron job.
 
+The argument can be a cron name (as defined in config.yml) or a cron UUID.
+
 Lists missions spawned by the cron scheduler, including their status and duration.
 
-Example:
+Examples:
   agenc cron history daily-report
   agenc cron history daily-report --limit 50
+  agenc cron history abc-123
 
 
 ```
-agenc cron history <name> [flags]
+agenc cron history <name-or-id> [flags]
 ```
 
 ### Options

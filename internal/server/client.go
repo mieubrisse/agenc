@@ -471,6 +471,29 @@ func (c *Client) GetServerLogs(source string, all bool) ([]byte, error) {
 }
 
 // ============================================================================
+// High-level cron API methods
+// ============================================================================
+
+// ListCrons fetches the list of configured cron jobs from the server.
+func (c *Client) ListCrons() ([]CronInfo, error) {
+	var crons []CronInfo
+	if err := c.Get("/crons", &crons); err != nil {
+		return nil, err
+	}
+	return crons, nil
+}
+
+// GetCronLogs fetches log content for a cron job by ID.
+// If all is true, returns the entire log file; otherwise returns the last 200 lines.
+func (c *Client) GetCronLogs(cronID string, all bool) ([]byte, error) {
+	path := "/crons/" + cronID + "/logs"
+	if all {
+		path += "?mode=all"
+	}
+	return c.GetRaw(path)
+}
+
+// ============================================================================
 // High-level stash API methods
 // ============================================================================
 

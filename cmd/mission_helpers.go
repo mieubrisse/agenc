@@ -190,3 +190,31 @@ func readConfigWithComments() (*config.AgencConfig, yaml.CommentMap, error) {
 	}
 	return cfg, cm, nil
 }
+
+// resolveCronID resolves a cron name or UUID to a cron ID using the server API.
+// It first tries to match the argument as a cron name. If no match is found,
+// it treats the argument as a UUID directly.
+func resolveCronID(client *server.Client, nameOrID string) (string, error) {
+	crons, err := client.ListCrons()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to list crons")
+	}
+
+	for _, c := range crons {
+		if c.Name == nameOrID {
+			if c.ID == "" {
+				return "", stacktrace.NewError("cron job '%s' has no ID — re-create it or add an 'id' field to config.yml", nameOrID)
+			}
+			return c.ID, nil
+		}
+	}
+
+	// No name match — treat as UUID. Check if it matches any known cron ID.
+	for _, c := range crons {
+		if c.ID == nameOrID {
+			return nameOrID, nil
+		}
+	}
+
+	return "", stacktrace.NewError("cron job '%s' not found", nameOrID)
+}

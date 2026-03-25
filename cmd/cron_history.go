@@ -13,15 +13,18 @@ import (
 var cronHistoryLimitFlag int
 
 var cronHistoryCmd = &cobra.Command{
-	Use:   historyCmdStr + " <name>",
+	Use:   historyCmdStr + " <name-or-id>",
 	Short: "Show run history for a cron job",
 	Long: `Show the history of runs for a specific cron job.
 
+The argument can be a cron name (as defined in config.yml) or a cron UUID.
+
 Lists missions spawned by the cron scheduler, including their status and duration.
 
-Example:
+Examples:
   agenc cron history daily-report
   agenc cron history daily-report --limit 50
+  agenc cron history abc-123
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runCronHistory,
@@ -33,35 +36,25 @@ func init() {
 }
 
 func runCronHistory(cmd *cobra.Command, args []string) error {
-	name := args[0]
-
-	// Verify cron exists
-	cfg, err := readConfig()
-	if err != nil {
-		return err
-	}
-
-	cronCfg, exists := cfg.Crons[name]
-	if !exists {
-		return stacktrace.NewError("cron job '%s' not found", name)
-	}
-
-	if cronCfg.ID == "" {
-		return stacktrace.NewError("cron job '%s' has no ID — re-create it or add an 'id' field to config.yml", name)
-	}
+	nameOrID := args[0]
 
 	client, err := serverClient()
 	if err != nil {
 		return err
 	}
 
-	missions, err := client.ListMissions(true, "cron", cronCfg.ID)
+	cronID, err := resolveCronID(client, nameOrID)
+	if err != nil {
+		return err
+	}
+
+	missions, err := client.ListMissions(true, "cron", cronID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}
 
 	if len(missions) == 0 {
-		fmt.Printf("No runs found for cron job '%s'\n", name)
+		fmt.Printf("No runs found for cron job '%s'\n", nameOrID)
 		return nil
 	}
 
@@ -71,7 +64,7 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 		displayMissions = missions[:cronHistoryLimitFlag]
 	}
 
-	fmt.Printf("Run history for cron job '%s':\n\n", name)
+	fmt.Printf("Run history for cron job '%s':\n\n", nameOrID)
 
 	tbl := tableprinter.NewTable("STARTED", "ID", "STATUS", "DURATION")
 

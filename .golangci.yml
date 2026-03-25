@@ -56,6 +56,7 @@ linters:
         - G702  # Command injection via taint — false positives on exec.Command
         - G703  # Path traversal via taint — false positives on os.RemoveAll
         - G704  # SSRF via taint — false positive on unix socket dial
+        - G705  # XSS via taint — internal unix socket server, not browser-facing
         - G706  # Log injection via taint — false positives on log.Printf
     staticcheck:
       checks:

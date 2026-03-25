@@ -49,6 +49,7 @@ ALIASES:
 * [agenc cron disable](agenc_cron_disable.md)	 - Disable a cron job
 * [agenc cron enable](agenc_cron_enable.md)	 - Enable a cron job
 * [agenc cron history](agenc_cron_history.md)	 - Show run history for a cron job
+* [agenc cron logs](agenc_cron_logs.md)	 - View cron job logs
 * [agenc cron ls](agenc_cron_ls.md)	 - List all cron jobs
 * [agenc cron new](agenc_cron_new.md)	 - Create a new cron job (interactive wizard)
 * [agenc cron rm](agenc_cron_rm.md)	 - Remove a cron job from config
