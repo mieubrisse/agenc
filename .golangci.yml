@@ -27,7 +27,6 @@ linters:
         - fmt.Fprint
         - fmt.Fprintln
         - fmt.Fprintf
-        - fmt.Sscanf
         # Project database type
         - (*github.com/odyssey/agenc/internal/database.DB).Close
         # Cobra flag helpers that only fail on programmer error

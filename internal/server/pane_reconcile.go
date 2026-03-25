@@ -99,7 +99,7 @@ func listPoolPanesWithPIDs() ([]poolPaneInfo, error) {
 		}
 		paneID := strings.TrimPrefix(parts[0], "%")
 		pid := 0
-		fmt.Sscanf(parts[1], "%d", &pid)
+		_, _ = fmt.Sscanf(parts[1], "%d", &pid) // parse failure leaves pid=0, filtered by subsequent check
 		if pid > 0 {
 			result = append(result, poolPaneInfo{paneID: paneID, pid: pid})
 		}
