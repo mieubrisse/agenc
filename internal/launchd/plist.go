@@ -134,28 +134,6 @@ type integerValue struct {
 	Value   int      `xml:",chardata"`
 }
 
-// WriteToDisk writes the plist to the specified path atomically.
-func (p *Plist) WriteToDisk(targetPath string) error {
-	xmlData, err := p.GeneratePlistXML()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to generate plist XML")
-	}
-
-	// Write to temporary file first
-	tempPath := targetPath + ".tmp"
-	if err := os.WriteFile(tempPath, xmlData, 0644); err != nil {
-		return stacktrace.Propagate(err, "failed to write temporary plist file")
-	}
-
-	// Atomic rename
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		_ = os.Remove(tempPath) // Clean up on error
-		return stacktrace.Propagate(err, "failed to rename temporary plist file")
-	}
-
-	return nil
-}
-
 // CronPlistPrefix is the prefix for all cron plist filenames and launchd labels.
 const CronPlistPrefix = "agenc-cron."
 

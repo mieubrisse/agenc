@@ -214,53 +214,6 @@ func TestCronToLabel(t *testing.T) {
 	}
 }
 
-func TestWriteToDisk(t *testing.T) {
-	t.Helper()
-
-	tempDir := t.TempDir()
-	plistPath := filepath.Join(tempDir, "test.plist")
-
-	plist := &Plist{
-		Label:            "test",
-		ProgramArguments: []string{"/bin/echo", "test"},
-		StartCalendarInterval: &CalendarInterval{
-			Minute: intPtr(0),
-			Hour:   intPtr(9),
-		},
-		StandardOutPath:   "/dev/null",
-		StandardErrorPath: "/dev/null",
-	}
-
-	err := plist.WriteToDisk(plistPath)
-	if err != nil {
-		t.Fatalf("WriteToDisk failed: %v", err)
-	}
-
-	// Check file exists
-	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
-		t.Errorf("plist file was not created")
-	}
-
-	// Check file permissions
-	info, err := os.Stat(plistPath)
-	if err != nil {
-		t.Fatalf("failed to stat plist file: %v", err)
-	}
-	if info.Mode().Perm() != 0644 {
-		t.Errorf("file permissions = %o, want 0644", info.Mode().Perm())
-	}
-
-	// Check file contents
-	content, err := os.ReadFile(plistPath)
-	if err != nil {
-		t.Fatalf("failed to read plist file: %v", err)
-	}
-	contentStr := string(content)
-	if !strings.Contains(contentStr, "<key>Label</key>") {
-		t.Errorf("plist file missing Label key")
-	}
-}
-
 // Helper functions
 
 func intPtr(i int) *int {
