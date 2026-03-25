@@ -191,9 +191,14 @@ func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDi
 			}
 			logger.Printf("Cron syncer: loaded plist for '%s'", name)
 		} else if contentChanged {
-			// Content changed and job is already loaded — unload and reload
+			// Content changed and job is already loaded — unload and reload.
+			// Try UnloadPlist first; if that fails, fall back to RemoveJobByLabel
+			// which works even when the plist file is already replaced on disk.
 			if err := s.manager.UnloadPlist(plistPath); err != nil {
-				logger.Printf("Cron syncer: failed to unload plist for '%s' during reload: %v", name, err)
+				logger.Printf("Cron syncer: UnloadPlist failed for '%s', trying RemoveJobByLabel: %v", name, err)
+				if err := s.manager.RemoveJobByLabel(label); err != nil {
+					return stacktrace.Propagate(err, "failed to remove job '%s' during reload (both unload and remove failed)", name)
+				}
 			}
 			if err := s.manager.LoadPlist(plistPath); err != nil {
 				return stacktrace.Propagate(err, "failed to reload plist for '%s'", name)

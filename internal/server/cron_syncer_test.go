@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,6 +46,10 @@ type mockLaunchdManager struct {
 	removeCalls     []string
 	removeJobCalls  []string
 	loadedJobLabels []string // returned by ListAgencCronJobs
+
+	// Configurable errors for testing failure paths
+	unloadErr    error
+	removeJobErr error
 }
 
 func newMockManager() *mockLaunchdManager {
@@ -64,7 +69,7 @@ func (m *mockLaunchdManager) LoadPlist(plistPath string) error {
 
 func (m *mockLaunchdManager) UnloadPlist(plistPath string) error {
 	m.unloadCalls = append(m.unloadCalls, plistPath)
-	return nil
+	return m.unloadErr
 }
 
 func (m *mockLaunchdManager) RemovePlist(plistPath string) error {
@@ -78,7 +83,7 @@ func (m *mockLaunchdManager) ListAgencCronJobs() ([]string, error) {
 
 func (m *mockLaunchdManager) RemoveJobByLabel(label string) error {
 	m.removeJobCalls = append(m.removeJobCalls, label)
-	return nil
+	return m.removeJobErr
 }
 
 func TestSyncCronJob_UnchangedContentSkipsReload(t *testing.T) {
@@ -163,6 +168,96 @@ func TestSyncCronJob_ContentChangeTriggersReload(t *testing.T) {
 	}
 	if len(mock.loadCalls) != 1 {
 		t.Errorf("expected 1 load call on content change, got %d", len(mock.loadCalls))
+	}
+}
+
+func TestSyncCronJob_UnloadFailsFallsBackToRemoveJobByLabel(t *testing.T) {
+	agencDir := t.TempDir()
+	plistDir := t.TempDir()
+
+	mock := newMockManager()
+	syncer := newCronSyncerWithManager(agencDir, mock)
+
+	cronCfg := config.CronConfig{
+		ID:       "test-uuid-1234",
+		Schedule: "0 9 * * *",
+		Prompt:   "original prompt",
+		Repo:     "github.com/owner/repo",
+	}
+
+	testLog := &syncerTestLogger{}
+
+	// First sync to write plist and load
+	err := syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
+	if err != nil {
+		t.Fatalf("first sync failed: %v", err)
+	}
+
+	// Mark as loaded, configure unload to fail, reset tracking
+	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
+	mock.unloadErr = errors.New("simulated unload failure")
+	mock.loadCalls = nil
+	mock.unloadCalls = nil
+	mock.removeJobCalls = nil
+
+	// Change prompt to trigger reload
+	cronCfg.Prompt = "updated prompt"
+
+	// Sync should succeed via RemoveJobByLabel fallback
+	err = syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
+	if err != nil {
+		t.Fatalf("sync with unload failure should succeed via fallback: %v", err)
+	}
+	if len(mock.unloadCalls) != 1 {
+		t.Errorf("expected 1 unload attempt, got %d", len(mock.unloadCalls))
+	}
+	if len(mock.removeJobCalls) != 1 {
+		t.Errorf("expected 1 RemoveJobByLabel fallback call, got %d", len(mock.removeJobCalls))
+	}
+	if len(mock.loadCalls) != 1 {
+		t.Errorf("expected 1 load call after fallback, got %d", len(mock.loadCalls))
+	}
+}
+
+func TestSyncCronJob_UnloadAndRemoveBothFail(t *testing.T) {
+	agencDir := t.TempDir()
+	plistDir := t.TempDir()
+
+	mock := newMockManager()
+	syncer := newCronSyncerWithManager(agencDir, mock)
+
+	cronCfg := config.CronConfig{
+		ID:       "test-uuid-1234",
+		Schedule: "0 9 * * *",
+		Prompt:   "original prompt",
+		Repo:     "github.com/owner/repo",
+	}
+
+	testLog := &syncerTestLogger{}
+
+	// First sync
+	err := syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
+	if err != nil {
+		t.Fatalf("first sync failed: %v", err)
+	}
+
+	// Mark as loaded, configure both unload and remove to fail
+	mock.loadedLabels[launchd.CronToLabel("test-uuid-1234")] = true
+	mock.unloadErr = errors.New("unload failed")
+	mock.removeJobErr = errors.New("remove failed")
+	mock.loadCalls = nil
+
+	// Change prompt to trigger reload
+	cronCfg.Prompt = "updated prompt"
+
+	// Sync should fail — both unload paths exhausted
+	err = syncer.syncCronJob("test-job", cronCfg, plistDir, "/usr/bin/agenc", testLog)
+	if err == nil {
+		t.Fatal("expected error when both unload and remove fail")
+	}
+	// LoadPlist should NOT have been called
+	if len(mock.loadCalls) != 0 {
+		t.Errorf("expected 0 load calls when removal fails, got %d", len(mock.loadCalls))
 	}
 }
 
