@@ -406,7 +406,7 @@ func (w *Wrapper) handleClaudeExit(exitErr error) (done bool, err error) {
 	// the tmux window closes.
 	if exitCode != 0 {
 		fmt.Fprintf(os.Stderr, "\nClaude exited with code %d. Press Enter to close this window.\n", exitCode)
-		bufio.NewReader(os.Stdin).ReadBytes('\n')
+		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n') // intentionally ignored: press-enter-to-continue prompt
 	}
 	return true, nil
 }

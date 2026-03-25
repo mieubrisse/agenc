@@ -59,7 +59,7 @@ func runWrapperDirect(missionID string, initialPrompt string) error {
 		// pane closes. Without this, wrapper startup errors vanish instantly
 		// because the pane is destroyed when the process exits.
 		fmt.Fprintf(os.Stderr, "\nWrapper failed: %v\n\nPress Enter to close this window.\n", err)
-		bufio.NewReader(os.Stdin).ReadBytes('\n')
+		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n') // intentionally ignored: press-enter-to-continue prompt
 		return err
 	}
 	return nil
