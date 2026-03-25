@@ -23,6 +23,21 @@ LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 TEST_ENV_DIR := _test-env
 BUILD_DIR    := _build
 
+# Minimum per-package test coverage percentage. Packages below this threshold
+# cause `make check` to fail. Ratchet up over time as coverage improves.
+# Target: 60%. Current codebase has packages as low as ~7%, so starting at 5%
+# to establish the enforcement mechanism. Raise incrementally as tests are added.
+COVERAGE_THRESHOLD := 5
+
+# Packages excluded from coverage enforcement (one Go import-path grep pattern
+# per line). Entry-point and code-generation packages that contain only a main()
+# or are not meaningfully unit-testable belong here.
+COVERAGE_EXCLUDE_PATTERNS := \
+	github.com/odyssey/agenc$$ \
+	/cmd/gendocs$$ \
+	/cmd/genprime$$ \
+	/internal/version$$
+
 .PHONY: bin build check clean compile docs genprime setup test test-env test-env-clean
 
 setup:
@@ -51,9 +66,40 @@ check: genprime
 	@echo "Running golangci-lint..."
 	@golangci-lint run ./...
 	@echo "✓ Lint OK"
-	@echo "Running tests..."
-	@go test -race ./...
+	@echo "Running tests with coverage..."
+	@set -o pipefail; go test -race -coverprofile=coverage.out ./... 2>&1 | tee coverage-test.log
 	@echo "✓ Tests passed"
+	@echo "Checking per-package coverage (threshold: $(COVERAGE_THRESHOLD)%)..."
+	@failed=0; \
+	while IFS= read -r line; do \
+		pkg=$$(echo "$$line" | awk '{for(i=1;i<=NF;i++) if($$i ~ /^github\.com\//) {print $$i; exit}}'); \
+		if [ -z "$$pkg" ]; then continue; fi; \
+		skip=0; \
+		for pat in $(COVERAGE_EXCLUDE_PATTERNS); do \
+			if echo "$$pkg" | grep -qE "$$pat"; then \
+				skip=1; \
+				break; \
+			fi; \
+		done; \
+		if [ "$$skip" = "1" ]; then continue; fi; \
+		if echo "$$line" | grep -q '\[no test files\]'; then \
+			echo "  ✗ $$pkg: no test files"; \
+			failed=1; \
+			continue; \
+		fi; \
+		pct=$$(echo "$$line" | grep -oE '[0-9]+\.[0-9]+%' | tr -d '%'); \
+		if [ -z "$$pct" ]; then continue; fi; \
+		if [ "$$(echo "$$pct < $(COVERAGE_THRESHOLD)" | bc)" = "1" ]; then \
+			echo "  ✗ $$pkg: $${pct}% < $(COVERAGE_THRESHOLD)%"; \
+			failed=1; \
+		fi; \
+	done < coverage-test.log; \
+	rm -f coverage.out coverage-test.log; \
+	if [ "$$failed" = "1" ]; then \
+		echo "❌ Some packages are below the $(COVERAGE_THRESHOLD)% coverage threshold"; \
+		exit 1; \
+	fi
+	@echo "✓ Coverage OK"
 
 compile:
 	@echo "Building agenc..."
@@ -77,8 +123,8 @@ genprime:
 	go run ./cmd/genprime
 
 test:
-	@echo "Running tests..."
-	@go test -race ./...
+	@echo "Running tests with coverage..."
+	@go test -race -cover ./...
 	@echo "✓ Tests passed"
 
 test-env:

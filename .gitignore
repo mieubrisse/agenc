@@ -13,6 +13,7 @@
 *.dylib
 *.test
 *.out
+coverage-test.log
 
 # IDE
 .idea/
