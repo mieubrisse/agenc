@@ -50,6 +50,20 @@ setup:
 	fi
 
 check: genprime
+	@echo "Checking module tidiness..."
+	@go mod tidy
+	@dirty=$$(git diff -- go.mod go.sum); \
+	untracked=$$(git ls-files --others --exclude-standard -- go.sum); \
+	if [ -n "$$dirty" ] || [ -n "$$untracked" ]; then \
+		echo "❌ go.mod or go.sum is not tidy:"; \
+		if [ -n "$$dirty" ]; then echo "$$dirty"; fi; \
+		if [ -n "$$untracked" ]; then echo "  New file: go.sum"; fi; \
+		git checkout -- go.mod go.sum 2>/dev/null || true; \
+		echo ""; \
+		echo "Run: go mod tidy"; \
+		exit 1; \
+	fi
+	@echo "✓ Modules OK"
 	@echo "Checking code formatting..."
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
