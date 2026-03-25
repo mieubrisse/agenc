@@ -39,8 +39,11 @@ Always build via the Makefile — never run `go build` directly. The Makefile in
 # Full build (genprime + docs + setup + check + compile)
 make build
 
-# Quality checks only (formatting, vet, tests — no binary)
+# Quality checks only (module tidy, formatting, vet, lint, vulncheck, deadcode, tests with race + coverage — no binary)
 make check
+
+# E2E tests (builds binary, creates test-env, runs integration tests, tears down)
+make e2e
 
 # Wrong — version will show "unknown" and binary ends up in wrong place
 go build -o agenc .
