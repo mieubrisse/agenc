@@ -136,10 +136,5 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Added cron job '%s'\n", name)
 
-	nextRun, err := config.GetNextCronRun(schedule)
-	if err == nil {
-		fmt.Printf("Next run: %s\n", nextRun.Local().Format("2006-01-02 15:04:05"))
-	}
-
 	return nil
 }

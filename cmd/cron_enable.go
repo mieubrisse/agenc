@@ -58,10 +58,6 @@ func setCronEnabled(name string, enabled bool) error {
 
 	if enabled {
 		fmt.Printf("Enabled cron job '%s'\n", name)
-		nextRun, err := config.GetNextCronRun(cronCfg.Schedule)
-		if err == nil {
-			fmt.Printf("Next run: %s\n", nextRun.Local().Format("2006-01-02 15:04:05"))
-		}
 	} else {
 		fmt.Printf("Disabled cron job '%s'\n", name)
 	}

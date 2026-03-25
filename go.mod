@@ -3,7 +3,6 @@ module github.com/odyssey/agenc
 go 1.25.6
 
 require (
-	github.com/adhocore/gronx v1.19.6
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0

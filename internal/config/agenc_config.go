@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/adhocore/gronx"
 	"github.com/goccy/go-yaml"
 	"github.com/mieubrisse/stacktrace"
 
@@ -1096,19 +1095,4 @@ func ValidateAndPopulateDefaults(cfg *AgencConfig) error {
 	}
 
 	return nil
-}
-
-// GetNextCronRun returns the next scheduled run time for a cron expression.
-func GetNextCronRun(schedule string) (time.Time, error) {
-	return gronx.NextTick(schedule, false)
-}
-
-// IsCronDue checks if a cron schedule is due at the given time.
-func IsCronDue(schedule string, t time.Time) bool {
-	gron := gronx.New()
-	due, err := gron.IsDue(schedule, t)
-	if err != nil {
-		return false
-	}
-	return due
 }

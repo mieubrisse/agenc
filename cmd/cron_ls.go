@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -41,7 +40,7 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	tbl := tableprinter.NewTable("NAME", "SCHEDULE", "ENABLED", "LAST RUN", "STATUS", "NEXT RUN")
+	tbl := tableprinter.NewTable("NAME", "SCHEDULE", "ENABLED", "LAST RUN", "STATUS")
 
 	names := make([]string, 0, len(cfg.Crons))
 	for name := range cfg.Crons {
@@ -57,7 +56,6 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 		}
 
 		lastRun, status := getCronLastRunStatus(client, cronCfg)
-		nextRun := getNextRunDisplay(cronCfg.Schedule, cronCfg.IsEnabled())
 
 		tbl.AddRow(
 			name,
@@ -65,7 +63,6 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 			enabled,
 			lastRun,
 			status,
-			nextRun,
 		)
 	}
 
@@ -90,38 +87,4 @@ func getCronLastRunStatus(client *server.Client, cronCfg config.CronConfig) (str
 	coloredStatus := colorizeStatus(status)
 
 	return lastRun, coloredStatus
-}
-
-func getNextRunDisplay(schedule string, enabled bool) string {
-	if !enabled {
-		return ansiYellow + "disabled" + ansiReset
-	}
-
-	nextTime, err := config.GetNextCronRun(schedule)
-	if err != nil {
-		return "error"
-	}
-
-	// If next run is within 24 hours, show relative time
-	until := time.Until(nextTime)
-	if until < 24*time.Hour {
-		return formatDuration(until)
-	}
-
-	return nextTime.Local().Format("2006-01-02 15:04")
-}
-
-func formatDuration(d time.Duration) string {
-	if d < time.Minute {
-		return "< 1m"
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	hours := int(d.Hours())
-	minutes := int(d.Minutes()) % 60
-	if minutes == 0 {
-		return fmt.Sprintf("%dh", hours)
-	}
-	return fmt.Sprintf("%dh%dm", hours, minutes)
 }
