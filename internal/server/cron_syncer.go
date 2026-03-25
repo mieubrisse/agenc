@@ -117,55 +117,13 @@ func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDi
 	plistPath := filepath.Join(plistDirpath, plistFilename)
 	label := launchd.CronToLabel(s.cronPlistPrefix, cronCfg.ID)
 
-	// Parse the cron schedule
-	calInterval, err := launchd.ParseCronExpression(cronCfg.Schedule)
+	// Build the plist and render it to XML
+	xmlData, err := s.buildCronPlistXML(name, cronCfg, label, execPath)
 	if err != nil {
-		logger.Printf("Cron syncer: skipping '%s' - unsupported schedule: %v", name, err)
-		return nil
+		return err
 	}
-
-	// Build source metadata as proper JSON to avoid injection from cron names
-	sourceMetadata, err := json.Marshal(map[string]string{"cron_name": name})
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to marshal source metadata for '%s'", name)
-	}
-
-	// Build the program arguments
-	programArgs := []string{
-		execPath,
-		"mission",
-		"new",
-		"--headless",
-		"--source", "cron",
-		"--source-id", cronCfg.ID,
-		"--source-metadata", string(sourceMetadata),
-		"--prompt", cronCfg.Prompt,
-	}
-
-	// Add git repo if specified, otherwise use --blank to skip the
-	// interactive repo picker (which requires a terminal).
-	if cronCfg.Repo != "" {
-		programArgs = append(programArgs, cronCfg.Repo)
-	} else {
-		programArgs = append(programArgs, "--blank")
-	}
-
-	// Get log file path for this cron (single file for both stdout and stderr)
-	logFilepath := config.GetCronLogFilepath(s.agencDirpath, cronCfg.ID)
-
-	// Create the plist
-	plist := &launchd.Plist{
-		Label:                 label,
-		ProgramArguments:      programArgs,
-		StartCalendarInterval: calInterval,
-		StandardOutPath:       logFilepath,
-		StandardErrorPath:     logFilepath,
-	}
-
-	// Generate plist XML
-	xmlData, err := plist.GeneratePlistXML()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to generate plist XML for '%s'", name)
+	if xmlData == nil {
+		return nil // unsupported schedule — already logged by buildCronPlistXML
 	}
 
 	// Compare against existing file on disk
@@ -231,6 +189,60 @@ func (s *CronSyncer) syncCronJob(name string, cronCfg config.CronConfig, plistDi
 	}
 
 	return nil
+}
+
+// buildCronPlistXML constructs the launchd plist for a cron job and renders it
+// to XML. Returns (nil, nil) if the schedule is unsupported (caller should skip).
+func (s *CronSyncer) buildCronPlistXML(name string, cronCfg config.CronConfig, label string, execPath string) ([]byte, error) {
+	calInterval, err := launchd.ParseCronExpression(cronCfg.Schedule)
+	if err != nil {
+		// Unsupported schedule — not an error, just skip
+		return nil, nil
+	}
+
+	sourceMetadata, err := json.Marshal(map[string]string{"cron_name": name})
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal source metadata for '%s'", name)
+	}
+
+	programArgs := []string{
+		execPath, "mission", "new", "--headless",
+		"--source", "cron",
+		"--source-id", cronCfg.ID,
+		"--source-metadata", string(sourceMetadata),
+		"--prompt", cronCfg.Prompt,
+	}
+	if cronCfg.Repo != "" {
+		programArgs = append(programArgs, cronCfg.Repo)
+	} else {
+		programArgs = append(programArgs, "--blank")
+	}
+
+	// When running with a non-default AGENC_DIRPATH, pass it through to the
+	// cron job's environment so it targets the correct installation.
+	var envVars map[string]string
+	if config.GetNamespaceSuffix(s.agencDirpath) != "" {
+		envVars = map[string]string{
+			"AGENC_DIRPATH": s.agencDirpath,
+		}
+	}
+
+	logFilepath := config.GetCronLogFilepath(s.agencDirpath, cronCfg.ID)
+
+	plist := &launchd.Plist{
+		Label:                 label,
+		ProgramArguments:      programArgs,
+		StartCalendarInterval: calInterval,
+		EnvironmentVariables:  envVars,
+		StandardOutPath:       logFilepath,
+		StandardErrorPath:     logFilepath,
+	}
+
+	xmlData, err := plist.GeneratePlistXML()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to generate plist XML for '%s'", name)
+	}
+	return xmlData, nil
 }
 
 // removeUnmatchedPlists removes plist files that don't correspond to any cron in the config.

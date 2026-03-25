@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ type Plist struct {
 	Label                 string
 	ProgramArguments      []string
 	StartCalendarInterval *CalendarInterval
+	EnvironmentVariables  map[string]string
 	StandardOutPath       string
 	StandardErrorPath     string
 }
@@ -75,6 +77,22 @@ func (p *Plist) GeneratePlistXML() ([]byte, error) {
 		programArgs.Strings = append(programArgs.Strings, stringValue{Value: arg})
 	}
 	entries = append(entries, programArgs)
+
+	// EnvironmentVariables (sorted by key for deterministic output)
+	if len(p.EnvironmentVariables) > 0 {
+		entries = append(entries, key{Value: "EnvironmentVariables"})
+		var envEntries []interface{}
+		// Sort keys for deterministic XML output
+		sortedKeys := make([]string, 0, len(p.EnvironmentVariables))
+		for k := range p.EnvironmentVariables {
+			sortedKeys = append(sortedKeys, k)
+		}
+		sort.Strings(sortedKeys)
+		for _, k := range sortedKeys {
+			envEntries = append(envEntries, key{Value: k}, stringValue{Value: p.EnvironmentVariables[k]})
+		}
+		entries = append(entries, dictValue{Entries: envEntries})
+	}
 
 	// StartCalendarInterval
 	if p.StartCalendarInterval != nil {

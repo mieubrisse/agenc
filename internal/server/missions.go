@@ -401,17 +401,12 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 // All missions run in a pool window. If TmuxSession is provided,
 // the pool window is also linked into the caller's tmux session.
 func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMissionRequest) error {
-	agencBinpath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
-	}
-
 	// Build the wrapper command for the pool window.
 	// --run-wrapper tells the resume command to run the wrapper directly
 	// in the current process rather than going through the attach flow.
-	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", s.tmuxEnvPrefix(), agencBinpath, missionRecord.ID)
-	if req.Prompt != "" {
-		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(req.Prompt, "'", "'\\''"))
+	resumeCmd, err := s.buildWrapperResumeCmd(missionRecord.ID, req.Prompt)
+	if err != nil {
+		return err
 	}
 
 	// Create the wrapper window in the pool
@@ -823,12 +818,10 @@ func (s *Server) ensureWrapperInPool(missionRecord *database.Mission) error {
 	}
 
 	// Wrapper not running — spawn it in the pool
-	agencBinpath, err := os.Executable()
+	resumeCmd, err := s.buildWrapperResumeCmd(missionRecord.ID, "")
 	if err != nil {
-		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
+		return err
 	}
-
-	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", s.tmuxEnvPrefix(), agencBinpath, missionRecord.ID)
 	poolWindowTarget, paneID, err := s.createPoolWindow(missionRecord.ID, resumeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to create pool window: %w", err)
@@ -1045,12 +1038,10 @@ func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID str
 	}
 
 	// Respawn the pane
-	agencBinpath, err := os.Executable()
+	resumeCommand, err := s.buildWrapperResumeCmd(missionRecord.ID, "")
 	if err != nil {
-		return fmt.Errorf("failed to resolve agenc binary path: %w", err)
+		return err
 	}
-
-	resumeCommand := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", s.tmuxEnvPrefix(), agencBinpath, missionRecord.ID)
 	respawnCmd := exec.Command("tmux", "respawn-pane", "-k", "-t", targetPane, resumeCommand)
 	if output, err := respawnCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux respawn-pane failed: %v (output: %s)", err, string(output))
@@ -1073,4 +1064,19 @@ func (s *Server) tmuxEnvPrefix() string {
 		prefix += " AGENC_TEST_ENV=1"
 	}
 	return prefix + "; "
+}
+
+// buildWrapperResumeCmd constructs the shell command to resume a mission wrapper.
+// This is the single source of truth for the resume command format, used by
+// spawnWrapper, ensureWrapperInPool, and reloadMissionInTmux.
+func (s *Server) buildWrapperResumeCmd(missionID string, prompt string) (string, error) {
+	agencBinpath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve agenc binary path: %w", err)
+	}
+	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", s.tmuxEnvPrefix(), agencBinpath, missionID)
+	if prompt != "" {
+		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(prompt, "'", "'\\''"))
+	}
+	return resumeCmd, nil
 }

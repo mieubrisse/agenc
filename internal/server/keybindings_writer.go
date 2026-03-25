@@ -35,12 +35,33 @@ func (s *Server) runKeybindingsWriterLoop(ctx context.Context) {
 
 // writeAndSourceKeybindings regenerates the keybindings file and sources it
 // into any running tmux server. In test environments (AGENC_TEST_ENV set),
-// keybinding injection is skipped to avoid modifying the global tmux config.
+// the file is still written (for verification) but sourcing into tmux is
+// skipped to avoid modifying the global tmux config.
 func (s *Server) writeAndSourceKeybindings() {
+	keybindingsFilepath := config.GetTmuxKeybindingsFilepath(s.agencDirpath)
+	logFilepath := config.GetPaletteLogFilepath(s.agencDirpath)
+
+	tmuxMajor, tmuxMinor, _ := tmux.DetectVersion()
+
+	paletteKey := config.DefaultPaletteTmuxKeybinding
+	var keybindings []tmux.CustomKeybinding
+	if cfg, _, err := config.ReadAgencConfig(s.agencDirpath); err == nil {
+		paletteKey = cfg.GetPaletteTmuxKeybinding()
+		keybindings = tmux.BuildKeybindingsFromCommands(cfg.GetResolvedPaletteCommands())
+	}
+
+	if err := tmux.WriteKeybindingsFile(keybindingsFilepath, tmuxMajor, tmuxMinor, paletteKey, keybindings, logFilepath); err != nil {
+		s.logger.Printf("Keybindings writer: %v", err)
+		return
+	}
+
+	// In test environments, skip sourcing the file into tmux to avoid
+	// modifying the global tmux config.
 	if config.IsTestEnv() {
 		return
 	}
-	if err := tmux.RefreshKeybindings(s.agencDirpath); err != nil {
+
+	if err := tmux.SourceKeybindings(keybindingsFilepath); err != nil {
 		s.logger.Printf("Keybindings writer: %v", err)
 	}
 }
