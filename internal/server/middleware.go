@@ -57,7 +57,7 @@ func appHandler(logger *slog.Logger, fn appHandlerFunc) http.Handler {
 			status = httpStatusFromError(err)
 			lrw.ResponseWriter.Header().Set("Content-Type", "application/json")
 			lrw.ResponseWriter.WriteHeader(status)
-			json.NewEncoder(lrw.ResponseWriter).Encode(errorResponse{Message: err.Error()})
+			_ = json.NewEncoder(lrw.ResponseWriter).Encode(errorResponse{Message: err.Error()}) // response already started; encode error cannot be propagated
 		}
 
 		attrs := []slog.Attr{

@@ -121,7 +121,7 @@ func handleStatus(w *Wrapper) http.HandlerFunc {
 		w.stateMu.RUnlock()
 
 		rw.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(rw).Encode(resp)
+		_ = json.NewEncoder(rw).Encode(resp) // response already started; encode error cannot be propagated
 	}
 }
 
@@ -189,5 +189,5 @@ func sendCommandAndWait(commandCh chan<- commandWithResponse, cmd Command) Comma
 func writeCommandResponse(rw http.ResponseWriter, statusCode int, resp CommandResponse) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(statusCode)
-	json.NewEncoder(rw).Encode(resp)
+	_ = json.NewEncoder(rw).Encode(resp) // response already started; encode error cannot be propagated
 }
