@@ -409,7 +409,15 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	// Build the wrapper command for the pool window.
 	// --run-wrapper tells the resume command to run the wrapper directly
 	// in the current process rather than going through the attach flow.
-	resumeCmd := fmt.Sprintf("'%s' mission resume --run-wrapper %s", agencBinpath, missionRecord.ID)
+	//
+	// When running with a non-default AGENC_DIRPATH (e.g. test environments),
+	// we must export it into the tmux pane's shell since the pane doesn't
+	// inherit the server process's environment.
+	var envPrefix string
+	if config.GetNamespaceSuffix(s.agencDirpath) != "" {
+		envPrefix = fmt.Sprintf("export AGENC_DIRPATH='%s'; ", s.agencDirpath)
+	}
+	resumeCmd := fmt.Sprintf("%s'%s' mission resume --run-wrapper %s", envPrefix, agencBinpath, missionRecord.ID)
 	if req.Prompt != "" {
 		resumeCmd += fmt.Sprintf(" --prompt '%s'", strings.ReplaceAll(req.Prompt, "'", "'\\''"))
 	}

@@ -29,6 +29,8 @@
             "Bash(cp:*)",
             "Bash(mv:*)",
             "Bash(tmux list-panes:*)",
+            "Bash(tmux list-sessions:*)",
+            "Bash(tmux capture-pane:*)",
             "Bash(tmux display-message:*)",
             "Bash(tmux list-windows:*)",
             "Bash(agenc server logs print:*)"
