@@ -52,7 +52,7 @@ check: genprime
 	@golangci-lint run ./...
 	@echo "✓ Lint OK"
 	@echo "Running tests..."
-	@go test ./...
+	@go test -race ./...
 	@echo "✓ Tests passed"
 
 compile:
@@ -78,7 +78,7 @@ genprime:
 
 test:
 	@echo "Running tests..."
-	@go test ./...
+	@go test -race ./...
 	@echo "✓ Tests passed"
 
 test-env:
