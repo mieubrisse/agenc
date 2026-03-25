@@ -14,6 +14,31 @@ if git diff --cached --name-only | grep -q '^cmd/'; then
     git add docs/cli/
 fi
 
+# Check that docs/system-architecture.md is updated when internal/ packages change
+if [ "${SKIP_ARCH_CHECK:-}" != "1" ]; then
+    # Get the set of internal/ top-level directory names in HEAD
+    head_dirs=$(git ls-tree --name-only -d HEAD internal/ 2>/dev/null | sed 's|^internal/||' | sort)
+
+    # Get the set of internal/ top-level directory names in the staged tree
+    staged_dirs=$(git ls-tree --name-only -d "$(git write-tree)" internal/ 2>/dev/null | sed 's|^internal/||' | sort)
+
+    if [ "${head_dirs}" != "${staged_dirs}" ]; then
+        if ! git diff --cached --name-only | grep -q '^docs/system-architecture\.md$'; then
+            echo ""
+            echo "ERROR: internal/ package directories have changed but docs/system-architecture.md was not updated."
+            echo ""
+            echo "  HEAD directories:   ${head_dirs//$'\n'/, }"
+            echo "  Staged directories: ${staged_dirs//$'\n'/, }"
+            echo ""
+            echo "Please update docs/system-architecture.md to reflect the structural change,"
+            echo "then stage it with 'git add docs/system-architecture.md'."
+            echo ""
+            echo "To skip this check (use sparingly): SKIP_ARCH_CHECK=1 git commit ..."
+            exit 1
+        fi
+    fi
+fi
+
 # Run quality checks (formatting, vet, lint, tests)
 make check
 
