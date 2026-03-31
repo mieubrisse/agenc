@@ -13,6 +13,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/sleep"
 )
 
 // Client is an HTTP client that connects to the AgenC server via unix socket.
@@ -568,6 +569,33 @@ func (c *Client) GetHealth() (*HealthResponse, error) {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// ============================================================================
+// High-level sleep API methods
+// ============================================================================
+
+// ListSleepWindows returns the current sleep mode windows.
+func (c *Client) ListSleepWindows() ([]sleep.WindowDef, error) {
+	var result []sleep.WindowDef
+	if err := c.Get("/config/sleep/windows", &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// AddSleepWindow adds a new sleep window and returns the updated list.
+func (c *Client) AddSleepWindow(window sleep.WindowDef) ([]sleep.WindowDef, error) {
+	var result []sleep.WindowDef
+	if err := c.Post("/config/sleep/windows", window, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// RemoveSleepWindow removes a sleep window by index.
+func (c *Client) RemoveSleepWindow(index int) error {
+	return c.Delete(fmt.Sprintf("/config/sleep/windows/%d", index))
 }
 
 func (c *Client) decodeError(resp *http.Response) error {

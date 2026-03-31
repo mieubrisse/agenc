@@ -20,5 +20,6 @@ Manage agenc configuration
 * [agenc config repoConfig](agenc_config_repoConfig.md)	 - Manage per-repo configuration
 * [agenc config set](agenc_config_set.md)	 - Set a config value
 * [agenc config settings-json](agenc_config_settings-json.md)	 - Manage AgenC-specific settings.json overrides
+* [agenc config sleep](agenc_config_sleep.md)	 - Manage sleep mode windows
 * [agenc config unset](agenc_config_unset.md)	 - Unset a config value
 
