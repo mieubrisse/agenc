@@ -69,10 +69,10 @@ Quickstart
 
 ### Prerequisites
 
-- **MacOS** (for now)
+- **MacOS** or **Linux** (Ubuntu/Debian)
 - **Claude Code** installed and in your PATH
 
-### Install
+### Install (MacOS)
 
 ```bash
 brew tap mieubrisse/agenc
@@ -80,6 +80,22 @@ brew install agenc
 ```
 
 This automatically installs required dependencies (`gh`, `fzf`, `tmux`).
+
+### Install (Linux)
+
+```bash
+echo "deb [trusted=yes] https://apt.fury.io/mieubrisse/ * *" | sudo tee /etc/apt/sources.list.d/agenc.list
+sudo apt update
+sudo apt install agenc
+```
+
+You'll also need to install the dependencies manually:
+
+```bash
+sudo apt install gh fzf tmux
+```
+
+> **Note:** Cron jobs are not yet supported on Linux. They currently rely on macOS launchd for scheduling.
 
 If you're not logged in to `gh`, use:
 
