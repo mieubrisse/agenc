@@ -15,6 +15,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/launchd"
+	"github.com/odyssey/agenc/internal/sleep"
 )
 
 // canonicalRepoRegex matches the canonical repo format: github.com/owner/repo
@@ -377,6 +378,11 @@ func (t TrustedMcpServers) MarshalYAML() (interface{}, error) {
 	return t.List, nil
 }
 
+// SleepModeConfig defines time windows during which mission and cron creation is blocked.
+type SleepModeConfig struct {
+	Windows []sleep.WindowDef `yaml:"windows"`
+}
+
 // AgencConfig represents the contents of config.yml.
 type AgencConfig struct {
 	RepoConfigs           map[string]RepoConfig           `yaml:"repoConfig,omitempty"`
@@ -385,6 +391,7 @@ type AgencConfig struct {
 	PaletteTmuxKeybinding string                          `yaml:"paletteTmuxKeybinding,omitempty"`
 	TmuxWindowTitle       *TmuxWindowTitleConfig          `yaml:"tmuxWindowTitle,omitempty"`
 	DefaultModel          string                          `yaml:"defaultModel,omitempty"`
+	SleepMode             *SleepModeConfig                `yaml:"sleepMode,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -555,6 +562,10 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		return nil, nil, err
 	}
 
+	if err := validateSleepMode(&cfg); err != nil {
+		return nil, nil, err
+	}
+
 	// Validate and populate defaults
 	if err := ValidateAndPopulateDefaults(&cfg); err != nil {
 		return nil, nil, stacktrace.Propagate(err, "validation failed for %s", configFilepath)
@@ -601,6 +612,19 @@ func validateCronConfigs(cfg *AgencConfig, configFilepath string) error {
 				"invalid repo '%s' for cron '%s' in %s; must be in canonical format 'github.com/owner/repo'",
 				cronCfg.Repo, name, configFilepath,
 			)
+		}
+	}
+	return nil
+}
+
+// validateSleepMode validates each window in the sleep mode configuration, if present.
+func validateSleepMode(cfg *AgencConfig) error {
+	if cfg.SleepMode == nil {
+		return nil
+	}
+	for i, w := range cfg.SleepMode.Windows {
+		if err := sleep.ValidateWindow(w); err != nil {
+			return stacktrace.Propagate(err, "sleepMode.windows[%d]", i)
 		}
 	}
 	return nil

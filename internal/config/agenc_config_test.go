@@ -9,6 +9,85 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+func TestValidateSleepMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:    "no sleepMode section",
+			yaml:    "{}",
+			wantErr: false,
+		},
+		{
+			name: "valid sleep mode with one window",
+			yaml: `
+sleepMode:
+  windows:
+    - days: [mon, tue, wed, thu, fri]
+      start: "23:00"
+      end: "07:00"
+`,
+			wantErr: false,
+		},
+		{
+			name: "invalid day name",
+			yaml: `
+sleepMode:
+  windows:
+    - days: [monday]
+      start: "23:00"
+      end: "07:00"
+`,
+			wantErr:   true,
+			errSubstr: "invalid day",
+		},
+		{
+			name: "start equals end",
+			yaml: `
+sleepMode:
+  windows:
+    - days: [mon]
+      start: "08:00"
+      end: "08:00"
+`,
+			wantErr:   true,
+			errSubstr: "start and end must differ",
+		},
+		{
+			name: "empty windows list",
+			yaml: `
+sleepMode:
+  windows: []
+`,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			writeConfigYAML(t, tmpDir, tt.yaml)
+
+			_, _, err := ReadAgencConfig(tmpDir)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("expected error containing %q, got: %v", tt.errSubstr, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestReadWriteAgencConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)
