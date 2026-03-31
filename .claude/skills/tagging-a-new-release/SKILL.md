@@ -37,8 +37,10 @@ If the working tree is dirty, commit or stash first. If the branch is behind the
 
 ```bash
 git fetch --tags origin
-git tag --sort=-v:refname | head -5
+git tag --sort=-v:refname
 ```
+
+Do not pipe through `head` or other commands — the sandbox silently swallows pipe failures, producing empty output with no error. Run `git tag` alone and read the output directly.
 
 Identify the latest tag. This is the baseline for the next version.
 
