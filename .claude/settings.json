@@ -51,7 +51,7 @@
     },
     "sandbox": {
         "filesystem": {
-            "allowWrite": ["//tmp", "//private/tmp/claude"]
+            "allowWrite": ["//tmp", "//private/tmp/claude", "~/Library/Caches/golangci-lint"]
         },
         "network": {
             "allowLocalBinding": true,
