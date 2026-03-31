@@ -100,92 +100,132 @@ What Doesn't Work Well (Current AgenC)
 
 ---
 
-Strategic Priorities (Ordered)
--------------------------------
+Validation Strategy
+--------------------
 
-### Priority 1: Content Pipeline (target: 2 weeks)
+**Core insight (2026-03-31):** The primary risk is not technical — it's validation avoidance. Months of building without charging anyone or getting product into users' hands. The Kurtosis experience (founder's previous startup) created a subconscious pattern of building infrastructure to avoid the moment of market truth.
 
-**Goal:** Build-in-public pipeline fully operational. All building work can be transformed into published content.
+**The corrective:** Ship now. Charge money. Learn from real users. Build only what they prove they need.
 
-**Definition of done:**
-- Can kick off a mission to the personal-writing repo that produces a high-quality Substack draft in the founder's voice from source material (journal entries, conversation transcripts, design sessions)
-- Equivalent workflow exists for Twitter/X posts
-- Utilizing the Matt Gray "Content Waterfall" system: large Substack posts get broken into smaller Twitter posts
-- personal-writing repo publishes to Substack on merge-to-main
+### Diagnostic Framework (Weekly Ritual)
 
-**Why first:** Audience compounds over time. Every week without publishing is lost compound growth. The content IS the methodology, and the methodology IS the moat. This doesn't require solving the permissions problem.
+Use this to diagnose what's actually happening at each stage:
 
-**Parallel track:** Content production continues throughout all subsequent priorities. The building sessions themselves are the content source material.
+| Signal | Diagnosis |
+|--------|-----------|
+| Nobody reads your content | Distribution problem — message or channel isn't working |
+| People read but nobody wants to try AgenC | Positioning problem — content resonates but AgenC doesn't feel like the solution |
+| People try it but stop after a week | Product problem — too much friction, not enough value |
+| People try it and keep using it but won't pay | Pricing or value-capture problem |
+| People try it, keep using it, and pay | You have something |
 
-### Priority 2: Trust Boundary / Containerization
+This is encoded as the `funnel-analysis` skill for weekly review.
 
-**Goal:** Eliminate permissions fatigue. Agents operate autonomously inside containers where they literally cannot cause damage to the host system.
+### Early User Data (as of 2026-03-31)
 
-**Design direction** (from mission 5e878df4):
-- Docker containers per mission
-- `--dangerously-skip-permissions` (bypass Claude's permission system entirely)
-- Claude config mounted read-only
-- No git credentials inside container — all remote git operations go through `agenc push/pull` via the AgenC server socket
-- Server inspects operations before executing with real credentials on the host
-- Destructive git operations (force push, branch delete) are structurally impossible — not gated by prompts, but by credential absence
+Three onboarding sessions conducted:
+- **Omar** — technically smart, FIRE'd, returning to Claude. Liked it, but tmux was a sticking point.
+- **Pedro** — smart but non-technical consultant, no command line experience. Tmux was a hard blocker.
+- **Yannik** — technical software consultant, heavy Claude user. Liked the promise, but friction points and tmux learning curve.
 
-**Why second:** This is the prerequisite for agents running autonomously, which unlocks everything downstream. It's the #1 daily pain point and the hardest problem.
+**Key finding:** Tmux is a universal sticking point across all user types.
 
-### Priority 3: Task Adapter Layer
+### Monetization Strategy (Phase 1)
 
-**Goal:** Missions can pull work from and report status to external task systems. Unified "what's in flight" view.
+Don't build a payment platform. Charge manually:
+- OSS stays OSS (open core model when web dashboard arrives later)
+- Charge for **access to the founder** — onboarding, setup, skill creation for user's workflow, weekly check-ins
+- Stripe payment links or Venmo for early users
+- This IS the "CEO of Claudes methodology" being sold as a service, before it becomes a product feature
 
-**Design direction:**
-- Missions get an `objective` field storing a reference to an external task (system + ID)
-- Adapters for at least: Todoist, GitHub Issues, Obsidian (covers founder + known user needs)
-- `agenc status` shows active missions grouped by objectives, blocked work, missions needing attention
-- Agents can read task details from external systems and write status updates back
+---
 
-**Why third:** Closes the loop between "work that needs doing" and "agents doing work." Enables the CEO view. Depends on containerization being in place for agents to operate autonomously on tasks.
+Phased Roadmap
+---------------
 
-### Priority 4: Web Dashboard (MVP for Revenue)
+### Phase 1: Validate (April - May 2026, 8 weeks)
 
-**Goal:** Non-tmux users can use AgenC. This is the revenue unlock.
+**Hard milestone (June 1, 2026):** 6+ Substack posts published, 10+ active AgenC users, at least 1 paying customer. If zero paying customers and nobody asking to pay, reassess whether this is the right product.
 
-**What it needs to provide:**
-- "What am I working on" view (active missions, status, objectives)
-- Task/dependency view with filters (pulling from external task systems via adapters)
-- Mission output viewer (read transcripts without tmux)
-- Annotation workflow (see Claude's output, add comments fed back to the agent)
+**Week 1 (March 31 - April 4): Content pipeline online**
+- Substack publishing automation (GitHub Action using `python-substack` library)
+- Twitter/X posting mechanism (research in progress — missions 916d601b, 123fdd45)
+- Content Waterfall skill (Substack posts → Twitter threads)
+- First Substack post published
+- First Twitter presence established
 
-**Design considerations:**
-- Tmux remains as agent runtime underneath — dashboard is the CEO view on top
-- Must make the "missions" metaphor accessible to non-ultra-technical users
-- Agents still run in containers; the GUI abstracts away the infrastructure
-- The dashboard talks to the existing AgenC server API
-- Build the API as if the dashboard exists from Priority 2 onward
+**Weeks 2-4 (April): Publish + recruit early users**
+- Publish 1+ posts per week (minimum)
+- Every post ends with CTA: "Building a personal work OS powered by AI agents. Want early access? Reply / DM me"
+- Start conversations with people who engage
+- Identify 5-10 potential early users from network + inbound
+- Target audience: bright technical solopreneurs (Twitter) + thoughtful writers (Substack)
 
-**Revenue target:** ~416 users at $40/month = $200k/year gross (covers ~$100k living expenses after taxes).
+**May: Onboard + charge**
+- Personally onboard early users
+- Charge them (even $10-20/month to start)
+- Weekly check-ins with each user: "What did you try to do this week, and what happened?"
+- Build ONLY what early users are actually blocked on
+- Keep publishing (1+ posts/week)
 
-### Priority 5: Orchestration
+### Phase 2: Decide (June 1, 2026)
 
-**Goal:** Parent missions can coordinate with child missions. Full "CEO delegates to managers who delegate to workers" workflow.
+Based on 8 weeks of data, answer:
+- Are people engaging with the content? (subscribers, replies, shares)
+- Are early users actually using AgenC? Or did they try once and stop?
+- Did anyone pay? Did anyone almost pay?
+- What's the #1 thing people want that AgenC doesn't do?
 
-**Includes:**
-- Server-mediated mission communication (not just launch + poll)
-- Parent missions assigning sub-tasks to children
-- Continuous bidirectional communication between parent and child
-- Task decomposition: parent breaks work into subtasks, assigns to children, aggregates results
+**If signal is positive:** Double down. Set a goal of $2k MRR by September. Build the top-requested feature (likely web dashboard or containerization based on user demand).
+
+**If signal is neutral/negative:** Real data to make a decision with — not vibes, not Kurtosis PTSD. Options: pivot product, pivot audience, or wind down and do something else.
+
+### Phase 3: Scale or Pivot (July 2026 onward)
+
+Depends on Phase 2 answer. If scaling:
+- Web dashboard (revenue unlock for non-tmux users)
+- Containerization (if users demand autonomous agents)
+- Task adapter layer (if users demand external tool integration)
+- Orchestration (parent→child mission coordination)
+
+### Content Strategy (parallel track, ongoing)
+
+- New Substack newsletter focused on Personal Claude OS / CEO-of-Claudes methodology (or rename existing)
+- Twitter for reaching technical solopreneurs
+- Matt Gray "Content Waterfall": Substack → Twitter threads
+- Content IS the methodology. The methodology IS the moat.
+- Minimum cadence: 1 post/week
+
+---
+
+Technical Infrastructure Backlog
+---------------------------------
+
+These are still important but now driven by user demand, not pre-built:
+
+| Feature | Build when... |
+|---------|--------------|
+| **Containerization** | Users demand autonomous agents, or permissions fatigue blocks onboarding |
+| **Task adapter layer** | Users want AgenC to pull work from their existing tools |
+| **Web dashboard** | Ready to serve non-tmux users (likely Phase 3) |
+| **Mission orchestration** | Users need multi-agent coordination |
+
+Design directions for each are preserved in this doc's git history and in referenced missions.
 
 ---
 
 Open Questions
 --------------
 
-1. **Beads future:** Continue investing in Beads, or abandon? The Dolt-backed approach has merit (centralized, separate from repos) but the implementation is unreliable. If abandoning, what replaces it for repo-level issue tracking?
+1. **Substack strategy:** New newsletter focused on "CEO of Claudes" methodology, or rename existing "Kevin Today" Substack?
 
-2. **MCP vs. CLI for integrations:** MCP servers get attention from service providers (Todoist, Grain) and have a standardized auth story. But agents already know CLIs, and distribution via apt/homebrew is mature. Which integration pattern should AgenC standardize on?
+2. **Beads future:** Continue investing in Beads, or abandon? The Dolt-backed approach has merit (centralized, separate from repos) but the implementation is unreliable.
 
-3. **Pricing model:** $40/month is a starting hypothesis. Need actual pricing data. Usage-based? Flat? Tiered by number of concurrent agents?
+3. **MCP vs. CLI for integrations:** MCP servers get attention from service providers (Todoist, Grain) and have a standardized auth story. But agents already know CLIs, and distribution via apt/homebrew is mature.
 
-4. **Product name:** "AgenC" has not been validated with the target market. The current name feels developer-focused; the product is for solopreneurs.
+4. **Pricing model:** $40/month is a starting hypothesis. Need actual pricing data. Start lower ($10-20) for early users.
 
-5. **Beachhead use case:** `creative-direction.md` identifies Personal CRM. This roadmap identifies content production pipeline. Are these the same thing (different lens) or do they conflict?
+5. **Product name:** "AgenC" has not been validated with the target market. The current name feels developer-focused; the product is for solopreneurs.
 
 ---
 
