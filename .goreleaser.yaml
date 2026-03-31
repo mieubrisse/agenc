@@ -43,6 +43,37 @@ changelog:
       - "^ci:"
       - "^chore:"
 
+nfpms:
+  - id: packages
+    package_name: agenc
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: mieubrisse
+    homepage: "https://github.com/mieubrisse/agenc"
+    maintainer: "mieubrisse"
+    description: "AgenC - Agent orchestration system"
+    license: "AGPL-3.0"
+    formats:
+      - deb
+    bindir: /usr/bin
+    section: utils
+    priority: optional
+    dependencies:
+      - gh
+      - fzf
+      - tmux
+    deb:
+      lintian_overrides:
+        - statically-linked-binary
+        - changelog-file-missing-in-native-package
+
+publishers:
+  - name: fury
+    ids:
+      - packages
+    cmd: >-
+      curl -sf -F package=@{{ .ArtifactPath }}
+      https://{{ .Env.FURY_PUSH_TOKEN }}@push.fury.io/mieubrisse/
+
 brews:
   - name: agenc
     repository:
