@@ -81,17 +81,16 @@ The project's `.claude/settings.json` allows `Bash(./_build/agenc:*)` and `Bash(
 Test Environment
 ----------------
 
-The test environment provides a self-contained AgenC installation at `_test-env/` for end-to-end validation without affecting the user's real AgenC at `~/.agenc`.
+The test environment is a **fully self-contained AgenC instance** at `_test-env/` — its own database, config, server process, and mission data. It is completely isolated from the user's real AgenC at `~/.agenc`. Use it for all end-to-end validation.
 
 ```
 # Create the test environment directory structure
 make test-env
 
 # Run agenc against the test environment
-./_build/agenc-test server start
 ./_build/agenc-test mission ls
 
-# Tear down the test environment (does NOT remove _build/)
+# Tear down (stops server, kills tmux sessions, removes _test-env/)
 make test-env-clean
 ```
 
@@ -99,16 +98,49 @@ The `agenc-test` wrapper sets two environment variables:
 - `AGENC_DIRPATH` — points to `_test-env/` so all data (database, missions, config) is isolated
 - `AGENC_TEST_ENV=1` — disables features that would conflict with the global installation (e.g., tmux keybinding injection, launchd plist creation)
 
+**Server auto-start:** CLI commands that need the server (anything calling `serverClient()`) automatically start it via `ensureServerRunning()`. You do not need to run `agenc-test server start` manually — just run whatever CLI command you want and the server starts on demand.
+
 `_build/` and `_test-env/` have independent lifecycles: `make clean` removes `_build/`, `make test-env-clean` removes `_test-env/`. Neither affects the other.
 
-Namespace isolation ensures tmux session names and launchd plist labels derived from a non-default `AGENC_DIRPATH` get a deterministic hash suffix (e.g., `agenc-a1b2c3d4`, `agenc-a1b2c3d4-pool`) to prevent collisions with the user's real installation. The namespace hash is written to `_test-env/namespace` during setup. To find your test environment's namespace:
+### Namespace isolation
+
+Tmux session names and launchd plist labels derived from a non-default `AGENC_DIRPATH` get a deterministic hash suffix (e.g., `agenc-a1b2c3d4`, `agenc-a1b2c3d4-pool`) to prevent collisions with the user's real installation. The namespace hash is written to `_test-env/namespace` during setup. To find your test environment's namespace:
 
 ```
 cat _test-env/namespace
 # => 314b3a2d
 ```
 
-Use this hash to identify your test environment's tmux sessions (`agenc-HASH-pool`) and verify you are not accidentally interacting with another agent's test environment or the real installation. **Never operate on tmux sessions or agenc resources that don't match your namespace hash.**
+Use this hash to identify your test environment's tmux sessions (`agenc-HASH-pool`) and verify you are not accidentally interacting with another agent's test environment or the real installation. Never operate on tmux sessions or agenc resources that don't match your namespace hash.
+
+### E2E tests
+
+E2E tests live in `scripts/e2e-test.sh` and run via `make e2e`. The `make e2e` target builds the binary, creates the test environment, runs the test script, and tears everything down — including stopping the server.
+
+The test script provides three helpers for writing tests:
+
+- **`run_test "name" <expected_exit> <command...>`** — runs a command and checks its exit code
+- **`run_test_output_contains "name" "<regex>" <command...>`** — runs a command, checks exit 0, and verifies stdout matches a regex pattern
+- **`run_test_no_crash "name" <command...>`** — runs a command and accepts any exit code ≤ 1 (useful for server-dependent commands that may fail gracefully when no server is running)
+
+Because the server auto-starts on demand, E2E tests can perform real operations — modifying config, creating resources, verifying behavior — not just checking that commands print help text. Use this to write behavioral tests:
+
+```bash
+# Example: verify a feature works end-to-end
+run_test_output_contains "config sleep ls shows empty" \
+    "No sleep windows configured" \
+    "${agenc_test}" config sleep ls
+
+run_test "config sleep add succeeds" \
+    0 \
+    "${agenc_test}" config sleep add --days mon --start 22:00 --end 06:00
+
+run_test_output_contains "config sleep ls shows the window" \
+    "mon 22:00" \
+    "${agenc_test}" config sleep ls
+```
+
+Add new E2E tests by appending to the appropriate section in `scripts/e2e-test.sh`. Group related tests under an `echo "--- Section Name ---"` header.
 
 Accessing $AGENC_DIRPATH
 ------------------------

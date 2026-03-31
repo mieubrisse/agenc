@@ -149,22 +149,31 @@ run_test "config sleep --help succeeds" \
     0 \
     "${agenc_test}" config sleep --help
 
-run_test "config sleep ls --help succeeds" \
-    0 \
-    "${agenc_test}" config sleep ls --help
-
-run_test "config sleep add --help succeeds" \
-    0 \
-    "${agenc_test}" config sleep add --help
-
-run_test "config sleep rm --help succeeds" \
-    0 \
-    "${agenc_test}" config sleep rm --help
-
 echo ""
-echo "--- Sleep mode commands (requires server) ---"
-run_test_no_crash "config sleep ls does not crash" \
+echo "--- Sleep mode (requires server) ---"
+run_test_output_contains "sleep ls shows empty initially" \
+    "No sleep windows configured" \
     "${agenc_test}" config sleep ls
+
+run_test "sleep add creates a window" \
+    0 \
+    "${agenc_test}" config sleep add --days mon,tue --start 22:00 --end 06:00
+
+run_test_output_contains "sleep ls shows the added window" \
+    "mon,tue 22:00" \
+    "${agenc_test}" config sleep ls
+
+run_test "sleep rm removes the window" \
+    0 \
+    "${agenc_test}" config sleep rm 0
+
+run_test_output_contains "sleep ls is empty after rm" \
+    "No sleep windows configured" \
+    "${agenc_test}" config sleep ls
+
+run_test "sleep add rejects invalid day" \
+    1 \
+    "${agenc_test}" config sleep add --days monday --start 22:00 --end 06:00
 
 echo ""
 echo "--- Prime ---"
