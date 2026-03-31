@@ -145,6 +145,27 @@ run_test_output_contains "config get returns a value or unset" \
     "(unset|.+)" \
     "${agenc_test}" config get defaultModel
 
+run_test "config sleep --help succeeds" \
+    0 \
+    "${agenc_test}" config sleep --help
+
+run_test "config sleep ls --help succeeds" \
+    0 \
+    "${agenc_test}" config sleep ls --help
+
+run_test "config sleep add --help succeeds" \
+    0 \
+    "${agenc_test}" config sleep add --help
+
+run_test "config sleep rm --help succeeds" \
+    0 \
+    "${agenc_test}" config sleep rm --help
+
+echo ""
+echo "--- Sleep mode commands (requires server) ---"
+run_test_no_crash "config sleep ls does not crash" \
+    "${agenc_test}" config sleep ls
+
 echo ""
 echo "--- Prime ---"
 run_test_output_contains "prime outputs quick reference" \
