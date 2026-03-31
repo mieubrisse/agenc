@@ -1,10 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/odyssey/agenc/internal/sleep"
 )
 
 // loggingResponseWriter wraps http.ResponseWriter to capture the status code
@@ -38,6 +43,46 @@ func (s *Server) stashGuard(fn appHandlerFunc) appHandlerFunc {
 			return newHTTPError(http.StatusServiceUnavailable, "stash operation in progress — try again shortly")
 		}
 		return fn(w, r)
+	}
+}
+
+// sleepGuard wraps a handler to reject requests during sleep mode windows.
+// Returns 403 Forbidden with a friendly message. Exempts cron-triggered
+// mission creation by peeking at the request body's "source" field.
+func (s *Server) sleepGuard(fn appHandlerFunc) appHandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		cfg := s.getConfig()
+		if cfg.SleepMode == nil || len(cfg.SleepMode.Windows) == 0 {
+			return fn(w, r)
+		}
+
+		now := time.Now()
+		if !sleep.IsActive(cfg.SleepMode.Windows, now) {
+			return fn(w, r)
+		}
+
+		// Check if this is a cron-triggered mission (exempt from sleep guard).
+		// Peek at the body without consuming it — buffer and restore.
+		if r.Body != nil && r.Method == http.MethodPost {
+			bodyBytes, err := io.ReadAll(r.Body)
+			r.Body.Close()
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			if err == nil {
+				var peek struct {
+					Source string `json:"source"`
+				}
+				if json.Unmarshal(bodyBytes, &peek) == nil && peek.Source == "cron" {
+					return fn(w, r)
+				}
+			}
+		}
+
+		endTime, _ := sleep.FindActiveWindowEnd(cfg.SleepMode.Windows, now)
+		msg := "Sleep mode active — go to bed!"
+		if endTime != "" {
+			msg = fmt.Sprintf("Sleep mode active until %s — go to bed!", endTime)
+		}
+		return newHTTPError(http.StatusForbidden, msg)
 	}
 }
 
