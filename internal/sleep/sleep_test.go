@@ -2,6 +2,7 @@ package sleep
 
 import (
 	"testing"
+	"time"
 )
 
 func TestValidateDays(t *testing.T) {
@@ -125,6 +126,177 @@ func TestValidateTime(t *testing.T) {
 			err := ValidateTime(tt.input)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateTime(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsActive(t *testing.T) {
+	// March 25, 2026 is a Wednesday
+	weekdayWindow := WindowDef{
+		Days:  []string{"mon", "tue", "wed", "thu"},
+		Start: "20:45",
+		End:   "23:00",
+	}
+	overnightWindow := WindowDef{
+		Days:  []string{"mon", "tue", "wed", "thu"},
+		Start: "20:45",
+		End:   "06:00",
+	}
+
+	tests := []struct {
+		name    string
+		windows []WindowDef
+		now     time.Time
+		want    bool
+	}{
+		{
+			name:    "nil windows",
+			windows: nil,
+			now:     time.Date(2026, 3, 25, 21, 0, 0, 0, time.UTC),
+			want:    false,
+		},
+		{
+			name:    "empty windows",
+			windows: []WindowDef{},
+			now:     time.Date(2026, 3, 25, 21, 0, 0, 0, time.UTC),
+			want:    false,
+		},
+		{
+			name:    "same-day window active within range",
+			windows: []WindowDef{weekdayWindow},
+			now:     time.Date(2026, 3, 25, 21, 0, 0, 0, time.UTC), // Wed 21:00
+			want:    true,
+		},
+		{
+			name:    "same-day window inactive before start",
+			windows: []WindowDef{weekdayWindow},
+			now:     time.Date(2026, 3, 25, 20, 0, 0, 0, time.UTC), // Wed 20:00
+			want:    false,
+		},
+		{
+			name:    "same-day window inactive wrong day",
+			windows: []WindowDef{weekdayWindow},
+			now:     time.Date(2026, 3, 28, 21, 0, 0, 0, time.UTC), // Sat 21:00
+			want:    false,
+		},
+		{
+			name:    "overnight window active before midnight",
+			windows: []WindowDef{overnightWindow},
+			now:     time.Date(2026, 3, 25, 23, 0, 0, 0, time.UTC), // Wed 23:00
+			want:    true,
+		},
+		{
+			name:    "overnight window active after midnight",
+			windows: []WindowDef{overnightWindow},
+			now:     time.Date(2026, 3, 26, 2, 0, 0, 0, time.UTC), // Thu 2am, window started Wed
+			want:    true,
+		},
+		{
+			name:    "overnight window inactive after end",
+			windows: []WindowDef{overnightWindow},
+			now:     time.Date(2026, 3, 26, 7, 0, 0, 0, time.UTC), // Thu 7am
+			want:    false,
+		},
+		{
+			name: "overnight window inactive wrong start day",
+			windows: []WindowDef{{
+				Days:  []string{"mon"},
+				Start: "20:45",
+				End:   "06:00",
+			}},
+			now:  time.Date(2026, 3, 26, 2, 0, 0, 0, time.UTC), // Thu 2am, window is mon only
+			want: false,
+		},
+		{
+			name: "sunday keyword works",
+			windows: []WindowDef{{
+				Days:  []string{"sun"},
+				Start: "10:00",
+				End:   "18:00",
+			}},
+			now:  time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC), // Sun 12:00
+			want: true,
+		},
+		{
+			name:    "exactly at start time is active",
+			windows: []WindowDef{weekdayWindow},
+			now:     time.Date(2026, 3, 25, 20, 45, 0, 0, time.UTC), // Wed 20:45
+			want:    true,
+		},
+		{
+			name:    "exactly at end time is not active",
+			windows: []WindowDef{weekdayWindow},
+			now:     time.Date(2026, 3, 25, 23, 0, 0, 0, time.UTC), // Wed 23:00
+			want:    false,
+		},
+		{
+			name: "multiple windows first matches",
+			windows: []WindowDef{
+				weekdayWindow,
+				{Days: []string{"sat"}, Start: "10:00", End: "18:00"},
+			},
+			now:  time.Date(2026, 3, 25, 21, 0, 0, 0, time.UTC), // Wed 21:00
+			want: true,
+		},
+		{
+			name: "multiple windows second matches",
+			windows: []WindowDef{
+				{Days: []string{"sat"}, Start: "10:00", End: "18:00"},
+				weekdayWindow,
+			},
+			now:  time.Date(2026, 3, 25, 21, 0, 0, 0, time.UTC), // Wed 21:00
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsActive(tt.windows, tt.now)
+			if got != tt.want {
+				t.Errorf("IsActive() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFindActiveWindowEnd(t *testing.T) {
+	tests := []struct {
+		name    string
+		windows []WindowDef
+		now     time.Time
+		wantEnd string
+		wantOk  bool
+	}{
+		{
+			name: "returns end time of active window",
+			windows: []WindowDef{{
+				Days:  []string{"wed"},
+				Start: "20:00",
+				End:   "23:00",
+			}},
+			now:     time.Date(2026, 3, 25, 21, 0, 0, 0, time.UTC), // Wed 21:00
+			wantEnd: "23:00",
+			wantOk:  true,
+		},
+		{
+			name: "no active window returns empty and false",
+			windows: []WindowDef{{
+				Days:  []string{"sat"},
+				Start: "10:00",
+				End:   "18:00",
+			}},
+			now:     time.Date(2026, 3, 25, 21, 0, 0, 0, time.UTC), // Wed 21:00
+			wantEnd: "",
+			wantOk:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotEnd, gotOk := FindActiveWindowEnd(tt.windows, tt.now)
+			if gotEnd != tt.wantEnd || gotOk != tt.wantOk {
+				t.Errorf("FindActiveWindowEnd() = (%q, %v), want (%q, %v)", gotEnd, gotOk, tt.wantEnd, tt.wantOk)
 			}
 		})
 	}
