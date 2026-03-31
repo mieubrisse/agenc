@@ -263,6 +263,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /crons", appHandler(s.requestLogger, s.handleListCrons))
 	mux.Handle("GET /crons/{id}/logs", appHandler(s.requestLogger, s.handleCronLogs))
 
+	// Sleep mode config endpoints
+	mux.Handle("GET /config/sleep/windows", appHandler(s.requestLogger, s.handleListSleepWindows))
+	mux.Handle("POST /config/sleep/windows", appHandler(s.requestLogger, s.handleAddSleepWindow))
+	mux.Handle("DELETE /config/sleep/windows/{index}", appHandler(s.requestLogger, s.handleRemoveSleepWindow))
+
 	// Claude-modifications config file endpoints
 	mux.Handle("GET /config/claude-md", appHandler(s.requestLogger, s.handleGetClaudeMd))
 	mux.Handle("PUT /config/claude-md", appHandler(s.requestLogger, s.handleUpdateClaudeMd))
