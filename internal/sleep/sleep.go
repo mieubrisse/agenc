@@ -95,6 +95,7 @@ func FindActiveWindowEnd(windows []WindowDef, now time.Time) (string, bool) {
 }
 
 // isWindowActive reports whether the given time falls within a single schedule window.
+// Precondition: w must have been validated via ValidateWindow before reaching here.
 func isWindowActive(w WindowDef, now time.Time) bool {
 	startHour, startMinute, err := parseTime(w.Start)
 	if err != nil {
