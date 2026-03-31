@@ -46,9 +46,9 @@ func TestValidateDays(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "case insensitive",
+			name:    "mixed case rejected",
 			days:    []string{"Mon", "TUE"},
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 

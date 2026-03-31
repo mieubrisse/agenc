@@ -1,9 +1,10 @@
 package sleep
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/mieubrisse/stacktrace"
 )
 
 // validDays maps lowercase abbreviated day names to true.
@@ -29,18 +30,17 @@ type WindowDef struct {
 // (mon, tue, wed, thu, fri, sat, sun), and has no duplicates.
 func ValidateDays(days []string) error {
 	if len(days) == 0 {
-		return fmt.Errorf("days must not be empty")
+		return stacktrace.NewError("days must not be empty")
 	}
 	seen := make(map[string]bool, len(days))
 	for _, d := range days {
-		lower := strings.ToLower(d)
-		if !validDays[lower] {
-			return fmt.Errorf("invalid day %q", d)
+		if !validDays[d] {
+			return stacktrace.NewError("invalid day %q", d)
 		}
-		if seen[lower] {
-			return fmt.Errorf("duplicate day %q", d)
+		if seen[d] {
+			return stacktrace.NewError("duplicate day %q", d)
 		}
-		seen[lower] = true
+		seen[d] = true
 	}
 	return nil
 }
@@ -49,25 +49,25 @@ func ValidateDays(days []string) error {
 // in 0-23 and minute in 0-59.
 func ValidateTime(s string) error {
 	if s == "" {
-		return fmt.Errorf("time must not be empty")
+		return stacktrace.NewError("time must not be empty")
 	}
 	parts := strings.Split(s, ":")
 	if len(parts) != 2 {
-		return fmt.Errorf("time %q must be in HH:MM format", s)
+		return stacktrace.NewError("time %q must be in HH:MM format", s)
 	}
 	hour, err := strconv.Atoi(parts[0])
 	if err != nil || len(parts[0]) != 2 {
-		return fmt.Errorf("time %q has invalid hour", s)
+		return stacktrace.NewError("time %q has invalid hour", s)
 	}
 	minute, err := strconv.Atoi(parts[1])
 	if err != nil || len(parts[1]) != 2 {
-		return fmt.Errorf("time %q has invalid minute", s)
+		return stacktrace.NewError("time %q has invalid minute", s)
 	}
 	if hour < 0 || hour > 23 {
-		return fmt.Errorf("time %q has hour out of range 0-23", s)
+		return stacktrace.NewError("time %q has hour out of range 0-23", s)
 	}
 	if minute < 0 || minute > 59 {
-		return fmt.Errorf("time %q has minute out of range 0-59", s)
+		return stacktrace.NewError("time %q has minute out of range 0-59", s)
 	}
 	return nil
 }
@@ -76,16 +76,16 @@ func ValidateTime(s string) error {
 // rejecting windows where start equals end.
 func ValidateWindow(w WindowDef) error {
 	if err := ValidateDays(w.Days); err != nil {
-		return fmt.Errorf("invalid window days: %w", err)
+		return stacktrace.Propagate(err, "invalid window days")
 	}
 	if err := ValidateTime(w.Start); err != nil {
-		return fmt.Errorf("invalid window start: %w", err)
+		return stacktrace.Propagate(err, "invalid window start")
 	}
 	if err := ValidateTime(w.End); err != nil {
-		return fmt.Errorf("invalid window end: %w", err)
+		return stacktrace.Propagate(err, "invalid window end")
 	}
 	if w.Start == w.End {
-		return fmt.Errorf("window start and end must differ (both are %q)", w.Start)
+		return stacktrace.NewError("window start and end must differ (both are %q)", w.Start)
 	}
 	return nil
 }
