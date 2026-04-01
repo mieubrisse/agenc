@@ -23,6 +23,8 @@ Adjutant
 
 When the user mentions "Adjutant" or you see references to it in code, understand that this is the built-in assistant component that provides guidance and helps users navigate AgenC functionality.
 
+**Adjutant prompt file:** `internal/claudeconfig/adjutant_claude.md`. This is the Adjutant-specific system prompt — it gets injected into Adjutant missions only, not regular missions. When adding user-facing feature documentation that the Adjutant needs to know about (e.g., how to configure sleep mode, how cron jobs work, how to trust MCP servers), put it here — not in the prime template (`cmd/genprime/main.go`), which is injected into every mission and should stay minimal. The prime template is auto-generated from the Cobra command tree and contains only a command reference.
+
 Tmux Keybindings and Command Palette
 -------------------------------------
 
