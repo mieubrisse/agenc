@@ -387,8 +387,7 @@ When the status shows `IDLE`, the child mission's agent has finished its work an
 **Reading the conversation:**
 
 ```bash
-agenc mission print <mission-id>           # Last 20 lines
-agenc mission print <mission-id> --all     # Full transcript
+agenc mission print <mission-id>           # Full transcript
 agenc mission print <mission-id> --tail 50 # Last 50 lines
 ```
 
@@ -398,7 +397,7 @@ This lets a parent mission read what the child Claude did — check its output, 
 
 1. Parent mission spawns a child: `agenc mission new myrepo --prompt "Run the test suite and report failures"`
 2. Parent periodically checks: `agenc mission inspect <id>` until status is `IDLE`
-3. Parent reads the result: `agenc mission print <id> --all`
+3. Parent reads the result: `agenc mission print <id>`
 4. Parent incorporates the child's output into its own work
 
 ### Wrapper

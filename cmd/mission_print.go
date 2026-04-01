@@ -12,7 +12,6 @@ import (
 )
 
 var missionPrintTailFlag int
-var missionPrintAllFlag bool
 var missionPrintFormatFlag string
 
 var missionPrintCmd = &cobra.Command{
@@ -20,34 +19,30 @@ var missionPrintCmd = &cobra.Command{
 	Short: "Print a mission's current session transcript (human-readable text by default)",
 	Long: `Print a mission's current session transcript.
 
-By default, outputs a human-readable text summary. Use --format=jsonl for
-raw JSONL output.
+By default, outputs the entire session as human-readable text.
+Use --format=jsonl for raw JSONL output.
+Use --tail to limit output to the last N lines.
 
 Without arguments, opens an interactive fzf picker to select a mission.
 With arguments, accepts a mission ID (short 8-char hex or full UUID).
-
-Outputs the last 20 lines by default. Use --tail to change the line count,
-or --all to print the entire session.
 
 Example:
   agenc mission print
   agenc mission print 2571d5d8
   agenc mission print 2571d5d8 --format=jsonl
-  agenc mission print 2571d5d8 --tail 50
-  agenc mission print 2571d5d8 --all`,
+  agenc mission print 2571d5d8 --tail 50`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionPrint,
 }
 
 func init() {
-	missionPrintCmd.Flags().IntVar(&missionPrintTailFlag, tailFlagName, defaultTailLines, "number of lines to print from end of session")
-	missionPrintCmd.Flags().BoolVar(&missionPrintAllFlag, allFlagName, false, "print entire session")
+	missionPrintCmd.Flags().IntVar(&missionPrintTailFlag, tailFlagName, 0, "limit output to last N lines")
 	missionPrintCmd.Flags().StringVar(&missionPrintFormatFlag, formatFlagName, "text", "output format: text or jsonl")
 	missionCmd.AddCommand(missionPrintCmd)
 }
 
 func runMissionPrint(cmd *cobra.Command, args []string) error {
-	if !missionPrintAllFlag && missionPrintTailFlag <= 0 {
+	if missionPrintTailFlag < 0 {
 		return stacktrace.NewError("--tail value must be positive")
 	}
 
@@ -119,5 +114,5 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "")
 	}
 
-	return printSession(jsonlFilepath, missionPrintTailFlag, missionPrintAllFlag, missionPrintFormatFlag)
+	return printSession(jsonlFilepath, missionPrintTailFlag, missionPrintTailFlag == 0, missionPrintFormatFlag)
 }
