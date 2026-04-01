@@ -216,11 +216,6 @@ var primeTemplate = `AgenC CLI Quick Reference
 {{ $maxLen := maxUsageLen .Commands }}{{ range .Commands }}{{ padRight .Usage $maxLen }}  # {{ .Description }}
 {{ end }}` + "```" + `
 {{ end }}{{ end }}
-Key Features
-------------
-
-**Sleep Mode:** Block new mission creation during configured time windows to encourage sleep. Configure windows with day-of-week and HH:MM start/end times. Cron-triggered missions are exempt. Use ` + "`agenc config sleep add/rm/ls`" + ` to manage windows.
-
 Repo Formats
 ------------
 

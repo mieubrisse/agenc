@@ -128,6 +128,29 @@ agenc cron ls
 
 **"How do I test a cron before scheduling it?"** — Use `agenc cron run <name>` to trigger it manually. This creates a mission with the same prompt and repo, tracked in history alongside scheduled runs.
 
+Sleep Mode
+----------
+
+Sleep mode blocks new mission creation during configured time windows to encourage the user to stop working and go to sleep. Cron-triggered missions are exempt — existing scheduled work continues.
+
+Windows are defined with day-of-week and HH:MM start/end times. Overnight windows (e.g., 22:00 to 06:00) are supported.
+
+```bash
+# Add a sleep window (weeknights 10pm to 6am)
+agenc config sleep add --days mon,tue,wed,thu --start 22:00 --end 06:00
+
+# Add a weekend window (later start)
+agenc config sleep add --days fri,sat --start 23:00 --end 07:00
+
+# List current windows
+agenc config sleep ls
+
+# Remove a window by its index (shown in ls output)
+agenc config sleep rm 0
+```
+
+When sleep mode is active, `agenc mission new` returns a "Sleep mode active until HH:MM — go to bed!" error. To disable sleep mode entirely, remove all windows.
+
 Trusting MCP Servers
 --------------------
 
