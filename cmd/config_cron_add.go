@@ -3,11 +3,10 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var configCronAddCmd = &cobra.Command{
@@ -51,39 +50,14 @@ func init() {
 func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	if err := config.ValidateCronName(name); err != nil {
-		return err
-	}
-
-	cfg, cm, release, err := readConfigWithComments()
-	if err != nil {
-		return err
-	}
-	defer release()
-	agencDirpath, err := config.GetAgencDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get agenc directory path")
-	}
-
-	if _, exists := cfg.Crons[name]; exists {
-		return stacktrace.NewError("cron job '%s' already exists; use '%s %s %s %s %s' to modify it",
-			name, agencCmdStr, configCmdStr, cronCmdStr, updateCmdStr, name)
-	}
-
 	schedule, err := cmd.Flags().GetString(cronConfigScheduleFlagName)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigScheduleFlagName)
-	}
-	if err := config.ValidateCronSchedule(schedule); err != nil {
-		return err
 	}
 
 	prompt, err := cmd.Flags().GetString(cronConfigPromptFlagName)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read --%s flag", cronConfigPromptFlagName)
-	}
-	if prompt == "" {
-		return stacktrace.NewError("prompt cannot be empty")
 	}
 
 	description, _ := cmd.Flags().GetString(cronConfigDescriptionFlagName)
@@ -97,24 +71,21 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 		repo = result.RepoName
 	}
 
-	cronCfg := config.CronConfig{
-		ID:          uuid.New().String(),
+	client, err := serverClient()
+	if err != nil {
+		return err
+	}
+
+	if _, err := client.CreateCron(server.CreateCronRequest{
+		Name:        name,
 		Schedule:    schedule,
 		Prompt:      prompt,
 		Description: description,
 		Repo:        repo,
-	}
-
-	if cfg.Crons == nil {
-		cfg.Crons = make(map[string]config.CronConfig)
-	}
-	cfg.Crons[name] = cronCfg
-
-	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-		return stacktrace.Propagate(err, "failed to write config")
+	}); err != nil {
+		return stacktrace.Propagate(err, "failed to create cron job")
 	}
 
 	fmt.Printf("Added cron job '%s'\n", name)
-
 	return nil
 }

@@ -380,13 +380,15 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 
 - `server.go` — `Server` struct, `NewServer`, `Run` (starts HTTP listener, background loops, graceful shutdown on context cancellation), `registerRoutes`, `handleHealth`
 - `process.go` — server lifecycle: `ForkServer` (re-executes binary as detached process via setsid), `ReadPID`, `IsRunning`, `IsProcessRunning`, `StopServer` (SIGTERM then SIGKILL), `IsServerProcess` (env var check)
-- `client.go` — `Client` struct with `Get`, `Post`, `Delete`, `Patch` methods for CLI-to-server and wrapper-to-server communication over the unix socket. High-level API: `ListMissions`, `GetMission`, `CreateMission`, `UpdateMission`, `StopMission`, `DeleteMission`, `ArchiveMission`, `UnarchiveMission`, `Heartbeat`, `RecordPrompt`, `ReloadMission`, `ListRepos`, `AddRepo`, `RemoveRepo`
+- `client.go` — `Client` struct with `Get`, `Post`, `Delete`, `Patch` methods for CLI-to-server and wrapper-to-server communication over the unix socket. High-level API: `ListMissions`, `GetMission`, `CreateMission`, `UpdateMission`, `StopMission`, `DeleteMission`, `ArchiveMission`, `UnarchiveMission`, `Heartbeat`, `RecordPrompt`, `ReloadMission`, `ListRepos`, `AddRepo`, `RemoveRepo`, `ListCrons`, `CreateCron`, `UpdateCron`, `DeleteCron`
 - `missions.go` — mission CRUD endpoints, wrapper process management (stop/reload/delete), tmux in-place reload, transient field enrichment (queries each running wrapper's `GET /status` endpoint for `ClaudeState`, checks `.adjutant` marker for `IsAdjutant`)
 - `repos.go` — repo management endpoints (`GET /repos` list with synced status, `POST /repos` clone and configure, `DELETE /repos/` remove from disk and config) and push-event endpoint (enqueues repo update, returns 202 Accepted)
 - `repo_update_worker.go` — centralized repo update worker goroutine: processes update requests, runs `ForceUpdateRepo`, executes `postUpdateHook` when HEAD changes
 - `errors.go` — `writeError`, `writeJSON` helper functions for consistent JSON responses
 - `template_updater.go` — repo update loop (60-second interval, collects synced + active-mission repos, enqueues update requests)
 - `config_auto_commit.go` — config auto-commit loop (10-minute interval, git add/commit/push)
+- `handle_crons.go` — cron CRUD endpoints (`GET /crons` list, `POST /crons` create with sleepGuard, `PATCH /crons/{name}` update, `DELETE /crons/{name}` remove). All mutations acquire the config lock, read-modify-write config.yml, update cachedConfig, and trigger cron sync to launchd
+- `handle_cron_logs.go` — cron log endpoint (`GET /crons/{id}/logs`)
 - `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup, skips writes and reloads when plist content is unchanged
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo, updates cached `AgencConfig` via `atomic.Pointer`, and triggers cron sync)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)

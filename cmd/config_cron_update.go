@@ -6,7 +6,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var configCronUpdateCmd = &cobra.Command{
@@ -49,44 +49,6 @@ func init() {
 func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	if err := config.ValidateCronName(name); err != nil {
-		return err
-	}
-
-	cfg, cm, release, err := readConfigWithComments()
-	if err != nil {
-		return err
-	}
-	defer release()
-	agencDirpath, err := config.GetAgencDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get agenc directory path")
-	}
-
-	cronCfg, exists := cfg.Crons[name]
-	if !exists {
-		return stacktrace.NewError("cron job '%s' not found; use '%s %s %s %s %s' to create it",
-			name, agencCmdStr, configCmdStr, cronCmdStr, addCmdStr, name)
-	}
-
-	if err := applyCronUpdateFlags(cmd, &cronCfg); err != nil {
-		return stacktrace.Propagate(err, "failed to apply cron update flags")
-	}
-
-	cfg.Crons[name] = cronCfg
-
-	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-		return stacktrace.Propagate(err, "failed to write config")
-	}
-
-	fmt.Printf("Updated cron job '%s'\n", name)
-	return nil
-}
-
-// applyCronUpdateFlags reads all changed flags from the command and applies
-// them to the cron config. Returns an error if no flags were changed or if
-// any flag value is invalid.
-func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error {
 	allFlags := []string{
 		cronConfigScheduleFlagName, cronConfigPromptFlagName,
 		cronConfigDescriptionFlagName, cronConfigRepoFlagName,
@@ -96,34 +58,22 @@ func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error 
 		return stacktrace.NewError("at least one configuration flag must be provided")
 	}
 
-	if err := applyStringFlag(cmd, cronConfigScheduleFlagName, func(schedule string) error {
-		if err := config.ValidateCronSchedule(schedule); err != nil {
-			return stacktrace.Propagate(err, "invalid cron schedule")
-		}
-		cronCfg.Schedule = schedule
-		return nil
-	}); err != nil {
-		return stacktrace.Propagate(err, "failed to apply schedule flag")
-	}
+	var req server.UpdateCronRequest
 
-	if err := applyStringFlag(cmd, cronConfigPromptFlagName, func(prompt string) error {
-		if prompt == "" {
-			return stacktrace.NewError("prompt cannot be empty")
-		}
-		cronCfg.Prompt = prompt
-		return nil
-	}); err != nil {
-		return stacktrace.Propagate(err, "failed to apply prompt flag")
+	if cmd.Flags().Changed(cronConfigScheduleFlagName) {
+		schedule, _ := cmd.Flags().GetString(cronConfigScheduleFlagName)
+		req.Schedule = &schedule
 	}
-
-	if err := applyStringFlag(cmd, cronConfigDescriptionFlagName, func(description string) error {
-		cronCfg.Description = description
-		return nil
-	}); err != nil {
-		return stacktrace.Propagate(err, "failed to apply description flag")
+	if cmd.Flags().Changed(cronConfigPromptFlagName) {
+		prompt, _ := cmd.Flags().GetString(cronConfigPromptFlagName)
+		req.Prompt = &prompt
 	}
-
-	if err := applyStringFlag(cmd, cronConfigRepoFlagName, func(repo string) error {
+	if cmd.Flags().Changed(cronConfigDescriptionFlagName) {
+		description, _ := cmd.Flags().GetString(cronConfigDescriptionFlagName)
+		req.Description = &description
+	}
+	if cmd.Flags().Changed(cronConfigRepoFlagName) {
+		repo, _ := cmd.Flags().GetString(cronConfigRepoFlagName)
 		if repo != "" {
 			result, err := ResolveRepoInput(repo, "Select repo: ")
 			if err != nil {
@@ -131,18 +81,22 @@ func applyCronUpdateFlags(cmd *cobra.Command, cronCfg *config.CronConfig) error 
 			}
 			repo = result.RepoName
 		}
-		cronCfg.Repo = repo
-		return nil
-	}); err != nil {
-		return stacktrace.Propagate(err, "failed to apply repo flag")
+		req.Repo = &repo
+	}
+	if cmd.Flags().Changed(cronConfigEnabledFlagName) {
+		enabled, _ := cmd.Flags().GetBool(cronConfigEnabledFlagName)
+		req.Enabled = &enabled
 	}
 
-	if err := applyBoolFlag(cmd, cronConfigEnabledFlagName, func(enabled bool) error {
-		cronCfg.Enabled = &enabled
-		return nil
-	}); err != nil {
-		return stacktrace.Propagate(err, "failed to apply enabled flag")
+	client, err := serverClient()
+	if err != nil {
+		return err
 	}
 
+	if _, err := client.UpdateCron(name, req); err != nil {
+		return stacktrace.Propagate(err, "failed to update cron job")
+	}
+
+	fmt.Printf("Updated cron job '%s'\n", name)
 	return nil
 }

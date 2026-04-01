@@ -261,6 +261,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Cron endpoints
 	mux.Handle("GET /crons", appHandler(s.requestLogger, s.handleListCrons))
+	mux.Handle("POST /crons", appHandler(s.requestLogger, s.sleepGuard(s.handleCreateCron)))
+	mux.Handle("PATCH /crons/{name}", appHandler(s.requestLogger, s.handleUpdateCron))
+	mux.Handle("DELETE /crons/{name}", appHandler(s.requestLogger, s.handleDeleteCron))
 	mux.Handle("GET /crons/{id}/logs", appHandler(s.requestLogger, s.handleCronLogs))
 
 	// Sleep mode config endpoints

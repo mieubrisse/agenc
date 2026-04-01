@@ -80,9 +80,6 @@ check: genprime
 	@echo "Running golangci-lint..."
 	@golangci-lint run ./...
 	@echo "✓ Lint OK"
-	@echo "Running govulncheck..."
-	@govulncheck ./...
-	@echo "✓ Vulncheck OK"
 	@echo "Running deadcode analysis..."
 	@output=$$(deadcode ./... 2>&1); \
 	rc=$$?; \

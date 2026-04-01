@@ -5,8 +5,6 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
-
-	"github.com/odyssey/agenc/internal/config"
 )
 
 var configCronRmCmd = &cobra.Command{
@@ -30,24 +28,13 @@ func init() {
 func runConfigCronRm(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	cfg, cm, release, err := readConfigWithComments()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer release()
-	agencDirpath, err := config.GetAgencDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get agenc directory path")
-	}
 
-	if _, exists := cfg.Crons[name]; !exists {
-		return stacktrace.NewError("cron job '%s' not found in config", name)
-	}
-
-	delete(cfg.Crons, name)
-
-	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-		return stacktrace.Propagate(err, "failed to write config")
+	if err := client.DeleteCron(name); err != nil {
+		return stacktrace.Propagate(err, "failed to remove cron job")
 	}
 
 	fmt.Printf("Removed cron job '%s'\n", name)

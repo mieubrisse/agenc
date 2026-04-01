@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 
+	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/tableprinter"
@@ -23,38 +23,34 @@ func init() {
 }
 
 func runConfigCronLs(cmd *cobra.Command, args []string) error {
-	cfg, err := readConfig()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
 
-	if len(cfg.Crons) == 0 {
+	crons, err := client.ListCrons()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list crons")
+	}
+
+	if len(crons) == 0 {
 		fmt.Println("No cron jobs configured.")
 		return nil
 	}
 
-	// Sort by name for consistent output
-	names := make([]string, 0, len(cfg.Crons))
-	for name := range cfg.Crons {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
 	tbl := tableprinter.NewTable("NAME", "SCHEDULE", "ENABLED", "PROMPT")
-	for _, name := range names {
-		cronCfg := cfg.Crons[name]
-
+	for _, c := range crons {
 		enabled := "true"
-		if cronCfg.Enabled != nil && !*cronCfg.Enabled {
+		if !c.Enabled {
 			enabled = "false"
 		}
 
-		prompt := cronCfg.Prompt
+		prompt := c.Prompt
 		if len(prompt) > 60 {
 			prompt = prompt[:57] + "..."
 		}
 
-		tbl.AddRow(name, cronCfg.Schedule, enabled, prompt)
+		tbl.AddRow(c.Name, c.Schedule, enabled, prompt)
 	}
 
 	tbl.Print()

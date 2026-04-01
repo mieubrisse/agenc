@@ -6,12 +6,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/mattn/go-isatty"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var cronNewCmd = &cobra.Command{
@@ -94,27 +94,11 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("interactive mode requires a terminal; provide arguments or edit config.yml directly")
 	}
 
-	cfg, cm, release, err := readConfigWithComments()
-	if err != nil {
-		return stacktrace.Propagate(err, "")
-	}
-	defer release()
-	agencDirpath, err := config.GetAgencDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get agenc directory path")
-	}
-
 	reader := bufio.NewReader(os.Stdin)
 
 	name, err := promptCronName(reader, args)
 	if err != nil {
 		return stacktrace.Propagate(err, "")
-	}
-	if err := config.ValidateCronName(name); err != nil {
-		return stacktrace.Propagate(err, "")
-	}
-	if _, exists := cfg.Crons[name]; exists {
-		return stacktrace.NewError("cron job '%s' already exists", name)
 	}
 
 	schedule, err := promptCronSchedule(reader)
@@ -135,21 +119,18 @@ func runCronNew(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "")
 	}
 
-	// Create the cron config
-	cronCfg := config.CronConfig{
-		ID:       uuid.New().String(),
+	client, err := serverClient()
+	if err != nil {
+		return err
+	}
+
+	if _, err := client.CreateCron(server.CreateCronRequest{
+		Name:     name,
 		Schedule: schedule,
 		Prompt:   prompt,
 		Repo:     gitRepo,
-	}
-
-	if cfg.Crons == nil {
-		cfg.Crons = make(map[string]config.CronConfig)
-	}
-	cfg.Crons[name] = cronCfg
-
-	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-		return stacktrace.Propagate(err, "failed to write config")
+	}); err != nil {
+		return stacktrace.Propagate(err, "failed to create cron job")
 	}
 
 	fmt.Printf("\nCreated cron job '%s'\n", name)

@@ -484,6 +484,29 @@ func (c *Client) ListCrons() ([]CronInfo, error) {
 	return crons, nil
 }
 
+// CreateCron creates a new cron job via the server.
+func (c *Client) CreateCron(req CreateCronRequest) (*CronInfo, error) {
+	var result CronInfo
+	if err := c.Post("/crons", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateCron updates an existing cron job via the server.
+func (c *Client) UpdateCron(name string, req UpdateCronRequest) (*CronInfo, error) {
+	var result CronInfo
+	if err := c.Patch("/crons/"+name, req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeleteCron removes a cron job via the server.
+func (c *Client) DeleteCron(name string) error {
+	return c.Delete("/crons/" + name)
+}
+
 // GetCronLogs fetches log content for a cron job by ID.
 // If all is true, returns the entire log file; otherwise returns the last 200 lines.
 func (c *Client) GetCronLogs(cronID string, all bool) ([]byte, error) {

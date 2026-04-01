@@ -6,7 +6,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var cronEnableCmd = &cobra.Command{
@@ -25,35 +25,15 @@ func runCronEnable(cmd *cobra.Command, args []string) error {
 }
 
 func setCronEnabled(name string, enabled bool) error {
-	cfg, cm, release, err := readConfigWithComments()
+	client, err := serverClient()
 	if err != nil {
 		return err
 	}
-	defer release()
-	agencDirpath, err := config.GetAgencDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get agenc directory path")
-	}
 
-	cronCfg, exists := cfg.Crons[name]
-	if !exists {
-		return stacktrace.NewError("cron job '%s' not found", name)
-	}
-
-	if cronCfg.IsEnabled() == enabled {
-		if enabled {
-			fmt.Printf("Cron job '%s' is already enabled\n", name)
-		} else {
-			fmt.Printf("Cron job '%s' is already disabled\n", name)
-		}
-		return nil
-	}
-
-	cronCfg.Enabled = &enabled
-	cfg.Crons[name] = cronCfg
-
-	if err := config.WriteAgencConfig(agencDirpath, cfg, cm); err != nil {
-		return stacktrace.Propagate(err, "failed to write config")
+	if _, err := client.UpdateCron(name, server.UpdateCronRequest{
+		Enabled: &enabled,
+	}); err != nil {
+		return stacktrace.Propagate(err, "failed to update cron job")
 	}
 
 	if enabled {

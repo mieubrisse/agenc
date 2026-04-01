@@ -176,6 +176,48 @@ run_test "sleep add rejects invalid day" \
     "${agenc_test}" config sleep add --days monday --start 22:00 --end 06:00
 
 echo ""
+echo "--- Cron CRUD (requires server) ---"
+run_test_output_contains "config cron ls shows empty initially" \
+    "No cron jobs configured" \
+    "${agenc_test}" config cron ls
+
+run_test "config cron add creates a cron job" \
+    0 \
+    "${agenc_test}" config cron add test-cron --schedule="0 9 * * *" --prompt="Run tests"
+
+run_test_output_contains "config cron ls shows the added cron" \
+    "test-cron" \
+    "${agenc_test}" config cron ls
+
+run_test "config cron update changes schedule" \
+    0 \
+    "${agenc_test}" config cron update test-cron --schedule="0 10 * * *"
+
+run_test "cron disable disables the cron" \
+    0 \
+    "${agenc_test}" cron disable test-cron
+
+run_test "cron enable enables the cron" \
+    0 \
+    "${agenc_test}" cron enable test-cron
+
+run_test "config cron add rejects duplicate name" \
+    1 \
+    "${agenc_test}" config cron add test-cron --schedule="0 9 * * *" --prompt="Duplicate"
+
+run_test "config cron rm removes the cron" \
+    0 \
+    "${agenc_test}" config cron rm test-cron
+
+run_test_output_contains "config cron ls is empty after rm" \
+    "No cron jobs configured" \
+    "${agenc_test}" config cron ls
+
+run_test "config cron rm rejects missing cron" \
+    1 \
+    "${agenc_test}" config cron rm nonexistent
+
+echo ""
 echo "--- Prime ---"
 run_test_output_contains "prime outputs quick reference" \
     "(agenc|AgenC|usage|Usage|command|Command)" \

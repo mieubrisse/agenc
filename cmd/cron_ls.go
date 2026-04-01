@@ -2,11 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 
+	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
@@ -22,42 +21,35 @@ func init() {
 }
 
 func runCronLs(cmd *cobra.Command, args []string) error {
-	cfg, err := readConfig()
-	if err != nil {
-		return err
-	}
-
-	if len(cfg.Crons) == 0 {
-		fmt.Println("No cron jobs defined.")
-		fmt.Println("\nTo create a cron job, use 'agenc cron new' or ask the Adjutant.")
-		return nil
-	}
-
 	client, err := serverClient()
 	if err != nil {
 		return err
 	}
 
+	crons, err := client.ListCrons()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list crons")
+	}
+
+	if len(crons) == 0 {
+		fmt.Println("No cron jobs defined.")
+		fmt.Println("\nTo create a cron job, use 'agenc cron new' or ask the Adjutant.")
+		return nil
+	}
+
 	tbl := tableprinter.NewTable("NAME", "SCHEDULE", "ENABLED", "LAST RUN", "STATUS")
 
-	names := make([]string, 0, len(cfg.Crons))
-	for name := range cfg.Crons {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		cronCfg := cfg.Crons[name]
+	for _, c := range crons {
 		enabled := "yes"
-		if !cronCfg.IsEnabled() {
+		if !c.Enabled {
 			enabled = ansiYellow + "no" + ansiReset
 		}
 
-		lastRun, status := getCronLastRunStatus(client, cronCfg)
+		lastRun, status := getCronLastRunStatus(client, c)
 
 		tbl.AddRow(
-			name,
-			cronCfg.Schedule,
+			c.Name,
+			c.Schedule,
 			enabled,
 			lastRun,
 			status,
@@ -68,12 +60,12 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getCronLastRunStatus(client *server.Client, cronCfg config.CronConfig) (string, string) {
-	if cronCfg.ID == "" {
+func getCronLastRunStatus(client *server.Client, cronInfo server.CronInfo) (string, string) {
+	if cronInfo.ID == "" {
 		return "--", "--"
 	}
 
-	missions, err := client.ListMissions(true, "cron", cronCfg.ID)
+	missions, err := client.ListMissions(true, "cron", cronInfo.ID)
 	if err != nil || len(missions) == 0 {
 		return "--", "--"
 	}
