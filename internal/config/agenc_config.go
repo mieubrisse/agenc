@@ -335,6 +335,7 @@ type RepoConfig struct {
 	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
 	DefaultModel      string             `yaml:"defaultModel,omitempty"`
 	PostUpdateHook    string             `yaml:"postUpdateHook,omitempty"`
+	ClaudeArgs        []string           `yaml:"claudeArgs,omitempty"`
 }
 
 // TrustedMcpServers configures MCP server trust for a repository.
@@ -391,6 +392,7 @@ type AgencConfig struct {
 	PaletteTmuxKeybinding string                          `yaml:"paletteTmuxKeybinding,omitempty"`
 	TmuxWindowTitle       *TmuxWindowTitleConfig          `yaml:"tmuxWindowTitle,omitempty"`
 	DefaultModel          string                          `yaml:"defaultModel,omitempty"`
+	ClaudeArgs            []string                        `yaml:"claudeArgs,omitempty"`
 	SleepMode             *SleepModeConfig                `yaml:"sleepMode,omitempty"`
 }
 
@@ -491,6 +493,19 @@ func (c *AgencConfig) GetDefaultModel(repoName string) string {
 		}
 	}
 	return c.DefaultModel
+}
+
+// GetClaudeArgs returns the merged Claude CLI args for a given repo.
+// Precedence: global claudeArgs first, then per-repo claudeArgs appended.
+func (c *AgencConfig) GetClaudeArgs(repoName string) []string {
+	var result []string
+	result = append(result, c.ClaudeArgs...)
+	if repoName != "" {
+		if rc, ok := c.RepoConfigs[repoName]; ok {
+			result = append(result, rc.ClaudeArgs...)
+		}
+	}
+	return result
 }
 
 // GetConfigFilepath returns the path to config.yml inside the config directory.

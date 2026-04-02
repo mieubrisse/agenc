@@ -1480,6 +1480,103 @@ func TestDefaultModel_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestGetClaudeArgs(t *testing.T) {
+	cfg := &AgencConfig{
+		ClaudeArgs: []string{"--verbose", "--no-color"},
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {ClaudeArgs: []string{"--model", "opus"}},
+			"github.com/owner/repo2": {},
+		},
+	}
+
+	// Repo with per-repo args gets global + per-repo
+	got := cfg.GetClaudeArgs("github.com/owner/repo1")
+	expected := []string{"--verbose", "--no-color", "--model", "opus"}
+	if len(got) != len(expected) {
+		t.Fatalf("repo1: expected %v, got %v", expected, got)
+	}
+	for i := range expected {
+		if got[i] != expected[i] {
+			t.Errorf("repo1[%d]: expected %q, got %q", i, expected[i], got[i])
+		}
+	}
+
+	// Repo without per-repo args gets only global
+	got = cfg.GetClaudeArgs("github.com/owner/repo2")
+	if len(got) != 2 || got[0] != "--verbose" || got[1] != "--no-color" {
+		t.Errorf("repo2: expected [--verbose --no-color], got %v", got)
+	}
+
+	// Unknown repo gets only global
+	got = cfg.GetClaudeArgs("github.com/owner/unknown")
+	if len(got) != 2 || got[0] != "--verbose" || got[1] != "--no-color" {
+		t.Errorf("unknown repo: expected [--verbose --no-color], got %v", got)
+	}
+
+	// Empty repo name gets only global
+	got = cfg.GetClaudeArgs("")
+	if len(got) != 2 || got[0] != "--verbose" || got[1] != "--no-color" {
+		t.Errorf("empty repo: expected [--verbose --no-color], got %v", got)
+	}
+
+	// Empty config returns nil/empty
+	cfgEmpty := &AgencConfig{}
+	got = cfgEmpty.GetClaudeArgs("github.com/owner/repo1")
+	if len(got) != 0 {
+		t.Errorf("empty config: expected empty, got %v", got)
+	}
+
+	// Only per-repo, no global
+	cfgNoGlobal := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {ClaudeArgs: []string{"--debug"}},
+		},
+	}
+	got = cfgNoGlobal.GetClaudeArgs("github.com/owner/repo1")
+	if len(got) != 1 || got[0] != "--debug" {
+		t.Errorf("no global: expected [--debug], got %v", got)
+	}
+}
+
+func TestClaudeArgs_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{
+		ClaudeArgs: []string{"--verbose"},
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {ClaudeArgs: []string{"--model", "opus"}},
+			"github.com/owner/repo2": {},
+		},
+	}
+
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if len(got.ClaudeArgs) != 1 || got.ClaudeArgs[0] != "--verbose" {
+		t.Errorf("expected global claudeArgs [--verbose], got %v", got.ClaudeArgs)
+	}
+
+	rc1 := got.RepoConfigs["github.com/owner/repo1"]
+	if len(rc1.ClaudeArgs) != 2 || rc1.ClaudeArgs[0] != "--model" || rc1.ClaudeArgs[1] != "opus" {
+		t.Errorf("expected repo1 claudeArgs [--model opus], got %v", rc1.ClaudeArgs)
+	}
+
+	rc2 := got.RepoConfigs["github.com/owner/repo2"]
+	if len(rc2.ClaudeArgs) != 0 {
+		t.Errorf("expected empty claudeArgs for repo2, got %v", rc2.ClaudeArgs)
+	}
+}
+
 func TestPostUpdateHook_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDirpath := filepath.Join(tmpDir, ConfigDirname)
