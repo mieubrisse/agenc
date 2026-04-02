@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ var configSetCmd = &cobra.Command{
 	Long: `Set a configuration key.
 
 Supported keys:
+  claudeArgs                                   Extra CLI flags passed to Claude Code (comma-separated, e.g., "--chrome,--verbose"; empty to clear)
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
@@ -119,6 +121,20 @@ func isTmuxKeybindingKey(key string) bool {
 // type conversion and validation as needed.
 func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 	switch key {
+	case "claudeArgs":
+		if value == "" {
+			cfg.ClaudeArgs = nil
+		} else {
+			parts := strings.Split(value, ",")
+			args := make([]string, 0, len(parts))
+			for _, p := range parts {
+				if s := strings.TrimSpace(p); s != "" {
+					args = append(args, s)
+				}
+			}
+			cfg.ClaudeArgs = args
+		}
+		return nil
 	case "defaultModel":
 		cfg.DefaultModel = value
 		return nil

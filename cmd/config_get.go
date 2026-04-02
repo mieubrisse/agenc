@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -11,6 +12,7 @@ import (
 
 // supportedConfigKeys lists all keys accepted by 'config get' and 'config set'.
 var supportedConfigKeys = []string{
+	"claudeArgs",
 	"claudeCodeOAuthToken",
 	"defaultModel",
 	"paletteTmuxKeybinding",
@@ -28,6 +30,7 @@ var configGetCmd = &cobra.Command{
 Prints "unset" if the key has not been explicitly set.
 
 Supported keys:
+  claudeArgs                                   Extra CLI flags passed to Claude Code (comma-separated, e.g., "--chrome,--verbose")
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
@@ -68,6 +71,11 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 // value, or "unset" if the key has not been explicitly set.
 func getConfigValue(agencDirpath string, cfg *config.AgencConfig, key string) (string, error) {
 	switch key {
+	case "claudeArgs":
+		if len(cfg.ClaudeArgs) == 0 {
+			return "unset", nil
+		}
+		return strings.Join(cfg.ClaudeArgs, ","), nil
 	case "claudeCodeOAuthToken":
 		token, err := config.ReadOAuthToken(agencDirpath)
 		if err != nil {

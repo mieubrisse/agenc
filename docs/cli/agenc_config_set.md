@@ -7,6 +7,7 @@ Set a config value
 Set a configuration key.
 
 Supported keys:
+  claudeArgs                                   Extra CLI flags passed to Claude Code (comma-separated, e.g., "--chrome,--verbose"; empty to clear)
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
