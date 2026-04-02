@@ -20,6 +20,12 @@ repoConfig:
     alwaysSynced: true                # server fetches every 60s (optional, default: false)
     emoji: "🔥"                       # emoji prepended to tmux window titles and shown in repo ls (optional)
     trustedMcpServers: all            # pre-approve MCP servers: "all" or list of names (optional)
+    claudeArgs:                       # extra CLI flags passed to Claude Code (optional)
+      - "--chrome"
+
+# Global extra Claude CLI flags (applied to all repos, per-repo appends)
+# claudeArgs:
+#   - "--chrome"
 
 <!--
 # Max concurrent headless cron missions (default: 10)
@@ -86,6 +92,7 @@ Per-repo configuration, keyed by canonical repo name (`github.com/owner/repo`). 
 - **alwaysSynced** — when `true`, the server keeps the repo continuously fetched and fast-forwarded (every 60 seconds). Defaults to `false`.
 - **emoji** — emoji prepended to tmux window titles (with fixed-column padding) and shown in `repo ls` and the `mission new` fzf picker. When absent, no emoji prefix is applied.
 - **trustedMcpServers** — pre-approves MCP servers from `.mcp.json` so missions skip the Claude Code consent prompt. Accepts `all` (trust every server) or a list of named servers (e.g., `[github, sentry]`). When absent, Claude Code prompts for consent as usual.
+- **claudeArgs** — extra CLI flags passed to Claude Code when launching missions for this repo (e.g., `["--chrome"]`). Per-repo args are appended to global `claudeArgs`, so global flags apply as a baseline and per-repo flags can extend or override them. When absent, only global args (if any) are used.
 
 ```yaml
 repoConfig:
@@ -95,6 +102,8 @@ repoConfig:
     alwaysSynced: true
     emoji: "🔥"
     trustedMcpServers: all
+    claudeArgs:
+      - "--chrome"
 ```
 
 Manage via the CLI:
@@ -106,6 +115,9 @@ agenc config repoConfig set github.com/owner/repo --emoji="🔥"             # s
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers all       # trust all servers
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers "github,sentry"  # trust specific
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers ""         # clear setting
+agenc config repoConfig set github.com/owner/repo --claude-args="--chrome"         # set per-repo Claude args
+agenc config repoConfig set github.com/owner/repo --claude-args="--chrome,--verbose"  # multiple args
+agenc config repoConfig set github.com/owner/repo --claude-args=""                 # clear per-repo args
 agenc config repoConfig rm github.com/owner/repo                            # remove config entry
 agenc repo add owner/repo --always-synced                                    # clone and enable sync
 agenc repo rm owner/repo                                                     # remove from disk and config
