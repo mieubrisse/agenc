@@ -48,6 +48,7 @@ type Wrapper struct {
 	gitRepoName    string
 	initialPrompt  string
 	defaultModel   string
+	claudeArgs     []string
 	missionDirpath string
 	agentDirpath   string
 	client         *server.Client
@@ -116,9 +117,11 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	var titleCfg *config.TmuxWindowTitleConfig
 	var defaultModel string
+	var claudeArgs []string
 	if err == nil {
 		titleCfg = cfg.GetTmuxWindowTitleConfig()
 		defaultModel = cfg.GetDefaultModel(gitRepoName)
+		claudeArgs = cfg.GetClaudeArgs(gitRepoName)
 	} else {
 		titleCfg = &config.TmuxWindowTitleConfig{}
 	}
@@ -129,6 +132,7 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 		gitRepoName:                    gitRepoName,
 		initialPrompt:                  initialPrompt,
 		defaultModel:                   defaultModel,
+		claudeArgs:                     claudeArgs,
 		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:                   config.GetMissionAgentDirpath(agencDirpath, missionID),
 		client:                         server.NewClient(config.GetServerSocketFilepath(agencDirpath)),
@@ -299,12 +303,12 @@ func (w *Wrapper) spawnClaude(isResume bool) error {
 	if isResume {
 		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
 		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
-			cmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, sessionID)
+			cmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, sessionID)
 		} else {
-			cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, "")
+			cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, "")
 		}
 	} else {
-		cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.initialPrompt)
+		cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, w.initialPrompt)
 	}
 
 	if err != nil {
@@ -848,7 +852,7 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 		args = []string{"--print", "-p", w.initialPrompt}
 	}
 
-	return mission.BuildClaudeCmd(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, args)
+	return mission.BuildClaudeCmd(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, args)
 }
 
 // gracefulShutdownClaude attempts to gracefully shut down a Claude process.
