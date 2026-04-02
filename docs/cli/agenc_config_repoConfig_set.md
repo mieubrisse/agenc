@@ -24,6 +24,7 @@ agenc config repoConfig set <repo> [flags]
 
 ```
       --always-synced                keep this repo continuously synced by the server
+      --claude-args string           extra Claude CLI args: comma-separated (e.g., "--chrome,--verbose"); empty to clear
       --default-model string         default Claude model for missions using this repo (e.g., "opus", "sonnet")
       --emoji string                 emoji to display for missions using this repo
   -h, --help                         help for set

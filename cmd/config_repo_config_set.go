@@ -36,6 +36,7 @@ func init() {
 	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
 	configRepoConfigSetCmd.Flags().String(repoConfigDefaultModelFlagName, "", `default Claude model for missions using this repo (e.g., "opus", "sonnet")`)
 	configRepoConfigSetCmd.Flags().String(repoConfigPostUpdateHookFlagName, "", `shell command to run after repo updates (e.g., "make setup"); empty to clear`)
+	configRepoConfigSetCmd.Flags().String(repoConfigClaudeArgsFlagName, "", `extra Claude CLI args: comma-separated (e.g., "--chrome,--verbose"); empty to clear`)
 }
 
 func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
@@ -49,10 +50,11 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName,
 		repoConfigTitleFlagName, repoConfigTrustedMcpServersFlagName,
 		repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName,
+		repoConfigClaudeArgsFlagName,
 	}
 	if !anyFlagChanged(cmd, allFlags) {
-		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, --%s, or --%s must be provided",
-			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName)
+		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, --%s, --%s, or --%s must be provided",
+			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName, repoConfigClaudeArgsFlagName)
 	}
 
 	cfg, cm, release, err := readConfigWithComments()
@@ -114,6 +116,27 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 		return nil
 	}); err != nil {
 		return stacktrace.Propagate(err, "failed to apply trusted MCP servers flag")
+	}
+
+	if err := applyStringFlag(cmd, repoConfigClaudeArgsFlagName, func(raw string) error {
+		if raw == "" {
+			rc.ClaudeArgs = nil
+		} else {
+			parts := strings.Split(raw, ",")
+			args := make([]string, 0, len(parts))
+			for _, p := range parts {
+				if s := strings.TrimSpace(p); s != "" {
+					args = append(args, s)
+				}
+			}
+			if len(args) == 0 {
+				return stacktrace.NewError("--%s: no valid args found in %q", repoConfigClaudeArgsFlagName, raw)
+			}
+			rc.ClaudeArgs = args
+		}
+		return nil
+	}); err != nil {
+		return stacktrace.Propagate(err, "failed to apply claude-args flag")
 	}
 
 	cfg.SetRepoConfig(repoName, rc)

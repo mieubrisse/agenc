@@ -124,6 +124,7 @@ const (
 	repoConfigTrustedMcpServersFlagName = "trusted-mcp-servers"
 	repoConfigDefaultModelFlagName      = "default-model"
 	repoConfigPostUpdateHookFlagName    = "post-update-hook"
+	repoConfigClaudeArgsFlagName        = "claude-args"
 
 	// mission resume flags (internal)
 	runWrapperFlagName = "run-wrapper"
