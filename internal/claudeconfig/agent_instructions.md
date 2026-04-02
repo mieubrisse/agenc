@@ -80,15 +80,17 @@ git rev-parse --is-inside-work-tree 2>/dev/null
 Cross-Repo Work
 ---------------
 
-Each mission is scoped to a single repository. When a user asks you to make changes to, investigate, or do work in a **different repository** than the one your mission is running in, spawn a new mission targeting that repo (see "Spawning Other Missions" above) rather than attempting the work from your current mission. Working in a foreign repo from within your mission bypasses isolation guarantees, risks mixing unrelated changes, and loses the ephemeral-safety net that protects work from being lost.
+Each mission is scoped to a single repository. When a user asks you to work in a **different repository** than the one your mission is running in, first check whether the repo library already has it (`{{CLI_NAME}} repo ls`). The repo library gives you immediate read-only access — no mission spawn needed for exploration, investigation, or reference reads.
+
+Only spawn a new mission when the work requires **writing** to the other repo. Working in a foreign repo from within your mission bypasses isolation guarantees, risks mixing unrelated changes, and loses the ephemeral-safety net that protects work from being lost.
 
 **When to spawn vs. when to stay:**
 
 | Situation | Action |
 |-----------|--------|
+| User asks you to explore, investigate, or understand code in another repo (no changes needed) | **Check the repo library first** (`{{CLI_NAME}} repo ls`). If the repo is there, read it directly using Read, Glob, and Grep tools — no new mission needed. Only spawn a mission if the repo is not in the library. |
+| User asks you to read another repo for reference (no changes needed) | Same as above — read directly from the repo library |
 | User asks you to modify files in another repo | Spawn a new mission targeting that repo |
-| User asks you to investigate code in another repo | Spawn a new mission targeting that repo |
-| User asks you to read another repo for reference (no changes needed) | Read directly from the repo library — no new mission needed |
 | The work is in your current repo but a different branch | Stay in your mission — use git branching |
 
 **After spawning:** Tell the user you have launched a new mission and what it will do. If the cross-repo work is a dependency for your current task, say so and explain what you are waiting on.
