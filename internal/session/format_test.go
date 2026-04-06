@@ -261,6 +261,16 @@ func TestFormatConversation(t *testing.T) {
 				"[ASSISTANT]\nHi\n",
 		},
 		{
+			name: "timestamps shown in headers",
+			jsonlContent: `{"type":"user","message":{"role":"user","content":"Hello"},"timestamp":"2026-03-16T16:06:30.476Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi"}]},"timestamp":"2026-03-16T16:06:32.123Z"}
+`,
+			n: 0,
+			want: "[2026-03-16T16:06:30.476Z USER]\nHello\n" +
+				"\n" +
+				"[2026-03-16T16:06:32.123Z ASSISTANT]\nHi\n",
+		},
+		{
 			name:         "empty file",
 			jsonlContent: "",
 			n:            0,

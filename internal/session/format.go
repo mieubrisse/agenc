@@ -20,8 +20,9 @@ const (
 
 // jsonlEntry is the minimal structure for dispatching JSONL lines by type.
 type jsonlEntry struct {
-	Type    string          `json:"type"`
-	Message json.RawMessage `json:"message"`
+	Type      string          `json:"type"`
+	Message   json.RawMessage `json:"message"`
+	Timestamp string          `json:"timestamp"`
 }
 
 // apiMessage represents a Claude API message with role and content blocks.
@@ -146,9 +147,9 @@ func formatJSONLLine(line string) string {
 
 	switch entry.Type {
 	case "user":
-		return formatUserEntry(entry.Message)
+		return formatUserEntry(entry.Message, entry.Timestamp)
 	case "assistant":
-		return formatAssistantEntry(entry.Message)
+		return formatAssistantEntry(entry.Message, entry.Timestamp)
 	default:
 		// Skip system, progress, file-history-snapshot, queue-operation,
 		// summary, custom-title, and any other non-conversation types.
@@ -157,13 +158,15 @@ func formatJSONLLine(line string) string {
 }
 
 // formatUserEntry formats a user message entry. Plain text content is shown
-// under a [USER] header. Tool result blocks with errors are shown as error
-// lines; successful tool results are skipped entirely.
-func formatUserEntry(rawMessage json.RawMessage) string {
+// under a [timestamp USER] header. Tool result blocks with errors are shown as
+// error lines; successful tool results are skipped entirely.
+func formatUserEntry(rawMessage json.RawMessage, timestamp string) string {
 	var msg apiMessage
 	if err := json.Unmarshal(rawMessage, &msg); err != nil {
 		return ""
 	}
+
+	header := formatRoleHeader("USER", timestamp)
 
 	// Try string content first (plain user text).
 	var textContent string
@@ -171,7 +174,7 @@ func formatUserEntry(rawMessage json.RawMessage) string {
 		if textContent == "" {
 			return ""
 		}
-		return "[USER]\n" + textContent + "\n"
+		return header + "\n" + textContent + "\n"
 	}
 
 	// Array content — look for user text and tool_result blocks with errors.
@@ -200,7 +203,7 @@ func formatUserEntry(rawMessage json.RawMessage) string {
 		return ""
 	}
 	if hasUserText {
-		return "[USER]\n" + strings.Join(parts, "\n") + "\n"
+		return header + "\n" + strings.Join(parts, "\n") + "\n"
 	}
 	return strings.Join(parts, "\n") + "\n"
 }
@@ -208,7 +211,7 @@ func formatUserEntry(rawMessage json.RawMessage) string {
 // formatAssistantEntry formats an assistant message entry. Text blocks are
 // rendered as-is, tool_use blocks as one-line summaries, and thinking blocks
 // are skipped.
-func formatAssistantEntry(rawMessage json.RawMessage) string {
+func formatAssistantEntry(rawMessage json.RawMessage, timestamp string) string {
 	var msg apiMessage
 	if err := json.Unmarshal(rawMessage, &msg); err != nil {
 		return ""
@@ -236,7 +239,17 @@ func formatAssistantEntry(rawMessage json.RawMessage) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "[ASSISTANT]\n" + strings.Join(parts, "\n") + "\n"
+	return formatRoleHeader("ASSISTANT", timestamp) + "\n" + strings.Join(parts, "\n") + "\n"
+}
+
+// formatRoleHeader builds the header line for a conversation entry, e.g.
+// "[2026-03-16T16:06:30.476Z USER]". If the timestamp is empty, falls back
+// to just "[USER]".
+func formatRoleHeader(role string, timestamp string) string {
+	if timestamp == "" {
+		return "[" + role + "]"
+	}
+	return "[" + timestamp + " " + role + "]"
 }
 
 // extractToolResultError extracts the error message from a tool_result content
