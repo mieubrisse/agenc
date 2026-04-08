@@ -47,6 +47,25 @@ After spawning a mission, you can check its status and read its output:
 
 Use this to wait for a spawned mission to complete before consuming its results.
 
+### Sending Input to a Running Mission
+
+To send keystrokes or text to another mission's terminal, use the `{{CLI_NAME}} mission send-keys` command — **never use raw `tmux send-keys` commands directly**. The CLI command handles mission ID resolution, pane targeting, and validation automatically.
+
+```bash
+# Send text followed by Enter to submit it
+{{CLI_NAME}} mission send-keys <mission-id> "fix the authentication bug" Enter
+
+# Send a control sequence (e.g., Ctrl+C to interrupt)
+{{CLI_NAME}} mission send-keys <mission-id> C-c
+
+# Pipe content from stdin
+echo "refactor the database layer" | {{CLI_NAME}} mission send-keys <mission-id> Enter
+```
+
+Special keys use tmux key names: `Enter`, `Escape`, `C-c`, `C-d`, `Space`, `Tab`, `Up`, `Down`, `Left`, `Right`.
+
+**Why not raw tmux?** You do not know the tmux pane IDs or session names for other missions — those are internal to AgenC. The CLI abstracts this away and ensures your keys reach the correct pane.
+
 ### Repo Library
 
 The **repo library** is AgenC's managed collection of git repositories at `{{REPO_LIBRARY_DIRPATH}}`. It contains only repos that have been explicitly registered with `{{CLI_NAME}} repo add` — it is **not** your personal code directory or any other location on disk. Do not look for repos outside this path.
