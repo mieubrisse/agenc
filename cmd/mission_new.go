@@ -115,6 +115,7 @@ func runMissionNewWithClone() error {
 		tmuxSession = getCurrentTmuxSessionName()
 	}
 
+	stopSpinner := startSpinner("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
 		Repo:        sourceMission.GitRepo,
 		Prompt:      promptFlag,
@@ -122,6 +123,7 @@ func runMissionNewWithClone() error {
 		TmuxSession: tmuxSession,
 		NoFocus:     noFocusFlag,
 	})
+	stopSpinner()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
 	}
@@ -225,12 +227,14 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		tmuxSession = getCurrentTmuxSessionName()
 	}
 
+	stopSpinner := startSpinner("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
 		Adjutant:    true,
 		Prompt:      initialPrompt,
 		TmuxSession: tmuxSession,
 		NoFocus:     noFocusFlag,
 	})
+	stopSpinner()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create adjutant mission")
 	}
@@ -362,6 +366,7 @@ func createAndLaunchMission(
 		tmuxSession = getCurrentTmuxSessionName()
 	}
 
+	stopSpinner := startSpinner("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
 		Repo:           gitRepoName,
 		Prompt:         initialPrompt,
@@ -371,6 +376,7 @@ func createAndLaunchMission(
 		SourceMetadata: sourceMetadataFlag,
 		NoFocus:        noFocusFlag,
 	})
+	stopSpinner()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
 	}

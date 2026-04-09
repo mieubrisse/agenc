@@ -76,7 +76,6 @@ func (s *Server) runIdleTimeoutCycle() {
 
 		// Skip missions whose tmux pane is linked into a user session
 		if m.TmuxPane != nil && linkedPaneIDs[*m.TmuxPane] {
-			s.logger.Printf("Idle timeout: skipping mission %s (linked into user session, idle for %s)", database.ShortID(m.ID), idleDuration.Round(time.Second))
 			continue
 		}
 
