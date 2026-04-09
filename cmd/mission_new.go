@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -197,6 +197,9 @@ func launchFromLibrarySelection(selection *repoLibraryEntry) error {
 		if err != nil {
 			return err
 		}
+		if result == nil {
+			return nil // user cancelled
+		}
 		return createAndLaunchMission(result.RepoName, promptFlag)
 	}
 
@@ -384,8 +387,8 @@ func createAndLaunchMission(
 }
 
 // promptForRepoLocator interactively prompts the user for a repo locator,
-// printing the accepted formats and looping on invalid input. Returns the
-// resolved repo result ready for mission creation.
+// printing the accepted formats and looping on invalid input. Returns nil, nil
+// when the user cancels with ESC or Ctrl+C.
 func promptForRepoLocator() (*repo.RepoResolutionResult, error) {
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
@@ -395,17 +398,17 @@ func promptForRepoLocator() (*repo.RepoResolutionResult, error) {
 	fmt.Println()
 	printRepoFormatHelp()
 
-	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print("\nRepo: ")
-		input, err := reader.ReadString('\n')
+		input, err := readRawLine("\nRepo (ESC to cancel): ")
 		if err != nil {
+			if errors.Is(err, errPromptCancelled) {
+				return nil, nil
+			}
 			return nil, stacktrace.Propagate(err, "failed to read input")
 		}
-		input = strings.TrimSpace(input)
 
 		if input == "" {
-			fmt.Println("No repo provided. Please enter a repo reference or press Ctrl-C to cancel.")
+			fmt.Println("No repo provided. Please enter a repo reference or press ESC to cancel.")
 			continue
 		}
 
