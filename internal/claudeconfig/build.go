@@ -38,7 +38,7 @@ var TrackableItemNames = []string{
 // applies AgenC modifications (merged CLAUDE.md, merged settings.json with
 // hooks), copies and patches .claude.json, dumps credentials, and symlinks
 // plugins to ~/.claude/plugins.
-func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServers *config.TrustedMcpServers) error {
+func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServers *config.TrustedMcpServers, containerized bool) error {
 	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	claudeConfigDirpath := filepath.Join(missionDirpath, MissionClaudeConfigDirname)
@@ -76,7 +76,7 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 	}
 
 	// settings.json: merge user settings + agenc modifications + hooks/deny
-	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID); err != nil {
+	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID, containerized); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged settings.json")
 	}
 
@@ -93,8 +93,7 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 		return stacktrace.Propagate(err, "failed to copy and patch .claude.json")
 	}
 
-	// Symlink directories to ~/.claude/ so all missions share centralized
-	// state rather than fragmenting caches, telemetry, and session data.
+	// Directories that link to ~/.claude/ for shared state across missions.
 	symlinkDirNames := []string{
 		"plugins",         // IDE plugins
 		"projects",        // conversation transcripts, subagent logs, auto-memory
@@ -111,9 +110,24 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 		"backups",         // config backup files
 		"paste-cache",     // paste buffer cache
 	}
-	for _, dirName := range symlinkDirNames {
-		if err := symlinkToGlobalClaudeDir(claudeConfigDirpath, dirName); err != nil {
-			return stacktrace.Propagate(err, "failed to symlink %s", dirName)
+
+	if containerized {
+		// For containerized missions, create empty directories instead of symlinks.
+		// Bind mounts from the host will overlay these at container start.
+		for _, dirName := range symlinkDirNames {
+			dirPath := filepath.Join(claudeConfigDirpath, dirName)
+			_ = os.RemoveAll(dirPath)
+			if err := os.MkdirAll(dirPath, 0700); err != nil {
+				return stacktrace.Propagate(err, "failed to create directory '%s' for containerized mission", dirName)
+			}
+		}
+	} else {
+		// Non-containerized: symlink to ~/.claude/ so all missions share centralized
+		// state rather than fragmenting caches, telemetry, and session data.
+		for _, dirName := range symlinkDirNames {
+			if err := symlinkToGlobalClaudeDir(claudeConfigDirpath, dirName); err != nil {
+				return stacktrace.Propagate(err, "failed to symlink %s", dirName)
+			}
 		}
 	}
 
@@ -218,7 +232,7 @@ func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirp
 // buildMergedSettings reads user settings from shadow repo and agenc
 // modifications, deep-merges them, adds agenc hooks/deny, then selectively
 // rewrites paths (preserving permission entries). Writes to dest.
-func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string, missionID string) error {
+func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string, missionID string, containerized bool) error {
 	destFilepath := filepath.Join(destDirpath, "settings.json")
 
 	userSettingsData, err := os.ReadFile(filepath.Join(shadowDirpath, "settings.json"))
@@ -240,7 +254,7 @@ func buildMergedSettings(shadowDirpath string, agencModsDirpath string, destDirp
 	}
 
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
-	mergedData, err := MergeSettings(userSettingsData, modsSettingsData, agencDirpath, agentDirpath, destDirpath)
+	mergedData, err := MergeSettings(userSettingsData, modsSettingsData, agencDirpath, agentDirpath, destDirpath, containerized)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to merge settings")
 	}

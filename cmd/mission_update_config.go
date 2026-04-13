@@ -192,7 +192,8 @@ func updateMissionConfig(client *server.Client, missionID string, newCommitHash 
 	}
 
 	// Rebuild per-mission config directory from shadow repo
-	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers); err != nil {
+	isContainerized := false // TODO: detect from mission state when containerization is fully integrated
+	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers, isContainerized); err != nil {
 		return stacktrace.Propagate(err, "failed to rebuild config for mission '%s'", missionID)
 	}
 

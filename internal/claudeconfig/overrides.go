@@ -2,6 +2,7 @@ package claudeconfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,11 +31,27 @@ var agencHookEventNames = []string{
 // wrapper's unix socket for state tracking and tmux pane coloring.
 var AgencHookEntries map[string]json.RawMessage
 
+// ContainerHookEntries maps each hook event name to the JSON hook group used
+// in containerized missions. These hooks use curl to reach the wrapper socket
+// (bind-mounted at $AGENC_WRAPPER_SOCKET) instead of the agenc CLI binary,
+// which is not available inside the container.
+var ContainerHookEntries map[string]json.RawMessage
+
 func init() {
 	AgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
 	for _, eventName := range agencHookEventNames {
 		entry := `[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID ` + eventName + `"}]}]`
 		AgencHookEntries[eventName] = json.RawMessage(entry)
+	}
+
+	ContainerHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
+	for _, eventName := range agencHookEventNames {
+		cmd := fmt.Sprintf(
+			`curl -s --unix-socket $AGENC_WRAPPER_SOCKET -X POST http://w/claude-update/%s -H "Content-Type: application/json" -d @- -o /dev/null || true`,
+			eventName,
+		)
+		entry := fmt.Sprintf(`[{"hooks":[{"type":"command","command":"%s"}]}]`, cmd)
+		ContainerHookEntries[eventName] = json.RawMessage(entry)
 	}
 }
 

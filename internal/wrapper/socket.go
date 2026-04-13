@@ -88,6 +88,7 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 	mux.HandleFunc("GET /status", handleStatus(w))
 	mux.HandleFunc("POST /restart", handleRestart(w, logger))
 	mux.HandleFunc("POST /claude-update", handleClaudeUpdateHTTP(w, logger))
+	mux.HandleFunc("POST /claude-update/{event}", handleClaudeUpdateWithPathEvent(w, logger))
 
 	server := &http.Server{
 		Handler:      mux,
@@ -169,6 +170,42 @@ func handleClaudeUpdateHTTP(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
 		cmd := Command{
 			Command:          "claude_update",
 			Event:            req.Event,
+			NotificationType: req.NotificationType,
+		}
+
+		resp := sendCommandAndWait(w.commandCh, cmd)
+		writeCommandResponse(rw, http.StatusOK, resp)
+	}
+}
+
+// handleClaudeUpdateWithPathEvent handles POST /claude-update/{event} used by
+// containerized missions. The event type is in the URL path instead of the JSON
+// body, since container hooks use curl with the event in the URL.
+func handleClaudeUpdateWithPathEvent(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
+	return func(rw http.ResponseWriter, r *http.Request) {
+		event := r.PathValue("event")
+		if event == "" {
+			writeCommandResponse(rw, http.StatusBadRequest, CommandResponse{
+				Status: "error",
+				Error:  "missing event in path",
+			})
+			return
+		}
+
+		// Read optional body (Claude hook stdin forwarded as-is)
+		var req ClaudeUpdateRequest
+		if r.ContentLength > 0 {
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				// Body might not be valid JSON — that's okay for some hooks
+				logger.Debug("Could not parse hook body", "event", event, "error", err)
+			}
+		}
+
+		logger.Info("Received claude_update request (path)", "event", event, "notification_type", req.NotificationType)
+
+		cmd := Command{
+			Command:          "claude_update",
+			Event:            event,
 			NotificationType: req.NotificationType,
 		}
 

@@ -222,7 +222,7 @@ func MergeClaudeMd(userContent []byte, modsContent []byte) []byte {
 // Returns the final merged JSON bytes. agentDirpath is the mission's working
 // directory to allow access to. claudeConfigDirpath is the per-mission config
 // directory that should be denied from agent access.
-func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string) ([]byte, error) {
+func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string, containerized bool) ([]byte, error) {
 	// Default to empty objects if nil
 	if userSettingsData == nil {
 		userSettingsData = []byte("{}")
@@ -255,7 +255,7 @@ func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpat
 	}
 
 	// Append agenc operational overrides (hooks + allow/deny permissions)
-	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath, agentDirpath, claudeConfigDirpath)
+	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath, agentDirpath, claudeConfigDirpath, containerized)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to merge settings with agenc overrides")
 	}
@@ -265,7 +265,7 @@ func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpat
 
 // mergeAgencHooks reads the existing hooks map from settings, appends the agenc
 // hook entries, and returns the merged hooks as a json.RawMessage.
-func mergeAgencHooks(settings map[string]json.RawMessage) (json.RawMessage, error) {
+func mergeAgencHooks(settings map[string]json.RawMessage, hookEntries map[string]json.RawMessage) (json.RawMessage, error) {
 	var hooksMap map[string]json.RawMessage
 	if existingHooks, ok := settings["hooks"]; ok {
 		if err := json.Unmarshal(existingHooks, &hooksMap); err != nil {
@@ -275,7 +275,7 @@ func mergeAgencHooks(settings map[string]json.RawMessage) (json.RawMessage, erro
 		hooksMap = make(map[string]json.RawMessage)
 	}
 
-	for hookName, agencEntriesRaw := range AgencHookEntries {
+	for hookName, agencEntriesRaw := range hookEntries {
 		var agencArray []json.RawMessage
 		if err := json.Unmarshal(agencEntriesRaw, &agencArray); err != nil {
 			return nil, stacktrace.Propagate(err, "failed to parse agenc hook entries for '%s'", hookName)
@@ -360,13 +360,18 @@ func mergeAgencPermissions(settings map[string]json.RawMessage, agencDirpath str
 // bytes. The existing hooks and permissions are preserved; agenc entries are
 // appended. agentDirpath is the mission's working directory to allow access to.
 // claudeConfigDirpath is the per-mission config directory to deny agent access to.
-func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string) ([]byte, error) {
+func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string, containerized bool) ([]byte, error) {
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal(settingsData, &settings); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse settings JSON")
 	}
 
-	mergedHooks, err := mergeAgencHooks(settings)
+	hookEntries := AgencHookEntries
+	if containerized {
+		hookEntries = ContainerHookEntries
+	}
+
+	mergedHooks, err := mergeAgencHooks(settings, hookEntries)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "")
 	}

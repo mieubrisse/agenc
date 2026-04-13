@@ -50,7 +50,8 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 	}
 
 	// Build per-mission claude config directory from shadow repo
-	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers); err != nil {
+	isContainerized := false // containerization is set up later by the wrapper
+	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers, isContainerized); err != nil {
 		return "", stacktrace.Propagate(err, "failed to build per-mission claude config directory")
 	}
 
