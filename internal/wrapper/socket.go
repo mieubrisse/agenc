@@ -89,6 +89,7 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 	mux.HandleFunc("POST /restart", handleRestart(w, logger))
 	mux.HandleFunc("POST /claude-update", handleClaudeUpdateHTTP(w, logger))
 	mux.HandleFunc("POST /claude-update/{event}", handleClaudeUpdateWithPathEvent(w, logger))
+	mux.HandleFunc("POST /rebuild", handleRebuild(w, logger))
 
 	server := &http.Server{
 		Handler:      mux,
@@ -171,6 +172,21 @@ func handleClaudeUpdateHTTP(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
 			Command:          "claude_update",
 			Event:            req.Event,
 			NotificationType: req.NotificationType,
+		}
+
+		resp := sendCommandAndWait(w.commandCh, cmd)
+		writeCommandResponse(rw, http.StatusOK, resp)
+	}
+}
+
+// handleRebuild sends a rebuild command through the event loop channel and
+// waits for the response.
+func handleRebuild(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
+	return func(rw http.ResponseWriter, r *http.Request) {
+		logger.Info("Received rebuild request")
+
+		cmd := Command{
+			Command: "rebuild",
 		}
 
 		resp := sendCommandAndWait(w.commandCh, cmd)

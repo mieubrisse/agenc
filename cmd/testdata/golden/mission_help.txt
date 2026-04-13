@@ -12,6 +12,7 @@ Available Commands:
   new         Create a new mission and launch claude
   nuke        Stop and permanently remove ALL missions
   print       Print a mission's current session transcript (human-readable text by default)
+  rebuild     Rebuild the devcontainer for a containerized mission
   reconfig    Apply your latest ~/.claude config to a mission
   reload      Reload one or more missions in-place (preserves tmux pane)
   rename      Rename the active session's window title for a mission

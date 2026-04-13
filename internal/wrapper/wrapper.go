@@ -101,6 +101,10 @@ type Wrapper struct {
 	// the same global credential update twice.
 	lastDownwardSyncTimestamp float64
 
+	// devcontainer holds the state for containerized missions. Nil when the
+	// mission's repo does not have a devcontainer.json.
+	devcontainer *devcontainerState
+
 	// Window coloring configuration for tmux state feedback. Read from config.yml at startup.
 	// Empty strings mean that specific color setting is disabled.
 	windowBusyBackgroundColor      string
@@ -243,6 +247,29 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 	go w.watchCredentialUpwardSync(ctx)
 	go w.watchCredentialDownwardSync(ctx)
 
+	// Detect and setup devcontainer (after socket server is started so wrapper.sock exists)
+	dcState, dcErr := w.detectAndSetupDevcontainer()
+	if dcErr != nil {
+		cancel()
+		signal.Stop(sigCh)
+		logFile.Close()
+		_ = os.Remove(pidFilepath)
+		return nil, nil, stacktrace.Propagate(dcErr, "devcontainer setup failed")
+	}
+	w.devcontainer = dcState
+
+	if dcState != nil {
+		w.logger.Info("Starting devcontainer", "config", dcState.mergedConfigPath)
+		if upErr := devcontainerUp(dcState); upErr != nil {
+			cancel()
+			signal.Stop(sigCh)
+			logFile.Close()
+			_ = os.Remove(pidFilepath)
+			return nil, nil, stacktrace.Propagate(upErr, "devcontainer up failed")
+		}
+		w.logger.Info("Devcontainer started successfully")
+	}
+
 	// Track whether a resumable conversation exists. For resumes, one already
 	// exists. For new missions, we start with false and flip to true when the
 	// first UserPromptSubmit hook fires.
@@ -283,6 +310,12 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 	cleanup := func() {
 		w.resetWindowTabStyle()
 		w.writeBackCredentials()
+		if w.devcontainer != nil {
+			w.logger.Info("Stopping devcontainer")
+			if stopErr := devcontainerStop(w.devcontainer); stopErr != nil {
+				w.logger.Error("Failed to stop devcontainer", "error", stopErr)
+			}
+		}
 		signal.Stop(sigCh)
 		cancel()
 		_ = os.Remove(pidFilepath)
@@ -296,7 +329,32 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 // or starting fresh. When isResume is true and a valid session exists, it
 // resumes that session; otherwise it starts a new conversation. For non-resume
 // spawns, the wrapper's initialPrompt is passed to Claude.
+//
+// For containerized missions, claude-config is regenerated with container mode
+// before each spawn, and Claude is launched via `devcontainer exec` instead of
+// running the binary directly.
 func (w *Wrapper) spawnClaude(isResume bool) error {
+	isContainerized := w.devcontainer != nil
+
+	// Regenerate claude-config before every containerized spawn so the
+	// latest global config takes effect on reload.
+	if isContainerized {
+		trustedMcpServers := w.loadTrustedMcpServers()
+		if err := claudeconfig.BuildMissionConfigDir(
+			w.agencDirpath, w.missionID, trustedMcpServers, isContainerized,
+		); err != nil {
+			return stacktrace.Propagate(err, "failed to regenerate claude-config for containerized mission")
+		}
+	}
+
+	if isContainerized {
+		return w.spawnClaudeInContainer(isResume)
+	}
+	return w.spawnClaudeDirectly(isResume)
+}
+
+// spawnClaudeDirectly spawns Claude as a local process (non-containerized path).
+func (w *Wrapper) spawnClaudeDirectly(isResume bool) error {
 	var cmd *exec.Cmd
 	var err error
 
@@ -316,6 +374,52 @@ func (w *Wrapper) spawnClaude(isResume bool) error {
 	}
 	w.claudeCmd = cmd
 	return nil
+}
+
+// spawnClaudeInContainer spawns Claude inside the devcontainer via
+// `devcontainer exec`. Env vars and config are set via bind mounts and
+// containerEnv in the devcontainer.json, not on the local exec.Cmd.
+func (w *Wrapper) spawnClaudeInContainer(isResume bool) error {
+	// Build the claude args the same way the direct spawn does
+	var claudeArgs []string
+	if w.defaultModel != "" {
+		claudeArgs = append(claudeArgs, "--model", w.defaultModel)
+	}
+	claudeArgs = append(claudeArgs, w.claudeArgs...)
+
+	if isResume {
+		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
+		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
+			claudeArgs = append(claudeArgs, "-r", sessionID)
+		}
+		// If no session to resume, start fresh (no extra args)
+	} else if w.initialPrompt != "" {
+		claudeArgs = append(claudeArgs, w.initialPrompt)
+	}
+
+	cmd := devcontainerExecClaude(w.devcontainer, claudeArgs)
+	if err := cmd.Start(); err != nil {
+		return stacktrace.Propagate(err, "failed to start claude in devcontainer")
+	}
+
+	w.claudeCmd = cmd
+	return nil
+}
+
+// loadTrustedMcpServers reads the MCP trust configuration for this mission's repo.
+func (w *Wrapper) loadTrustedMcpServers() *config.TrustedMcpServers {
+	if w.gitRepoName == "" {
+		return nil
+	}
+	cfg, _, err := config.ReadAgencConfig(w.agencDirpath)
+	if err != nil {
+		return nil
+	}
+	rc, ok := cfg.GetRepoConfig(w.gitRepoName)
+	if !ok {
+		return nil
+	}
+	return rc.TrustedMcpServers
 }
 
 // Run executes the wrapper lifecycle. For a new mission, pass isResume=false.
@@ -422,9 +526,59 @@ func (w *Wrapper) handleCommand(cmd Command) CommandResponse {
 		return w.handleRestartCommand(cmd)
 	case "claude_update":
 		return w.handleClaudeUpdate(cmd)
+	case "rebuild":
+		return w.handleRebuildCommand()
 	default:
 		return CommandResponse{Status: "error", Error: "unknown command: " + cmd.Command}
 	}
+}
+
+// handleRebuildCommand tears down and rebuilds the devcontainer, then triggers
+// a Claude restart. Only valid for containerized missions.
+func (w *Wrapper) handleRebuildCommand() CommandResponse {
+	if w.devcontainer == nil {
+		return CommandResponse{Status: "error", Error: "mission is not containerized"}
+	}
+
+	w.logger.Info("Rebuild requested, stopping Claude and rebuilding container")
+
+	// Kill current Claude process — this will trigger a claude exit event.
+	// We set state to stateRestarting so handleClaudeExit respawns Claude.
+	w.stateMu.Lock()
+	w.state = stateRestarting
+	w.hasConversation = false
+	w.stateMu.Unlock()
+
+	if w.claudeCmd != nil && w.claudeCmd.Process != nil {
+		_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
+		// Wait for Claude to exit before rebuilding
+		<-w.claudeExited
+	}
+
+	// Rebuild the container
+	if err := devcontainerRebuild(w.devcontainer); err != nil {
+		w.logger.Error("Devcontainer rebuild failed", "error", err)
+		return CommandResponse{Status: "error", Error: "rebuild failed: " + err.Error()}
+	}
+
+	// Respawn Claude in the rebuilt container
+	if err := w.spawnClaude(false); err != nil {
+		w.logger.Error("Failed to respawn Claude after rebuild", "error", err)
+		return CommandResponse{Status: "error", Error: "respawn failed: " + err.Error()}
+	}
+
+	// Wait on the new Claude process
+	go func() {
+		w.claudeExited <- w.claudeCmd.Wait()
+	}()
+
+	w.stateMu.Lock()
+	w.state = stateRunning
+	w.pendingRestart = nil
+	w.stateMu.Unlock()
+
+	w.logger.Info("Devcontainer rebuild complete, Claude respawned", "pid", w.claudeCmd.Process.Pid)
+	return CommandResponse{Status: "ok"}
 }
 
 // handleRestartCommand processes a restart command. Idempotent: if a restart is

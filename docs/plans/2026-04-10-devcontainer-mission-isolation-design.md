@@ -142,7 +142,7 @@ AgenC reads the repo's devcontainer.json, adds its overlay (mounts, env vars), a
 
 **CLI invocation**: `devcontainer up --workspace-folder <agent-dir> --config <merged-config-path>`
 
-**TODO**: Research whether the devcontainer CLI supports an `--override-config` flag or similar mechanism that would allow passing additional mounts/env via CLI flags, eliminating the need for the merge entirely. Fall back to the merge approach if no such flag exists.
+**Research result (Task 11)**: The devcontainer CLI supports `--mount` (repeatable, additive) and `--remote-env` (repeatable) flags that could inject mounts/env without JSON merge. However, `--override-config` replaces the config entirely (not a merge). Mount ordering matters for the read-only overlay pattern (CLAUDE.md/settings.json mounted atop claude-config directory), and `--remote-env` sets `remoteEnv` not `containerEnv`. The JSON merge approach is retained for reliability, particularly to guarantee mount ordering for the overlay pattern. The CLI flags may be adopted as a simplification in a future iteration.
 
 **Merge rules:**
 

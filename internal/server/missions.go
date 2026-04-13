@@ -13,9 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"path/filepath"
+
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/devcontainer"
 	"github.com/odyssey/agenc/internal/mission"
 )
 
@@ -543,6 +546,20 @@ func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) err
 	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, resolvedID)
 	if err := claudeconfig.DeleteKeychainCredentials(claudeConfigDirpath); err != nil {
 		s.logger.Printf("Warning: failed to delete Keychain credentials for mission %s: %v", id, err)
+	}
+
+	// Stop and remove devcontainer if the mission had one
+	agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, resolvedID)
+	if _, found := devcontainer.DetectDevcontainer(agentDirpath); found {
+		missionDirpath := config.GetMissionDirpath(s.agencDirpath, resolvedID)
+		mergedConfigPath := filepath.Join(missionDirpath, "devcontainer.json")
+		stopCmd := exec.Command("devcontainer", "stop",
+			"--workspace-folder", agentDirpath,
+			"--config", mergedConfigPath,
+		)
+		if stopErr := stopCmd.Run(); stopErr != nil {
+			s.logger.Printf("Warning: failed to stop devcontainer for mission %s: %v", id, stopErr)
+		}
 	}
 
 	// Remove the mission directory

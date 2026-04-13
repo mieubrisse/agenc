@@ -86,6 +86,18 @@ func (c *WrapperClient) SendClaudeUpdate(event, notificationType string) error {
 	return nil
 }
 
+// Rebuild sends a rebuild command to the wrapper.
+func (c *WrapperClient) Rebuild() error {
+	cmdResp, err := c.postCommand("/rebuild", struct{}{})
+	if err != nil {
+		return err
+	}
+	if cmdResp.Status == "error" {
+		return stacktrace.NewError("wrapper rebuild failed: %s", cmdResp.Error)
+	}
+	return nil
+}
+
 // postCommand sends a POST request with a JSON body and decodes the
 // CommandResponse. Returns ErrWrapperNotRunning on connection errors.
 func (c *WrapperClient) postCommand(path string, body any) (*CommandResponse, error) {
