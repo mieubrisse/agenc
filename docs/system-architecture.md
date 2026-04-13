@@ -397,6 +397,14 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane guard. Prepends per-mission emoji (from config, or hardcoded 🤖 for adjutant / 🦀 for blank missions) with fixed-column-4 padding via `go-runewidth`
 - `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
 
+### `internal/devcontainer/`
+
+Devcontainer detection, configuration overlay, and project path encoding for containerized missions.
+
+- `detection.go` — `DetectDevcontainer` checks repo for devcontainer.json in two spec-defined locations (`.devcontainer/devcontainer.json` preferred, `.devcontainer.json` fallback)
+- `project_path_encoding.go` — `EncodeProjectPath` replicates Claude Code's path encoding (replace `/` and `.` with `-`), `ComputeSessionBindMount` computes host↔container project directory name mapping for session bind mounts
+- `overlay.go` — `GenerateOverlay` reads repo's devcontainer.json, merges AgenC operational plumbing (mounts, env vars), absolutizes relative paths, writes merged config
+
 ### `internal/database/`
 
 SQLite mission tracking with auto-migration.
