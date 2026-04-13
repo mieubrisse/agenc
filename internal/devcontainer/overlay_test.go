@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -192,7 +193,7 @@ func TestGenerateOverlay_DefaultWorkspaceFolder(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if contains(s, expectedContainerEncoded) {
+		if strings.Contains(s, expectedContainerEncoded) {
 			hasSessionMount = true
 			break
 		}
@@ -200,15 +201,66 @@ func TestGenerateOverlay_DefaultWorkspaceFolder(t *testing.T) {
 	require.True(t, hasSessionMount, "expected session bind mount with default /workspaces encoding")
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
+func TestGenerateOverlay_RemoteUserMountPaths(t *testing.T) {
+	repoDir := t.TempDir()
+	configPath := writeDevcontainerJSON(t, repoDir, `{
+		"image": "ubuntu:22.04",
+		"remoteUser": "vscode"
+	}`)
 
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
+	params := newTestParams(t, configPath)
+	require.NoError(t, GenerateOverlay(params))
+
+	result := readOutputAsMap(t, params.OutputPath)
+	mounts := result["mounts"].([]interface{})
+
+	// Verify mounts target /home/vscode/.claude, not /home/user/.claude
+	hasCorrectTarget := false
+	for _, m := range mounts {
+		s, ok := m.(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(s, "/home/vscode/.claude") {
+			hasCorrectTarget = true
+			break
 		}
 	}
-	return false
+	require.True(t, hasCorrectTarget, "mounts should target /home/vscode/.claude for remoteUser=vscode")
+
+	// Verify no mount targets /home/user/.claude
+	for _, m := range mounts {
+		s, ok := m.(string)
+		if !ok {
+			continue
+		}
+		require.False(t, strings.Contains(s, "/home/user/.claude"),
+			"should not have /home/user/.claude when remoteUser=vscode, got: %s", s)
+	}
+}
+
+func TestGenerateOverlay_RootUserMountPaths(t *testing.T) {
+	repoDir := t.TempDir()
+	// No remoteUser — defaults to root
+	configPath := writeDevcontainerJSON(t, repoDir, `{"image": "ubuntu:22.04"}`)
+
+	params := newTestParams(t, configPath)
+	require.NoError(t, GenerateOverlay(params))
+
+	result := readOutputAsMap(t, params.OutputPath)
+	mounts := result["mounts"].([]interface{})
+
+	// Default user is root, so mounts should target /root/.claude
+	hasRootTarget := false
+	for _, m := range mounts {
+		s, ok := m.(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(s, "/root/.claude") {
+			hasRootTarget = true
+			break
+		}
+	}
+	require.True(t, hasRootTarget, "mounts should target /root/.claude when no remoteUser is set")
 }

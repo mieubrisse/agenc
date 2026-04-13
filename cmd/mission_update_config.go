@@ -13,6 +13,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/devcontainer"
 	"github.com/odyssey/agenc/internal/server"
 )
 
@@ -191,8 +192,11 @@ func updateMissionConfig(client *server.Client, missionID string, newCommitHash 
 		}
 	}
 
+	// Detect containerization from the mission's repo
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+	_, isContainerized := devcontainer.DetectDevcontainer(agentDirpath)
+
 	// Rebuild per-mission config directory from shadow repo
-	isContainerized := false // TODO: detect from mission state when containerization is fully integrated
 	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers, isContainerized); err != nil {
 		return stacktrace.Propagate(err, "failed to rebuild config for mission '%s'", missionID)
 	}

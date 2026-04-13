@@ -78,8 +78,11 @@ func GenerateOverlay(params OverlayParams) error {
 		return fmt.Errorf("creating host project directory '%s': %w", hostProjectDir, err)
 	}
 
+	// Compute container home path from remoteUser/containerUser
+	containerHome := getContainerHomePath(config)
+
 	// Build AgenC mounts
-	agencMounts := buildAgencMounts(params, sessionMount, homeDir)
+	agencMounts := buildAgencMounts(params, sessionMount, homeDir, containerHome)
 
 	// Concatenate mounts (repo's first, then AgenC's)
 	existingMounts := getMountsFromConfig(config)
@@ -173,8 +176,32 @@ func getWorkspaceFolder(config map[string]interface{}) string {
 	return "/workspaces"
 }
 
-func buildAgencMounts(params OverlayParams, sessionMount SessionBindMount, homeDir string) []interface{} {
+// getContainerHomePath computes the home directory path inside the container
+// based on the remoteUser/containerUser from devcontainer.json. The devcontainer
+// spec checks remoteUser first, then containerUser, then defaults to "root".
+func getContainerHomePath(config map[string]interface{}) string {
+	user := ""
+	if ru, ok := config["remoteUser"]; ok {
+		if s, ok := ru.(string); ok {
+			user = s
+		}
+	}
+	if user == "" {
+		if cu, ok := config["containerUser"]; ok {
+			if s, ok := cu.(string); ok {
+				user = s
+			}
+		}
+	}
+	if user == "" || user == "root" {
+		return "/root"
+	}
+	return "/home/" + user
+}
+
+func buildAgencMounts(params OverlayParams, sessionMount SessionBindMount, homeDir string, containerHome string) []interface{} {
 	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects")
+	containerClaudeDir := containerHome + "/.claude"
 
 	// Directories from host ~/.claude/ to bind-mount into container
 	sharedClaudeDirs := []string{
@@ -183,14 +210,14 @@ func buildAgencMounts(params OverlayParams, sessionMount SessionBindMount, homeD
 
 	mounts := []interface{}{
 		// Claude config as ~/.claude (read-write base for .claude.json etc)
-		fmt.Sprintf("source=%s,target=/home/user/.claude,type=bind", params.ClaudeConfigDirpath),
+		fmt.Sprintf("source=%s,target=%s,type=bind", params.ClaudeConfigDirpath, containerClaudeDir),
 		// CLAUDE.md read-only overlay
-		fmt.Sprintf("source=%s/CLAUDE.md,target=/home/user/.claude/CLAUDE.md,type=bind,readonly", params.ClaudeConfigDirpath),
+		fmt.Sprintf("source=%s/CLAUDE.md,target=%s/CLAUDE.md,type=bind,readonly", params.ClaudeConfigDirpath, containerClaudeDir),
 		// settings.json read-only overlay
-		fmt.Sprintf("source=%s/settings.json,target=/home/user/.claude/settings.json,type=bind,readonly", params.ClaudeConfigDirpath),
+		fmt.Sprintf("source=%s/settings.json,target=%s/settings.json,type=bind,readonly", params.ClaudeConfigDirpath, containerClaudeDir),
 		// Session projects encoding translation
-		fmt.Sprintf("source=%s/%s,target=/home/user/.claude/projects/%s,type=bind",
-			claudeProjectsDir, sessionMount.HostProjectDirName, sessionMount.ContainerProjectDirName),
+		fmt.Sprintf("source=%s/%s,target=%s/projects/%s,type=bind",
+			claudeProjectsDir, sessionMount.HostProjectDirName, containerClaudeDir, sessionMount.ContainerProjectDirName),
 		// Wrapper socket
 		fmt.Sprintf("source=%s,target=%s,type=bind", params.WrapperSocketPath, ContainerWrapperSocketPath),
 	}
@@ -199,7 +226,7 @@ func buildAgencMounts(params OverlayParams, sessionMount SessionBindMount, homeD
 	for _, dirName := range sharedClaudeDirs {
 		hostDir := filepath.Join(homeDir, ".claude", dirName)
 		mounts = append(mounts, fmt.Sprintf(
-			"source=%s,target=/home/user/.claude/%s,type=bind", hostDir, dirName))
+			"source=%s,target=%s/%s,type=bind", hostDir, containerClaudeDir, dirName))
 	}
 
 	return mounts

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/devcontainer"
 )
@@ -32,7 +33,7 @@ func (w *Wrapper) detectAndSetupDevcontainer() (*devcontainerState, error) {
 
 	missionDirpath := config.GetMissionDirpath(w.agencDirpath, w.missionID)
 	mergedConfigPath := filepath.Join(missionDirpath, "devcontainer.json")
-	claudeConfigDirpath := filepath.Join(missionDirpath, "claude-config")
+	claudeConfigDirpath := filepath.Join(missionDirpath, claudeconfig.MissionClaudeConfigDirname)
 	wrapperSocketPath := config.GetMissionSocketFilepath(w.agencDirpath, w.missionID)
 
 	oauthToken, err := config.ReadOAuthToken(w.agencDirpath)
