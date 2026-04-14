@@ -558,12 +558,20 @@ func (w *Wrapper) handleRebuildCommand() CommandResponse {
 	// Rebuild the container
 	if err := devcontainerRebuild(w.devcontainer); err != nil {
 		w.logger.Error("Devcontainer rebuild failed", "error", err)
+		// Reset state so the wrapper isn't stuck in stateRestarting with no Claude
+		w.stateMu.Lock()
+		w.state = stateRunning
+		w.stateMu.Unlock()
 		return CommandResponse{Status: "error", Error: "rebuild failed: " + err.Error()}
 	}
 
 	// Respawn Claude in the rebuilt container
 	if err := w.spawnClaude(false); err != nil {
 		w.logger.Error("Failed to respawn Claude after rebuild", "error", err)
+		// Reset state so the wrapper isn't stuck in stateRestarting with no Claude
+		w.stateMu.Lock()
+		w.state = stateRunning
+		w.stateMu.Unlock()
 		return CommandResponse{Status: "error", Error: "respawn failed: " + err.Error()}
 	}
 

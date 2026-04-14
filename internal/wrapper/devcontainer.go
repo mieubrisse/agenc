@@ -13,9 +13,6 @@ import (
 
 // devcontainerState holds the state needed for devcontainer lifecycle management.
 type devcontainerState struct {
-	// repoConfigPath is the path to the repo's devcontainer.json
-	repoConfigPath string
-
 	// mergedConfigPath is the path to the AgenC-merged devcontainer.json
 	mergedConfigPath string
 
@@ -57,7 +54,6 @@ func (w *Wrapper) detectAndSetupDevcontainer() (*devcontainerState, error) {
 	}
 
 	return &devcontainerState{
-		repoConfigPath:   repoConfigPath,
 		mergedConfigPath: mergedConfigPath,
 		agentDirpath:     w.agentDirpath,
 	}, nil
