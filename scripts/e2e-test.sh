@@ -136,6 +136,33 @@ run_test_no_crash "repo ls does not crash" \
     "${agenc_test}" repo ls
 
 echo ""
+echo "--- Repo mv (requires server + network) ---"
+# Add a small public repo, move it, verify, clean up
+run_test "repo add for mv test" \
+    0 \
+    "${agenc_test}" repo add mieubrisse/stacktrace
+
+run_test_output_contains "repo ls shows added repo" \
+    "mieubrisse/stacktrace" \
+    "${agenc_test}" repo ls
+
+run_test "repo mv succeeds" \
+    0 \
+    "${agenc_test}" repo mv mieubrisse/stacktrace mieubrisse/stacktrace-renamed
+
+run_test_output_contains "repo ls shows new name" \
+    "mieubrisse/stacktrace-renamed" \
+    "${agenc_test}" repo ls
+
+run_test "repo mv nonexistent fails" \
+    1 \
+    "${agenc_test}" repo mv nonexistent/repo foo/bar
+
+run_test "repo rm cleans up renamed repo" \
+    0 \
+    "${agenc_test}" repo rm github.com/mieubrisse/stacktrace-renamed
+
+echo ""
 echo "--- Config commands ---"
 run_test "config --help succeeds" \
     0 \
