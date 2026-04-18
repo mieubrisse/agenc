@@ -396,6 +396,12 @@ func (c *Client) RemoveRepo(repoName string) error {
 	return c.Delete("/repos/" + repoName)
 }
 
+// MoveRepo renames a repo in the library via the server.
+func (c *Client) MoveRepo(oldName, newName string) error {
+	req := MoveRepoRequest{NewName: newName}
+	return c.Post("/repos/"+oldName+"/mv", req, nil)
+}
+
 // ============================================================================
 // High-level claude-modifications API methods
 // ============================================================================

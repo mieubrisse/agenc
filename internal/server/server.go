@@ -249,8 +249,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /repos", appHandler(s.requestLogger, s.handleListRepos))
 	mux.Handle("POST /repos", appHandler(s.requestLogger, s.handleAddRepo))
 	mux.Handle("DELETE /repos/", appHandler(s.requestLogger, s.handleRemoveRepo))
-	// Push-event uses a catch-all prefix since repo names contain slashes
-	mux.Handle("POST /repos/", appHandler(s.requestLogger, s.handlePushEvent))
+	// Repo actions (push-event, mv) use a catch-all prefix since repo names
+	// contain slashes; handleRepoAction dispatches by URL suffix.
+	mux.Handle("POST /repos/", appHandler(s.requestLogger, s.handleRepoAction))
 
 	// Stash endpoints — push and pop are wrapped in stashGuard so they cannot
 	// race with each other (e.g., pop arriving while push's background goroutine
