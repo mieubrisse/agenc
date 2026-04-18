@@ -13,5 +13,6 @@ Manage the repo library
 * [agenc](agenc.md)	 - The AgenC — agent mission management CLI
 * [agenc repo add](agenc_repo_add.md)	 - Add a repository to the repo library
 * [agenc repo ls](agenc_repo_ls.md)	 - List repositories in the repo library
+* [agenc repo mv](agenc_repo_mv.md)	 - Rename a repository in the repo library
 * [agenc repo rm](agenc_repo_rm.md)	 - Remove a repository from the repo library
 
