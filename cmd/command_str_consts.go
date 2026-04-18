@@ -30,6 +30,7 @@ const (
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
 	rmCmdStr     = "rm"
+	mvCmdStr     = "mv"
 	addCmdStr    = "add"
 	updateCmdStr = "update"
 	stopCmdStr   = "stop"
