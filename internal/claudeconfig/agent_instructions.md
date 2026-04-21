@@ -66,6 +66,29 @@ Special keys use tmux key names: `Enter`, `Escape`, `C-c`, `C-d`, `Space`, `Tab`
 
 **Why not raw tmux?** You do not know the tmux pane IDs or session names for other missions — those are internal to AgenC. The CLI abstracts this away and ensures your keys reach the correct pane.
 
+### Your Identity as a Stable Reference
+
+Your mission UUID (`${{MISSION_UUID_ENV_VAR}}`) and session UUIDs are stable identifiers that persist after your mission ends. Future agents — or you in a later session — can read any conversation transcript using:
+
+```bash
+{{CLI_NAME}} mission print <mission-id>    # prints the last session for a mission
+{{CLI_NAME}} session print <session-id>    # prints a specific session
+```
+
+To discover your current session UUID:
+
+```bash
+{{CLI_NAME}} session ls --mission ${{MISSION_UUID_ENV_VAR}}
+```
+
+When you produce artifacts where a future reader might want the full context behind a decision — plans, design docs, issue descriptions, commit messages, or handoff notes to other agents — consider recording your mission and session UUIDs. This gives future agents a direct path to the original conversation without needing to search or guess.
+
+For example, a plan might include:
+
+> Context: designed in AgenC mission `a1b2c3d4`, session `e5f6g7h8`. Run `agenc session print e5f6g7h8 --all` for the full discussion.
+
+This is optional — use it when provenance adds value, not as a ritual.
+
 ### Repo Library
 
 The **repo library** is AgenC's managed collection of git repositories at `{{REPO_LIBRARY_DIRPATH}}`. It contains only repos that have been explicitly registered with `{{CLI_NAME}} repo add` — it is **not** your personal code directory or any other location on disk. Do not look for repos outside this path.
