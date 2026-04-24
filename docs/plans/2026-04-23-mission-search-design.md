@@ -1,7 +1,7 @@
 Mission Search with FTS5
 ========================
 
-Status: Approved
+Status: Approved (revised 2026-04-24)
 Date: 2026-04-23
 
 Problem
@@ -40,13 +40,20 @@ CREATE VIRTUAL TABLE mission_search_index USING fts5(
 
 One row per indexed message. `porter` tokenizer enables stemming ("authenticating" matches "authentication"). `unicode61` handles Unicode normalization.
 
-### Indexing — Incremental
+### Indexing — Separate FTS Indexer Goroutine
 
-The existing session scanner in the server already walks JSONL files and tracks `last_scanned_offset` per session. Extend it so that when it reads new JSONL content, it also inserts indexable text into the FTS5 table. `last_scanned_offset` only advances when BOTH session name extraction AND FTS5 insertion succeed. This makes the offset a shared gate — if it advanced, the content is indexed.
+The FTS indexer runs as its own server goroutine, independent of the existing session scanner. It iterates ALL sessions in the database (not just running ones), checks `last_indexed_offset` vs JSONL file size, and indexes any unprocessed content.
 
-### Indexing — Full Reindex
+**Key properties:**
+- **Separate offset column:** `last_indexed_offset` on the sessions table (default 0), independent of the existing `last_title_update_offset` (renamed from `last_scanned_offset`).
+- **Atomic advancement:** FTS insert and offset update are wrapped in a single SQLite transaction. Either both succeed or neither does — no duplicates, no lost content.
+- **Natural backfill:** On first deployment, all sessions have `last_indexed_offset = 0`, so the indexer progressively works through all historical content at its own pace. No explicit reindex command needed.
+- **Cadence:** Runs every ~30 seconds (slower than the 3-second title scanner since search doesn't need real-time updates).
+- **Scope:** Processes all sessions, including stopped/archived missions — unlike the title scanner which only processes running missions.
 
-A new `agenc reindex` top-level command triggers a full reindex: reads ALL JSONL files from offset 0 and repopulates the FTS5 table. The helptext warns that this may take a while depending on mission count. This is the mechanism for backfilling historical content after first deploying the feature — no auto-backfill on migration.
+### Column Rename
+
+`last_scanned_offset` → `last_title_update_offset`. This column is only used by the title/summary scanner. The rename makes the purpose clear now that a second offset (`last_indexed_offset`) exists alongside it.
 
 ### Search API
 
@@ -75,9 +82,9 @@ Programmatic search for agents and scripts. Calls the search API, returns ranked
 Replaces the current fzf picker with a live-search experience using fzf's `--disabled` + `--bind 'change:reload(...)'` pattern:
 
 - fzf opens. Empty query shows all missions sorted by recency (current behavior).
-- As the user types, each keystroke triggers `agenc mission search --json <query>` via the reload binding.
+- As the user types, each keystroke triggers `agenc mission search-fzf {q}` via the reload binding.
 - fzf displays FTS5-ranked results instead of doing its own fuzzy matching.
-- Each result row shows: short ID, status, session name, repo, and a match snippet (showing why it matched).
+- Each result row shows: short ID, session name, repo, and a match snippet (showing why it matched).
 - If input is a valid hex short ID, exact ID match floats to top.
 - Enter attaches to the selected mission.
 
@@ -87,7 +94,7 @@ No debouncing needed — FTS5 queries at this scale return in single-digit milli
 
 - **Missing JSONL file:** Skip silently during indexing, log at debug. Missions without transcripts appear in browse mode (recency) but not in content search.
 - **Corrupt JSONL entry:** Skip entry, continue indexing rest of file. Log warning.
-- **FTS5 index corruption:** `agenc reindex` drops and rebuilds. FTS5 table is derived data — JSONL files are the source of truth.
+- **FTS5 index corruption:** The FTS5 table is derived data — JSONL files are the source of truth. Resetting `last_indexed_offset` to 0 for all sessions triggers a full rebuild.
 - **Server not running:** `mission search` returns clear error. Interactive picker falls back to current behavior (load all missions, fzf client-side matching) so `mission attach` never breaks.
 - **Query syntax:** User input wrapped in double quotes by default to prevent accidental FTS5 operator activation.
 
@@ -95,7 +102,6 @@ No debouncing needed — FTS5 queries at this scale return in single-digit milli
 
 - **Unit tests:** FTS5 indexing and querying with in-memory SQLite. Verify ranking, snippets, edge cases (empty query, no results, special characters, long messages).
 - **E2E tests:** Create mission with known prompt → trigger indexing → `mission search` finds it → verify JSON output.
-- **E2E for reindex:** Verify `agenc reindex` completes successfully and populates the index.
 
 ### Cost Profile
 
@@ -104,5 +110,5 @@ At 10K missions with user messages + assistant prose indexed:
 - **Disk:** ~200-400MB FTS5 index
 - **Memory:** Disk-backed, a few MB active during queries
 - **Query latency:** Sub-10ms for FTS5, ~20-50ms end-to-end including process spawn and socket round-trip
-- **Indexing:** Initial full reindex ~30-60s. Incremental updates negligible.
+- **Indexing:** Progressive backfill over multiple 30-second cycles. Incremental updates negligible.
 - **CPU during search:** Negligible. Read-only B-tree lookups, no write locks.
