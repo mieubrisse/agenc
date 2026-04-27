@@ -16,24 +16,32 @@ import (
 )
 
 const (
-	// sessionScannerInterval is how often the scanner checks for JSONL changes.
-	sessionScannerInterval = 3 * time.Second
+	// fileWatcherInterval is how often the file watcher checks for JSONL changes.
+	fileWatcherInterval = 3 * time.Second
+
+	// titleConsumerInterval is how often the title consumer processes new content.
+	titleConsumerInterval = 3 * time.Second
 )
 
-// runSessionScannerLoop polls for JSONL file changes every 3 seconds and
-// updates the sessions table with any newly discovered custom titles.
-// When a session has no auto_summary yet and a user message is found,
-// it sends a summary request to the session summarizer worker.
-func (s *Server) runSessionScannerLoop(ctx context.Context) {
+// ============================================================================
+// Layer 1: File Watcher — discovers JSONL files and tracks their sizes
+// ============================================================================
+
+// runFileWatcherLoop polls for JSONL file changes and updates known_file_size
+// on the sessions table. Does NOT read file content — just tracks sizes.
+// Two scopes per cycle:
+//   - Running missions: stats files for active tmux panes
+//   - NULL file size sessions: stats files to set initial sizes (backfill trigger)
+func (s *Server) runFileWatcherLoop(ctx context.Context) {
 	// Initial delay to avoid racing with startup I/O
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(sessionScannerInterval):
-		s.runSessionScannerCycle()
+	case <-time.After(fileWatcherInterval):
+		s.runFileWatcherCycle()
 	}
 
-	ticker := time.NewTicker(sessionScannerInterval)
+	ticker := time.NewTicker(fileWatcherInterval)
 	defer ticker.Stop()
 
 	for {
@@ -41,22 +49,29 @@ func (s *Server) runSessionScannerLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.runSessionScannerCycle()
+			s.runFileWatcherCycle()
 		}
 	}
 }
 
-// runSessionScannerCycle scans JSONL files for missions currently running in
-// the tmux pool. For each running mission, it computes the project directory
-// path directly (no glob), lists JSONL files in that directory, and
-// incrementally scans for metadata changes.
-func (s *Server) runSessionScannerCycle() {
+// runFileWatcherCycle updates known_file_size for sessions that need it.
+func (s *Server) runFileWatcherCycle() {
+	// Scope 1: Running missions — discover and stat JSONL files
+	s.watchRunningMissionFiles()
+
+	// Scope 2: Sessions with NULL known_file_size — backfill trigger
+	s.watchNullFileSizeSessions()
+}
+
+// watchRunningMissionFiles stats JSONL files for missions currently running
+// in the tmux pool and updates known_file_size.
+func (s *Server) watchRunningMissionFiles() {
 	paneIDs := listPoolPaneIDs(s.getPoolSessionName())
 
 	for _, paneID := range paneIDs {
 		mission, err := s.db.GetMissionByTmuxPane(paneID)
 		if err != nil {
-			s.logger.Printf("Session scanner: failed to resolve pane '%s': %v", paneID, err)
+			s.logger.Printf("File watcher: failed to resolve pane '%s': %v", paneID, err)
 			continue
 		}
 		if mission == nil {
@@ -66,21 +81,20 @@ func (s *Server) runSessionScannerCycle() {
 		agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, mission.ID)
 		projectDirpath, err := claudeconfig.ComputeProjectDirpath(agentDirpath)
 		if err != nil {
-			s.logger.Printf("Session scanner: failed to compute project dir for mission '%s': %v", database.ShortID(mission.ID), err)
+			s.logger.Printf("File watcher: failed to compute project dir for mission '%s': %v", database.ShortID(mission.ID), err)
 			continue
 		}
 
-		s.scanMissionJSONLFiles(mission.ID, projectDirpath)
+		s.updateFileSizesForMission(mission.ID, projectDirpath)
 	}
 }
 
-// scanMissionJSONLFiles scans all JSONL files in a mission's project directory
-// for metadata changes (custom titles) and first user messages (for auto-summary).
-func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) {
+// updateFileSizesForMission stats all JSONL files in a mission's project
+// directory and updates known_file_size for each session.
+func (s *Server) updateFileSizesForMission(missionID string, projectDirpath string) {
 	entries, err := os.ReadDir(projectDirpath)
 	if err != nil {
-		// Directory may not exist yet (mission hasn't started a session)
-		return
+		return // Directory may not exist yet
 	}
 
 	for _, entry := range entries {
@@ -89,8 +103,6 @@ func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) 
 		}
 
 		sessionID := strings.TrimSuffix(entry.Name(), ".jsonl")
-		jsonlFilepath := filepath.Join(projectDirpath, entry.Name())
-
 		fileInfo, err := entry.Info()
 		if err != nil {
 			continue
@@ -100,52 +112,151 @@ func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) 
 		// Look up or create the session row
 		sess, err := s.db.GetSession(sessionID)
 		if err != nil {
-			s.logger.Printf("Session scanner: failed to get session '%s': %v", sessionID, err)
+			s.logger.Printf("File watcher: failed to get session '%s': %v", sessionID, err)
 			continue
 		}
 		if sess == nil {
 			sess, err = s.db.CreateSession(missionID, sessionID)
 			if err != nil {
-				s.logger.Printf("Session scanner: failed to create session '%s': %v", sessionID, err)
+				s.logger.Printf("File watcher: failed to create session '%s': %v", sessionID, err)
 				continue
 			}
 		}
 
-		// Skip if no new data since last scan
-		if fileSize <= sess.LastTitleUpdateOffset {
-			continue
-		}
-
-		// Determine whether we need to look for user messages (for auto-summary)
-		needsUserMessage := sess.AutoSummary == ""
-
-		// Incremental scan from the last offset
-		scanResult, err := scanJSONLFromOffset(jsonlFilepath, sess.LastTitleUpdateOffset, needsUserMessage)
-		if err != nil {
-			s.logger.Printf("Session scanner: failed to scan '%s': %v", jsonlFilepath, err)
-			continue
-		}
-
-		// Track whether display-relevant data changed (for tmux reconciliation)
-		customTitleChanged := scanResult.customTitle != "" && scanResult.customTitle != sess.CustomTitle
-
-		if err := s.db.UpdateSessionScanResults(sessionID, scanResult.customTitle, fileSize); err != nil {
-			s.logger.Printf("Session scanner: failed to update session '%s': %v", sessionID, err)
-			continue
-		}
-
-		// Reconcile tmux window title when display-relevant data changes
-		if customTitleChanged {
-			s.reconcileTmuxWindowTitle(missionID)
-		}
-
-		// If we found a user message and the session needs a summary, send it
-		// to the summarizer worker for async Haiku processing
-		if needsUserMessage && scanResult.firstUserMessage != "" {
-			s.requestSessionSummary(sessionID, missionID, scanResult.firstUserMessage)
+		// Update known_file_size if it changed
+		if sess.KnownFileSize == nil || *sess.KnownFileSize != fileSize {
+			if err := s.db.UpdateKnownFileSize(sessionID, fileSize); err != nil {
+				s.logger.Printf("File watcher: failed to update file size for session '%s': %v", sessionID, err)
+			}
 		}
 	}
 }
+
+// watchNullFileSizeSessions finds sessions with NULL known_file_size, computes
+// their JSONL paths, stats the files, and sets the initial size. This is the
+// backfill trigger — on first deployment, all existing sessions have NULL, so
+// the file watcher progressively discovers their sizes.
+func (s *Server) watchNullFileSizeSessions() {
+	sessions, err := s.db.SessionsWithNullFileSize()
+	if err != nil {
+		s.logger.Printf("File watcher: failed to query NULL file size sessions: %v", err)
+		return
+	}
+
+	for _, sess := range sessions {
+		jsonlPath := s.resolveSessionJSONLPath(sess)
+		if jsonlPath == "" {
+			// Can't find the JSONL file — set size to 0 so we don't retry every cycle
+			if err := s.db.UpdateKnownFileSize(sess.ID, 0); err != nil {
+				s.logger.Printf("File watcher: failed to set file size to 0 for session '%s': %v", sess.ID, err)
+			}
+			continue
+		}
+
+		info, err := os.Stat(jsonlPath)
+		if err != nil {
+			if err := s.db.UpdateKnownFileSize(sess.ID, 0); err != nil {
+				s.logger.Printf("File watcher: failed to set file size to 0 for session '%s': %v", sess.ID, err)
+			}
+			continue
+		}
+
+		if err := s.db.UpdateKnownFileSize(sess.ID, info.Size()); err != nil {
+			s.logger.Printf("File watcher: failed to update file size for session '%s': %v", sess.ID, err)
+		}
+	}
+}
+
+// resolveSessionJSONLPath computes the JSONL file path for a session.
+// Returns empty string if the path cannot be determined or the file doesn't exist.
+func (s *Server) resolveSessionJSONLPath(sess *database.Session) string {
+	agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, sess.MissionID)
+	projectDirpath, err := claudeconfig.ComputeProjectDirpath(agentDirpath)
+	if err != nil {
+		return ""
+	}
+	jsonlPath := filepath.Join(projectDirpath, sess.ID+".jsonl")
+	if _, err := os.Stat(jsonlPath); err != nil {
+		return ""
+	}
+	return jsonlPath
+}
+
+// ============================================================================
+// Layer 2: Title Consumer — reads new content and extracts titles/summaries
+// ============================================================================
+
+// runTitleConsumerLoop processes sessions with unscanned content, extracting
+// custom titles and first user messages for auto-summary.
+func (s *Server) runTitleConsumerLoop(ctx context.Context) {
+	// Initial delay to let file watcher populate known_file_size first
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(titleConsumerInterval + 1*time.Second):
+		s.runTitleConsumerCycle()
+	}
+
+	ticker := time.NewTicker(titleConsumerInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.runTitleConsumerCycle()
+		}
+	}
+}
+
+// runTitleConsumerCycle queries for sessions with new content and processes them.
+func (s *Server) runTitleConsumerCycle() {
+	sessions, err := s.db.SessionsNeedingTitleUpdate()
+	if err != nil {
+		s.logger.Printf("Title consumer: failed to query sessions: %v", err)
+		return
+	}
+
+	for _, sess := range sessions {
+		jsonlPath := s.resolveSessionJSONLPath(sess)
+		if jsonlPath == "" {
+			continue
+		}
+
+		knownSize := int64(0)
+		if sess.KnownFileSize != nil {
+			knownSize = *sess.KnownFileSize
+		}
+
+		needsUserMessage := sess.AutoSummary == ""
+
+		scanResult, err := scanJSONLFromOffset(jsonlPath, sess.LastTitleUpdateOffset, needsUserMessage)
+		if err != nil {
+			s.logger.Printf("Title consumer: failed to scan '%s': %v", jsonlPath, err)
+			continue
+		}
+
+		customTitleChanged := scanResult.customTitle != "" && scanResult.customTitle != sess.CustomTitle
+
+		if err := s.db.UpdateSessionScanResults(sess.ID, scanResult.customTitle, knownSize); err != nil {
+			s.logger.Printf("Title consumer: failed to update session '%s': %v", sess.ID, err)
+			continue
+		}
+
+		if customTitleChanged {
+			s.reconcileTmuxWindowTitle(sess.MissionID)
+		}
+
+		if needsUserMessage && scanResult.firstUserMessage != "" {
+			s.requestSessionSummary(sess.ID, sess.MissionID, scanResult.firstUserMessage)
+		}
+	}
+}
+
+// ============================================================================
+// JSONL parsing helpers (shared by title consumer and future consumers)
+// ============================================================================
 
 // jsonlScanResult holds the results of scanning a JSONL file.
 type jsonlScanResult struct {

@@ -186,7 +186,8 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("config-watcher", &wg, ctx, s.runConfigWatcherLoop)
 	go s.runLoop("keybindings-writer", &wg, ctx, s.runKeybindingsWriterLoop)
 	go s.runLoop("idle-timeout", &wg, ctx, s.runIdleTimeoutLoop)
-	go s.runLoop("session-scanner", &wg, ctx, s.runSessionScannerLoop)
+	go s.runLoop("file-watcher", &wg, ctx, s.runFileWatcherLoop)
+	go s.runLoop("title-consumer", &wg, ctx, s.runTitleConsumerLoop)
 	go s.runLoop("session-summarizer", &wg, ctx, s.runSessionSummarizerWorker)
 
 	// Wait for context cancellation, then gracefully shut down

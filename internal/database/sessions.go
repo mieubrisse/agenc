@@ -208,6 +208,45 @@ func scanSessions(rows *sql.Rows) ([]*Session, error) {
 	return sessions, nil
 }
 
+// UpdateKnownFileSize updates the known_file_size for a session.
+// This is called by the file watcher when it stats a JSONL file.
+func (db *DB) UpdateKnownFileSize(sessionID string, size int64) error {
+	_, err := db.conn.Exec(
+		"UPDATE sessions SET known_file_size = ? WHERE id = ?",
+		size, sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update known_file_size for session '%s'", sessionID)
+	}
+	return nil
+}
+
+// SessionsWithNullFileSize returns sessions where known_file_size is NULL,
+// meaning the file watcher has never checked them.
+func (db *DB) SessionsWithNullFileSize() ([]*Session, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_title_update_offset, known_file_size, last_indexed_offset, created_at, updated_at FROM sessions WHERE known_file_size IS NULL",
+	)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to query sessions with null file size")
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
+// SessionsNeedingTitleUpdate returns sessions where known_file_size > last_title_update_offset,
+// meaning there is new content the title consumer hasn't processed yet.
+func (db *DB) SessionsNeedingTitleUpdate() ([]*Session, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_title_update_offset, known_file_size, last_indexed_offset, created_at, updated_at FROM sessions WHERE known_file_size IS NOT NULL AND known_file_size > last_title_update_offset",
+	)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to query sessions needing title update")
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
 // ResolveSessionID resolves a user-provided session identifier (either a full
 // UUID or an 8-character short ID) to the full session UUID. Returns an error
 // if the identifier matches zero or multiple sessions.
