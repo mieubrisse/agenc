@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -348,6 +349,16 @@ func (c *Client) CreateMission(req CreateMissionRequest) (*database.Mission, err
 		return nil, err
 	}
 	return resp.ToMission(), nil
+}
+
+// SearchMissions searches missions by FTS query and returns ranked results.
+func (c *Client) SearchMissions(query string, limit int) ([]SearchMissionsResponse, error) {
+	var results []SearchMissionsResponse
+	path := fmt.Sprintf("/missions/search?q=%s&limit=%d", url.QueryEscape(query), limit)
+	if err := c.Get(path, &results); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 // ListSessions fetches all sessions across all missions.
