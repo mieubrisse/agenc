@@ -50,6 +50,12 @@ The file watcher's only job is to discover JSONL files and track their current s
 
 The file watcher does NOT read file content. It just tracks size.
 
+Two scopes per cycle:
+1. **Running missions** — stats JSONL files for sessions attached to active tmux panes. Catches actively growing files.
+2. **Sessions with `known_file_size IS NULL`** — stats the file once to set the initial size, regardless of whether the mission is running. This is the backfill trigger: on first deployment, the migration sets `known_file_size = NULL` for all existing sessions, so the file watcher progressively discovers their sizes, which wakes up downstream consumers.
+
+Once a session's `known_file_size` is set and its mission is stopped, the file never grows, so it's never checked again.
+
 **Layer 2: Consumers** (independent goroutines, each at their own cadence)
 
 Each consumer has its own offset column on the sessions table. When it wakes up, it queries for sessions where `known_file_size > my_offset_column`. For each such session, it opens the file, seeks to its offset, reads to `known_file_size`, does its work, and advances its offset.
@@ -66,7 +72,7 @@ Consumers have no awareness of file paths, tmux panes, or filesystem mechanics. 
 **Layer 3: Sessions table** (the coordination point)
 
 The sessions table gains:
-- `known_file_size` — written by the file watcher, read by consumers
+- `known_file_size` — nullable, written by the file watcher, read by consumers. NULL means "never checked."
 - `last_title_update_offset` — renamed from `last_scanned_offset`
 - `last_indexed_offset` — new, default 0
 
@@ -74,7 +80,7 @@ Adding a future consumer = add a new offset column + a simple processing loop. N
 
 ### Indexing Details
 
-**Natural backfill:** On first deployment, all sessions have `last_indexed_offset = 0`. The FTS consumer progressively works through all historical content, limited only by its cadence and batch size.
+**Natural backfill:** On first deployment, the migration sets `known_file_size = NULL` for all existing sessions. The file watcher discovers their sizes (NULL → value transition), which causes consumers to see `known_file_size > last_indexed_offset` and process them. No explicit backfill mechanism needed.
 
 **Atomic advancement:** Each consumer wraps its work + offset update in a single SQLite transaction. Either both succeed or neither does — no duplicates, no lost content.
 

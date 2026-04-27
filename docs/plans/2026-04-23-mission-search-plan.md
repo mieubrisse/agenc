@@ -20,9 +20,11 @@ Task 1: Database Migration — Schema Changes
 
 This migration does four things:
 1. Creates the FTS5 virtual table `mission_search_index`
-2. Adds `known_file_size INTEGER NOT NULL DEFAULT 0` to the sessions table
+2. Adds `known_file_size INTEGER` (nullable, default NULL) to the sessions table
 3. Renames `last_scanned_offset` → `last_title_update_offset` on the sessions table
 4. Adds `last_indexed_offset INTEGER NOT NULL DEFAULT 0` to the sessions table
+
+`known_file_size` is nullable: NULL means "file watcher has never checked this session." This is the backfill trigger — the file watcher picks up NULL sessions, stats their files, and sets the size, which wakes up downstream consumers.
 
 **Step 1: Add SQL constants**
 
@@ -36,7 +38,7 @@ const createMissionSearchIndexSQL = `CREATE VIRTUAL TABLE IF NOT EXISTS mission_
 	tokenize='porter unicode61'
 );`
 
-const addKnownFileSizeColumnSQL = `ALTER TABLE sessions ADD COLUMN known_file_size INTEGER NOT NULL DEFAULT 0;`
+const addKnownFileSizeColumnSQL = `ALTER TABLE sessions ADD COLUMN known_file_size INTEGER;`
 const addLastIndexedOffsetColumnSQL = `ALTER TABLE sessions ADD COLUMN last_indexed_offset INTEGER NOT NULL DEFAULT 0;`
 ```
 
@@ -55,7 +57,7 @@ Single migration function `migrateSearchIndex` that:
 
 In `internal/database/sessions.go`:
 - Rename `LastScannedOffset` field → `LastTitleUpdateOffset`
-- Add `KnownFileSize int64`
+- Add `KnownFileSize *int64` (nullable)
 - Add `LastIndexedOffset int64`
 - Update all scan/query methods
 
@@ -85,9 +87,12 @@ Task 2: Refactor Session Scanner into File Watcher + Title Consumer
 This is the key refactor. Split the current `scanMissionJSONLFiles` into two concerns:
 
 **File watcher** (`runFileWatcherLoop`, ~3s):
-1. Lists running tmux panes → resolves to missions → walks project dirs for JSONL files
+1. Two scopes per cycle:
+   - Running missions: lists tmux panes → resolves to missions → walks project dirs for JSONL files
+   - NULL file size sessions: queries `WHERE known_file_size IS NULL`, computes JSONL paths, stats files
 2. For each JSONL file: stats it, updates `known_file_size` in the sessions table
 3. Does NOT read file content
+4. The NULL scope is the backfill trigger: on first deployment, all existing sessions have `known_file_size = NULL`, so the file watcher progressively discovers their sizes
 
 **Title consumer** (`runTitleConsumerLoop`, ~3s):
 1. Queries sessions where `known_file_size > last_title_update_offset` AND mission is running
@@ -100,6 +105,7 @@ The file watcher replaces the current `runSessionScannerLoop`. The title consume
 **Step 1: Add DB methods**
 
 - `UpdateKnownFileSize(sessionID string, size int64) error`
+- `SessionsWithNullFileSize() ([]*Session, error)` — `WHERE known_file_size IS NULL`
 - `SessionsNeedingTitleUpdate() ([]*Session, error)` — `WHERE known_file_size > last_title_update_offset`
 - `UpdateTitleAndOffset(sessionID, customTitle string, newOffset int64) error`
 
