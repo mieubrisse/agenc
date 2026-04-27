@@ -73,9 +73,10 @@ var AgencDenyPermissionTools = AgencFilePermissionTools
 
 // BuildAgentDirAllowEntries returns permission allow entries that grant agents
 // full read/write access to their own working directory. Generates entries
-// using both relative paths (./**) and absolute path variants (absolute,
-// tilde, ${HOME}) to ensure the sandbox filesystem allowlist includes the
-// agent directory regardless of how paths are resolved.
+// using relative paths (./* and ./**) and absolute path variants (// and ~)
+// with both single-level (*) and recursive (**) globs. In gitignore syntax
+// used by Claude Code permissions, * matches a single directory level and **
+// matches recursively.
 func BuildAgentDirAllowEntries(agentDirpath string) []string {
 	// Relative entries cover tool-level access from the working directory
 	relativePattern := "./**"
@@ -115,10 +116,14 @@ var AgencRepoLibraryWriteTools = []string{
 // Read-only access (Read, Glob, Grep) is allowed so agents can explore code
 // in other repos without needing to spawn a new mission.
 func BuildRepoLibraryDenyEntries(agencDirpath string) []string {
-	reposPattern := agencDirpath + "/repos/**"
-	entries := make([]string, 0, len(AgencRepoLibraryWriteTools))
+	reposDirpath := filepath.Join(agencDirpath, "repos")
+	baseVariants := buildPathVariants(reposDirpath)
+
+	entries := make([]string, 0, len(AgencRepoLibraryWriteTools)*len(baseVariants))
 	for _, tool := range AgencRepoLibraryWriteTools {
-		entries = append(entries, tool+"("+reposPattern+")")
+		for _, base := range baseVariants {
+			entries = append(entries, tool+"("+base+"/**)")
+		}
 	}
 	return entries
 }
@@ -132,19 +137,20 @@ func BuildRepoLibraryDenyEntries(agencDirpath string) []string {
 // shell-snapshots, plugins, and projects are left accessible so Claude Code
 // can operate normally.
 //
-// Generates deny rules for three path formats (absolute, tilde, ${HOME}) to ensure
+// Generates deny rules for both path formats (// absolute, tilde) to ensure
 // agents cannot bypass the deny rules by using different path representations.
 func BuildClaudeConfigDenyEntries(claudeConfigDirpath string) []string {
 	baseVariants := buildPathVariants(claudeConfigDirpath)
 
 	// Build the list of per-item path suffixes. Files get an exact match;
-	// directories get a /** glob to cover their contents.
+	// directories get both /* and /** globs to cover single-level and recursive access.
 	var itemSuffixes []string
 	for _, item := range claudeConfigProtectedItems {
 		if isFileName(item) {
 			itemSuffixes = append(itemSuffixes, "/"+item)
 		} else {
 			itemSuffixes = append(itemSuffixes, "/"+item+"/**")
+			itemSuffixes = append(itemSuffixes, "/"+item+"/*")
 		}
 	}
 
@@ -165,17 +171,23 @@ func isFileName(name string) bool {
 	return strings.Contains(name, ".")
 }
 
-// buildPathVariants converts an absolute path to all three Claude Code path formats:
-// absolute, tilde-prefixed, and ${HOME}-prefixed. This ensures permission rules
-// work regardless of which path format the agent uses.
+// buildPathVariants converts an absolute path to the Claude Code permission path
+// formats documented at https://code.claude.com/docs/en/permissions:
+//
+//   - //path  — absolute from filesystem root (NOT /path, which is project-root-relative)
+//   - ~/path  — relative to home directory
+//
+// The // prefix is required because Claude Code's permission system uses gitignore
+// syntax, where a single leading / means "relative to project root", not "absolute".
 func buildPathVariants(absolutePath string) []string {
+	// "/" prefix marks an absolute filesystem path in gitignore syntax.
+	// Absolute paths already start with /, so prepend just one more.
+	variants := []string{"/" + absolutePath}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		// Can't determine home — only return absolute path
-		return []string{absolutePath}
+		return variants
 	}
-
-	variants := []string{absolutePath} // Always include absolute path
 
 	// Check if path is under home directory
 	if strings.HasPrefix(absolutePath, homeDir+string(filepath.Separator)) {
@@ -183,8 +195,6 @@ func buildPathVariants(absolutePath string) []string {
 		if err == nil {
 			// Add tilde variant: ~/.agenc/missions/...
 			variants = append(variants, filepath.Join("~", relPath))
-			// Add ${HOME} variant: ${HOME}/.agenc/missions/...
-			variants = append(variants, filepath.Join("${HOME}", relPath))
 		}
 	}
 
