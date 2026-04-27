@@ -41,6 +41,7 @@ const (
 	printCmdStr  = "print"
 	pushCmdStr   = "push"
 	popCmdStr    = "pop"
+	searchCmdStr = "search"
 
 	// Tmux subcommands
 	injectCmdStr         = "inject"

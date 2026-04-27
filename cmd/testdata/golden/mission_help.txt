@@ -17,6 +17,7 @@ Available Commands:
   reload      Reload one or more missions in-place (preserves tmux pane)
   rename      Rename the active session's window title for a mission
   rm          Stop and permanently remove one or more missions
+  search      Search missions by conversation content
   send-keys   Send keystrokes to a running mission's tmux pane
   stop        Stop one or more mission wrapper processes
 

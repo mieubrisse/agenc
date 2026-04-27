@@ -24,6 +24,7 @@ Manage agent missions
 * [agenc mission reload](agenc_mission_reload.md)	 - Reload one or more missions in-place (preserves tmux pane)
 * [agenc mission rename](agenc_mission_rename.md)	 - Rename the active session's window title for a mission
 * [agenc mission rm](agenc_mission_rm.md)	 - Stop and permanently remove one or more missions
+* [agenc mission search](agenc_mission_search.md)	 - Search missions by conversation content
 * [agenc mission send-keys](agenc_mission_send-keys.md)	 - Send keystrokes to a running mission's tmux pane
 * [agenc mission stop](agenc_mission_stop.md)	 - Stop one or more mission wrapper processes
 
