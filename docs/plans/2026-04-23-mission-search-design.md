@@ -1,7 +1,7 @@
 Mission Search with FTS5
 ========================
 
-Status: Approved (revised 2026-04-24)
+Status: Approved (revised 2026-04-27)
 Date: 2026-04-23
 
 Problem
@@ -40,20 +40,45 @@ CREATE VIRTUAL TABLE mission_search_index USING fts5(
 
 One row per indexed message. `porter` tokenizer enables stemming ("authenticating" matches "authentication"). `unicode61` handles Unicode normalization.
 
-### Indexing — Separate FTS Indexer Goroutine
+### Session Processing Architecture
 
-The FTS indexer runs as its own server goroutine, independent of the existing session scanner. It iterates ALL sessions in the database (not just running ones), checks `last_indexed_offset` vs JSONL file size, and indexes any unprocessed content.
+The current session scanner tangles file watching with content processing. This design splits them into a clean three-layer architecture:
 
-**Key properties:**
-- **Separate offset column:** `last_indexed_offset` on the sessions table (default 0), independent of the existing `last_title_update_offset` (renamed from `last_scanned_offset`).
-- **Atomic advancement:** FTS insert and offset update are wrapped in a single SQLite transaction. Either both succeed or neither does — no duplicates, no lost content.
-- **Natural backfill:** On first deployment, all sessions have `last_indexed_offset = 0`, so the indexer progressively works through all historical content at its own pace. No explicit reindex command needed.
-- **Cadence:** Runs every ~30 seconds (slower than the 3-second title scanner since search doesn't need real-time updates).
-- **Scope:** Processes all sessions, including stopped/archived missions — unlike the title scanner which only processes running missions.
+**Layer 1: File Watcher** (one goroutine, ~3s cadence)
 
-### Column Rename
+The file watcher's only job is to discover JSONL files and track their current size. It updates a `known_file_size` column on the sessions table. This is where ALL file-discovery optimization lives — tmux pane lookup, directory walking, stat calls, and any future improvements (fsevents, inotify, etc.).
 
-`last_scanned_offset` → `last_title_update_offset`. This column is only used by the title/summary scanner. The rename makes the purpose clear now that a second offset (`last_indexed_offset`) exists alongside it.
+The file watcher does NOT read file content. It just tracks size.
+
+**Layer 2: Consumers** (independent goroutines, each at their own cadence)
+
+Each consumer has its own offset column on the sessions table. When it wakes up, it queries for sessions where `known_file_size > my_offset_column`. For each such session, it opens the file, seeks to its offset, reads to `known_file_size`, does its work, and advances its offset.
+
+Consumers have no awareness of file paths, tmux panes, or filesystem mechanics. They just see "sessions with unprocessed content" via a DB query.
+
+**Consumers:**
+
+| Consumer | Offset Column | Cadence | Scope |
+|----------|---------------|---------|-------|
+| Title scanner | `last_title_update_offset` | ~3s | Sessions for running missions (title changes only happen while running) |
+| FTS indexer | `last_indexed_offset` | ~30s | All sessions with unprocessed content |
+
+**Layer 3: Sessions table** (the coordination point)
+
+The sessions table gains:
+- `known_file_size` — written by the file watcher, read by consumers
+- `last_title_update_offset` — renamed from `last_scanned_offset`
+- `last_indexed_offset` — new, default 0
+
+Adding a future consumer = add a new offset column + a simple processing loop. No changes to the file watcher.
+
+### Indexing Details
+
+**Natural backfill:** On first deployment, all sessions have `last_indexed_offset = 0`. The FTS consumer progressively works through all historical content, limited only by its cadence and batch size.
+
+**Atomic advancement:** Each consumer wraps its work + offset update in a single SQLite transaction. Either both succeed or neither does — no duplicates, no lost content.
+
+**File path resolution:** Consumers compute JSONL file paths from session metadata: `mission_id` → agent dir → project dir → `{session_id}.jsonl`. This is pure string computation (no filesystem I/O).
 
 ### Search API
 
@@ -92,9 +117,9 @@ No debouncing needed — FTS5 queries at this scale return in single-digit milli
 
 ### Error Handling
 
-- **Missing JSONL file:** Skip silently during indexing, log at debug. Missions without transcripts appear in browse mode (recency) but not in content search.
-- **Corrupt JSONL entry:** Skip entry, continue indexing rest of file. Log warning.
-- **FTS5 index corruption:** The FTS5 table is derived data — JSONL files are the source of truth. Resetting `last_indexed_offset` to 0 for all sessions triggers a full rebuild.
+- **Missing JSONL file:** File watcher skips silently. Consumers never see the session (known_file_size stays 0).
+- **Corrupt JSONL entry:** Consumer skips the entry, continues with rest of file. Log warning.
+- **FTS5 index corruption:** The FTS5 table is derived data — JSONL files are the source of truth. Resetting `last_indexed_offset` to 0 for all sessions triggers a full rebuild via the normal consumer loop.
 - **Server not running:** `mission search` returns clear error. Interactive picker falls back to current behavior (load all missions, fzf client-side matching) so `mission attach` never breaks.
 - **Query syntax:** User input wrapped in double quotes by default to prevent accidental FTS5 operator activation.
 
@@ -110,5 +135,6 @@ At 10K missions with user messages + assistant prose indexed:
 - **Disk:** ~200-400MB FTS5 index
 - **Memory:** Disk-backed, a few MB active during queries
 - **Query latency:** Sub-10ms for FTS5, ~20-50ms end-to-end including process spawn and socket round-trip
-- **Indexing:** Progressive backfill over multiple 30-second cycles. Incremental updates negligible.
+- **Indexing:** Progressive backfill over multiple 30-second consumer cycles. Incremental updates negligible.
 - **CPU during search:** Negligible. Read-only B-tree lookups, no write locks.
+- **File watcher:** 10K stat calls every 3s for running missions ≈ ~10ms. Negligible.
