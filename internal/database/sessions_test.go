@@ -86,8 +86,8 @@ func TestUpdateSessionScanResults(t *testing.T) {
 	if got.CustomTitle != "My Custom Title" {
 		t.Errorf("expected custom_title %q, got %q", "My Custom Title", got.CustomTitle)
 	}
-	if got.LastScannedOffset != 4096 {
-		t.Errorf("expected last_scanned_offset 4096, got %d", got.LastScannedOffset)
+	if got.LastTitleUpdateOffset != 4096 {
+		t.Errorf("expected last_title_update_offset 4096, got %d", got.LastTitleUpdateOffset)
 	}
 }
 
@@ -123,8 +123,8 @@ func TestUpdateSessionScanResults_PreservesExisting(t *testing.T) {
 	if got.CustomTitle != "Original Title" {
 		t.Errorf("expected custom_title preserved as %q, got %q", "Original Title", got.CustomTitle)
 	}
-	if got.LastScannedOffset != 200 {
-		t.Errorf("expected last_scanned_offset updated to 200, got %d", got.LastScannedOffset)
+	if got.LastTitleUpdateOffset != 200 {
+		t.Errorf("expected last_title_update_offset updated to 200, got %d", got.LastTitleUpdateOffset)
 	}
 }
 

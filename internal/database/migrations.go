@@ -50,6 +50,16 @@ const (
 	createSessionShortIDIndexSQL = `CREATE INDEX IF NOT EXISTS idx_sessions_short_id ON sessions(short_id);`
 
 	cleanOrphanedSessionsSQL = `DELETE FROM sessions WHERE mission_id NOT IN (SELECT id FROM missions);`
+
+	createMissionSearchIndexSQL = `CREATE VIRTUAL TABLE IF NOT EXISTS mission_search_index USING fts5(
+	mission_id UNINDEXED,
+	session_id UNINDEXED,
+	content,
+	tokenize='porter unicode61'
+);`
+
+	addKnownFileSizeColumnSQL     = `ALTER TABLE sessions ADD COLUMN known_file_size INTEGER;`
+	addLastIndexedOffsetColumnSQL = `ALTER TABLE sessions ADD COLUMN last_indexed_offset INTEGER NOT NULL DEFAULT 0;`
 )
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
@@ -499,4 +509,57 @@ func getSessionColumnNames(conn *sql.DB) (map[string]bool, error) {
 		return nil, stacktrace.Propagate(err, "error iterating table_info rows")
 	}
 	return columns, nil
+}
+
+// migrateSearchIndex idempotently creates the FTS5 virtual table for full-text
+// mission search, renames last_scanned_offset to last_title_update_offset, and
+// adds the known_file_size and last_indexed_offset columns for the session
+// processing pipeline.
+func migrateSearchIndex(conn *sql.DB) error {
+	// Create FTS5 table. Virtual tables don't appear in PRAGMA table_info,
+	// so check sqlite_master directly.
+	var count int
+	err := conn.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mission_search_index'").Scan(&count)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check for mission_search_index table")
+	}
+	if count == 0 {
+		if _, err := conn.Exec(createMissionSearchIndexSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to create mission_search_index table")
+		}
+	}
+
+	columns, err := getSessionColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	// Rename last_scanned_offset → last_title_update_offset
+	if columns["last_scanned_offset"] && !columns["last_title_update_offset"] {
+		if _, err := conn.Exec("ALTER TABLE sessions RENAME COLUMN last_scanned_offset TO last_title_update_offset"); err != nil {
+			return stacktrace.Propagate(err, "failed to rename last_scanned_offset to last_title_update_offset")
+		}
+	}
+
+	// Re-read columns after rename
+	columns, err = getSessionColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	// Add known_file_size column (nullable, NULL = never checked)
+	if !columns["known_file_size"] {
+		if _, err := conn.Exec(addKnownFileSizeColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add known_file_size column")
+		}
+	}
+
+	// Add last_indexed_offset column
+	if !columns["last_indexed_offset"] {
+		if _, err := conn.Exec(addLastIndexedOffsetColumnSQL); err != nil {
+			return stacktrace.Propagate(err, "failed to add last_indexed_offset column")
+		}
+	}
+
+	return nil
 }

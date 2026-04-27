@@ -112,7 +112,7 @@ func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) 
 		}
 
 		// Skip if no new data since last scan
-		if fileSize <= sess.LastScannedOffset {
+		if fileSize <= sess.LastTitleUpdateOffset {
 			continue
 		}
 
@@ -120,7 +120,7 @@ func (s *Server) scanMissionJSONLFiles(missionID string, projectDirpath string) 
 		needsUserMessage := sess.AutoSummary == ""
 
 		// Incremental scan from the last offset
-		scanResult, err := scanJSONLFromOffset(jsonlFilepath, sess.LastScannedOffset, needsUserMessage)
+		scanResult, err := scanJSONLFromOffset(jsonlFilepath, sess.LastTitleUpdateOffset, needsUserMessage)
 		if err != nil {
 			s.logger.Printf("Session scanner: failed to scan '%s': %v", jsonlFilepath, err)
 			continue
