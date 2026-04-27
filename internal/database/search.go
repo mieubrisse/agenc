@@ -117,6 +117,20 @@ func (db *DB) executeSearch(ftsQuery string, limit int) ([]SearchResult, error) 
 	return results, nil
 }
 
+// UpdateLastIndexedOffset updates the last_indexed_offset for a session
+// without inserting into the search index. Used when a JSONL chunk contains
+// no indexable content but the offset still needs to advance.
+func (db *DB) UpdateLastIndexedOffset(sessionID string, newOffset int64) error {
+	_, err := db.conn.Exec(
+		"UPDATE sessions SET last_indexed_offset = ? WHERE id = ?",
+		newOffset, sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update last_indexed_offset for session '%s'", sessionID)
+	}
+	return nil
+}
+
 // DeleteAllSearchContent removes all entries from the FTS5 index.
 func (db *DB) DeleteAllSearchContent() error {
 	_, err := db.conn.Exec("DELETE FROM mission_search_index")
