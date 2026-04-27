@@ -60,6 +60,7 @@ func init() {
 var AgencFilePermissionTools = []string{
 	"Read",
 	"Glob",
+	"Search",
 	"Grep",
 	"Write",
 	"Edit",
@@ -83,10 +84,12 @@ func BuildAgentDirAllowEntries(agentDirpath string) []string {
 	// the agent directory by its full path
 	absolutePatterns := buildPathVariants(agentDirpath)
 
-	allPatterns := make([]string, 0, 1+len(absolutePatterns))
+	allPatterns := make([]string, 0, 2+2*len(absolutePatterns))
 	allPatterns = append(allPatterns, relativePattern)
+	allPatterns = append(allPatterns, "./*")
 	for _, p := range absolutePatterns {
 		allPatterns = append(allPatterns, p+"/**")
+		allPatterns = append(allPatterns, p+"/*")
 	}
 
 	entries := make([]string, 0, len(AgencFilePermissionTools)*len(allPatterns))
