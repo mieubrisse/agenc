@@ -256,6 +256,34 @@ echo "--- Mission commands (requires server) ---"
 run_test_no_crash "mission ls does not crash" \
     "${agenc_test}" mission ls
 
+echo ""
+echo "--- Mission time filtering (requires server) ---"
+
+# --since today should succeed (may or may not have missions)
+run_test "mission ls --since today succeeds" \
+    0 \
+    "${agenc_test}" mission ls --since "$(date +%Y-%m-%d)"
+
+# --until yesterday should succeed
+run_test "mission ls --until yesterday succeeds" \
+    0 \
+    "${agenc_test}" mission ls --until "$(date -v-1d +%Y-%m-%d)"
+
+# --since after --until should fail
+run_test "mission ls --since after --until fails" \
+    1 \
+    "${agenc_test}" mission ls --since 2026-12-01 --until 2026-01-01
+
+# Invalid date format should fail
+run_test "mission ls --since invalid format fails" \
+    1 \
+    "${agenc_test}" mission ls --since "not-a-date"
+
+# RFC3339 format should succeed
+run_test "mission ls --since RFC3339 succeeds" \
+    0 \
+    "${agenc_test}" mission ls --since "2026-01-01T00:00:00Z"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

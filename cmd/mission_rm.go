@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var missionRmCmd = &cobra.Command{
@@ -43,7 +44,7 @@ func runMissionRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	missions, err := client.ListMissions(true, "", "")
+	missions, err := client.ListMissions(server.ListMissionsRequest{IncludeArchived: true})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

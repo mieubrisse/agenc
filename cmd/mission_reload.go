@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var missionReloadCmd = &cobra.Command{
@@ -59,7 +60,7 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 	}
 
 	// No args: list running missions and show fzf picker
-	missions, err := client.ListMissions(false, "", "")
+	missions, err := client.ListMissions(server.ListMissionsRequest{})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

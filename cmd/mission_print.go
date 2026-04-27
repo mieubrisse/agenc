@@ -8,6 +8,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/session"
 )
 
@@ -51,7 +52,7 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	missions, err := client.ListMissions(false, "", "")
+	missions, err := client.ListMissions(server.ListMissionsRequest{})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

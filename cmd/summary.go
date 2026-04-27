@@ -17,6 +17,7 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var summaryDateFlag string
@@ -60,7 +61,7 @@ func runSummary(cmd *cobra.Command, args []string) error {
 	dayStart, dayEnd := calculateDayBounds(targetDate)
 
 	// Fetch all missions for analysis
-	missions, err := client.ListMissions(true, "", "")
+	missions, err := client.ListMissions(server.ListMissionsRequest{IncludeArchived: true})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

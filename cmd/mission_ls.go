@@ -31,6 +31,8 @@ const (
 
 var lsAllFlag bool
 var lsCronFlag string
+var lsSinceFlag string
+var lsUntilFlag string
 
 var missionLsCmd = &cobra.Command{
 	Use:   lsCmdStr,
@@ -41,6 +43,8 @@ var missionLsCmd = &cobra.Command{
 func init() {
 	missionLsCmd.Flags().BoolVarP(&lsAllFlag, allFlagName, "a", false, "include archived missions")
 	missionLsCmd.Flags().StringVar(&lsCronFlag, cronFlagName, "", "filter to missions from a specific cron job")
+	missionLsCmd.Flags().StringVar(&lsSinceFlag, "since", "", "show missions created on or after this date (YYYY-MM-DD or RFC3339)")
+	missionLsCmd.Flags().StringVar(&lsUntilFlag, "until", "", "show missions created on or before this date (YYYY-MM-DD or RFC3339)")
 	missionCmd.AddCommand(missionLsCmd)
 }
 
@@ -51,7 +55,15 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(missions) == 0 {
-		if lsAllFlag {
+		if hasTimeFilter() {
+			if lsSinceFlag != "" && lsUntilFlag != "" {
+				fmt.Printf("No missions found between %s and %s.\n", lsSinceFlag, lsUntilFlag)
+			} else if lsSinceFlag != "" {
+				fmt.Printf("No missions found since %s.\n", lsSinceFlag)
+			} else {
+				fmt.Printf("No missions found until %s.\n", lsUntilFlag)
+			}
+		} else if lsAllFlag {
 			fmt.Println("No missions.")
 		} else {
 			fmt.Println("No active missions.")
@@ -61,7 +73,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	totalCount := len(missions)
 	displayMissions := missions
-	if !lsAllFlag && totalCount > defaultMissionLsLimit {
+	if !lsAllFlag && !hasTimeFilter() && totalCount > defaultMissionLsLimit {
 		displayMissions = missions[:defaultMissionLsLimit]
 	}
 
@@ -101,9 +113,12 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			)
 		}
 	}
+	if hasTimeFilter() {
+		fmt.Println(formatTimeFilterMessage(len(displayMissions), lsSinceFlag, lsUntilFlag))
+	}
 	tbl.Print()
 
-	if !lsAllFlag && totalCount > defaultMissionLsLimit {
+	if !lsAllFlag && !hasTimeFilter() && totalCount > defaultMissionLsLimit {
 		remaining := totalCount - defaultMissionLsLimit
 		fmt.Printf("\n...and %d more missions; run '%s %s %s --%s' to see all missions\n",
 			remaining, agencCmdStr, missionCmdStr, lsCmdStr, allFlagName)
@@ -253,6 +268,45 @@ func isMissionRunning(status MissionDisplayStatus) bool {
 	return false
 }
 
+// hasTimeFilter returns true if either --since or --until was provided.
+func hasTimeFilter() bool {
+	return lsSinceFlag != "" || lsUntilFlag != ""
+}
+
+// parseTimeFlag parses a time flag value. Accepts RFC3339 or YYYY-MM-DD.
+// For date-only input, isSince controls whether the time is set to start of
+// day (true) or end of day (false), using local timezone.
+func parseTimeFlag(value string, isSince bool) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+
+	t, err := time.ParseInLocation("2006-01-02", value, time.Now().Location())
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expected YYYY-MM-DD or RFC3339 format")
+	}
+
+	if !isSince {
+		t = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+	}
+	return t, nil
+}
+
+// formatTimeFilterMessage returns a summary line for time-filtered results.
+func formatTimeFilterMessage(count int, since, until string) string {
+	noun := "missions"
+	if count == 1 {
+		noun = "mission"
+	}
+	if since != "" && until != "" {
+		return fmt.Sprintf("Showing %d %s created between %s and %s", count, noun, since, until)
+	}
+	if since != "" {
+		return fmt.Sprintf("Showing %d %s created since %s", count, noun, since)
+	}
+	return fmt.Sprintf("Showing %d %s created until %s", count, noun, until)
+}
+
 // fetchMissions fetches missions from the server.
 func fetchMissions() ([]*database.Mission, error) {
 	client, err := serverClient()
@@ -260,7 +314,31 @@ func fetchMissions() ([]*database.Mission, error) {
 		return nil, err
 	}
 
-	missions, err := client.ListMissions(lsAllFlag, "", lsCronFlag)
+	req := server.ListMissionsRequest{
+		IncludeArchived: lsAllFlag,
+		SourceID:        lsCronFlag,
+	}
+
+	if lsSinceFlag != "" {
+		t, err := parseTimeFlag(lsSinceFlag, true)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --since value %q: %s", lsSinceFlag, err)
+		}
+		req.Since = &t
+	}
+	if lsUntilFlag != "" {
+		t, err := parseTimeFlag(lsUntilFlag, false)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --until value %q: %s", lsUntilFlag, err)
+		}
+		req.Until = &t
+	}
+
+	if req.Since != nil && req.Until != nil && req.Since.After(*req.Until) {
+		return nil, fmt.Errorf("--since (%s) is after --until (%s)", lsSinceFlag, lsUntilFlag)
+	}
+
+	missions, err := client.ListMissions(req)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to list missions")
 	}

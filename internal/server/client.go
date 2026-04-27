@@ -206,18 +206,33 @@ func (c *Client) Put(path string, body any, result any) error {
 // High-level mission API methods
 // ============================================================================
 
-// ListMissions fetches all missions from the server.
-func (c *Client) ListMissions(includeArchived bool, source string, sourceID string) ([]*database.Mission, error) {
+// ListMissionsRequest holds parameters for the ListMissions client call.
+type ListMissionsRequest struct {
+	IncludeArchived bool
+	Source          string
+	SourceID        string
+	Since           *time.Time
+	Until           *time.Time
+}
+
+// ListMissions fetches missions from the server with optional filtering.
+func (c *Client) ListMissions(req ListMissionsRequest) ([]*database.Mission, error) {
 	path := "/missions"
 	var params []string
-	if includeArchived {
+	if req.IncludeArchived {
 		params = append(params, "include_archived=true")
 	}
-	if source != "" {
-		params = append(params, "source="+source)
+	if req.Source != "" {
+		params = append(params, "source="+req.Source)
 	}
-	if sourceID != "" {
-		params = append(params, "source_id="+sourceID)
+	if req.SourceID != "" {
+		params = append(params, "source_id="+req.SourceID)
+	}
+	if req.Since != nil {
+		params = append(params, "since="+req.Since.UTC().Format(time.RFC3339))
+	}
+	if req.Until != nil {
+		params = append(params, "until="+req.Until.UTC().Format(time.RFC3339))
 	}
 	if len(params) > 0 {
 		path += "?" + strings.Join(params, "&")

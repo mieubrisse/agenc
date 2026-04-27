@@ -7,6 +7,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -48,7 +49,7 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	missions, err := client.ListMissions(true, "cron", cronID)
+	missions, err := client.ListMissions(server.ListMissionsRequest{IncludeArchived: true, Source: "cron", SourceID: cronID})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
 	}

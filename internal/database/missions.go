@@ -59,6 +59,8 @@ type ListMissionsParams struct {
 	IncludeArchived bool
 	Source          *string
 	SourceID        *string
+	Since           *time.Time
+	Until           *time.Time
 }
 
 // CreateMission inserts a new mission and returns it.

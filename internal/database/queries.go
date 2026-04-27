@@ -2,6 +2,7 @@ package database
 
 import (
 	"strings"
+	"time"
 )
 
 // buildListMissionsQuery constructs the SQL query and arguments for ListMissions.
@@ -22,6 +23,14 @@ func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
 	if params.SourceID != nil {
 		conditions = append(conditions, "source_id = ?")
 		args = append(args, *params.SourceID)
+	}
+	if params.Since != nil {
+		conditions = append(conditions, "created_at >= ?")
+		args = append(args, params.Since.UTC().Format(time.RFC3339))
+	}
+	if params.Until != nil {
+		conditions = append(conditions, "created_at <= ?")
+		args = append(args, params.Until.UTC().Format(time.RFC3339))
 	}
 
 	if len(conditions) > 0 {

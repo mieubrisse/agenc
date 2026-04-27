@@ -65,7 +65,7 @@ func getCronLastRunStatus(client *server.Client, cronInfo server.CronInfo) (stri
 		return "--", "--"
 	}
 
-	missions, err := client.ListMissions(true, "cron", cronInfo.ID)
+	missions, err := client.ListMissions(server.ListMissionsRequest{IncludeArchived: true, Source: "cron", SourceID: cronInfo.ID})
 	if err != nil || len(missions) == 0 {
 		return "--", "--"
 	}

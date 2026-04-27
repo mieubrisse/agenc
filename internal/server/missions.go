@@ -217,6 +217,20 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 	if sourceID := r.URL.Query().Get("source_id"); sourceID != "" {
 		params.SourceID = &sourceID
 	}
+	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+		t, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			return newHTTPError(http.StatusBadRequest, "invalid 'since' parameter: expected RFC3339 format")
+		}
+		params.Since = &t
+	}
+	if untilStr := r.URL.Query().Get("until"); untilStr != "" {
+		t, err := time.Parse(time.RFC3339, untilStr)
+		if err != nil {
+			return newHTTPError(http.StatusBadRequest, "invalid 'until' parameter: expected RFC3339 format")
+		}
+		params.Until = &t
+	}
 
 	missions, err := s.db.ListMissions(params)
 	if err != nil {

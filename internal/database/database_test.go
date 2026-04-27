@@ -3,6 +3,7 @@ package database
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func openTestDB(t *testing.T) *DB {
@@ -337,5 +338,145 @@ func TestClearAllTmuxPanes(t *testing.T) {
 	}
 	if got2.TmuxPane != nil {
 		t.Errorf("expected nil pane for m2, got %v", *got2.TmuxPane)
+	}
+}
+
+func TestListMissions_SinceFilter(t *testing.T) {
+	db := openTestDB(t)
+
+	old, err := db.CreateMission("github.com/owner/old-repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create old mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-01-01T00:00:00Z", old.ID); err != nil {
+		t.Fatalf("failed to backdate old mission: %v", err)
+	}
+
+	recent, err := db.CreateMission("github.com/owner/recent-repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create recent mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-04-15T12:00:00Z", recent.ID); err != nil {
+		t.Fatalf("failed to set recent mission time: %v", err)
+	}
+
+	since := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	missions, err := db.ListMissions(ListMissionsParams{Since: &since})
+	if err != nil {
+		t.Fatalf("ListMissions with Since failed: %v", err)
+	}
+	if len(missions) != 1 {
+		t.Fatalf("expected 1 mission, got %d", len(missions))
+	}
+	if missions[0].ID != recent.ID {
+		t.Errorf("expected recent mission, got %s", missions[0].ID)
+	}
+}
+
+func TestListMissions_UntilFilter(t *testing.T) {
+	db := openTestDB(t)
+
+	old, err := db.CreateMission("github.com/owner/old-repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create old mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-01-15T00:00:00Z", old.ID); err != nil {
+		t.Fatalf("failed to backdate old mission: %v", err)
+	}
+
+	recent, err := db.CreateMission("github.com/owner/recent-repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create recent mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-04-15T12:00:00Z", recent.ID); err != nil {
+		t.Fatalf("failed to set recent mission time: %v", err)
+	}
+
+	until := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	missions, err := db.ListMissions(ListMissionsParams{Until: &until})
+	if err != nil {
+		t.Fatalf("ListMissions with Until failed: %v", err)
+	}
+	if len(missions) != 1 {
+		t.Fatalf("expected 1 mission, got %d", len(missions))
+	}
+	if missions[0].ID != old.ID {
+		t.Errorf("expected old mission, got %s", missions[0].ID)
+	}
+}
+
+func TestListMissions_SinceAndUntilFilter(t *testing.T) {
+	db := openTestDB(t)
+
+	jan, err := db.CreateMission("github.com/owner/jan", nil)
+	if err != nil {
+		t.Fatalf("failed to create jan mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-01-15T00:00:00Z", jan.ID); err != nil {
+		t.Fatalf("failed to set jan time: %v", err)
+	}
+
+	mar, err := db.CreateMission("github.com/owner/mar", nil)
+	if err != nil {
+		t.Fatalf("failed to create mar mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-03-15T00:00:00Z", mar.ID); err != nil {
+		t.Fatalf("failed to set mar time: %v", err)
+	}
+
+	may, err := db.CreateMission("github.com/owner/may", nil)
+	if err != nil {
+		t.Fatalf("failed to create may mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-05-15T00:00:00Z", may.ID); err != nil {
+		t.Fatalf("failed to set may time: %v", err)
+	}
+
+	since := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 4, 30, 23, 59, 59, 0, time.UTC)
+	missions, err := db.ListMissions(ListMissionsParams{Since: &since, Until: &until})
+	if err != nil {
+		t.Fatalf("ListMissions with Since+Until failed: %v", err)
+	}
+	if len(missions) != 1 {
+		t.Fatalf("expected 1 mission, got %d", len(missions))
+	}
+	if missions[0].ID != mar.ID {
+		t.Errorf("expected mar mission, got %s", missions[0].ID)
+	}
+}
+
+func TestListMissions_TimeFilterWithArchived(t *testing.T) {
+	db := openTestDB(t)
+
+	m, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+	if _, err := db.conn.Exec("UPDATE missions SET created_at = ? WHERE id = ?", "2026-03-15T00:00:00Z", m.ID); err != nil {
+		t.Fatalf("failed to set time: %v", err)
+	}
+	if err := db.ArchiveMission(m.ID); err != nil {
+		t.Fatalf("failed to archive: %v", err)
+	}
+
+	since := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	// Without IncludeArchived: should return 0
+	missions, err := db.ListMissions(ListMissionsParams{Since: &since})
+	if err != nil {
+		t.Fatalf("ListMissions failed: %v", err)
+	}
+	if len(missions) != 0 {
+		t.Fatalf("expected 0 missions without IncludeArchived, got %d", len(missions))
+	}
+
+	// With IncludeArchived: should return 1
+	missions, err = db.ListMissions(ListMissionsParams{Since: &since, IncludeArchived: true})
+	if err != nil {
+		t.Fatalf("ListMissions failed: %v", err)
+	}
+	if len(missions) != 1 {
+		t.Fatalf("expected 1 mission with IncludeArchived, got %d", len(missions))
 	}
 }
