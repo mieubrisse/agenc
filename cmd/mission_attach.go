@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -10,6 +12,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
+	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
 var attachNoFocusFlag bool
@@ -23,7 +26,8 @@ Links the mission's tmux window into your session and focuses it.
 If the mission is already linked, just focuses the window.
 Stopped missions are automatically resumed; archived missions are unarchived first.
 
-Without arguments, opens an interactive fzf picker showing all missions.
+Without arguments, opens an interactive search picker showing all missions.
+Type to search by conversation content; results update live.
 With arguments, accepts a mission ID (short 8-char hex or full UUID).`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionAttach,
@@ -45,52 +49,32 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("mission attach requires tmux; run inside a tmux session")
 	}
 
-	missions, err := client.ListMissions(server.ListMissionsRequest{IncludeArchived: true})
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to list missions")
+	input := strings.Join(args, " ")
+
+	var missionID string
+
+	if input != "" && looksLikeMissionID(input) {
+		// Direct ID resolution
+		resolved, err := client.ResolveMissionID(input)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve mission ID")
+		}
+		missionID = resolved
+	} else {
+		// Search-based picker
+		selectedID, err := runMissionSearchPicker(client)
+		if err != nil {
+			return err
+		}
+		if selectedID == "" {
+			return nil // User cancelled
+		}
+		resolved, err := client.ResolveMissionID(selectedID)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve selected mission")
+		}
+		missionID = resolved
 	}
-
-	if len(missions) == 0 {
-		return stacktrace.NewError("no missions to attach")
-	}
-
-	sortMissionsForPicker(missions)
-	entries := buildMissionPickerEntries(missions, 60)
-
-	result, err := Resolve(strings.Join(args, " "), Resolver[missionPickerEntry]{
-		TryCanonical: func(input string) (missionPickerEntry, bool, error) {
-			if !looksLikeMissionID(input) {
-				return missionPickerEntry{}, false, nil
-			}
-			missionID, err := client.ResolveMissionID(input)
-			if err != nil {
-				return missionPickerEntry{}, false, stacktrace.Propagate(err, "failed to resolve mission ID")
-			}
-			for _, e := range entries {
-				if e.MissionID == missionID {
-					return e, true, nil
-				}
-			}
-			return missionPickerEntry{}, false, stacktrace.NewError("mission %s not found", input)
-		},
-		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
-		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.LastActive, e.ShortID, e.Session, e.Repo}
-		},
-		FzfPrompt:         "Select mission to attach: ",
-		FzfHeaders:        []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
-		MultiSelect:       false,
-		NotCanonicalError: "not a valid mission ID",
-	})
-	if err != nil {
-		return err
-	}
-
-	if result.WasCancelled || len(result.Items) == 0 {
-		return nil
-	}
-
-	missionID := result.Items[0].MissionID
 
 	// Migrate old .assistant marker if present
 	agencDirpath, err := config.GetAgencDirpath()
@@ -108,4 +92,58 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// runMissionSearchPicker opens the search-mode fzf picker for missions.
+// Returns the selected mission's short ID, or empty string if cancelled.
+func runMissionSearchPicker(client *server.Client) (string, error) {
+	// Find our binary path for the reload command
+	agencBinary, err := os.Executable()
+	if err != nil {
+		agencBinary = "agenc"
+	}
+	reloadCmd := fmt.Sprintf("%s mission search-fzf {q}", agencBinary)
+
+	// Build initial rows (recent missions for empty query)
+	missions, err := client.ListMissions(server.ListMissionsRequest{IncludeArchived: true})
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to list missions")
+	}
+
+	if len(missions) == 0 {
+		return "", stacktrace.NewError("no missions to attach")
+	}
+
+	sortMissionsForPicker(missions)
+	entries := buildMissionPickerEntries(missions, 50)
+
+	// Format initial input matching the search-fzf output format
+	var buf bytes.Buffer
+	tbl := tableprinter.NewTable("ID", "SESSION", "REPO", "MATCH").WithWriter(&buf)
+	for _, e := range entries {
+		tbl.AddRow(e.ShortID, e.Session, e.Repo, "")
+	}
+	tbl.Print()
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	var initialInput strings.Builder
+	for i, line := range lines {
+		if i == 0 {
+			continue // skip header
+		}
+		idx := i - 1
+		if idx < len(entries) {
+			initialInput.WriteString(entries[idx].ShortID)
+			initialInput.WriteString("\t")
+			initialInput.WriteString(line)
+			initialInput.WriteString("\n")
+		}
+	}
+
+	return runFzfSearchPicker(FzfSearchPickerConfig{
+		Prompt:        "Search missions: ",
+		Headers:       []string{"ID", "SESSION", "REPO", "MATCH"},
+		ReloadCommand: reloadCmd,
+		InitialInput:  initialInput.String(),
+	})
 }

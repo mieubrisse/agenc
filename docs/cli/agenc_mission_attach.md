@@ -10,7 +10,8 @@ Links the mission's tmux window into your session and focuses it.
 If the mission is already linked, just focuses the window.
 Stopped missions are automatically resumed; archived missions are unarchived first.
 
-Without arguments, opens an interactive fzf picker showing all missions.
+Without arguments, opens an interactive search picker showing all missions.
+Type to search by conversation content; results update live.
 With arguments, accepts a mission ID (short 8-char hex or full UUID).
 
 ```

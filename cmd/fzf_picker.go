@@ -147,6 +147,59 @@ func parseFzfOutput(output []byte) []int {
 	return indices
 }
 
+// FzfSearchPickerConfig defines the configuration for a search-mode fzf picker
+// where results come from an external command on each keystroke.
+type FzfSearchPickerConfig struct {
+	Prompt        string   // The prompt displayed to the user
+	Headers       []string // Column headers
+	ReloadCommand string   // Command to run on each keystroke (receives {q} as query)
+	InitialInput  string   // Initial stdin content (pre-formatted with index columns)
+}
+
+// runFzfSearchPicker runs fzf in search mode with dynamic reloading.
+// Returns the selected row's index column value (first tab-separated field),
+// or empty string if cancelled.
+func runFzfSearchPicker(cfg FzfSearchPickerConfig) (string, error) {
+	if !isatty.IsTerminal(os.Stdin.Fd()) {
+		return "", stacktrace.NewError("interactive selection requires a terminal")
+	}
+
+	fzfBinary, err := exec.LookPath("fzf")
+	if err != nil {
+		return "", stacktrace.NewError("'fzf' binary not found in PATH; pass a mission ID instead")
+	}
+
+	args := []string{
+		"--ansi",
+		"--with-nth", "2..",
+		"--prompt", cfg.Prompt,
+		"--disabled",
+		"--bind", "change:reload:" + cfg.ReloadCommand,
+	}
+	if len(cfg.Headers) > 0 {
+		args = append(args, "--header", strings.Join(cfg.Headers, "  "))
+	}
+
+	fzfCmd := exec.Command(fzfBinary, args...)
+	fzfCmd.Stdin = strings.NewReader(cfg.InitialInput)
+	fzfCmd.Stderr = os.Stderr
+
+	output, err := fzfCmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
+			return "", nil // User cancelled
+		}
+		return "", stacktrace.Propagate(err, "fzf search failed")
+	}
+
+	selected := strings.TrimSpace(string(output))
+	if selected == "" {
+		return "", nil
+	}
+	id, _, _ := strings.Cut(selected, "\t")
+	return strings.TrimSpace(id), nil
+}
+
 // runFzfPickerCore is the shared implementation for fzf pickers. When sentinelRow
 // is nil, it behaves like runFzfPicker. When sentinelRow is provided, it behaves
 // like runFzfPickerWithSentinel.
