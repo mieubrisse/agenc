@@ -284,6 +284,25 @@ run_test "mission ls --since RFC3339 succeeds" \
     0 \
     "${agenc_test}" mission ls --since "2026-01-01T00:00:00Z"
 
+echo ""
+echo "--- Mission search (requires server) ---"
+
+run_test "mission search with no query fails" \
+    1 \
+    "${agenc_test}" mission search
+
+run_test_output_contains "mission search nonexistent returns no results" \
+    "No results" \
+    "${agenc_test}" mission search xyznonexistent12345
+
+run_test "mission search --json returns valid output" \
+    0 \
+    "${agenc_test}" mission search --json xyznonexistent12345
+
+run_test_output_contains "mission search --help shows help" \
+    "Search missions" \
+    "${agenc_test}" mission search --help
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
