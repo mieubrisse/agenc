@@ -18,6 +18,37 @@ import (
 // dayNames maps Go's time.Weekday (Sunday=0) to our abbreviated day names.
 var dayNames = [7]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 
+func TestSystemNow_MatchesSystemTimezone(t *testing.T) {
+	now := systemNow()
+
+	// Read the system timezone the same way systemNow does
+	target, err := os.Readlink("/etc/localtime")
+	if err != nil {
+		t.Skip("cannot read /etc/localtime symlink — skipping timezone test")
+	}
+
+	const zoneinfoPrefix = "zoneinfo/"
+	idx := strings.Index(target, zoneinfoPrefix)
+	if idx < 0 {
+		t.Skip("cannot parse timezone from /etc/localtime target")
+	}
+	expectedTZName := target[idx+len(zoneinfoPrefix):]
+
+	if now.Location().String() != expectedTZName {
+		t.Errorf("systemNow() timezone = %q, want %q", now.Location().String(), expectedTZName)
+	}
+
+	// Verify it's within 1 second of time.Now() (same absolute time, different zone)
+	reference := time.Now()
+	diff := now.Sub(reference)
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > time.Second {
+		t.Errorf("systemNow() differs from time.Now() by %v — expected same absolute time", diff)
+	}
+}
+
 // buildActiveWindow returns a WindowDef guaranteed to contain "now", using today's day name
 // with a window spanning from 1 hour ago to 1 hour from now.
 func buildActiveWindow(now time.Time) sleep.WindowDef {

@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/odyssey/agenc/internal/sleep"
@@ -56,7 +58,7 @@ func (s *Server) sleepGuard(fn appHandlerFunc) appHandlerFunc {
 			return fn(w, r)
 		}
 
-		now := time.Now()
+		now := systemNow()
 		if !sleep.IsActive(cfg.SleepMode.Windows, now) {
 			return fn(w, r)
 		}
@@ -84,6 +86,30 @@ func (s *Server) sleepGuard(fn appHandlerFunc) appHandlerFunc {
 		}
 		return newHTTPError(http.StatusForbidden, msg)
 	}
+}
+
+// systemNow returns the current time in the system's actual timezone.
+// Go caches time.Local at process startup and never refreshes it, so
+// time.Now() uses a stale timezone if the system timezone changes while
+// the server is running (e.g., the user travels across timezones).
+// This function re-reads /etc/localtime on each call to get the current
+// timezone. Falls back to time.Now() if the timezone cannot be determined.
+func systemNow() time.Time {
+	target, err := os.Readlink("/etc/localtime")
+	if err != nil {
+		return time.Now()
+	}
+	const zoneinfoPrefix = "zoneinfo/"
+	idx := strings.Index(target, zoneinfoPrefix)
+	if idx < 0 {
+		return time.Now()
+	}
+	tzName := target[idx+len(zoneinfoPrefix):]
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		return time.Now()
+	}
+	return time.Now().In(loc)
 }
 
 // appHandler wraps an appHandlerFunc into an http.Handler that logs every
