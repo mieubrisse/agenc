@@ -314,25 +314,21 @@ func (c *Client) RecordPrompt(id string) error {
 }
 
 // ReloadMission reloads a mission's wrapper via the server.
-func (c *Client) ReloadMission(id string, tmuxSession string) error {
-	body := map[string]string{}
-	if tmuxSession != "" {
-		body["tmux_session"] = tmuxSession
-	}
-	return c.Post("/missions/"+id+"/reload", body, nil)
+func (c *Client) ReloadMission(id string) error {
+	return c.Post("/missions/"+id+"/reload", nil, nil)
 }
 
 // AttachMission ensures the mission's wrapper is running in the pool and links
-// the pool window into the given tmux session.
-func (c *Client) AttachMission(id string, tmuxSession string, noFocus bool) error {
-	body := AttachRequest{TmuxSession: tmuxSession, NoFocus: noFocus}
+// the pool window into the caller's tmux session (resolved from callingPaneID).
+func (c *Client) AttachMission(id string, callingPaneID string, noFocus bool) error {
+	body := AttachRequest{CallingPaneID: callingPaneID, NoFocus: noFocus}
 	return c.Post("/missions/"+id+"/attach", body, nil)
 }
 
-// DetachMission unlinks the mission's pool window from the given tmux session.
-// The wrapper keeps running in the pool.
-func (c *Client) DetachMission(id string, tmuxSession string) error {
-	body := DetachRequest{TmuxSession: tmuxSession}
+// DetachMission unlinks the mission's pool window from the caller's tmux session
+// (resolved from callingPaneID). The wrapper keeps running in the pool.
+func (c *Client) DetachMission(id string, callingPaneID string) error {
+	body := DetachRequest{CallingPaneID: callingPaneID}
 	return c.Post("/missions/"+id+"/detach", body, nil)
 }
 

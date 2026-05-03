@@ -283,17 +283,16 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 
 // CreateMissionRequest is the JSON body for POST /missions.
 type CreateMissionRequest struct {
-	Repo             string `json:"repo"`
-	Prompt           string `json:"prompt"`
-	TmuxSession      string `json:"tmux_session"`
-	CallingMissionID string `json:"calling_mission_id"`
-	Headless         bool   `json:"headless"`
-	Adjutant         bool   `json:"adjutant"`
-	Source           string `json:"source"`
-	SourceID         string `json:"source_id"`
-	SourceMetadata   string `json:"source_metadata"`
-	CloneFrom        string `json:"clone_from"`
-	NoFocus          bool   `json:"no_focus"`
+	Repo           string `json:"repo"`
+	Prompt         string `json:"prompt"`
+	CallingPaneID  string `json:"calling_pane_id"`
+	Headless       bool   `json:"headless"`
+	Adjutant       bool   `json:"adjutant"`
+	Source         string `json:"source"`
+	SourceID       string `json:"source_id"`
+	SourceMetadata string `json:"source_metadata"`
+	CloneFrom      string `json:"clone_from"`
+	NoFocus        bool   `json:"no_focus"`
 }
 
 // handleCreateMission handles POST /missions.
@@ -416,8 +415,8 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 }
 
 // spawnWrapper launches the wrapper process for a mission.
-// All missions run in a pool window. If TmuxSession is provided,
-// the pool window is also linked into the caller's tmux session.
+// All missions run in a pool window. If CallingPaneID is provided,
+// the server resolves the caller's tmux session and links the pool window into it.
 func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMissionRequest) error {
 	// Build the wrapper command for the pool window.
 	// --run-wrapper tells the resume command to run the wrapper directly
@@ -438,17 +437,12 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		s.logger.Printf("Warning: failed to store pane ID for mission %s: %v", missionRecord.ShortID, err)
 	}
 
-	// Link the pool window into the caller's session (if provided),
-	// then focus and reconcile the title. Uses pane ID (immutable) for
-	// targeting so that this works even after title reconciliation.
-	tmuxSession := req.TmuxSession
-
-	// If the CLI couldn't determine the tmux session (e.g. sandbox blocks
-	// the tmux socket) but knows which mission it's calling from, resolve
-	// the session from the calling mission's pane. The server runs outside
-	// the sandbox and can query tmux directly.
-	if tmuxSession == "" && req.CallingMissionID != "" {
-		tmuxSession = s.resolveSessionFromMission(req.CallingMissionID)
+	// Resolve the caller's tmux session from their pane ID. The CLI sends
+	// $TMUX_PANE instead of the session name so it doesn't need to talk to
+	// the tmux socket (which may be blocked by a sandbox).
+	tmuxSession := ""
+	if req.CallingPaneID != "" {
+		tmuxSession = getSessionForPane(req.CallingPaneID, s.getPoolSessionName())
 	}
 
 	if tmuxSession != "" {
@@ -464,21 +458,6 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	s.reconcileTmuxWindowTitle(missionRecord.ID)
 
 	return nil
-}
-
-// resolveSessionFromMission looks up a mission's tmux pane in the database,
-// then finds which non-pool tmux session that pane is linked into. Returns ""
-// if the mission has no pane or the pane isn't linked into any user session.
-func (s *Server) resolveSessionFromMission(missionID string) string {
-	resolvedID, err := s.db.ResolveMissionID(missionID)
-	if err != nil {
-		return ""
-	}
-	m, err := s.db.GetMission(resolvedID)
-	if err != nil || m == nil || m.TmuxPane == nil {
-		return ""
-	}
-	return getSessionForPane(*m.TmuxPane, s.getPoolSessionName())
 }
 
 const (
@@ -620,7 +599,6 @@ func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) err
 
 // ReloadMissionRequest is the optional JSON body for POST /missions/{id}/reload.
 type ReloadMissionRequest struct {
-	TmuxSession string `json:"tmux_session"`
 }
 
 // handleReloadMission handles POST /missions/{id}/reload.
@@ -670,8 +648,8 @@ func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) err
 
 // AttachRequest is the JSON body for POST /missions/{id}/attach.
 type AttachRequest struct {
-	TmuxSession string `json:"tmux_session"`
-	NoFocus     bool   `json:"no_focus"`
+	CallingPaneID string `json:"calling_pane_id"`
+	NoFocus       bool   `json:"no_focus"`
 }
 
 // handleAttachMission handles POST /missions/{id}/attach.
@@ -684,8 +662,12 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
-	if req.TmuxSession == "" {
-		return newHTTPError(http.StatusBadRequest, "tmux_session is required")
+	if req.CallingPaneID == "" {
+		return newHTTPError(http.StatusBadRequest, "calling_pane_id is required")
+	}
+	tmuxSession := getSessionForPane(req.CallingPaneID, s.getPoolSessionName())
+	if tmuxSession == "" {
+		return newHTTPError(http.StatusBadRequest, "could not resolve tmux session for pane "+req.CallingPaneID)
 	}
 
 	resolvedID, err := s.db.ResolveMissionID(id)
@@ -726,26 +708,24 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 	paneID := *missionRecord.TmuxPane
 
 	// Link the pool window into the caller's session if not already there.
-	// Uses the pane ID (immutable) rather than the window name (which may have
-	// been changed by title reconciliation).
-	if !isPaneInSession(paneID, req.TmuxSession) {
-		if err := linkPoolWindowByPane(paneID, req.TmuxSession); err != nil {
+	if !isPaneInSession(paneID, tmuxSession) {
+		if err := linkPoolWindowByPane(paneID, tmuxSession); err != nil {
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to link window: %s", err.Error())
 		}
 	}
 	if !req.NoFocus {
-		focusPaneInSession(paneID, req.TmuxSession)
+		focusPaneInSession(paneID, tmuxSession)
 	}
 	s.reconcileTmuxWindowTitle(resolvedID)
 
-	s.logger.Printf("Attached mission %s to session %s", database.ShortID(resolvedID), req.TmuxSession)
+	s.logger.Printf("Attached mission %s to session %s", database.ShortID(resolvedID), tmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "attached"})
 	return nil
 }
 
 // DetachRequest is the JSON body for POST /missions/{id}/detach.
 type DetachRequest struct {
-	TmuxSession string `json:"tmux_session"`
+	CallingPaneID string `json:"calling_pane_id"`
 }
 
 // handleDetachMission handles POST /missions/{id}/detach.
@@ -758,8 +738,12 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
-	if req.TmuxSession == "" {
-		return newHTTPError(http.StatusBadRequest, "tmux_session is required")
+	if req.CallingPaneID == "" {
+		return newHTTPError(http.StatusBadRequest, "calling_pane_id is required")
+	}
+	tmuxSession := getSessionForPane(req.CallingPaneID, s.getPoolSessionName())
+	if tmuxSession == "" {
+		return newHTTPError(http.StatusBadRequest, "could not resolve tmux session for pane "+req.CallingPaneID)
 	}
 
 	resolvedID, err := s.db.ResolveMissionID(id)
@@ -778,7 +762,7 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPError(http.StatusBadRequest, "mission has no tmux pane")
 	}
 
-	if err := unlinkPoolWindowByPane(*missionRecord.TmuxPane, req.TmuxSession); err != nil {
+	if err := unlinkPoolWindowByPane(*missionRecord.TmuxPane, tmuxSession); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to unlink window: %s", err.Error())
 	}
 
@@ -786,7 +770,7 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 	// so they don't linger in the pool after detach.
 	killExtraPanesInWindow(*missionRecord.TmuxPane, s.getPoolSessionName(), s.logger)
 
-	s.logger.Printf("Detached mission %s from session %s", database.ShortID(resolvedID), req.TmuxSession)
+	s.logger.Printf("Detached mission %s from session %s", database.ShortID(resolvedID), tmuxSession)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
 	return nil
 }

@@ -148,8 +148,21 @@ func serverClient() (*server.Client, error) {
 // Config helpers
 // ============================================================================
 
+// getCallingPaneID returns the tmux pane ID of the calling process from the
+// $TMUX_PANE environment variable, with the "%" prefix stripped. Returns ""
+// if not inside tmux. This is used instead of querying the tmux server
+// directly, which may be blocked by a sandbox.
+func getCallingPaneID() string {
+	pane := os.Getenv("TMUX_PANE")
+	return strings.TrimPrefix(pane, "%")
+}
+
 // getCurrentTmuxSessionName returns the name of the tmux session the caller
-// is running in. Returns an empty string if not inside tmux.
+// is running in. Returns an empty string if not inside tmux or if the tmux
+// server can't be reached (e.g. sandbox restriction).
+//
+// Prefer getCallingPaneID() for server requests — it reads an env var instead
+// of querying the tmux socket, making it sandbox-safe.
 func getCurrentTmuxSessionName() string {
 	if os.Getenv("TMUX") == "" {
 		return ""

@@ -52,7 +52,7 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve mission ID")
 		}
-		if err := client.ReloadMission(missionID, ""); err != nil {
+		if err := client.ReloadMission(missionID); err != nil {
 			return stacktrace.Propagate(err, "failed to reload mission %s", database.ShortID(missionID))
 		}
 		fmt.Printf("Mission '%s' reloaded\n", database.ShortID(missionID))
@@ -91,7 +91,7 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, entry := range result.Items {
-		if err := client.ReloadMission(entry.MissionID, ""); err != nil {
+		if err := client.ReloadMission(entry.MissionID); err != nil {
 			return stacktrace.Propagate(err, "failed to reload mission %s", entry.ShortID)
 		}
 		fmt.Printf("Mission '%s' reloaded\n", database.ShortID(entry.MissionID))
