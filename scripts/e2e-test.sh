@@ -303,6 +303,23 @@ run_test_output_contains "mission search --help shows help" \
     "Search missions" \
     "${agenc_test}" mission search --help
 
+echo ""
+echo "--- Mission search-fzf ID lookup (requires server) ---"
+
+# Create a headless blank mission so we have a known short ID to search for
+mission_output=$("${agenc_test}" mission new --blank --headless 2>&1) || true
+mission_short_id=$(echo "${mission_output}" | grep -oE '[0-9a-f]{8}' | head -1)
+
+if [ -n "${mission_short_id}" ]; then
+    run_test_output_contains "search-fzf finds mission by short ID" \
+        "${mission_short_id}" \
+        "${agenc_test}" mission search-fzf "${mission_short_id}"
+else
+    total=$((total + 1))
+    printf "  %-50s " "search-fzf finds mission by short ID..."
+    echo "SKIP (could not create test mission)"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

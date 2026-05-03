@@ -64,7 +64,7 @@ Runtime Processes
 
 ### CLI
 
-The CLI is the user-facing entry point. It parses commands and communicates with the server via HTTP over a unix socket for all mission operations. The CLI never accesses the database directly.
+The CLI is a thin interface layer that collects user input (arguments, flags, environment variables) and delegates to the server via HTTP over a unix socket. The CLI never accesses the database directly and avoids querying external systems (tmux, git) when the server can do it instead — the server runs outside any sandbox and has full system access. For example, the CLI reads `$TMUX_PANE` (an env var) and sends the pane ID to the server, which queries tmux to resolve the session name.
 
 - Entry point: `main.go`
 - Commands: `cmd/` (Cobra-based; one file per command or command group)
@@ -91,8 +91,8 @@ Current endpoints:
 - `GET /missions/{id}` — get a single mission by ID (supports short ID resolution)
 - `POST /missions` — create a new mission (DB record, directory, wrapper spawn in pool)
 - `PATCH /missions/{id}` — update mission fields (config_commit, session_name, prompt, tmux_pane)
-- `POST /missions/{id}/attach` — ensure wrapper running (lazy start), link pool window into caller's tmux session
-- `POST /missions/{id}/detach` — unlink pool window from caller's tmux session (wrapper keeps running)
+- `POST /missions/{id}/attach` — ensure wrapper running (lazy start), resolve caller's tmux session from `calling_pane_id`, link pool window into it
+- `POST /missions/{id}/detach` — resolve caller's session from `calling_pane_id`, unlink pool window (wrapper keeps running)
 - `POST /missions/{id}/stop` — stop a mission's wrapper process and clean up pool window
 - `DELETE /missions/{id}` — stop wrapper, clean up pool window and directory, delete from DB
 - `POST /missions/{id}/reload` — in-place reload via tmux respawn-pane
