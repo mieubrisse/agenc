@@ -41,9 +41,9 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
-	// Should contain the simple run-shell form
-	if !strings.Contains(content, "run-shell 'agenc mission new'") {
-		t.Error("expected non-mission-scoped keybinding to use simple run-shell form")
+	// Should contain run-shell with AGENC_CALLING_PANE_ID
+	if !strings.Contains(content, "run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} agenc mission new'") {
+		t.Error("expected non-mission-scoped keybinding to include AGENC_CALLING_PANE_ID")
 	}
 
 	// The keybinding line itself should NOT contain resolve-mission
@@ -175,6 +175,23 @@ func TestGenerateKeybindingsContent_GlobalMissionScopedKeybinding(t *testing.T) 
 	}
 }
 
+func TestGenerateKeybindingsContent_DisplayPopupKeybindingInjectsPaneID(t *testing.T) {
+	keybindings := []CustomKeybinding{
+		{
+			Key:     "a",
+			Command: `tmux display-popup -E -w 80% -h 80% "agenc mission attach"`,
+			Comment: "attachMission — Attach Mission (prefix + a, a)",
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
+
+	// Should inject -e AGENC_CALLING_PANE_ID=#{pane_id} into the display-popup flags
+	if !strings.Contains(content, "display-popup -e AGENC_CALLING_PANE_ID=#{pane_id}") {
+		t.Errorf("expected display-popup keybinding to inject AGENC_CALLING_PANE_ID\ncontent:\n%s", content)
+	}
+}
+
 func TestGenerateKeybindingsContent_SingleQuotesInCommand(t *testing.T) {
 	// Commands containing single quotes must be escaped so they don't break
 	// the run-shell '...' wrapper.
@@ -189,7 +206,7 @@ func TestGenerateKeybindingsContent_SingleQuotesInCommand(t *testing.T) {
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// The inner single quotes must be escaped as '\'' so tmux parses them correctly.
-	expected := `run-shell 'bash -c '\''echo hello'\'''`
+	expected := `run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} bash -c '\''echo hello'\'''`
 	if !strings.Contains(content, expected) {
 		t.Errorf("expected single quotes to be escaped in run-shell wrapper\nwant substring: %s\ngot content:\n%s", expected, content)
 	}

@@ -114,13 +114,23 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 
 		escapedCommand := escapeSingleQuotes(kb.Command)
 
+		// For display-popup commands, pass the calling pane ID into the
+		// popup's environment via -e so that CLI commands inside the popup
+		// can resolve the correct tmux session (TMUX_PANE inside a popup
+		// refers to the temporary popup pane).
+		popupEscapedCommand := escapedCommand
+		if strings.Contains(escapedCommand, "display-popup") {
+			popupEscapedCommand = strings.Replace(escapedCommand, "display-popup",
+				"display-popup -e AGENC_CALLING_PANE_ID=#{pane_id}", 1)
+		}
+
 		if kb.IsMissionScoped {
 			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && %s%s"+
-				"'\n", bindKeyArgs, agencBinary, escapedCommand, redirectSuffix)
+				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && AGENC_CALLING_PANE_ID=#{pane_id} %s%s"+
+				"'\n", bindKeyArgs, agencBinary, popupEscapedCommand, redirectSuffix)
 		} else {
-			fmt.Fprintf(&sb, "bind-key %s run-shell '%s%s'\n", bindKeyArgs, escapedCommand, redirectSuffix)
+			fmt.Fprintf(&sb, "bind-key %s run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} %s%s'\n", bindKeyArgs, popupEscapedCommand, redirectSuffix)
 		}
 	}
 
