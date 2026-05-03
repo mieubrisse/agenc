@@ -154,6 +154,9 @@ func serverClient() (*server.Client, error) {
 // Prefers $AGENC_CALLING_PANE_ID (the underlying pane, forwarded by the palette
 // through keybindings and display-popup -e) over $TMUX_PANE (which may be a
 // temporary popup pane that can't be resolved to a session).
+//
+// See "Calling pane resolution" in docs/system-architecture.md for the three
+// execution contexts and how the pane ID reaches this function in each.
 func getCallingPaneID() string {
 	if pane := os.Getenv("AGENC_CALLING_PANE_ID"); pane != "" {
 		return strings.TrimPrefix(pane, "%")

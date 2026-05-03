@@ -271,6 +271,10 @@ func getLinkedPaneSessions(poolSessionName string) map[string][]string {
 // getSessionForPane returns the first non-pool tmux session that contains the
 // given pane (by numeric ID without "%" prefix). Returns "" if the pane is not
 // linked into any non-pool session, or if the tmux command fails.
+//
+// This is the server-side half of calling pane resolution — the CLI sends a
+// pane ID and the server resolves the session here.
+// See "Calling pane resolution" in docs/system-architecture.md.
 func getSessionForPane(paneID string, poolSessionName string) string {
 	target := "%" + paneID
 	cmd := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_id}")

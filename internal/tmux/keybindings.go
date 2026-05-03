@@ -93,7 +93,11 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		redirectSuffix = fmt.Sprintf(" >> %s 2>&1", escapeSingleQuotes(logFilepath))
 	}
 
-	// Emit all keybindings from resolved palette commands
+	// Emit all keybindings from resolved palette commands.
+	// Every keybinding passes AGENC_CALLING_PANE_ID=#{pane_id} so CLI commands
+	// can tell the server which tmux session to use. For display-popup commands,
+	// the pane ID is also injected via -e since popup environments don't inherit
+	// run-shell env vars. See "Calling pane resolution" in docs/system-architecture.md.
 	for _, kb := range customKeybindings {
 		sb.WriteString("\n")
 		if kb.Comment != "" {

@@ -253,6 +253,8 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 //   - display-popup (temporary pane): injects -e flag to pass the calling pane
 //     ID into the popup's environment, since TMUX_PANE inside the popup refers
 //     to the temporary popup pane
+//
+// See "Calling pane resolution" in docs/system-architecture.md for full context.
 func buildPaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMissionUUID string) string {
 	var envPrefix string
 	agencDirpath, err := config.GetAgencDirpath()
