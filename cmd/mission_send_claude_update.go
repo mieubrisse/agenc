@@ -14,6 +14,7 @@ import (
 
 const (
 	claudeUpdateClientTimeout = 1 * time.Second
+	stdinReadTimeout          = 500 * time.Millisecond
 )
 
 var missionSendClaudeUpdateCmd = &cobra.Command{
@@ -21,8 +22,10 @@ var missionSendClaudeUpdateCmd = &cobra.Command{
 	Short: "Send a Claude hook event to the mission wrapper",
 	Long: `Send a Claude hook event to the mission wrapper via its unix socket.
 
-This command is called by Claude Code hooks (Stop, UserPromptSubmit, Notification)
-to report state changes. Hook JSON is read from stdin when available.
+This command is called by Claude Code hooks (Stop, UserPromptSubmit, Notification,
+PostToolUse, PostToolUseFailure) to report state changes. For Notification events,
+hook JSON is read from stdin (with a timeout) to extract notification_type. All
+other events skip stdin entirely to avoid blocking when Claude Code doesn't close it.
 
 Always exits 0, even on failure, to avoid blocking Claude.`,
 	Args:               cobra.ExactArgs(2),
@@ -40,10 +43,14 @@ func runMissionSendClaudeUpdate(cmd *cobra.Command, args []string) error {
 	missionID := args[0]
 	event := args[1]
 
-	// Read stdin for hook JSON (Claude provides event-specific fields).
-	// Non-blocking: if stdin is empty or a pipe with no data, we proceed
-	// without it.
-	notificationType := extractNotificationType(os.Stdin)
+	// Only read stdin for Notification events (to extract notification_type).
+	// Other events (Stop, UserPromptSubmit, PostToolUse, PostToolUseFailure)
+	// don't pass useful data via stdin, and Claude Code may not close stdin
+	// for them — causing io.ReadAll to block indefinitely.
+	var notificationType string
+	if event == "Notification" {
+		notificationType = extractNotificationType(os.Stdin)
+	}
 
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
@@ -63,12 +70,36 @@ func runMissionSendClaudeUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// extractNotificationType reads stdin and extracts the notification_type field
-// from the hook JSON payload. Returns empty string if stdin is empty or the
-// field is not present.
+// extractNotificationType reads stdin with a short timeout and extracts the
+// notification_type field from the hook JSON payload. Returns empty string if
+// stdin is empty, the field is not present, or the read times out.
+//
+// The timeout prevents blocking if Claude Code doesn't close stdin. This is a
+// CLI process that exits immediately after, so a leaked goroutine on timeout
+// is acceptable.
 func extractNotificationType(reader io.Reader) string {
-	data, err := io.ReadAll(reader)
-	if err != nil || len(data) == 0 {
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(reader)
+		ch <- readResult{data, err}
+	}()
+
+	var data []byte
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			return ""
+		}
+		data = res.data
+	case <-time.After(stdinReadTimeout):
+		return ""
+	}
+
+	if len(data) == 0 {
 		return ""
 	}
 

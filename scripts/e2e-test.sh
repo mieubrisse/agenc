@@ -320,6 +320,31 @@ else
     echo "SKIP (could not create test mission)"
 fi
 
+echo ""
+echo "--- claude-update stdin handling ---"
+
+# Bug fix: agenc mission send claude-update must not block on stdin for
+# non-Notification events. Previously, io.ReadAll hung when Claude Code
+# didn't close stdin for UserPromptSubmit hooks.
+# Use a fake mission UUID — the command should exit 0 regardless (silent fail).
+
+run_test "claude-update UserPromptSubmit without stdin returns immediately" \
+    0 \
+    timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 UserPromptSubmit
+
+run_test "claude-update Stop without stdin returns immediately" \
+    0 \
+    timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 Stop
+
+run_test "claude-update PostToolUse without stdin returns immediately" \
+    0 \
+    timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 PostToolUse
+
+# Notification event should also not hang (has a stdin read timeout)
+run_test "claude-update Notification without stdin returns immediately" \
+    0 \
+    timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 Notification
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
