@@ -40,15 +40,32 @@ var ContainerHookEntries map[string]json.RawMessage
 func init() {
 	AgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
 	for _, eventName := range agencHookEventNames {
-		entry := `[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID ` + eventName + `"}]}]`
+		command := "agenc mission send claude-update $AGENC_MISSION_UUID " + eventName
+		// Redirect stdin from /dev/null for non-Notification events. Claude Code
+		// may not close stdin for some event types (notably UserPromptSubmit),
+		// causing io.ReadAll to block indefinitely. Only Notification events need
+		// stdin (to extract notification_type from the hook JSON payload).
+		if eventName != "Notification" {
+			command += " < /dev/null"
+		}
+		entry := fmt.Sprintf(`[{"hooks":[{"type":"command","command":"%s"}]}]`, command)
 		AgencHookEntries[eventName] = json.RawMessage(entry)
 	}
 
 	ContainerHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
 	for _, eventName := range agencHookEventNames {
+		// Only Notification events pass stdin data (-d @-) to extract
+		// notification_type. Other events use an empty body to avoid hanging
+		// on stdin that Claude Code may not close.
+		var stdinFlag string
+		if eventName == "Notification" {
+			stdinFlag = "-d @-"
+		} else {
+			stdinFlag = `-d "{}"`
+		}
 		cmd := fmt.Sprintf(
-			`curl -s --unix-socket $AGENC_WRAPPER_SOCKET -X POST http://w/claude-update/%s -H "Content-Type: application/json" -d @- -o /dev/null || true`,
-			eventName,
+			`curl -s --unix-socket $AGENC_WRAPPER_SOCKET -X POST http://w/claude-update/%s -H "Content-Type: application/json" %s -o /dev/null || true`,
+			eventName, stdinFlag,
 		)
 		entry := fmt.Sprintf(`[{"hooks":[{"type":"command","command":"%s"}]}]`, cmd)
 		ContainerHookEntries[eventName] = json.RawMessage(entry)
