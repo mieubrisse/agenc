@@ -37,15 +37,6 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	results, err := client.SearchMissions(query, 30)
-	if err != nil {
-		return err
-	}
-
-	if len(results) == 0 {
-		return nil
-	}
-
 	cfg, _ := readConfig()
 
 	// Build table rows and track IDs for the index column
@@ -54,7 +45,35 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 		cols    []string
 	}
 	var rows []row
+	seenMissionIDs := make(map[string]bool)
+
+	// If the query looks like a mission ID, try direct resolution first.
+	// Mission IDs aren't in the FTS content index, so without this the
+	// picker would return no results when searching by ID.
+	if looksLikeMissionID(query) {
+		if m, resolveErr := client.GetMission(query); resolveErr == nil {
+			session := resolveSessionName(m)
+			repo := formatRepoDisplay(m.GitRepo, m.IsAdjutant, cfg)
+			rows = append(rows, row{
+				shortID: m.ShortID,
+				cols:    []string{m.ShortID, session, repo, ""},
+			})
+			seenMissionIDs[m.ID] = true
+		}
+	}
+
+	// Full-text search on session content
+	results, err := client.SearchMissions(query, 30)
+	if err != nil {
+		return err
+	}
+
 	for _, r := range results {
+		if seenMissionIDs[r.MissionID] {
+			continue
+		}
+		seenMissionIDs[r.MissionID] = true
+
 		shortID := r.ShortID
 		if shortID == "" && len(r.MissionID) >= 8 {
 			shortID = r.MissionID[:8]
@@ -76,6 +95,10 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 			shortID: shortID,
 			cols:    []string{shortID, session, repo, snippet},
 		})
+	}
+
+	if len(rows) == 0 {
+		return nil
 	}
 
 	// Render through tableprinter for alignment
