@@ -115,7 +115,7 @@ func runMissionSearchPicker(client *server.Client) (string, error) {
 	}
 
 	sortMissionsForPicker(missions)
-	entries := buildMissionPickerEntries(missions, 50)
+	entries := buildMissionPickerEntries(missions, 30)
 
 	// Format initial input matching the search-fzf output format
 	var buf bytes.Buffer

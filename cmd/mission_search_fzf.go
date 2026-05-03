@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
@@ -81,15 +82,15 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 
 		session := r.ResolvedSessionTitle
 		if session == "" {
-			session = truncatePrompt(r.Prompt, 50)
+			session = truncatePrompt(r.Prompt, 30)
+		} else {
+			session = truncatePrompt(session, 30)
 		}
 
 		repo := formatRepoDisplay(r.GitRepo, false, cfg)
 
 		snippet := strings.ReplaceAll(r.Snippet, "\n", " ")
-		if len(snippet) > 60 {
-			snippet = snippet[:60] + "…"
-		}
+		snippet = database.ColorizeSnippet(snippet)
 
 		rows = append(rows, row{
 			shortID: shortID,
@@ -138,7 +139,7 @@ func printRecentMissionsForFzf() error {
 	}
 
 	sortMissionsForPicker(missions)
-	entries := buildMissionPickerEntries(missions, 50)
+	entries := buildMissionPickerEntries(missions, 30)
 
 	var buf strings.Builder
 	tbl := tableprinter.NewTable("ID", "SESSION", "REPO", "MATCH").WithWriter(&buf)

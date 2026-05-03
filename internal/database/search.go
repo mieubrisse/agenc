@@ -82,7 +82,7 @@ func (db *DB) SearchMissions(query string, limit int) ([]SearchResult, error) {
 func (db *DB) executeSearch(ftsQuery string, limit int) ([]SearchResult, error) {
 	rows, err := db.conn.Query(`
 		SELECT mission_id, session_id,
-			snippet(mission_search_index, 2, '[', ']', '...', 20) as snippet,
+			snippet(mission_search_index, 2, x'01', x'02', '...', 20) as snippet,
 			bm25(mission_search_index) as rank
 		FROM mission_search_index
 		WHERE content MATCH ?
@@ -129,6 +129,21 @@ func (db *DB) UpdateLastIndexedOffset(sessionID string, newOffset int64) error {
 		return stacktrace.Propagate(err, "failed to update last_indexed_offset for session '%s'", sessionID)
 	}
 	return nil
+}
+
+// ColorizeSnippet replaces snippet match markers (\x01 / \x02) with ANSI
+// bold+yellow for terminal display.
+func ColorizeSnippet(snippet string) string {
+	s := strings.ReplaceAll(snippet, "\x01", "\033[1;33m") // bold yellow
+	s = strings.ReplaceAll(s, "\x02", "\033[0m")           // reset
+	return s
+}
+
+// StripSnippetMarkers removes snippet match markers for plain-text output.
+func StripSnippetMarkers(snippet string) string {
+	s := strings.ReplaceAll(snippet, "\x01", "")
+	s = strings.ReplaceAll(s, "\x02", "")
+	return s
 }
 
 // DeleteAllSearchContent removes all entries from the FTS5 index.

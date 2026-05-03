@@ -8,6 +8,8 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
+
+	"github.com/odyssey/agenc/internal/database"
 )
 
 var searchJSONFlag bool
@@ -46,6 +48,10 @@ func runMissionSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if searchJSONFlag {
+		// Strip binary markers from snippets for JSON output
+		for i := range results {
+			results[i].Snippet = database.StripSnippetMarkers(results[i].Snippet)
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(results)
@@ -73,7 +79,7 @@ func runMissionSearch(cmd *cobra.Command, args []string) error {
 
 		fmt.Printf("%s  %s  %s\n", shortID, session, repo)
 		if r.Snippet != "" {
-			fmt.Printf("  %s\n\n", r.Snippet)
+			fmt.Printf("  %s\n\n", database.ColorizeSnippet(r.Snippet))
 		}
 	}
 
