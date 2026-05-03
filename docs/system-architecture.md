@@ -100,6 +100,7 @@ Current endpoints:
 - `POST /missions/{id}/unarchive` — set a mission back to active
 - `POST /missions/{id}/heartbeat` — update a mission's `last_heartbeat` timestamp; also updates `last_user_prompt_at` if included in the payload
 - `POST /missions/{id}/prompt` — update `last_user_prompt_at` and increment `prompt_count`
+- `GET /missions/search?q={query}&limit={n}` — full-text search over mission transcripts; returns BM25-ranked results with snippets and enriched mission metadata
 - `GET /sessions?mission_id={id}` — list sessions for a mission (ordered by updated_at descending)
 - `PATCH /sessions/{id}` — update session fields (agenc_custom_title); triggers tmux window title reconciliation
 - `POST /repos/{name}/push-event` — enqueue a repo library update (returns 202 Accepted)
@@ -110,7 +111,7 @@ Current endpoints:
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 ### Background loops
 
-The server runs eight concurrent background goroutines:
+The server runs ten concurrent background goroutines:
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs every 60 seconds
@@ -153,16 +154,34 @@ The server runs eight concurrent background goroutines:
 - Hook timeout: 30-minute hard limit, WARN logs emitted every 5 minutes after the first 5 minutes
 - Hook failures are logged but non-fatal — they do not block subsequent updates
 
-**8. Session scanner loop** (`internal/server/session_scanner.go`)
+**8. File watcher** (`internal/server/session_scanner.go` — `runFileWatcherLoop`)
 - Runs every 3 seconds
-- Queries the tmux pool for live pane IDs via `listPoolPaneIDs()`, then resolves each pane to a mission via the database (`GetMissionByTmuxPane`)
-- For each running mission, computes the project directory path directly using `ComputeProjectDirpath` and lists JSONL files in that single directory (no glob across all missions)
-- For each discovered file, creates or looks up a row in the `sessions` table
-- Incrementally scans from the last byte offset (`last_scanned_offset`), avoiding re-reading data that was already processed
-- Extracts `custom-title` metadata entries from new JSONL lines using a quick string-match filter before JSON parsing
+- Discovers JSONL files and updates `known_file_size` on the sessions table; does NOT read file content
+- Two scopes per cycle:
+  - Running missions: queries tmux pool for live pane IDs, resolves each to a mission, walks project dirs for JSONL files, stats them
+  - NULL file size sessions: queries sessions where `known_file_size IS NULL`, computes JSONL paths, stats files to set initial sizes (backfill trigger for historical sessions)
+- Creates session rows for newly discovered JSONL files
+
+**9. Title consumer** (`internal/server/session_scanner.go` — `runTitleConsumerLoop`)
+- Runs every 3 seconds
+- Queries sessions where `known_file_size > last_title_update_offset`
+- For each: opens the JSONL file, seeks to `last_title_update_offset`, reads new content
+- Extracts `custom-title` metadata entries using a quick string-match filter before JSON parsing
 - When a session has no `auto_summary`, also extracts the first user message and sends a summary request to the session summarizer worker
-- Updates the session row with any new `custom_title` and the new byte offset
-- When `custom_title` changes, triggers tmux window title reconciliation for the session's mission (see "Tmux title reconciliation" under Key Architectural Patterns)
+- Updates the session row with any new `custom_title` and advances `last_title_update_offset`
+- When `custom_title` changes, triggers tmux window title reconciliation
+
+**10. Search indexer** (`internal/server/search_indexer.go`)
+- Runs every 30 seconds
+- Queries sessions where `known_file_size > last_indexed_offset`
+- For each: opens the JSONL file, seeks to `last_indexed_offset`, reads to `known_file_size`
+- Extracts user messages and assistant text blocks (skipping tool_use, thinking, system messages)
+- Inserts extracted text into the FTS5 `mission_search_index` table and advances `last_indexed_offset` atomically in a single transaction
+- Powers the `GET /missions/search` endpoint and the `agenc mission search` CLI command
+
+The file watcher, title consumer, and search indexer form a three-layer session processing pipeline. The file watcher (layer 1) tracks file sizes. Consumers (layer 2) independently query for sessions where `known_file_size > their_offset` and process new content at their own cadence. The sessions table (layer 3) coordinates via three columns: `known_file_size` (nullable, written by file watcher), `last_title_update_offset` (title consumer), `last_indexed_offset` (search indexer).
+
+The FTS5 virtual table `mission_search_index` stores indexed conversation text with `mission_id` and `session_id` as unindexed columns. It uses the `porter unicode61` tokenizer for stemming and Unicode normalization. Queries use BM25 ranking with results deduplicated by mission.
 
 ### Tmux pool
 
