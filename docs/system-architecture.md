@@ -524,6 +524,24 @@ The resolution flow:
 
 Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — no special placeholder syntax. The palette detects mission-scoped commands by checking whether the command string contains the env var name (`ResolvedPaletteCommand.IsMissionScoped()`).
 
+### Calling pane resolution
+
+CLI commands that create, attach, or detach missions need to tell the server which tmux session to link windows into. The server resolves this from the calling pane ID via `getSessionForPane()` (`internal/server/pool.go`). The CLI sends the pane ID as `CallingPaneID` in the request body — it never queries the tmux server directly (which may be blocked by a sandbox).
+
+There are three execution contexts that reach these server endpoints, each with a different mechanism for obtaining the pane ID:
+
+| Context | How it runs | `$TMUX_PANE` | `$AGENC_CALLING_PANE_ID` | Resolution |
+|---------|------------|--------------|--------------------------|------------|
+| **Direct CLI** | User types `agenc mission new` in a tmux pane | Set by tmux (correct pane) | Not set | CLI reads `$TMUX_PANE` |
+| **Keybinding → run-shell** | Palette "Quick Claude", "Detach", or palette-dispatched non-popup commands | Not set (run-shell has no pane) | Set by keybinding via `#{pane_id}` expansion | CLI reads `$AGENC_CALLING_PANE_ID` |
+| **Keybinding → display-popup** | "Attach Mission", "New Mission" picker, or any palette command that opens a popup | Set by tmux (temporary popup pane — **not resolvable** to a session) | Set via `display-popup -e` flag, injected by keybinding generation (`internal/tmux/keybindings.go`) and palette dispatch (`cmd/tmux_palette.go`) | CLI reads `$AGENC_CALLING_PANE_ID`, ignoring the popup's `$TMUX_PANE` |
+
+`getCallingPaneID()` (`cmd/mission_helpers.go`) implements the priority: `$AGENC_CALLING_PANE_ID` first, then `$TMUX_PANE`. This ensures the correct underlying pane is used regardless of execution context.
+
+**Key constraint:** tmux popup panes (created by `display-popup`) do not appear in `tmux list-panes -a`. Any code that resolves pane IDs to sessions will fail on popup pane IDs. This is why `$AGENC_CALLING_PANE_ID` (the underlying pane, captured at keybinding time before any popup is created) must be preferred over `$TMUX_PANE` in popup contexts.
+
+When adding new palette commands or keybindings that invoke CLI commands needing session context, ensure `AGENC_CALLING_PANE_ID` is available in the execution environment. For display-popup commands, this means injecting `-e AGENC_CALLING_PANE_ID=#{pane_id}` (or `$AGENC_CALLING_PANE_ID` in palette dispatch). The keybinding generator (`internal/tmux/keybindings.go`) handles this automatically for all generated keybindings.
+
 ### Tmux title reconciliation
 
 The server provides an idempotent function (`internal/server/tmux.go`) that examines all available data for a mission and converges the tmux window to the correct title. It can be called from any context — the session scanner, the session summarizer, or a mission switch — and always produces the same result for the same input state.
