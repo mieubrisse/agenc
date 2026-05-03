@@ -32,6 +32,18 @@ When the user refers to "tmux keybindings," they are talking about the tmux keyb
 
 This refers to the command palette feature within AgenC that provides tmux-style keyboard shortcuts for executing commands and navigating the interface. All related code, configuration, and functionality exists within this repository.
 
+Thin CLI, Thick Server
+----------------------
+
+AgenC follows a **thin CLI, thick server** architecture. The CLI is a minimal interface layer that collects input (arguments, flags, environment variables) and passes it to the server. The server performs all heavy operations — tmux queries, state resolution, business logic, and side effects.
+
+When adding new functionality, default to implementing it on the server side. The CLI should send raw identifiers (pane IDs, mission IDs, repo names) and let the server resolve them. The CLI should never query external systems (tmux, git, etc.) when the server can do it instead, because the server runs outside any sandbox and has full system access.
+
+Concrete examples:
+- The CLI reads `$TMUX_PANE` (an env var) and sends the pane ID to the server, which queries tmux to resolve the session name.
+- The CLI does NOT call `tmux display-message` to resolve the session name itself — that requires the tmux socket, which may be blocked by a sandbox.
+- New server endpoints are preferred over new CLI logic.
+
 Building and Checking
 ---------------------
 
@@ -118,6 +130,15 @@ Use this hash to identify your test environment's tmux sessions (`agenc-HASH-poo
 ### E2E tests
 
 E2E tests live in `scripts/e2e-test.sh` and run via `make e2e`. The `make e2e` target builds the binary, creates the test environment, runs the test script, and tears everything down — including stopping the server.
+
+**E2E testing is mandatory for behavioral changes.** When your change affects CLI commands, server endpoints, or any user-visible behavior, you must:
+
+1. **Write E2E tests** for the new or changed behavior in `scripts/e2e-test.sh`
+2. **Run `make e2e`** and verify all tests pass before pushing
+
+`make build` passing is necessary but not sufficient — it only checks compilation and unit tests. E2E tests verify that the system actually works as a whole. Pushing behavioral changes without E2E verification risks breaking production in ways that unit tests cannot catch.
+
+Only flag manual testing to the user when the behavior **genuinely cannot be automated** (e.g., tmux palette interactions that require human input via fzf). For everything that can be tested by running CLI commands and checking output, write an E2E test.
 
 The test script provides three helpers for writing tests:
 
