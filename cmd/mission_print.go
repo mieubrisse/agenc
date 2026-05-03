@@ -99,20 +99,19 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 
 	missionID := result.Items[0].MissionID
 
-	// Resolve mission's current session ID
+	// Locate the mission's active session JSONL. Use FindActiveJSONLPath
+	// rather than GetLastSessionID so that a freshly-spawned mission whose
+	// session contains only metadata entries (and would be filtered out by
+	// the conversation-data check in ListSessionIDs) is still printable —
+	// printSession reports an empty-session message in that case.
 	agencDirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")
 	}
-	sessionID := claudeconfig.GetLastSessionID(agencDirpath, missionID)
-	if sessionID == "" {
+	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
+	jsonlFilepath := session.FindActiveJSONLPath(claudeConfigDirpath, missionID)
+	if jsonlFilepath == "" {
 		return stacktrace.NewError("no current session found for mission %s", missionID)
-	}
-
-	// Find and print the session JSONL
-	jsonlFilepath, err := session.FindSessionJSONLPath(sessionID)
-	if err != nil {
-		return stacktrace.Propagate(err, "")
 	}
 
 	return printSession(jsonlFilepath, missionPrintTailFlag, missionPrintTailFlag == 0, missionPrintFormatFlag)
