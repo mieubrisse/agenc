@@ -81,7 +81,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 			"tmux display-popup -E -w 68%% -h 63%% "+
-			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID %s tmux palette\""+
+			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID AGENC_CALLING_PANE_ID=#{pane_id} %s tmux palette\""+
 			"'\n", paletteKey, agencBinary, agencBinary)
 	}
 

@@ -235,10 +235,11 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	}
 
 	// Commands are self-contained (they include their own tmux primitives),
-	// so we use them directly. Prepend env exports so AGENC_DIRPATH and
-	// AGENC_TEST_ENV are available in the tmux run-shell context (which
-	// doesn't inherit the server's environment). For mission-scoped commands,
-	// also export AGENC_CALLING_MISSION_UUID.
+	// so we use them directly. Prepend env exports so AGENC_DIRPATH,
+	// AGENC_TEST_ENV, and TMUX_PANE are available in the tmux run-shell
+	// context. run-shell doesn't create a pane, so $TMUX_PANE would
+	// otherwise be unset — but CLI commands need it to tell the server
+	// which tmux session to link new windows into.
 	var envPrefix string
 	agencDirpath, err := config.GetAgencDirpath()
 	if err == nil && config.GetNamespaceSuffix(agencDirpath) != "" {
@@ -246,6 +247,13 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		if config.IsTestEnv() {
 			envPrefix += "export AGENC_TEST_ENV=1; "
 		}
+	}
+	// The palette runs inside a display-popup (temporary pane). Dispatched
+	// commands run via run-shell which has no pane context. Pass the
+	// underlying pane ID (captured at keybinding time) so CLI commands can
+	// tell the server which session to link windows into.
+	if callingPane := os.Getenv("AGENC_CALLING_PANE_ID"); callingPane != "" {
+		envPrefix += fmt.Sprintf("export TMUX_PANE=%s; ", callingPane)
 	}
 	if selectedEntry.IsMissionScoped() && callingMissionUUID != "" {
 		envPrefix += fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
