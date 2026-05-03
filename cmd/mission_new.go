@@ -110,18 +110,16 @@ func runMissionNewWithClone() error {
 		return stacktrace.Propagate(err, "failed to get source mission")
 	}
 
-	tmuxSession := ""
-	if !headlessFlag {
-		tmuxSession = getCurrentTmuxSessionName()
-	}
+	tmuxSession, callingMissionID := detectTmuxContext()
 
 	stopSpinner := startSpinner("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
-		Repo:        sourceMission.GitRepo,
-		Prompt:      promptFlag,
-		CloneFrom:   sourceMission.ID,
-		TmuxSession: tmuxSession,
-		NoFocus:     noFocusFlag,
+		Repo:             sourceMission.GitRepo,
+		Prompt:           promptFlag,
+		CloneFrom:        sourceMission.ID,
+		TmuxSession:      tmuxSession,
+		CallingMissionID: callingMissionID,
+		NoFocus:          noFocusFlag,
 	})
 	stopSpinner()
 	if err != nil {
@@ -133,7 +131,7 @@ func runMissionNewWithClone() error {
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
 	}
 
-	if tmuxSession != "" {
+	if tmuxSession != "" || callingMissionID != "" {
 		fmt.Println("Launched in tmux pool")
 	} else {
 		fmt.Println("Running in background (pool window)")
@@ -222,17 +220,15 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		return err
 	}
 
-	tmuxSession := ""
-	if !headlessFlag {
-		tmuxSession = getCurrentTmuxSessionName()
-	}
+	tmuxSession, callingMissionID := detectTmuxContext()
 
 	stopSpinner := startSpinner("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
-		Adjutant:    true,
-		Prompt:      initialPrompt,
-		TmuxSession: tmuxSession,
-		NoFocus:     noFocusFlag,
+		Adjutant:         true,
+		Prompt:           initialPrompt,
+		TmuxSession:      tmuxSession,
+		CallingMissionID: callingMissionID,
+		NoFocus:          noFocusFlag,
 	})
 	stopSpinner()
 	if err != nil {
@@ -241,7 +237,7 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 
 	fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
 
-	if tmuxSession != "" {
+	if tmuxSession != "" || callingMissionID != "" {
 		fmt.Println("Launched in tmux pool")
 	} else {
 		fmt.Println("Running in background (pool window)")
@@ -346,6 +342,28 @@ func selectFromRepoLibrary(agencDirpath string, entries []repoLibraryEntry, init
 	return &entries[idx-2], nil
 }
 
+// detectTmuxContext resolves the tmux session name and calling mission ID for
+// new mission requests. Returns ("", "") when headless or not inside tmux.
+//
+// When the CLI runs inside tmux but can't query the tmux server (e.g. Claude
+// Code's sandbox blocks the tmux socket), it falls back to returning the
+// calling mission's UUID so the server can resolve the session itself.
+func detectTmuxContext() (tmuxSession string, callingMissionID string) {
+	if headlessFlag {
+		return "", ""
+	}
+	tmuxSession = getCurrentTmuxSessionName()
+	if tmuxSession != "" {
+		return tmuxSession, ""
+	}
+	// TMUX is set but we couldn't query the session name (sandbox restriction).
+	// Let the server resolve the session from the calling mission's pane.
+	if os.Getenv("TMUX") != "" {
+		return "", os.Getenv(config.MissionUUIDEnvVar)
+	}
+	return "", ""
+}
+
 // createAndLaunchMission creates the mission record and directory via the
 // server, which spawns a wrapper in a tmux pool window.
 // gitRepoName is the canonical repo name stored in the DB (e.g.
@@ -360,21 +378,18 @@ func createAndLaunchMission(
 		return err
 	}
 
-	// Detect tmux session — omit if headless flag is set
-	tmuxSession := ""
-	if !headlessFlag {
-		tmuxSession = getCurrentTmuxSessionName()
-	}
+	tmuxSession, callingMissionID := detectTmuxContext()
 
 	stopSpinner := startSpinner("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
-		Repo:           gitRepoName,
-		Prompt:         initialPrompt,
-		TmuxSession:    tmuxSession,
-		Source:         sourceFlag,
-		SourceID:       sourceIDFlag,
-		SourceMetadata: sourceMetadataFlag,
-		NoFocus:        noFocusFlag,
+		Repo:             gitRepoName,
+		Prompt:           initialPrompt,
+		TmuxSession:      tmuxSession,
+		CallingMissionID: callingMissionID,
+		Source:           sourceFlag,
+		SourceID:         sourceIDFlag,
+		SourceMetadata:   sourceMetadataFlag,
+		NoFocus:          noFocusFlag,
 	})
 	stopSpinner()
 	if err != nil {
@@ -383,7 +398,7 @@ func createAndLaunchMission(
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
-	if tmuxSession != "" {
+	if tmuxSession != "" || callingMissionID != "" {
 		fmt.Println("Launched in tmux pool")
 	} else {
 		fmt.Println("Running in background (pool window)")

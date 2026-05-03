@@ -268,6 +268,31 @@ func getLinkedPaneSessions(poolSessionName string) map[string][]string {
 	return result
 }
 
+// getSessionForPane returns the first non-pool tmux session that contains the
+// given pane (by numeric ID without "%" prefix). Returns "" if the pane is not
+// linked into any non-pool session, or if the tmux command fails.
+func getSessionForPane(paneID string, poolSessionName string) string {
+	target := "%" + paneID
+	cmd := exec.Command("tmux", "list-panes", "-a", "-F", "#{session_name} #{pane_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if parts[0] == poolSessionName {
+			continue
+		}
+		if parts[1] == target {
+			return parts[0]
+		}
+	}
+	return ""
+}
+
 // isPaneInSession checks whether a pane (by numeric ID without "%" prefix) is
 // currently visible in the given tmux session. Returns false if the session
 // doesn't exist or the tmux command fails.

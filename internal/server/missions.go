@@ -283,16 +283,17 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 
 // CreateMissionRequest is the JSON body for POST /missions.
 type CreateMissionRequest struct {
-	Repo           string `json:"repo"`
-	Prompt         string `json:"prompt"`
-	TmuxSession    string `json:"tmux_session"`
-	Headless       bool   `json:"headless"`
-	Adjutant       bool   `json:"adjutant"`
-	Source         string `json:"source"`
-	SourceID       string `json:"source_id"`
-	SourceMetadata string `json:"source_metadata"`
-	CloneFrom      string `json:"clone_from"`
-	NoFocus        bool   `json:"no_focus"`
+	Repo             string `json:"repo"`
+	Prompt           string `json:"prompt"`
+	TmuxSession      string `json:"tmux_session"`
+	CallingMissionID string `json:"calling_mission_id"`
+	Headless         bool   `json:"headless"`
+	Adjutant         bool   `json:"adjutant"`
+	Source           string `json:"source"`
+	SourceID         string `json:"source_id"`
+	SourceMetadata   string `json:"source_metadata"`
+	CloneFrom        string `json:"clone_from"`
+	NoFocus          bool   `json:"no_focus"`
 }
 
 // handleCreateMission handles POST /missions.
@@ -441,6 +442,15 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	// then focus and reconcile the title. Uses pane ID (immutable) for
 	// targeting so that this works even after title reconciliation.
 	tmuxSession := req.TmuxSession
+
+	// If the CLI couldn't determine the tmux session (e.g. sandbox blocks
+	// the tmux socket) but knows which mission it's calling from, resolve
+	// the session from the calling mission's pane. The server runs outside
+	// the sandbox and can query tmux directly.
+	if tmuxSession == "" && req.CallingMissionID != "" {
+		tmuxSession = s.resolveSessionFromMission(req.CallingMissionID)
+	}
+
 	if tmuxSession != "" {
 		if err := linkPoolWindowByPane(paneID, tmuxSession); err != nil {
 			s.destroyPoolWindow(paneID)
@@ -454,6 +464,21 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 	s.reconcileTmuxWindowTitle(missionRecord.ID)
 
 	return nil
+}
+
+// resolveSessionFromMission looks up a mission's tmux pane in the database,
+// then finds which non-pool tmux session that pane is linked into. Returns ""
+// if the mission has no pane or the pane isn't linked into any user session.
+func (s *Server) resolveSessionFromMission(missionID string) string {
+	resolvedID, err := s.db.ResolveMissionID(missionID)
+	if err != nil {
+		return ""
+	}
+	m, err := s.db.GetMission(resolvedID)
+	if err != nil || m == nil || m.TmuxPane == nil {
+		return ""
+	}
+	return getSessionForPane(*m.TmuxPane, s.getPoolSessionName())
 }
 
 const (
