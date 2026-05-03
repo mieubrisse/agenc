@@ -148,13 +148,17 @@ func serverClient() (*server.Client, error) {
 // Config helpers
 // ============================================================================
 
-// getCallingPaneID returns the tmux pane ID of the calling process from the
-// $TMUX_PANE environment variable, with the "%" prefix stripped. Returns ""
-// if not inside tmux. This is used instead of querying the tmux server
-// directly, which may be blocked by a sandbox.
+// getCallingPaneID returns the tmux pane ID of the calling process, with the
+// "%" prefix stripped. Returns "" if not inside tmux.
+//
+// Prefers $AGENC_CALLING_PANE_ID (the underlying pane, forwarded by the palette
+// through keybindings and display-popup -e) over $TMUX_PANE (which may be a
+// temporary popup pane that can't be resolved to a session).
 func getCallingPaneID() string {
-	pane := os.Getenv("TMUX_PANE")
-	return strings.TrimPrefix(pane, "%")
+	if pane := os.Getenv("AGENC_CALLING_PANE_ID"); pane != "" {
+		return strings.TrimPrefix(pane, "%")
+	}
+	return strings.TrimPrefix(os.Getenv("TMUX_PANE"), "%")
 }
 
 // getCurrentTmuxSessionName returns the name of the tmux session the caller

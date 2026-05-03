@@ -234,42 +234,7 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("unknown palette selection: %q", selectedTitle)
 	}
 
-	// Commands are self-contained (they include their own tmux primitives),
-	// so we use them directly. Prepend env exports so AGENC_DIRPATH,
-	// AGENC_TEST_ENV, and TMUX_PANE are available in the tmux run-shell
-	// context. run-shell doesn't create a pane, so $TMUX_PANE would
-	// otherwise be unset — but CLI commands need it to tell the server
-	// which tmux session to link new windows into.
-	var envPrefix string
-	agencDirpath, err := config.GetAgencDirpath()
-	if err == nil && config.GetNamespaceSuffix(agencDirpath) != "" {
-		envPrefix = fmt.Sprintf("export AGENC_DIRPATH=%s; ", agencDirpath)
-		if config.IsTestEnv() {
-			envPrefix += "export AGENC_TEST_ENV=1; "
-		}
-	}
-	// The palette runs inside a display-popup (temporary pane). Dispatched
-	// commands run via run-shell which has no pane context. Pass the
-	// underlying pane ID (captured at keybinding time) so CLI commands can
-	// tell the server which session to link windows into.
-	if callingPane := os.Getenv("AGENC_CALLING_PANE_ID"); callingPane != "" {
-		envPrefix += fmt.Sprintf("export TMUX_PANE=%s; ", callingPane)
-	}
-	if selectedEntry.IsMissionScoped() && callingMissionUUID != "" {
-		envPrefix += fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
-	}
-	fullCommand := envPrefix + selectedEntry.Command
-
-	// Resolve the log file path for output capture.
-	// tmux run-shell captures stdout and echoes it into the active pane;
-	// redirecting to a log file suppresses the noise while preserving output
-	// for debugging.
-	agencDirpathForLog, _ := config.GetAgencDirpath()
-	logFilepath := config.GetPaletteLogFilepath(agencDirpathForLog)
-	// Non-fatal: if we can't create the log directory, the palette command
-	// should still execute — the log output will simply be lost.
-	_ = os.MkdirAll(filepath.Dir(logFilepath), 0755)
-	fullCommand += fmt.Sprintf(" >> %s 2>&1", logFilepath)
+	fullCommand := buildPaletteDispatchCommand(*selectedEntry, callingMissionUUID)
 
 	runShellCmd := exec.Command("tmux", "run-shell", "-b", fullCommand)
 	runShellCmd.Stdout = os.Stdout
@@ -279,6 +244,51 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// buildPaletteDispatchCommand assembles the full shell command for a palette
+// entry, including env exports and output redirection. It handles two contexts:
+//   - run-shell (no pane): exports AGENC_CALLING_PANE_ID so CLI commands can
+//     tell the server which session to use
+//   - display-popup (temporary pane): injects -e flag to pass the calling pane
+//     ID into the popup's environment, since TMUX_PANE inside the popup refers
+//     to the temporary popup pane
+func buildPaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMissionUUID string) string {
+	var envPrefix string
+	agencDirpath, err := config.GetAgencDirpath()
+	if err == nil && config.GetNamespaceSuffix(agencDirpath) != "" {
+		envPrefix = fmt.Sprintf("export AGENC_DIRPATH=%s; ", agencDirpath)
+		if config.IsTestEnv() {
+			envPrefix += "export AGENC_TEST_ENV=1; "
+		}
+	}
+
+	callingPane := os.Getenv("AGENC_CALLING_PANE_ID")
+	if callingPane != "" {
+		envPrefix += fmt.Sprintf("export AGENC_CALLING_PANE_ID=%s; ", callingPane)
+	}
+	if entry.IsMissionScoped() && callingMissionUUID != "" {
+		envPrefix += fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
+	}
+
+	fullCommand := envPrefix + entry.Command
+
+	// For display-popup commands, pass the calling pane ID into the popup's
+	// environment via -e. Without this, AGENC_CALLING_PANE_ID from the
+	// run-shell env doesn't propagate into the popup.
+	if callingPane != "" && strings.Contains(fullCommand, "display-popup") {
+		fullCommand = strings.Replace(fullCommand, "display-popup",
+			fmt.Sprintf("display-popup -e AGENC_CALLING_PANE_ID=%s", callingPane), 1)
+	}
+
+	// Redirect output to the palette log file so tmux run-shell doesn't
+	// echo it into the active pane.
+	agencDirpathForLog, _ := config.GetAgencDirpath()
+	logFilepath := config.GetPaletteLogFilepath(agencDirpathForLog)
+	_ = os.MkdirAll(filepath.Dir(logFilepath), 0755)
+	fullCommand += fmt.Sprintf(" >> %s 2>&1", logFilepath)
+
+	return fullCommand
 }
 
 // stripVariationSelectors removes Unicode variation selectors (U+FE0E and
