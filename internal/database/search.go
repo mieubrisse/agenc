@@ -82,7 +82,7 @@ func (db *DB) SearchMissions(query string, limit int) ([]SearchResult, error) {
 func (db *DB) executeSearch(ftsQuery string, limit int) ([]SearchResult, error) {
 	rows, err := db.conn.Query(`
 		SELECT mission_id, session_id,
-			snippet(mission_search_index, 2, x'01', x'02', '...', 20) as snippet,
+			snippet(mission_search_index, 2, x'01', x'02', '…', 20) as snippet,
 			bm25(mission_search_index) as rank
 		FROM mission_search_index
 		WHERE content MATCH ?
