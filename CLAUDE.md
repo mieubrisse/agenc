@@ -144,6 +144,21 @@ run_test_output_contains "config sleep ls shows the window" \
 
 Add new E2E tests by appending to the appropriate section in `scripts/e2e-test.sh`. Group related tests under an `echo "--- Section Name ---"` header.
 
+### Tmux integration changes require manual testing
+
+Changes to tmux pane/session resolution, palette command dispatch, keybinding generation, or pool window linking cannot be fully verified by unit tests or E2E tests — they require a live tmux session with real user interaction.
+
+When your change touches any of the following, tell the user that manual testing is needed before the change is considered complete:
+
+- `cmd/tmux_palette.go` (palette dispatch, env var forwarding)
+- `internal/tmux/keybindings.go` (keybinding generation)
+- `internal/server/pool.go` (pane/session resolution, window linking)
+- `internal/server/missions.go` (attach/detach/create handlers that resolve tmux sessions)
+- `cmd/mission_new.go`, `cmd/mission_attach.go`, `cmd/mission_detach.go` (tmux context detection)
+- Any code that reads `$TMUX_PANE`, `$TMUX`, or calls `tmux` commands
+
+The minimum manual verification: open the command palette, create a mission via "Quick Claude" or "Open <repo>", and verify it appears in the foreground. Then use "Attach Mission" to attach to an existing mission. `make build` passing does not mean tmux integration works.
+
 Accessing $AGENC_DIRPATH
 ------------------------
 

@@ -72,6 +72,11 @@ func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) 
 		t.Error("expected palette keybinding to pass AGENC_CALLING_MISSION_UUID")
 	}
 
+	// Should pass calling pane ID into the popup environment
+	if !strings.Contains(content, "AGENC_CALLING_PANE_ID=#{pane_id}") {
+		t.Error("expected palette keybinding to pass AGENC_CALLING_PANE_ID with #{pane_id}")
+	}
+
 	// Should use #{pane_id} directly, not via display-message
 	if strings.Contains(content, "display-message") {
 		t.Error("expected keybindings to use #{pane_id} directly, not via display-message")
