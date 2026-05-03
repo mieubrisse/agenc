@@ -40,15 +40,13 @@ var ContainerHookEntries map[string]json.RawMessage
 func init() {
 	AgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
 	for _, eventName := range agencHookEventNames {
-		command := "agenc mission send claude-update $AGENC_MISSION_UUID " + eventName
-		// Redirect stdin from /dev/null for non-Notification events. Claude Code
-		// may not close stdin for some event types (notably UserPromptSubmit),
-		// causing io.ReadAll to block indefinitely. Only Notification events need
-		// stdin (to extract notification_type from the hook JSON payload).
-		if eventName != "Notification" {
-			command += " < /dev/null"
-		}
-		entry := fmt.Sprintf(`[{"hooks":[{"type":"command","command":"%s"}]}]`, command)
+		// The Go command handler (runMissionSendClaudeUpdate) skips stdin for
+		// non-Notification events and uses a timeout for Notification events,
+		// so no shell-level stdin redirect is needed here. Shell redirects like
+		// "< /dev/null" cannot be used because Claude Code may tokenize the
+		// command string rather than passing it to sh -c, causing the redirect
+		// tokens to be interpreted as extra positional arguments.
+		entry := `[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID ` + eventName + `"}]}]`
 		AgencHookEntries[eventName] = json.RawMessage(entry)
 	}
 

@@ -493,15 +493,13 @@ The wrapper needs to know whether Claude is idle and whether a resumable convers
 
 The config merge injects five hooks into each mission's `settings.json` (`internal/claudeconfig/overrides.go`):
 
-- **Stop hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Stop < /dev/null` when Claude finishes responding
-- **UserPromptSubmit hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID UserPromptSubmit < /dev/null` when the user submits a prompt
-- **Notification hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Notification` when Claude needs user attention (permission prompts, idle prompts, elicitation dialogs). This is the only hook that reads stdin (to extract `notification_type`).
-- **PostToolUse hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID PostToolUse < /dev/null` after a tool call succeeds
-- **PostToolUseFailure hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID PostToolUseFailure < /dev/null` after a tool call fails
+- **Stop hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Stop` when Claude finishes responding
+- **UserPromptSubmit hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID UserPromptSubmit` when the user submits a prompt
+- **Notification hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Notification` when Claude needs user attention (permission prompts, idle prompts, elicitation dialogs)
+- **PostToolUse hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID PostToolUse` after a tool call succeeds
+- **PostToolUseFailure hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID PostToolUseFailure` after a tool call fails
 
-Non-Notification hooks redirect stdin from `/dev/null` because Claude Code may not close stdin for some event types (notably UserPromptSubmit), which would cause the command to hang indefinitely.
-
-The `agenc mission send claude-update` command only reads stdin for Notification events (to extract `notification_type` from the hook JSON payload, with a 500ms timeout). All other events skip stdin entirely — Claude Code may not close stdin for some event types (notably UserPromptSubmit), which would cause `io.ReadAll` to block indefinitely. The command then sends an HTTP POST to the wrapper's `/claude-update` endpoint (unix socket) with a 1-second timeout. It always exits 0 to avoid blocking Claude.
+The `agenc mission send claude-update` command only reads stdin for Notification events (to extract `notification_type` from the hook JSON payload, with a 500ms timeout). All other events skip stdin entirely in the Go handler — Claude Code may not close stdin for some event types (notably UserPromptSubmit), which would cause `io.ReadAll` to block indefinitely. Shell-level redirects (`< /dev/null`) cannot be used in hook commands because Claude Code may tokenize the command string rather than passing it through `sh -c`, causing redirect tokens to be interpreted as extra positional arguments. The command sends an HTTP POST to the wrapper's `/claude-update` endpoint (unix socket) with a 1-second timeout. It always exits 0 to avoid blocking Claude.
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
 - **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending
