@@ -707,6 +707,16 @@ func (c *Client) CountUnreadNotifications() (int, error) {
 	return result.Count, nil
 }
 
+// ListWriteableCopies returns all configured writeable copies and their
+// current sync status (ok / paused / missing).
+func (c *Client) ListWriteableCopies() ([]WriteableCopyResponse, error) {
+	var result []WriteableCopyResponse
+	if err := c.Get("/writeable-copies", &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Client) decodeError(resp *http.Response) error {
 	var errResp errorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {

@@ -287,6 +287,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /notifications/unread-count", appHandler(s.requestLogger, s.handleCountUnreadNotifications))
 	mux.Handle("GET /notifications/{id}", appHandler(s.requestLogger, s.handleGetNotification))
 	mux.Handle("POST /notifications/{id}/read", appHandler(s.requestLogger, s.handleMarkNotificationRead))
+
+	// Writeable copies
+	mux.Handle("GET /writeable-copies", appHandler(s.requestLogger, s.handleListWriteableCopies))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) error {

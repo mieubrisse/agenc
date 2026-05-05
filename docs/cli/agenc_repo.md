@@ -15,4 +15,5 @@ Manage the repo library
 * [agenc repo ls](agenc_repo_ls.md)	 - List repositories in the repo library
 * [agenc repo mv](agenc_repo_mv.md)	 - Rename a repository in the repo library
 * [agenc repo rm](agenc_repo_rm.md)	 - Remove a repository from the repo library
+* [agenc repo writeable-copy](agenc_repo_writeable-copy.md)	 - Manage writeable copies of repos
 

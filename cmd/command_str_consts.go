@@ -32,6 +32,9 @@ const (
 	readCmdStr          = "read"
 	createCmdStr        = "create"
 
+	writeableCopyCmdStr = "writeable-copy"
+	unsetCmdStr         = "unset"
+
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
 	rmCmdStr     = "rm"

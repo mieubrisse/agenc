@@ -39,6 +39,22 @@ func init() {
 	configRepoConfigSetCmd.Flags().String(repoConfigClaudeArgsFlagName, "", `extra Claude CLI args: comma-separated (e.g., "--chrome,--verbose"); empty to clear`)
 }
 
+// applyAlwaysSyncedFlag enforces the invariant that a repo with a configured
+// writeable copy cannot have always-synced disabled — writeable copies require
+// continuous sync.
+func applyAlwaysSyncedFlag(synced bool, rc *config.RepoConfig, repoName string) error {
+	if !synced && rc.WriteableCopy != "" {
+		return stacktrace.NewError(
+			"cannot disable always-synced for '%s' while a writeable copy is configured at %s; "+
+				"writeable copies require continuous sync. Remove the writeable copy first: "+
+				"agenc repo writeable-copy unset %s",
+			repoName, rc.WriteableCopy, repoName,
+		)
+	}
+	rc.AlwaysSynced = synced
+	return nil
+}
+
 func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 	repoName := args[0]
 
@@ -70,8 +86,7 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 	rc, _ := cfg.GetRepoConfig(repoName)
 
 	if err := applyBoolFlag(cmd, repoConfigAlwaysSyncedFlagName, func(synced bool) error {
-		rc.AlwaysSynced = synced
-		return nil
+		return applyAlwaysSyncedFlag(synced, &rc, repoName)
 	}); err != nil {
 		return stacktrace.Propagate(err, "failed to apply always-synced flag")
 	}
