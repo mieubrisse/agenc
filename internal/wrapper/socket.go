@@ -13,14 +13,7 @@ import (
 // StatusResponse is the JSON response for GET /status.
 type StatusResponse struct {
 	ClaudeState     string `json:"claude_state"`
-	WrapperState    string `json:"wrapper_state"`
 	HasConversation bool   `json:"has_conversation"`
-}
-
-// RestartRequest is the JSON body for POST /restart.
-type RestartRequest struct {
-	Mode   string `json:"mode"`
-	Reason string `json:"reason"`
 }
 
 // ClaudeUpdateRequest is the JSON body for POST /claude-update.
@@ -29,7 +22,7 @@ type ClaudeUpdateRequest struct {
 	NotificationType string `json:"notification_type"`
 }
 
-// CommandResponse is the JSON response for POST /restart and POST /claude-update.
+// CommandResponse is the JSON response for POST /claude-update and POST /rebuild.
 type CommandResponse struct {
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
@@ -40,8 +33,6 @@ type CommandResponse struct {
 // typed request structs.
 type Command struct {
 	Command          string
-	Mode             string
-	Reason           string
 	Event            string
 	NotificationType string
 }
@@ -86,7 +77,6 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", handleStatus(w))
-	mux.HandleFunc("POST /restart", handleRestart(w, logger))
 	mux.HandleFunc("POST /claude-update", handleClaudeUpdateHTTP(w, logger))
 	mux.HandleFunc("POST /claude-update/{event}", handleClaudeUpdateWithPathEvent(w, logger))
 	mux.HandleFunc("POST /rebuild", handleRebuild(w, logger))
@@ -109,47 +99,20 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 	}
 }
 
-// handleStatus returns the current wrapper and Claude state. This handler
-// reads state directly with stateMu — it does NOT go through the command
-// channel because it is a read-only operation.
+// handleStatus returns the current Claude state. This handler reads state
+// directly with stateMu — it does NOT go through the command channel because
+// it is a read-only operation.
 func handleStatus(w *Wrapper) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		w.stateMu.RLock()
 		resp := StatusResponse{
 			ClaudeState:     w.getClaudeStateString(),
-			WrapperState:    w.getWrapperStateString(),
 			HasConversation: w.hasConversation,
 		}
 		w.stateMu.RUnlock()
 
 		rw.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(rw).Encode(resp) // response already started; encode error cannot be propagated
-	}
-}
-
-// handleRestart sends a restart command through the event loop channel and
-// waits for the response.
-func handleRestart(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
-	return func(rw http.ResponseWriter, r *http.Request) {
-		var req RestartRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeCommandResponse(rw, http.StatusBadRequest, CommandResponse{
-				Status: "error",
-				Error:  "invalid JSON",
-			})
-			return
-		}
-
-		logger.Info("Received restart request", "mode", req.Mode, "reason", req.Reason)
-
-		cmd := Command{
-			Command: "restart",
-			Mode:    req.Mode,
-			Reason:  req.Reason,
-		}
-
-		resp := sendCommandAndWait(w.commandCh, cmd)
-		writeCommandResponse(rw, http.StatusOK, resp)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -30,15 +31,6 @@ const (
 	// Heartbeat interval: 10s provides responsive activity tracking for mission
 	// sorting while keeping server request volume manageable.
 	heartbeatInterval = 10 * time.Second
-)
-
-// wrapperState tracks the wrapper's position in the restart state machine.
-type wrapperState int
-
-const (
-	stateRunning        wrapperState = iota // Claude is running normally
-	stateRestartPending                     // A graceful restart was requested; waiting for Claude to become idle
-	stateRestarting                         // Claude is being killed and will be respawned
 )
 
 // Wrapper manages a Claude child process for a single mission.
@@ -82,11 +74,10 @@ type Wrapper struct {
 	// commandCh receives commands from the HTTP server goroutine.
 	commandCh chan commandWithResponse
 
-	// state tracks the wrapper's position in the restart state machine.
-	state wrapperState
-
-	// pendingRestart stores the deferred restart command when in stateRestartPending.
-	pendingRestart *Command
+	// rebuilding is set while a devcontainer rebuild is in progress.
+	// Credential sync goroutines skip work while this is true to avoid racing
+	// with claude-config regeneration during the rebuild.
+	rebuilding atomic.Bool
 
 	// perMissionCredentialHash caches the SHA-256 hash of the per-mission
 	// Keychain credential JSON. The upward sync goroutine compares the current
@@ -143,7 +134,6 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 		claudeExited:                   make(chan error, 1),
 		commandCh:                      make(chan commandWithResponse, 1),
 		claudeIdle:                     true,
-		state:                          stateRunning,
 		windowBusyBackgroundColor:      titleCfg.GetBusyBackgroundColor(),
 		windowBusyForegroundColor:      titleCfg.GetBusyForegroundColor(),
 		windowAttentionBackgroundColor: titleCfg.GetAttentionBackgroundColor(),
@@ -469,31 +459,10 @@ func (w *Wrapper) handleSignal(sig os.Signal) {
 	<-w.claudeExited
 }
 
-// handleClaudeExit processes Claude's exit. If a restart is in progress, it
-// respawns Claude and returns (false, nil). If the restart respawn fails, it
-// returns (true, err). On a natural exit, it returns (true, nil) after logging
-// and optionally pausing for the user to read error output.
+// handleClaudeExit processes Claude's exit. The wrapper exits when claude
+// exits — there is no in-process restart path; reload is handled externally
+// via tmux respawn-pane (see internal/server reloadMissionInTmux).
 func (w *Wrapper) handleClaudeExit(exitErr error) (done bool, err error) {
-	if w.state == stateRestarting {
-		// Wrapper-initiated restart: respawn Claude
-		w.logger.Info("Claude exited for restart, respawning")
-
-		if err := w.spawnClaude(true); err != nil {
-			w.logger.Error("Failed to respawn Claude after restart", "error", err)
-			return true, stacktrace.Propagate(err, "failed to respawn claude after restart")
-		}
-
-		// Wait on the new Claude process
-		go func() {
-			w.claudeExited <- w.claudeCmd.Wait()
-		}()
-
-		w.state = stateRunning
-		w.pendingRestart = nil
-		w.logger.Info("Claude respawned successfully", "pid", w.claudeCmd.Process.Pid)
-		return false, nil
-	}
-
 	// Natural exit — wrapper exits
 	exitCode := 0
 	if exitErr != nil {
@@ -522,8 +491,6 @@ func (w *Wrapper) handleClaudeExit(exitErr error) (done bool, err error) {
 // handleCommand processes a command from the HTTP server and returns a CommandResponse.
 func (w *Wrapper) handleCommand(cmd Command) CommandResponse {
 	switch cmd.Command {
-	case "restart":
-		return w.handleRestartCommand(cmd)
 	case "claude_update":
 		return w.handleClaudeUpdate(cmd)
 	case "rebuild":
@@ -533,8 +500,8 @@ func (w *Wrapper) handleCommand(cmd Command) CommandResponse {
 	}
 }
 
-// handleRebuildCommand tears down and rebuilds the devcontainer, then triggers
-// a Claude restart. Only valid for containerized missions.
+// handleRebuildCommand tears down and rebuilds the devcontainer, then respawns
+// Claude in the rebuilt container. Only valid for containerized missions.
 func (w *Wrapper) handleRebuildCommand() CommandResponse {
 	if w.devcontainer == nil {
 		return CommandResponse{Status: "error", Error: "mission is not containerized"}
@@ -542,36 +509,30 @@ func (w *Wrapper) handleRebuildCommand() CommandResponse {
 
 	w.logger.Info("Rebuild requested, stopping Claude and rebuilding container")
 
-	// Kill current Claude process — this will trigger a claude exit event.
-	// We set state to stateRestarting so handleClaudeExit respawns Claude.
+	w.rebuilding.Store(true)
+	defer w.rebuilding.Store(false)
+
 	w.stateMu.Lock()
-	w.state = stateRestarting
 	w.hasConversation = false
 	w.stateMu.Unlock()
 
 	if w.claudeCmd != nil && w.claudeCmd.Process != nil {
 		_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-		// Wait for Claude to exit before rebuilding
+		// Wait for Claude to exit before rebuilding. Consuming the channel here
+		// prevents the main loop's handleClaudeExit from running, since rebuild
+		// manages the respawn directly below.
 		<-w.claudeExited
 	}
 
 	// Rebuild the container
 	if err := devcontainerRebuild(w.devcontainer); err != nil {
 		w.logger.Error("Devcontainer rebuild failed", "error", err)
-		// Reset state so the wrapper isn't stuck in stateRestarting with no Claude
-		w.stateMu.Lock()
-		w.state = stateRunning
-		w.stateMu.Unlock()
 		return CommandResponse{Status: "error", Error: "rebuild failed: " + err.Error()}
 	}
 
 	// Respawn Claude in the rebuilt container
 	if err := w.spawnClaude(false); err != nil {
 		w.logger.Error("Failed to respawn Claude after rebuild", "error", err)
-		// Reset state so the wrapper isn't stuck in stateRestarting with no Claude
-		w.stateMu.Lock()
-		w.state = stateRunning
-		w.stateMu.Unlock()
 		return CommandResponse{Status: "error", Error: "respawn failed: " + err.Error()}
 	}
 
@@ -580,80 +541,13 @@ func (w *Wrapper) handleRebuildCommand() CommandResponse {
 		w.claudeExited <- w.claudeCmd.Wait()
 	}()
 
-	w.stateMu.Lock()
-	w.state = stateRunning
-	w.pendingRestart = nil
-	w.stateMu.Unlock()
-
 	w.logger.Info("Devcontainer rebuild complete, Claude respawned", "pid", w.claudeCmd.Process.Pid)
 	return CommandResponse{Status: "ok"}
 }
 
-// handleRestartCommand processes a restart command. Idempotent: if a restart is
-// already pending or in progress, returns ok. A hard restart overrides a pending
-// graceful restart.
-func (w *Wrapper) handleRestartCommand(cmd Command) CommandResponse {
-	mode := cmd.Mode
-	if mode == "" {
-		mode = "graceful"
-	}
-
-	w.stateMu.Lock()
-	defer w.stateMu.Unlock()
-
-	switch w.state {
-	case stateRestarting:
-		// Already restarting — caller's intent is being fulfilled
-		w.logger.Info("Restart already in progress, returning ok", "requestedMode", mode)
-		return CommandResponse{Status: "ok"}
-
-	case stateRestartPending:
-		if mode == "hard" {
-			// Hard overrides a pending graceful: interrupt immediately
-			w.logger.Info("Hard restart overrides pending graceful restart", "reason", cmd.Reason)
-			w.state = stateRestarting
-			w.pendingRestart = &cmd
-			// For hard restart, don't preserve conversation
-			w.hasConversation = false
-			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			return CommandResponse{Status: "ok"}
-		}
-		// Already pending graceful — idempotent
-		w.logger.Info("Graceful restart already pending, returning ok")
-		return CommandResponse{Status: "ok"}
-
-	case stateRunning:
-		if mode == "hard" {
-			w.logger.Info("Hard restart requested, interrupting Claude immediately", "reason", cmd.Reason)
-			w.state = stateRestarting
-			w.pendingRestart = &cmd
-			// For hard restart, don't preserve conversation
-			w.hasConversation = false
-			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-			return CommandResponse{Status: "ok"}
-		}
-
-		// Graceful restart: check if Claude is currently idle
-		if w.claudeIdle {
-			w.logger.Info("Claude is idle, initiating immediate graceful restart", "reason", cmd.Reason)
-			w.state = stateRestarting
-			w.pendingRestart = &cmd
-			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-		} else {
-			w.logger.Info("Claude is busy, deferring graceful restart until idle", "reason", cmd.Reason)
-			w.state = stateRestartPending
-			w.pendingRestart = &cmd
-		}
-		return CommandResponse{Status: "ok"}
-
-	default:
-		return CommandResponse{Status: "error", Error: "unexpected wrapper state"}
-	}
-}
-
 // handleClaudeUpdate processes a claude_update command sent by hooks. It
 // updates the wrapper's idle state, hasConversation flag, needsAttention flag,
-// triggers deferred restarts, and sets tmux pane colors for visual feedback.
+// and sets tmux pane colors for visual feedback.
 func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 	w.logger.Info("Received claude_update", "event", cmd.Event, "notification_type", cmd.NotificationType)
 
@@ -666,14 +560,6 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 		w.hasConversation = true
 		w.needsAttention = false
 		w.resetWindowTabStyle()
-
-		// If a graceful restart is pending, now is the time to initiate it
-		if w.state == stateRestartPending {
-			w.logger.Info("Claude is idle, initiating deferred graceful restart",
-				"reason", w.pendingRestart.Reason)
-			w.state = stateRestarting
-			_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-		}
 
 	case "UserPromptSubmit":
 		w.claudeIdle = false
@@ -713,19 +599,6 @@ func (w *Wrapper) getClaudeStateString() string {
 		return "idle"
 	}
 	return "busy"
-}
-
-// getWrapperStateString returns the wrapper state as a string for the status API.
-// Must be called with stateMu held (at least RLock).
-func (w *Wrapper) getWrapperStateString() string {
-	switch w.state {
-	case stateRestartPending:
-		return "restart_pending"
-	case stateRestarting:
-		return "restarting"
-	default:
-		return "running"
-	}
 }
 
 // resolveRepoDirpath returns the path to the git repository within the

@@ -3,6 +3,7 @@ package wrapper
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -128,13 +129,36 @@ func mockClaudeProcess(agentDirpath, missionID string, duration time.Duration) (
 func waitForSocket(socketFilepath string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		client := NewWrapperClient(socketFilepath, 500*time.Millisecond)
-		if _, err := client.GetStatus(); err == nil {
+		if _, err := getStatusRaw(socketFilepath, 500*time.Millisecond); err == nil {
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("socket not ready after %v", timeout)
+}
+
+// getStatusRaw issues a GET /status against the wrapper socket using a raw
+// HTTP client. Used by tests that previously relied on the removed
+// WrapperClient.GetStatus method.
+func getStatusRaw(socketFilepath string, timeout time.Duration) (*StatusResponse, error) {
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return net.DialTimeout("unix", socketFilepath, timeout)
+			},
+		},
+		Timeout: timeout,
+	}
+	resp, err := httpClient.Get("http://wrapper/status")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var status StatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return nil, err
+	}
+	return &status, nil
 }
 
 // createTestWrapper creates a wrapper with a logger initialized for testing.
@@ -187,233 +211,12 @@ func startHTTPServerAndWait(t *testing.T, ctx context.Context, socketFilepath st
 	}
 }
 
-// TestGracefulRestart tests the state transitions Running -> RestartPending -> Restarting.
-func TestGracefulRestart(t *testing.T) {
-	setup := setupTest(t)
-	defer setup.cleanup()
-
-	// Create wrapper
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-
-	// Override claudeCmd with a mock process for testing
-	mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
-	if err != nil {
-		t.Fatalf("failed to create mock Claude process: %v", err)
-	}
-	defer func() {
-		if mockCmd.Process != nil {
-			_ = mockCmd.Process.Kill() // best-effort test cleanup
-			_ = mockCmd.Wait()         // reap process
-		}
-	}()
-
-	w.claudeCmd = mockCmd
-	w.hasConversation = true
-	w.claudeIdle = false // Claude is busy
-
-	// Set up channels and context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	w.claudeExited = make(chan error, 1)
-	w.commandCh = make(chan commandWithResponse, 1)
-
-	// Start HTTP server and wait for it to be ready
-	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
-	time.Sleep(100 * time.Millisecond)
-
-	// Start wrapper event loop in background
-	wrapperDone := make(chan error, 1)
-	go func() {
-		for {
-			select {
-			case cmdResp := <-w.commandCh:
-				resp := w.handleCommand(cmdResp.cmd)
-				cmdResp.responseCh <- resp
-
-				// If we're in RestartPending and received a Stop event, check state
-				if w.state == stateRestartPending && cmdResp.cmd.Event == "Stop" {
-					// State should transition to Restarting
-					if w.state != stateRestarting {
-						wrapperDone <- fmt.Errorf("expected state Restarting after Stop during RestartPending, got %d", w.state)
-						return
-					}
-				}
-
-				// If we successfully transitioned to Restarting, we're done
-				if w.state == stateRestarting {
-					wrapperDone <- nil
-					return
-				}
-			case <-time.After(5 * time.Second):
-				wrapperDone <- fmt.Errorf("timeout waiting for state transitions")
-				return
-			}
-		}
-	}()
-
-	// Wait for HTTP server to be ready
-	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
-		t.Fatalf("HTTP server not ready: %v", err)
-	}
-
-	// Send graceful restart request while Claude is busy
-	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
-	if err := client.Restart("graceful", "test"); err != nil {
-		t.Fatalf("failed to send restart command: %v", err)
-	}
-
-	// Verify state is RestartPending
-	if w.state != stateRestartPending {
-		t.Errorf("expected state RestartPending after graceful restart while busy, got %d", w.state)
-	}
-
-	// Simulate Claude becoming idle by sending Stop event
-	if err := client.SendClaudeUpdate("Stop", ""); err != nil {
-		t.Fatalf("failed to send Stop event: %v", err)
-	}
-
-	// Wait for wrapper event loop to complete
-	if err := <-wrapperDone; err != nil {
-		t.Errorf("wrapper event loop error: %v", err)
-	}
-
-	// Verify final state is Restarting
-	if w.state != stateRestarting {
-		t.Errorf("expected final state Restarting, got %d", w.state)
-	}
-}
-
-// TestHardRestart tests immediate SIGKILL behavior and fresh session.
-func TestHardRestart(t *testing.T) {
-	setup := setupTest(t)
-	defer setup.cleanup()
-
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-
-	mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
-	if err != nil {
-		t.Fatalf("failed to create mock Claude process: %v", err)
-	}
-	defer func() {
-		if mockCmd.Process != nil {
-			_ = mockCmd.Process.Kill() // best-effort test cleanup
-			_ = mockCmd.Wait()         // reap process
-		}
-	}()
-
-	w.claudeCmd = mockCmd
-	w.hasConversation = true
-	w.state = stateRunning
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	w.commandCh = make(chan commandWithResponse, 1)
-
-	// Start HTTP server
-	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
-	time.Sleep(100 * time.Millisecond)
-
-	// Start event loop (processes 1 command)
-	loopDone := startTestEventLoop(ctx, w, 1)
-
-	// Wait for HTTP server to be ready
-	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
-		t.Fatalf("HTTP server not ready: %v", err)
-	}
-
-	// Send hard restart
-	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
-	if err := client.Restart("hard", "test hard restart"); err != nil {
-		t.Fatalf("failed to send hard restart: %v", err)
-	}
-
-	<-loopDone
-
-	// Verify state transitioned directly to Restarting (skips RestartPending)
-	if w.state != stateRestarting {
-		t.Errorf("expected state Restarting after hard restart, got %d", w.state)
-	}
-
-	// Verify hasConversation was cleared (fresh session)
-	if w.hasConversation {
-		t.Error("expected hasConversation=false for hard restart, got true")
-	}
-}
-
-// TestRestartIdempotency tests that duplicate restart requests are handled correctly.
-func TestRestartIdempotency(t *testing.T) {
-	setup := setupTest(t)
-	defer setup.cleanup()
-
-	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-
-	mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
-	if err != nil {
-		t.Fatalf("failed to create mock Claude process: %v", err)
-	}
-	defer func() {
-		if mockCmd.Process != nil {
-			_ = mockCmd.Process.Kill() // best-effort test cleanup
-			_ = mockCmd.Wait()         // reap process
-		}
-	}()
-
-	w.claudeCmd = mockCmd
-	w.hasConversation = true
-	w.claudeIdle = false
-	w.state = stateRunning
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	w.commandCh = make(chan commandWithResponse, 1)
-
-	// Start HTTP server
-	go startHTTPServer(ctx, setup.socketFilepath, w, w.logger)
-	time.Sleep(100 * time.Millisecond)
-
-	// Event loop that handles 2 commands
-	loopDone := startTestEventLoop(ctx, w, 2)
-
-	// Wait for HTTP server to be ready
-	if err := waitForSocket(setup.socketFilepath, 2*time.Second); err != nil {
-		t.Fatalf("HTTP server not ready: %v", err)
-	}
-
-	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
-
-	// Send first graceful restart
-	if err := client.Restart("graceful", "first restart"); err != nil {
-		t.Fatalf("failed to send first restart: %v", err)
-	}
-
-	// Verify state is RestartPending
-	if w.state != stateRestartPending {
-		t.Errorf("expected state RestartPending after first restart, got %d", w.state)
-	}
-
-	// Send second graceful restart while still pending (should be idempotent)
-	if err := client.Restart("graceful", "second restart"); err != nil {
-		t.Fatalf("second restart should return ok (idempotent): %v", err)
-	}
-
-	<-loopDone
-
-	// State should still be RestartPending (only one restart scheduled)
-	if w.state != stateRestartPending {
-		t.Errorf("expected state to remain RestartPending after duplicate request, got %d", w.state)
-	}
-}
-
 // TestSocketProtocol tests the wrapper HTTP API communication.
 func TestSocketProtocol(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
 	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-	w.state = stateRunning
 	w.claudeIdle = true
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -440,32 +243,6 @@ func TestSocketProtocol(t *testing.T) {
 		setup      func()
 		checkState func(*testing.T, *Wrapper)
 	}{
-		{
-			name: "restart command",
-			setup: func() {
-				// Create mock Claude process for restart test
-				mockCmd, err := mockClaudeProcess(getTestAgentDirpath(setup.agencDirpath, setup.missionID), setup.missionID, 30*time.Second)
-				if err != nil {
-					t.Fatalf("failed to create mock Claude: %v", err)
-				}
-				t.Cleanup(func() {
-					if mockCmd.Process != nil {
-						_ = mockCmd.Process.Kill() // best-effort test cleanup
-						_ = mockCmd.Wait()         // reap process
-					}
-				})
-				w.claudeCmd = mockCmd
-			},
-			action: func() error {
-				return client.Restart("graceful", "test")
-			},
-			checkState: func(t *testing.T, w *Wrapper) {
-				// State should be Restarting since Claude is idle
-				if w.state != stateRestarting {
-					t.Errorf("expected state Restarting, got %d", w.state)
-				}
-			},
-		},
 		{
 			name: "claude_update Stop event",
 			action: func() error {
@@ -517,7 +294,6 @@ func TestSocketProtocol(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset state for each test
-			w.state = stateRunning
 			w.claudeIdle = true
 			w.hasConversation = false
 
@@ -606,7 +382,6 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	defer setup.cleanup()
 
 	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-	w.state = stateRunning
 	w.claudeIdle = false
 	w.hasConversation = false
 
@@ -658,7 +433,6 @@ func TestJSONProtocol(t *testing.T) {
 	defer setup.cleanup()
 
 	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-	w.state = stateRunning
 	w.claudeIdle = true
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -670,17 +444,17 @@ func TestJSONProtocol(t *testing.T) {
 	startHTTPServerAndWait(t, ctx, setup.socketFilepath, w)
 
 	// Verify that GET /status returns valid JSON with expected fields
-	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
-	status, err := client.GetStatus()
+	w.stateMu.Lock()
+	w.claudeIdle = true
+	w.stateMu.Unlock()
+
+	status, err := getStatusRaw(setup.socketFilepath, 1*time.Second)
 	if err != nil {
 		t.Fatalf("failed to get status: %v", err)
 	}
 
 	if status.ClaudeState != "idle" {
 		t.Errorf("expected claude_state 'idle', got %q", status.ClaudeState)
-	}
-	if status.WrapperState != "running" {
-		t.Errorf("expected wrapper_state 'running', got %q", status.WrapperState)
 	}
 }
 
@@ -690,7 +464,6 @@ func TestInvalidJSON(t *testing.T) {
 	defer setup.cleanup()
 
 	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-	w.state = stateRunning
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -726,7 +499,6 @@ func TestGetStatus(t *testing.T) {
 	defer setup.cleanup()
 
 	w := createTestWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo")
-	w.state = stateRunning
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -736,15 +508,13 @@ func TestGetStatus(t *testing.T) {
 	// Start HTTP server (GET /status doesn't need the event loop)
 	startHTTPServerAndWait(t, ctx, setup.socketFilepath, w)
 
-	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
-
 	// Test idle state
 	w.stateMu.Lock()
 	w.claudeIdle = true
 	w.needsAttention = false
 	w.stateMu.Unlock()
 
-	status, err := client.GetStatus()
+	status, err := getStatusRaw(setup.socketFilepath, 1*time.Second)
 	if err != nil {
 		t.Fatalf("failed to get status: %v", err)
 	}
@@ -758,7 +528,7 @@ func TestGetStatus(t *testing.T) {
 	w.needsAttention = false
 	w.stateMu.Unlock()
 
-	status, err = client.GetStatus()
+	status, err = getStatusRaw(setup.socketFilepath, 1*time.Second)
 	if err != nil {
 		t.Fatalf("failed to get status: %v", err)
 	}
@@ -771,7 +541,7 @@ func TestGetStatus(t *testing.T) {
 	w.needsAttention = true
 	w.stateMu.Unlock()
 
-	status, err = client.GetStatus()
+	status, err = getStatusRaw(setup.socketFilepath, 1*time.Second)
 	if err != nil {
 		t.Fatalf("failed to get status: %v", err)
 	}

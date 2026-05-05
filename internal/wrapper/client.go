@@ -41,38 +41,6 @@ func NewWrapperClient(socketFilepath string, timeout time.Duration) *WrapperClie
 	}
 }
 
-// GetStatus fetches the current wrapper and Claude state.
-func (c *WrapperClient) GetStatus() (*StatusResponse, error) {
-	resp, err := c.httpClient.Get(c.baseURL + "/status")
-	if err != nil {
-		if isConnectionError(err) {
-			return nil, ErrWrapperNotRunning
-		}
-		return nil, stacktrace.Propagate(err, "failed to connect to wrapper")
-	}
-	defer resp.Body.Close()
-
-	var status StatusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
-		return nil, stacktrace.Propagate(err, "failed to decode wrapper status response")
-	}
-
-	return &status, nil
-}
-
-// Restart sends a restart command to the wrapper.
-func (c *WrapperClient) Restart(mode, reason string) error {
-	req := RestartRequest{Mode: mode, Reason: reason}
-	cmdResp, err := c.postCommand("/restart", req)
-	if err != nil {
-		return err
-	}
-	if cmdResp.Status == "error" {
-		return stacktrace.NewError("wrapper restart failed: %s", cmdResp.Error)
-	}
-	return nil
-}
-
 // SendClaudeUpdate sends a claude_update event to the wrapper.
 func (c *WrapperClient) SendClaudeUpdate(event, notificationType string) error {
 	req := ClaudeUpdateRequest{Event: event, NotificationType: notificationType}
