@@ -60,6 +60,25 @@ const (
 
 	addKnownFileSizeColumnSQL     = `ALTER TABLE sessions ADD COLUMN known_file_size INTEGER;`
 	addLastIndexedOffsetColumnSQL = `ALTER TABLE sessions ADD COLUMN last_indexed_offset INTEGER NOT NULL DEFAULT 0;`
+
+	createNotificationsTableSQL = `CREATE TABLE IF NOT EXISTS notifications (
+	id              TEXT    PRIMARY KEY,
+	kind            TEXT    NOT NULL,
+	source_repo     TEXT,
+	title           TEXT    NOT NULL,
+	body_markdown   TEXT    NOT NULL,
+	created_at      TEXT    NOT NULL,
+	read_at         TEXT
+);`
+	createNotificationsUnreadIndexSQL = `CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at) WHERE read_at IS NULL;`
+
+	createWriteableCopyPausesTableSQL = `CREATE TABLE IF NOT EXISTS writeable_copy_pauses (
+	repo_name              TEXT    PRIMARY KEY,
+	paused_at              TEXT    NOT NULL,
+	paused_reason          TEXT    NOT NULL,
+	local_head_at_pause    TEXT    NOT NULL,
+	notification_id        TEXT    NOT NULL REFERENCES notifications(id)
+);`
 )
 
 // stripTmuxPanePercentSQL removes the leading "%" from tmux_pane values that
@@ -561,5 +580,28 @@ func migrateSearchIndex(conn *sql.DB) error {
 		}
 	}
 
+	return nil
+}
+
+// migrateCreateNotificationsTable idempotently creates the notifications
+// table and its unread index. Notifications are append-only — the only
+// mutation is setting read_at.
+func migrateCreateNotificationsTable(conn *sql.DB) error {
+	if _, err := conn.Exec(createNotificationsTableSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create notifications table")
+	}
+	if _, err := conn.Exec(createNotificationsUnreadIndexSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create notifications unread index")
+	}
+	return nil
+}
+
+// migrateCreateWriteableCopyPausesTable idempotently creates the
+// writeable_copy_pauses table. A row exists only while a writeable copy's
+// sync loop is paused; rows are deleted on auto-resume.
+func migrateCreateWriteableCopyPausesTable(conn *sql.DB) error {
+	if _, err := conn.Exec(createWriteableCopyPausesTableSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create writeable_copy_pauses table")
+	}
 	return nil
 }

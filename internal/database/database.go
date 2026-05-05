@@ -44,6 +44,8 @@ func getMigrationSteps() []migrationStep {
 		{migrateAddLastUserPromptAt, "add last_user_prompt_at column"},
 		{migrateAddSourceColumns, "add source columns"},
 		{migrateSearchIndex, "create FTS5 search index and session processing columns"},
+		{migrateCreateNotificationsTable, "create notifications table"},
+		{migrateCreateWriteableCopyPausesTable, "create writeable_copy_pauses table"},
 	}
 }
 
