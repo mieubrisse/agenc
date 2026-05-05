@@ -67,6 +67,13 @@ type Server struct {
 	// respawn-pane). Different missions reload concurrently — the lock is
 	// per-mission, not global.
 	reloadsInProgress sync.Map
+
+	// pendingReloads holds missionID -> follow-up prompt for async reload
+	// requests waiting for claude to become idle. The prompt fires the next
+	// time the wrapper notifies POST /missions/{id}/claude-idle (or
+	// immediately at queue time if claude is already idle). Latest-wins:
+	// a second async reload for the same mission overwrites the first prompt.
+	pendingReloads sync.Map
 }
 
 // NewServer creates a new Server instance.
@@ -265,6 +272,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /missions/{id}/stop", appHandler(s.requestLogger, s.stashGuard(s.handleStopMission)))
 	mux.Handle("DELETE /missions/{id}", appHandler(s.requestLogger, s.stashGuard(s.handleDeleteMission)))
 	mux.Handle("POST /missions/{id}/reload", appHandler(s.requestLogger, s.stashGuard(s.handleReloadMission)))
+	mux.Handle("POST /missions/{id}/claude-idle", appHandler(s.requestLogger, s.handleClaudeIdle))
 	mux.Handle("POST /missions/{id}/archive", appHandler(s.requestLogger, s.stashGuard(s.handleArchiveMission)))
 	mux.Handle("POST /missions/{id}/unarchive", appHandler(s.requestLogger, s.stashGuard(s.handleUnarchiveMission)))
 	mux.Handle("POST /missions/{id}/heartbeat", appHandler(s.requestLogger, s.handleHeartbeat))

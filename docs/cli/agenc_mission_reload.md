@@ -17,6 +17,14 @@ The --prompt flag, when set, is fed to Claude as a follow-up message that
 runs immediately after the reload completes. The mission must have a live
 tmux pane for --prompt to apply.
 
+The --async flag queues the reload to fire on Claude's next idle (when its
+current turn finishes) instead of bouncing immediately. AGENTS RELOADING
+THEMSELVES SHOULD ALWAYS USE --async: a synchronous self-reload kills
+Claude mid-tool-call, which discards the bash tool result from Claude's
+conversation history. Async preserves the tool call and the prompt arrives
+cleanly on the next turn. Returns 202 Accepted; if Claude is already idle,
+the reload fires immediately.
+
 ```
 agenc mission reload [mission-id] [flags]
 ```
@@ -24,6 +32,7 @@ agenc mission reload [mission-id] [flags]
 ### Options
 
 ```
+      --async           queue the reload for Claude's next idle (REQUIRED when an agent reloads itself, to preserve the calling tool result)
   -h, --help            help for reload
       --prompt string   follow-up prompt to send after reload (requires a mission with a live tmux pane)
 ```

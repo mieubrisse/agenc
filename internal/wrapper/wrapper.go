@@ -561,6 +561,14 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 		w.hasConversation = true
 		w.needsAttention = false
 		w.resetWindowTabStyle()
+		// Notify the server so any async-queued reload can fire now.
+		// Best-effort: errors are logged, not propagated — a missed
+		// notification means the pending reload waits for the next Stop.
+		go func() {
+			if err := w.client.NotifyClaudeIdle(w.missionID); err != nil {
+				w.logger.Warn("Failed to notify server of claude-idle", "error", err)
+			}
+		}()
 
 	case "UserPromptSubmit":
 		w.claudeIdle = false

@@ -260,8 +260,15 @@ run_test_output_contains "mission reload --help mentions --prompt" \
     "prompt" \
     "${agenc_test}" mission reload --help
 
+run_test_output_contains "mission reload --help mentions --async" \
+    "async" \
+    "${agenc_test}" mission reload --help
+
 run_test_no_crash "mission reload with bad ID does not crash" \
     "${agenc_test}" mission reload aabbccdd --prompt "hello"
+
+run_test_no_crash "mission reload --async with bad ID does not crash" \
+    "${agenc_test}" mission reload aabbccdd --prompt "hello" --async
 
 echo ""
 echo "--- Mission time filtering (requires server) ---"

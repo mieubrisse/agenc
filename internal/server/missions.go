@@ -604,10 +604,18 @@ type ReloadMissionRequest struct {
 	// must have a live tmux pane for prompts to be honored — otherwise the
 	// handler returns 400.
 	Prompt string `json:"prompt"`
+
+	// Async, when true, queues the reload to fire on claude's next idle
+	// (Stop event) instead of reloading immediately. Returns 202 Accepted.
+	// Designed for the self-reload case: an agent reloading its own claude
+	// avoids killing claude mid-tool-call, preserving the bash tool result
+	// in conversation history.
+	Async bool `json:"async"`
 }
 
 // handleReloadMission handles POST /missions/{id}/reload.
 // Rebuilds the per-mission config directory and restarts the wrapper.
+// If Async is true, queues the reload for claude's next idle and returns 202.
 func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
@@ -641,28 +649,48 @@ func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPError(http.StatusBadRequest, "mission uses old directory format; archive and create a new mission")
 	}
 
-	// Acquire per-mission reload lock so concurrent reloads of the same
-	// mission cannot interleave their stopWrapper + respawn-pane sequences.
+	// No-pane recovery path can't honor a prompt (no respawn target). Reject
+	// here for both sync and async — same reason, same error, fail fast.
+	hasLivePane := missionRecord.TmuxPane != nil && *missionRecord.TmuxPane != ""
+	if !hasLivePane && req.Prompt != "" {
+		return newHTTPErrorf(http.StatusBadRequest,
+			"--prompt requires a mission with a live tmux pane; mission %s has none — try 'agenc mission attach' to start it fresh",
+			database.ShortID(resolvedID))
+	}
+
+	// Async path: queue the prompt, fire on claude-idle. Reject if a sync
+	// reload is already in progress for this mission to avoid double-reload
+	// chains. Latest-wins on queue collision (Store overwrites silently).
+	if req.Async {
+		if _, busy := s.reloadsInProgress.Load(resolvedID); busy {
+			return newHTTPError(http.StatusConflict, "reload already in progress for mission "+database.ShortID(resolvedID))
+		}
+		s.pendingReloads.Store(resolvedID, req.Prompt)
+
+		// If claude is already idle, fire immediately rather than waiting for
+		// the next Stop event (which may never come).
+		if state := s.queryWrapperClaudeState(resolvedID); state != nil && *state == "idle" {
+			go s.fireQueuedReload(resolvedID)
+		}
+
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+		return nil
+	}
+
+	// Sync path: reload immediately, blocking until done.
 	release, ok := s.tryAcquireReloadLock(resolvedID)
 	if !ok {
 		return newHTTPError(http.StatusConflict, "reload already in progress for mission "+database.ShortID(resolvedID))
 	}
 	defer release()
 
-	// Detect tmux context and reload approach
-	if missionRecord.TmuxPane != nil && *missionRecord.TmuxPane != "" {
+	if hasLivePane {
 		paneID := *missionRecord.TmuxPane
 		if err := s.reloadMissionInTmux(missionRecord, paneID, req.Prompt); err != nil {
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to reload mission: %s", err.Error())
 		}
 	} else {
-		// Non-tmux: only stop the wrapper. There is no pane to respawn into,
-		// so a prompt cannot be honored on this path.
-		if req.Prompt != "" {
-			return newHTTPErrorf(http.StatusBadRequest,
-				"--prompt requires a mission with a live tmux pane; mission %s has none — try 'agenc mission attach' to start it fresh",
-				database.ShortID(resolvedID))
-		}
+		// Non-tmux stale-state recovery: just stop the wrapper.
 		if err := s.stopWrapper(resolvedID); err != nil {
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to stop wrapper: %s", err.Error())
 		}
@@ -670,6 +698,61 @@ func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) err
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
 	return nil
+}
+
+// handleClaudeIdle handles POST /missions/{id}/claude-idle. The wrapper
+// invokes this when claude transitions to idle (Stop hook event). If a
+// pending async reload exists for this mission, it fires now.
+func (s *Server) handleClaudeIdle(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+
+	resolvedID, err := s.db.ResolveMissionID(id)
+	if err != nil {
+		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
+	}
+
+	if _, pending := s.pendingReloads.Load(resolvedID); pending {
+		go s.fireQueuedReload(resolvedID)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// fireQueuedReload pulls a pending async reload for the mission and executes
+// the heavy reload path. Best-effort: if the pending entry has already been
+// claimed (by a concurrent claude-idle notification or queue-time fast path),
+// returns without action. If a sync reload acquires the lock first, drops the
+// pending without firing.
+func (s *Server) fireQueuedReload(missionID string) {
+	promptVal, ok := s.pendingReloads.LoadAndDelete(missionID)
+	if !ok {
+		return
+	}
+	prompt, _ := promptVal.(string)
+
+	missionRecord, err := s.db.GetMission(missionID)
+	if err != nil || missionRecord == nil {
+		s.logger.Printf("Pending reload: mission %s no longer exists, dropping", database.ShortID(missionID))
+		return
+	}
+
+	if missionRecord.TmuxPane == nil || *missionRecord.TmuxPane == "" {
+		s.logger.Printf("Pending reload: mission %s has no live pane, dropping", database.ShortID(missionID))
+		return
+	}
+
+	release, ok := s.tryAcquireReloadLock(missionID)
+	if !ok {
+		s.logger.Printf("Pending reload: mission %s already reloading, dropping", database.ShortID(missionID))
+		return
+	}
+	defer release()
+
+	paneID := *missionRecord.TmuxPane
+	if err := s.reloadMissionInTmux(missionRecord, paneID, prompt); err != nil {
+		s.logger.Printf("Pending reload: mission %s reload failed: %v", database.ShortID(missionID), err)
+	}
 }
 
 // AttachRequest is the JSON body for POST /missions/{id}/attach.

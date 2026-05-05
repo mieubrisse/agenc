@@ -315,10 +315,19 @@ func (c *Client) RecordPrompt(id string) error {
 
 // ReloadMission reloads a mission's wrapper via the server. When prompt is
 // non-empty, it is appended to the resume command and fed to Claude's `-c`
-// resume as an initial follow-up message.
-func (c *Client) ReloadMission(id string, prompt string) error {
-	body := ReloadMissionRequest{Prompt: prompt}
+// resume as an initial follow-up message. When async is true, the server
+// queues the reload to fire on claude's next idle and returns 202; otherwise
+// it reloads immediately.
+func (c *Client) ReloadMission(id string, prompt string, async bool) error {
+	body := ReloadMissionRequest{Prompt: prompt, Async: async}
 	return c.Post("/missions/"+id+"/reload", body, nil)
+}
+
+// NotifyClaudeIdle tells the server that claude has just become idle for a
+// mission. Used by the wrapper to drive async-queued reloads. Best-effort:
+// the server fires any pending reload for the mission on this signal.
+func (c *Client) NotifyClaudeIdle(id string) error {
+	return c.Post("/missions/"+id+"/claude-idle", nil, nil)
 }
 
 // AttachMission ensures the mission's wrapper is running in the pool and links

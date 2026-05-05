@@ -108,6 +108,9 @@ const (
 	adjutantFlagName = "adjutant"
 	noFocusFlagName  = "no-focus"
 
+	// mission reload flags
+	asyncFlagName = "async"
+
 	// mission ls flags
 	allFlagName = "all"
 
