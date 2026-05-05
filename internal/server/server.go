@@ -39,6 +39,13 @@ type Server struct {
 	// Repo update worker
 	repoUpdateCh chan repoUpdateRequest
 
+	// Writeable-copy reconcile worker
+	writeableCopyReconcileCh chan writeableCopyReconcileRequest
+
+	// gitCommander is the GitCommander used by writeable-copy logic. Tests
+	// inject a fake; production leaves this nil and falls back to realGit.
+	gitCommander GitCommander
+
 	// Session summarizer: generates auto_summary from first user prompt via Haiku
 	sessionSummaryCh   chan summaryRequest
 	summarizedSessions *sync.Map
@@ -55,11 +62,12 @@ type Server struct {
 // NewServer creates a new Server instance.
 func NewServer(agencDirpath string, socketPath string, logger *log.Logger) *Server {
 	return &Server{
-		agencDirpath: agencDirpath,
-		socketPath:   socketPath,
-		logger:       logger,
-		cronSyncer:   NewCronSyncer(agencDirpath),
-		repoUpdateCh: make(chan repoUpdateRequest, repoUpdateChannelSize),
+		agencDirpath:             agencDirpath,
+		socketPath:               socketPath,
+		logger:                   logger,
+		cronSyncer:               NewCronSyncer(agencDirpath),
+		repoUpdateCh:             make(chan repoUpdateRequest, repoUpdateChannelSize),
+		writeableCopyReconcileCh: make(chan writeableCopyReconcileRequest, writeableCopyReconcileChannelSize),
 	}
 }
 
@@ -190,6 +198,10 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("title-consumer", &wg, ctx, s.runTitleConsumerLoop)
 	go s.runLoop("search-indexer", &wg, ctx, s.runSearchIndexerLoop)
 	go s.runLoop("session-summarizer", &wg, ctx, s.runSessionSummarizerWorker)
+	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
+
+	// Boot-time reconcile sweep — gives us crash recovery for in-memory state.
+	s.bootReconcileWriteableCopies()
 
 	// Wait for context cancellation, then gracefully shut down
 	<-ctx.Done()
