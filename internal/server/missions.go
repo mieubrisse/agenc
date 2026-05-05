@@ -599,12 +599,24 @@ func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) err
 
 // ReloadMissionRequest is the optional JSON body for POST /missions/{id}/reload.
 type ReloadMissionRequest struct {
+	// Prompt, when non-empty, is appended to the resume command and feeds
+	// into Claude's `-c` resume as an initial follow-up message. The mission
+	// must have a live tmux pane for prompts to be honored — otherwise the
+	// handler returns 400.
+	Prompt string `json:"prompt"`
 }
 
 // handleReloadMission handles POST /missions/{id}/reload.
 // Rebuilds the per-mission config directory and restarts the wrapper.
 func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
+
+	var req ReloadMissionRequest
+	if r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
+		}
+	}
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
@@ -629,14 +641,28 @@ func (s *Server) handleReloadMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPError(http.StatusBadRequest, "mission uses old directory format; archive and create a new mission")
 	}
 
+	// Acquire per-mission reload lock so concurrent reloads of the same
+	// mission cannot interleave their stopWrapper + respawn-pane sequences.
+	release, ok := s.tryAcquireReloadLock(resolvedID)
+	if !ok {
+		return newHTTPError(http.StatusConflict, "reload already in progress for mission "+database.ShortID(resolvedID))
+	}
+	defer release()
+
 	// Detect tmux context and reload approach
 	if missionRecord.TmuxPane != nil && *missionRecord.TmuxPane != "" {
 		paneID := *missionRecord.TmuxPane
-		if err := s.reloadMissionInTmux(missionRecord, paneID); err != nil {
+		if err := s.reloadMissionInTmux(missionRecord, paneID, req.Prompt); err != nil {
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to reload mission: %s", err.Error())
 		}
 	} else {
-		// Non-tmux: just stop the wrapper (CLI will handle resume)
+		// Non-tmux: only stop the wrapper. There is no pane to respawn into,
+		// so a prompt cannot be honored on this path.
+		if req.Prompt != "" {
+			return newHTTPErrorf(http.StatusBadRequest,
+				"--prompt requires a mission with a live tmux pane; mission %s has none — try 'agenc mission attach' to start it fresh",
+				database.ShortID(resolvedID))
+		}
 		if err := s.stopWrapper(resolvedID); err != nil {
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to stop wrapper: %s", err.Error())
 		}
@@ -1042,7 +1068,9 @@ func (s *Server) handleRecordPrompt(w http.ResponseWriter, r *http.Request) erro
 }
 
 // reloadMissionInTmux performs an in-place reload using tmux primitives.
-func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID string) error {
+// When prompt is non-empty, it is threaded through the resume command and
+// fed to Claude's `-c` resume as an initial follow-up message.
+func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID string, prompt string) error {
 	targetPane := "%" + paneID
 
 	// Verify pane still exists
@@ -1078,7 +1106,7 @@ func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID str
 	}
 
 	// Respawn the pane
-	resumeCommand, err := s.buildWrapperResumeCmd(missionRecord.ID, "")
+	resumeCommand, err := s.buildWrapperResumeCmd(missionRecord.ID, prompt)
 	if err != nil {
 		return err
 	}
