@@ -106,7 +106,11 @@ func (s *Server) handleGetNotification(w http.ResponseWriter, r *http.Request) e
 	if id == "" {
 		return newHTTPError(http.StatusBadRequest, "notification id is required")
 	}
-	n, err := s.db.GetNotification(id)
+	resolvedID, err := s.db.ResolveNotificationID(id)
+	if err != nil {
+		return newHTTPError(http.StatusNotFound, err.Error())
+	}
+	n, err := s.db.GetNotification(resolvedID)
 	if err != nil {
 		return newHTTPError(http.StatusNotFound, "notification not found: "+id)
 	}
@@ -119,7 +123,11 @@ func (s *Server) handleMarkNotificationRead(w http.ResponseWriter, r *http.Reque
 	if id == "" {
 		return newHTTPError(http.StatusBadRequest, "notification id is required")
 	}
-	if err := s.db.MarkNotificationRead(id); err != nil {
+	resolvedID, err := s.db.ResolveNotificationID(id)
+	if err != nil {
+		return newHTTPError(http.StatusNotFound, err.Error())
+	}
+	if err := s.db.MarkNotificationRead(resolvedID); err != nil {
 		s.logger.Printf("MarkNotificationRead failed for '%v': %v", id, err)
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to mark notification read: %v", err)
 	}

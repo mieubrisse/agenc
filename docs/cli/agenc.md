@@ -19,6 +19,7 @@ The AgenC — agent mission management CLI
 * [agenc feedback](agenc_feedback.md)	 - Launch a feedback mission with Adjutant
 * [agenc login](agenc_login.md)	 - Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
 * [agenc mission](agenc_mission.md)	 - Manage agent missions
+* [agenc notifications](agenc_notifications.md)	 - List, read, and create AgenC notifications
 * [agenc prime](agenc_prime.md)	 - Print AgenC CLI quick reference for AI agent context
 * [agenc repo](agenc_repo.md)	 - Manage the repo library
 * [agenc server](agenc_server.md)	 - Manage the AgenC server

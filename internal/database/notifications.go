@@ -94,3 +94,65 @@ func (db *DB) CountUnreadNotifications() (int, error) {
 	}
 	return count, nil
 }
+
+// ResolveNotificationID resolves a user-supplied identifier (full UUID or any
+// unambiguous prefix, typically the 8-char short ID shown in `notifications
+// ls`) to a full notification UUID. Returns an error when zero or multiple
+// notifications match.
+func (db *DB) ResolveNotificationID(userInput string) (string, error) {
+	// Try exact match first
+	var fullID string
+	err := db.conn.QueryRow("SELECT id FROM notifications WHERE id = ?", userInput).Scan(&fullID)
+	if err == nil {
+		return fullID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", stacktrace.Propagate(err, "failed to query notification by full ID")
+	}
+
+	// Prefix match
+	rows, err := db.conn.Query("SELECT id, title FROM notifications WHERE id LIKE ?", userInput+"%")
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to query notification by prefix")
+	}
+	defer rows.Close()
+
+	type match struct {
+		id    string
+		title string
+	}
+	var matches []match
+	for rows.Next() {
+		var m match
+		if err := rows.Scan(&m.id, &m.title); err != nil {
+			return "", stacktrace.Propagate(err, "failed to scan notification row")
+		}
+		matches = append(matches, m)
+	}
+	if err := rows.Err(); err != nil {
+		return "", stacktrace.Propagate(err, "error iterating notification rows")
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", stacktrace.NewError("notification '%s' not found", userInput)
+	case 1:
+		return matches[0].id, nil
+	default:
+		lines := make([]string, 0, len(matches))
+		for _, m := range matches {
+			lines = append(lines, "  "+m.id+"  "+m.title)
+		}
+		joined := ""
+		for i, line := range lines {
+			if i > 0 {
+				joined += "\n"
+			}
+			joined += line
+		}
+		return "", stacktrace.NewError(
+			"prefix '%s' is ambiguous; matches %d notifications:\n%s\nPlease provide more of the UUID to disambiguate.",
+			userInput, len(matches), joined,
+		)
+	}
+}

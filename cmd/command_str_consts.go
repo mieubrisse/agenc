@@ -27,6 +27,11 @@ const (
 	sessionCmdStr  = "session"
 	stashCmdStr    = "stash"
 
+	notificationsCmdStr = "notifications"
+	showCmdStr          = "show"
+	readCmdStr          = "read"
+	createCmdStr        = "create"
+
 	// Subcommands shared across multiple parent commands
 	lsCmdStr     = "ls"
 	rmCmdStr     = "rm"
@@ -147,4 +152,12 @@ const (
 	cronConfigDescriptionFlagName = "description"
 	cronConfigRepoFlagName        = "repo"
 	cronConfigEnabledFlagName     = "enabled"
+
+	// notifications flags
+	notificationsKindFlagName       = "kind"
+	notificationsTitleFlagName      = "title"
+	notificationsBodyFlagName       = "body"
+	notificationsBodyFileFlagName   = "body-file"
+	notificationsSourceRepoFlagName = "source-repo"
+	notificationsRepoFilterFlagName = "repo"
 )
