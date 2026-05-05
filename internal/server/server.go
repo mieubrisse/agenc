@@ -280,6 +280,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /config/claude-md", appHandler(s.requestLogger, s.handleUpdateClaudeMd))
 	mux.Handle("GET /config/settings-json", appHandler(s.requestLogger, s.handleGetSettingsJson))
 	mux.Handle("PUT /config/settings-json", appHandler(s.requestLogger, s.handleUpdateSettingsJson))
+
+	// Notifications
+	mux.Handle("GET /notifications", appHandler(s.requestLogger, s.handleListNotifications))
+	mux.Handle("POST /notifications", appHandler(s.requestLogger, s.handleCreateNotification))
+	mux.Handle("GET /notifications/unread-count", appHandler(s.requestLogger, s.handleCountUnreadNotifications))
+	mux.Handle("GET /notifications/{id}", appHandler(s.requestLogger, s.handleGetNotification))
+	mux.Handle("POST /notifications/{id}/read", appHandler(s.requestLogger, s.handleMarkNotificationRead))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) error {

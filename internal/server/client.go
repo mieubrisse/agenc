@@ -649,6 +649,64 @@ func (c *Client) RemoveSleepWindow(index int) error {
 	return c.Delete(fmt.Sprintf("/config/sleep/windows/%d", index))
 }
 
+// ListNotifications retrieves notifications matching the given filter.
+// All filter fields are optional; pass the zero value for an unfiltered list.
+func (c *Client) ListNotifications(unreadOnly bool, sourceRepo, kind string) ([]NotificationResponse, error) {
+	values := url.Values{}
+	if unreadOnly {
+		values.Set("unread", "true")
+	}
+	if sourceRepo != "" {
+		values.Set("repo", sourceRepo)
+	}
+	if kind != "" {
+		values.Set("kind", kind)
+	}
+	path := "/notifications"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var result []NotificationResponse
+	if err := c.Get(path, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetNotification fetches a single notification by full UUID.
+func (c *Client) GetNotification(id string) (*NotificationResponse, error) {
+	var result NotificationResponse
+	if err := c.Get("/notifications/"+id, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// CreateNotification posts a new notification and returns the created record.
+func (c *Client) CreateNotification(req CreateNotificationRequest) (*NotificationResponse, error) {
+	var result NotificationResponse
+	if err := c.Post("/notifications", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// MarkNotificationRead sets read_at on the given notification. Idempotent.
+func (c *Client) MarkNotificationRead(id string) error {
+	return c.Post("/notifications/"+id+"/read", nil, nil)
+}
+
+// CountUnreadNotifications returns the number of unread notifications.
+func (c *Client) CountUnreadNotifications() (int, error) {
+	var result struct {
+		Count int `json:"count"`
+	}
+	if err := c.Get("/notifications/unread-count", &result); err != nil {
+		return 0, err
+	}
+	return result.Count, nil
+}
+
 func (c *Client) decodeError(resp *http.Response) error {
 	var errResp errorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
