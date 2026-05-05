@@ -50,6 +50,13 @@ type Server struct {
 	// loopHealth tracks the status of each background loop goroutine.
 	// Values are "running", "stopped", or "crashed".
 	loopHealth sync.Map
+
+	// reloadsInProgress holds missionIDs currently being reloaded.
+	// Acquired via tryAcquireReloadLock to prevent concurrent reloads of the
+	// same mission from interleaving (which would race on stopWrapper and
+	// respawn-pane). Different missions reload concurrently — the lock is
+	// per-mission, not global.
+	reloadsInProgress sync.Map
 }
 
 // NewServer creates a new Server instance.
