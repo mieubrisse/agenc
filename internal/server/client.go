@@ -313,9 +313,12 @@ func (c *Client) RecordPrompt(id string) error {
 	return c.Post("/missions/"+id+"/prompt", nil, nil)
 }
 
-// ReloadMission reloads a mission's wrapper via the server.
-func (c *Client) ReloadMission(id string) error {
-	return c.Post("/missions/"+id+"/reload", nil, nil)
+// ReloadMission reloads a mission's wrapper via the server. When prompt is
+// non-empty, it is appended to the resume command and fed to Claude's `-c`
+// resume as an initial follow-up message.
+func (c *Client) ReloadMission(id string, prompt string) error {
+	body := ReloadMissionRequest{Prompt: prompt}
+	return c.Post("/missions/"+id+"/reload", body, nil)
 }
 
 // AttachMission ensures the mission's wrapper is running in the pool and links

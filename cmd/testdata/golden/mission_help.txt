@@ -14,7 +14,7 @@ Available Commands:
   print       Print a mission's current session transcript (human-readable text by default)
   rebuild     Rebuild the devcontainer for a containerized mission
   reconfig    Apply your latest ~/.claude config to a mission
-  reload      Reload one or more missions in-place (preserves tmux pane)
+  reload      Reload a mission in-place (preserves tmux pane)
   rename      Rename the active session's window title for a mission
   rm          Stop and permanently remove one or more missions
   search      Search missions by conversation content

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
@@ -11,27 +10,30 @@ import (
 	"github.com/odyssey/agenc/internal/server"
 )
 
+var reloadPromptFlag string
+
 var missionReloadCmd = &cobra.Command{
-	Use:   reloadCmdStr + " [mission-id...]",
-	Short: "Reload one or more missions in-place (preserves tmux pane)",
-	Long: `Reload one or more missions in-place (preserves tmux pane).
+	Use:   reloadCmdStr + " [mission-id]",
+	Short: "Reload a mission in-place (preserves tmux pane)",
+	Long: `Reload a mission in-place (preserves tmux pane).
 
 Stops the mission wrapper and restarts it in the same tmux pane, preserving
-window position, title, and conversation state. This is useful after updating
-the mission config or upgrading the agenc binary.
+window position, title, and conversation state. Useful after updating the
+mission config or upgrading the agenc binary.
 
 Without arguments, opens an interactive fzf picker showing running missions.
-With arguments, accepts a mission ID (short 8-char hex or full UUID).
+With an argument, accepts a mission ID (short 8-char hex or full UUID).
 
-For missions running in tmux, uses 'remain-on-exit' and 'respawn-pane' to
-preserve the exact pane position. For missions not in tmux, falls back to
-stop + resume workflow.`,
-	Args: cobra.ArbitraryArgs,
+The --prompt flag, when set, is fed to Claude as a follow-up message that
+runs immediately after the reload completes. The mission must have a live
+tmux pane for --prompt to apply.`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: runMissionReload,
 }
 
 func init() {
 	missionCmd.AddCommand(missionReloadCmd)
+	missionReloadCmd.Flags().StringVar(&reloadPromptFlag, promptFlagName, "", "follow-up prompt to send after reload (requires a mission with a live tmux pane)")
 }
 
 func runMissionReload(cmd *cobra.Command, args []string) error {
@@ -40,11 +42,8 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	input := strings.Join(args, " ")
-
-	// When a mission ID is provided, resolve and reload directly without
-	// calling ListMissions (which queries every wrapper over HTTP).
-	if input != "" {
+	if len(args) == 1 {
+		input := args[0]
 		if !looksLikeMissionID(input) {
 			return stacktrace.NewError("not a valid mission ID: %s", input)
 		}
@@ -52,14 +51,14 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return stacktrace.Propagate(err, "failed to resolve mission ID")
 		}
-		if err := client.ReloadMission(missionID); err != nil {
+		if err := client.ReloadMission(missionID, reloadPromptFlag); err != nil {
 			return stacktrace.Propagate(err, "failed to reload mission %s", database.ShortID(missionID))
 		}
 		fmt.Printf("Mission '%s' reloaded\n", database.ShortID(missionID))
 		return nil
 	}
 
-	// No args: list running missions and show fzf picker
+	// No args: list running missions and show fzf single-select picker
 	missions, err := client.ListMissions(server.ListMissionsRequest{})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -73,14 +72,13 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 
 	entries := buildMissionPickerEntries(runningMissions, defaultPromptMaxLen)
 
-	result, err := Resolve(input, Resolver[missionPickerEntry]{
+	result, err := Resolve("", Resolver[missionPickerEntry]{
 		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
 			return []string{e.LastActive, e.ShortID, e.Session, e.Repo}
 		},
-		FzfPrompt:   "Select missions to reload (TAB to multi-select): ",
-		FzfHeaders:  []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
-		MultiSelect: true,
+		FzfPrompt:  "Select mission to reload: ",
+		FzfHeaders: []string{"LAST ACTIVE", "ID", "SESSION", "REPO"},
 	})
 	if err != nil {
 		return err
@@ -90,11 +88,10 @@ func runMissionReload(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	for _, entry := range result.Items {
-		if err := client.ReloadMission(entry.MissionID); err != nil {
-			return stacktrace.Propagate(err, "failed to reload mission %s", entry.ShortID)
-		}
-		fmt.Printf("Mission '%s' reloaded\n", database.ShortID(entry.MissionID))
+	entry := result.Items[0]
+	if err := client.ReloadMission(entry.MissionID, reloadPromptFlag); err != nil {
+		return stacktrace.Propagate(err, "failed to reload mission %s", entry.ShortID)
 	}
+	fmt.Printf("Mission '%s' reloaded\n", database.ShortID(entry.MissionID))
 	return nil
 }
