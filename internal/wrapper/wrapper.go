@@ -351,9 +351,9 @@ func (w *Wrapper) spawnClaudeDirectly(isResume bool) error {
 	if isResume {
 		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
 		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
-			cmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, sessionID)
+			cmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, sessionID, w.initialPrompt)
 		} else {
-			cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, "")
+			cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, w.initialPrompt)
 		}
 	} else {
 		cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.defaultModel, w.claudeArgs, w.initialPrompt)
@@ -383,7 +383,8 @@ func (w *Wrapper) spawnClaudeInContainer(isResume bool) error {
 			claudeArgs = append(claudeArgs, "-r", sessionID)
 		}
 		// If no session to resume, start fresh (no extra args)
-	} else if w.initialPrompt != "" {
+	}
+	if w.initialPrompt != "" {
 		claudeArgs = append(claudeArgs, w.initialPrompt)
 	}
 

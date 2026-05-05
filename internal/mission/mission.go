@@ -187,17 +187,29 @@ func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath strin
 	return cmd, nil
 }
 
-// SpawnClaudeResumeWithSession starts claude with session-based resumption
-// using claude -r <session-id>. If sessionID is empty, falls back to
-// claude -c. Returns the running command. The caller is responsible for
-// calling cmd.Wait().
-func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string, sessionID string) (*exec.Cmd, error) {
+// buildResumeArgs returns the claude CLI args for resuming a conversation.
+// Pure helper extracted for unit testing.
+func buildResumeArgs(sessionID string, initialPrompt string) []string {
 	var args []string
 	if sessionID != "" {
 		args = []string{"-r", sessionID}
 	} else {
 		args = []string{"-c"}
 	}
+	if initialPrompt != "" {
+		args = append(args, initialPrompt)
+	}
+	return args
+}
+
+// SpawnClaudeResumeWithSession starts claude with session-based resumption
+// using claude -r <session-id>. If sessionID is empty, falls back to
+// claude -c. When initialPrompt is non-empty, it is appended as a positional
+// argument so claude submits it as the first message after resuming.
+// Returns the running command. The caller is responsible for calling
+// cmd.Wait().
+func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string, sessionID string, initialPrompt string) (*exec.Cmd, error) {
+	args := buildResumeArgs(sessionID, initialPrompt)
 
 	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, model, extraClaudeArgs, args)
 	if err != nil {
