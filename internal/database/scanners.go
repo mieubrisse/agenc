@@ -76,6 +76,73 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 	return missions, nil
 }
 
+// scanNotifications scans multiple notification rows from a query result.
+func scanNotifications(rows *sql.Rows) ([]*Notification, error) {
+	var notifications []*Notification
+	for rows.Next() {
+		n, err := scanNotificationFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		notifications = append(notifications, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, stacktrace.Propagate(err, "error iterating notification rows")
+	}
+	return notifications, nil
+}
+
+// scanNotification scans a single notification row from a QueryRow result.
+func scanNotification(row *sql.Row) (*Notification, error) {
+	var n Notification
+	var sourceRepo sql.NullString
+	var createdAt string
+	var readAt sql.NullString
+	if err := row.Scan(&n.ID, &n.Kind, &sourceRepo, &n.Title, &n.BodyMarkdown, &createdAt, &readAt); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to scan notification row")
+	}
+	if err := populateNotificationTimes(&n, sourceRepo, createdAt, readAt); err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+// scanNotificationFromRows scans a single notification from rows iteration.
+// Separated from scanNotification because *sql.Rows and *sql.Row don't share
+// a common Scan interface in the standard library.
+func scanNotificationFromRows(rows *sql.Rows) (*Notification, error) {
+	var n Notification
+	var sourceRepo sql.NullString
+	var createdAt string
+	var readAt sql.NullString
+	if err := rows.Scan(&n.ID, &n.Kind, &sourceRepo, &n.Title, &n.BodyMarkdown, &createdAt, &readAt); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to scan notification row")
+	}
+	if err := populateNotificationTimes(&n, sourceRepo, createdAt, readAt); err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+func populateNotificationTimes(n *Notification, sourceRepo sql.NullString, createdAt string, readAt sql.NullString) error {
+	if sourceRepo.Valid {
+		n.SourceRepo = sourceRepo.String
+	}
+	t, err := time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to parse notification created_at timestamp '%v'", createdAt)
+	}
+	n.CreatedAt = t
+	if readAt.Valid {
+		readTime, err := time.Parse(time.RFC3339, readAt.String)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to parse notification read_at timestamp '%v'", readAt.String)
+		}
+		n.ReadAt = &readTime
+	}
+	return nil
+}
+
 // scanMission scans a single mission row from a query result.
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
