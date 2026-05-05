@@ -256,6 +256,13 @@ echo "--- Mission commands (requires server) ---"
 run_test_no_crash "mission ls does not crash" \
     "${agenc_test}" mission ls
 
+run_test_output_contains "mission reload --help mentions --prompt" \
+    "prompt" \
+    "${agenc_test}" mission reload --help
+
+run_test_no_crash "mission reload with bad ID does not crash" \
+    "${agenc_test}" mission reload aabbccdd --prompt "hello"
+
 echo ""
 echo "--- Mission time filtering (requires server) ---"
 
