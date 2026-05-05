@@ -7,6 +7,9 @@ Remove a repo's writeable-copy configuration
 Remove the writeable-copy configuration for a repo. The on-disk clone is
 NOT deleted; the user can remove it manually if desired.
 
+The repo can be in any of the formats accepted by 'agenc repo add' — shorthand
+('owner/repo'), canonical name ('github.com/owner/repo'), or full URL.
+
 ```
 agenc repo writeable-copy unset <repo> [flags]
 ```

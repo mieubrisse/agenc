@@ -384,10 +384,18 @@ run_test_output_contains "writeable-copy ls (empty)" \
     "No writeable copies configured" \
     "${agenc_test}" repo writeable-copy ls
 
-# Set rejects non-canonical repo names
-run_test "writeable-copy set rejects non-canonical repo name" \
-    1 \
-    "${agenc_test}" repo writeable-copy set bare-repo /tmp/foo-e2e-wc
+# Set accepts shorthand 'owner/repo' (canonicalized via ParseRepoReference,
+# matching 'agenc repo add' behavior). A bare single word like "bare-repo"
+# expands using $GH_DEFAULT_OWNER if set; without that, it errors. So instead
+# we test that 'owner/repo' is accepted and canonicalized.
+e2e_wc_shorthand_path="$(mktemp -d -t agenc-e2e-wc-sh-XXXXXX)"
+rmdir "${e2e_wc_shorthand_path}"
+run_test "writeable-copy set accepts shorthand owner/repo" \
+    0 \
+    "${agenc_test}" repo writeable-copy set e2e-shorthand/test "${e2e_wc_shorthand_path}"
+sleep 1
+"${agenc_test}" repo writeable-copy unset github.com/e2e-shorthand/test >/dev/null 2>&1 || true
+sleep 1
 
 # Set rejects path under agenc dir
 test_env_path="${repo_dirpath}/_test-env"
