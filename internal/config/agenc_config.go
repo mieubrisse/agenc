@@ -89,6 +89,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: StringPtr("Launch an Adjutant mission in a new window"),
 		Command:     StringPtr("agenc mission new --adjutant"),
 	},
+	"showNotifications": {
+		Title:       StringPtr("🔔  Show Notifications"),
+		Description: StringPtr("Review unread AgenC notifications via Adjutant"),
+		Command:     StringPtr(`agenc mission new --adjutant --prompt "The user opened the Show Notifications palette entry. Run 'agenc notifications ls', read the unread notifications, summarize them concisely, and ask the user how they'd like to proceed. For any writeable_copy.* notifications, follow the guidance in the Notifications section of your prompt to help the user resolve them."`),
+	},
 	"newMission": {
 		Title:          StringPtr("🚀  New Mission"),
 		Description:    StringPtr("Create a new mission and launch Claude"),
@@ -202,6 +207,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 var builtinPaletteCommandOrder = []string{
 	"quickClaude",
 	"talkToAgenc",
+	"showNotifications",
 	"newMission",
 	"switchMission",
 	"detachMission",

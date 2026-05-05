@@ -111,7 +111,7 @@ Current endpoints:
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 ### Background loops
 
-The server runs ten concurrent background goroutines:
+The server runs eleven concurrent background goroutines:
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs every 60 seconds
@@ -178,6 +178,14 @@ The server runs ten concurrent background goroutines:
 - Extracts user messages and assistant text blocks (skipping tool_use, thinking, system messages)
 - Inserts extracted text into the FTS5 `mission_search_index` table and advances `last_indexed_offset` atomically in a single transaction
 - Powers the `GET /missions/search` endpoint and the `agenc mission search` CLI command
+
+**11. Writeable-copy reconcile worker** (`internal/server/writeable_copies.go`)
+- Drains a buffered channel of reconcile requests, one tick per request
+- Three trigger sources feed the channel: working-tree fsnotify (debounced 15s) per writeable copy, library worker fan-out after a successful library update, and a server-startup boot sweep
+- Per tick: resume probe (if paused), sanity checks, commit-if-dirty, fetch+reconcile (equal/ahead/behind/diverged) — each step backed by a `GitCommander` interface that the production code wires to the `git` CLI and tests mock with a fake
+- On rebase conflict, non-FF push reject, auth failure, wrong branch, origin URL drift, missing path, or git corruption: atomically inserts a pause row in `writeable_copy_pauses` and a notification in `notifications`. The pause is checked at the start of every subsequent tick; the loop auto-resumes when `git status` is clean and HEAD has moved past `local_head_at_pause`
+- Notifications are append-only (only mutation: mark-as-read). Pauses are deleted on auto-resume; the linked notification stays in history
+- Per-writeable-copy fsnotify watchers are managed by `writeableCopyWatchers` (`internal/server/writeable_copies_watcher.go`): one watcher on the working tree (excluding `.git/`) and one on `.git/refs/remotes/origin/<default-branch>`. The latter triggers an existing-machinery library push-event refresh when the writeable copy successfully pushes to origin
 
 The file watcher, title consumer, and search indexer form a three-layer session processing pipeline. The file watcher (layer 1) tracks file sizes. Consumers (layer 2) independently query for sessions where `known_file_size > their_offset` and process new content at their own cadence. The sessions table (layer 3) coordinates via three columns: `known_file_size` (nullable, written by file watcher), `last_title_update_offset` (title consumer), `last_indexed_offset` (search indexer).
 

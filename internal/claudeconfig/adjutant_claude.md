@@ -291,3 +291,85 @@ gh issue create --repo mieubrisse/agenc --title "<concise title>" --body "<forma
 After filing, show the user the issue URL so they can track it.
 
 **Always use `dangerouslyDisableSandbox: true`** when running `gh` commands — the sandbox blocks network access that `gh` requires.
+
+
+Notifications and Writeable Copies
+==================================
+
+AgenC has a notification system for surfacing events that need user awareness.
+Most commonly these are sync conflicts in **writeable copies**, but the system
+is extensible — any agent or subsystem can post a notification. Notifications
+are **append-only**: they are created once and either remain unread or get
+marked as read. They are never deleted.
+
+### Listing and reading notifications
+
+- `agenc notifications ls` — unread notifications, table form (default)
+- `agenc notifications ls --all` — full history
+- `agenc notifications ls --repo <name>` — filter by source repo
+- `agenc notifications ls --kind <kind>` — filter by kind
+- `agenc notifications show <short-id>` — full Markdown body of one notification
+- `agenc notifications read <short-id>` — mark as read
+
+When the user asks about their notifications or you are spawned via the
+"Show Notifications" palette entry: run `agenc notifications ls` first, then
+use `agenc notifications show <id>` for any notification whose body the user
+wants to see or that you need to act on.
+
+### When to mark as read
+
+Mark notifications as read on the user's behalf **only** when:
+1. You have surfaced the notification's content to them, AND
+2. They have either acted on it or explicitly indicated they're done with it.
+
+Do not mass-mark unread notifications as read just to clean up the list. The
+unread state is a deliberate signal.
+
+### Writeable-copy conflict notifications
+
+The most common notification kind. Posted when AgenC's sync loop encounters
+a rebase conflict, push rejection, auth failure, or other state that needs
+the user's attention. The sync loop is paused for that writeable copy until
+the conflict is resolved; the notification body explains what to do.
+
+Common pause kinds:
+
+- `writeable_copy.conflict` — rebase conflict between local auto-commits and remote
+- `writeable_copy.non_ff_reject` — remote rejected the push (was rewritten)
+- `writeable_copy.auth_failure` — git push failed authentication
+- `writeable_copy.wrong_branch` — the writeable copy is on a non-default branch
+- `writeable_copy.origin_drift` — origin URL doesn't match expected
+- `writeable_copy.path_missing` — the writeable-copy path no longer exists
+- `writeable_copy.git_corrupt` — git operations are failing in the copy
+
+To help the user resolve a writeable-copy conflict:
+
+1. Read the notification body — it lists the conflicted files, the diverging
+   commits, and an exact recipe (cd, fetch, pull --rebase, resolve, push).
+2. Offer to walk through the steps with the user. You can run the same
+   commands the recipe shows.
+3. Help the user edit any conflicted files.
+4. After they push successfully, the sync loop **auto-resumes** on its next
+   tick once HEAD has moved and the working tree is clean. Marking the
+   notification as read is purely cosmetic — it does not control the loop.
+
+### Listing writeable copies
+
+- `agenc repo writeable-copy ls` — table of configured writeable copies and
+  their current sync status (ok / paused / missing). When any are paused,
+  the output points at `agenc notifications ls`.
+- `agenc repo writeable-copy set <repo> <path>` — configure a new one
+- `agenc repo writeable-copy unset <repo>` — remove configuration (does NOT
+  delete the on-disk clone)
+
+### Creating notifications (for agent-to-user signals)
+
+Other agents or subsystems can post notifications via:
+
+```
+agenc notifications create --kind=<kind> --title=<title> [--source-repo=<repo>] (--body=<text> | --body-file=<path>)
+```
+
+`--body-file=-` reads from stdin (handy for piping). Use this sparingly — the
+user opens notifications expecting things that genuinely need their awareness,
+not a stream of agent activity.
