@@ -470,20 +470,6 @@ func (s *Server) runWriteableCopyReconcileWorker(ctx context.Context) {
 	}
 }
 
-// bootReconcileWriteableCopies enqueues one reconcile request per configured
-// writeable copy at server startup. This recovers from in-memory state lost
-// during crashes and ensures the loop is current after restart.
-func (s *Server) bootReconcileWriteableCopies() {
-	cfg := s.getConfig()
-	for repoName := range cfg.GetAllWriteableCopies() {
-		select {
-		case s.writeableCopyReconcileCh <- writeableCopyReconcileRequest{repoName: repoName}:
-		default:
-			s.logger.Printf("Writeable-copy boot reconcile: channel full, skipping '%s'", repoName)
-		}
-	}
-}
-
 // enqueueWriteableCopyReconcile enqueues a reconcile request for a repo if it
 // has a writeable copy configured. Used by the library update worker to
 // fan out remote changes that the library just pulled.

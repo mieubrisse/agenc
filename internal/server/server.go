@@ -46,6 +46,9 @@ type Server struct {
 	// inject a fake; production leaves this nil and falls back to realGit.
 	gitCommander GitCommander
 
+	// writeableCopyWatchers tracks per-repo fsnotify watcher goroutines.
+	writeableCopyWatchers *writeableCopyWatchers
+
 	// Session summarizer: generates auto_summary from first user prompt via Haiku
 	sessionSummaryCh   chan summaryRequest
 	summarizedSessions *sync.Map
@@ -200,8 +203,10 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("session-summarizer", &wg, ctx, s.runSessionSummarizerWorker)
 	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
 
-	// Boot-time reconcile sweep — gives us crash recovery for in-memory state.
-	s.bootReconcileWriteableCopies()
+	// Bootstrap writeable copies: clone if missing, install fsnotify watchers,
+	// and enqueue an initial reconcile per copy. Subsequent config changes are
+	// handled by the config watcher (config_watcher.go).
+	s.reconcileWriteableCopiesFromConfig(ctx)
 
 	// Wait for context cancellation, then gracefully shut down
 	<-ctx.Done()

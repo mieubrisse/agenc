@@ -257,4 +257,8 @@ func (s *Server) reloadConfig() {
 	if err := s.cronSyncer.SyncCronsToLaunchd(cfg.Crons, s.logger); err != nil {
 		s.logger.Printf("Config watcher: failed to sync crons: %v", err)
 	}
+
+	// Reconcile writeable copies — start watchers for newly added entries,
+	// stop watchers for removed entries.
+	s.reconcileWriteableCopiesFromConfig(context.Background())
 }
