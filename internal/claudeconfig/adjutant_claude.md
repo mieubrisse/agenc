@@ -353,14 +353,81 @@ To help the user resolve a writeable-copy conflict:
    tick once HEAD has moved and the working tree is clean. Marking the
    notification as read is purely cosmetic — it does not control the loop.
 
+### What writeable copies are for
+
+A writeable copy is an additional clone of a repo at a path the user chooses
+(typically somewhere under `~/`). The AgenC server keeps the writeable copy
+continuously synced with the same git remote as the repo library:
+
+- Local edits in the working tree are auto-committed every ~15 seconds and
+  pushed to origin
+- Remote changes are pulled and rebased whenever the library copy fetches
+  them (fan-out from the existing library worker)
+- On any sync failure (rebase conflict, push rejection, etc.) the loop
+  pauses and posts a notification
+
+The classic use case is **dotfiles**: the user has a dotfiles repo in the
+library, but symlinks like `~/.claude/CLAUDE.md` need to point at a writable
+location. By configuring a writeable copy at e.g. `~/app/dotfiles`, the user
+(or an agent) can edit `~/.claude/CLAUDE.md` directly — the symlink resolves
+into the writeable copy — and AgenC handles the commit-and-push without
+intervention. The repo library stays read-only as always; the two copies
+synchronize via origin.
+
 ### Listing writeable copies
 
 - `agenc repo writeable-copy ls` — table of configured writeable copies and
   their current sync status (ok / paused / missing). When any are paused,
   the output points at `agenc notifications ls`.
-- `agenc repo writeable-copy set <repo> <path>` — configure a new one
-- `agenc repo writeable-copy unset <repo>` — remove configuration (does NOT
-  delete the on-disk clone)
+
+Status legend:
+- `✅ ok` — the sync loop is healthy
+- `⚠ paused` — a notification was posted; the loop is paused until resolved
+- `❌ missing` — the configured path doesn't exist on disk (deleted manually)
+
+### Configuring a writeable copy (the set workflow)
+
+```
+agenc repo writeable-copy set <canonical-repo-name> <absolute-path>
+```
+
+Walk the user through these checks before suggesting they run `set`:
+
+1. **Repo must already be in the library.** If not, run
+   `agenc repo add <repo>` first.
+2. **Path must be absolute** (or `~/`-relative — that gets expanded).
+   Relative paths like `./foo` are rejected.
+3. **Path must be outside `~/.agenc/`.** Anywhere else is fine. Common
+   choices are `~/app/<name>` or `~/dotfiles`.
+4. **Path must not overlap with another writeable copy** — neither nested
+   inside one nor containing one.
+5. **Parent directory must exist.** AgenC does not create arbitrary parents.
+   If `~/app/` doesn't exist, the user should `mkdir ~/app` first.
+6. **If the path already exists:** AgenC adopts it if it's a git clone with
+   a matching `origin` URL. Otherwise the command errors and asks the user
+   to pick a different path or move the existing directory aside.
+7. **If the path doesn't exist:** AgenC clones the repo from origin into it.
+
+After `set` succeeds, the AgenC server reloads config (~500ms debounce),
+clones the repo if needed, installs fsnotify watchers on the working tree,
+and starts the sync loop. The user does not need to do anything else.
+
+**Implicit behavior to flag:** setting a writeable copy implies
+`alwaysSynced=true` for that repo. The CLI enforces this — attempting
+`config repoConfig set <repo> --always-synced=false` on a repo with a
+writeable copy is rejected, and the error message tells the user to `unset`
+the writeable copy first.
+
+### Removing a writeable copy
+
+```
+agenc repo writeable-copy unset <repo>
+```
+
+Removes the entry from config and stops the sync loop on the next
+config-watcher cycle. **The on-disk clone is NOT deleted** — if the user
+wants to remove the directory itself, they have to `rm -rf` it manually.
+State this explicitly when running `unset` for them.
 
 ### Creating notifications (for agent-to-user signals)
 
