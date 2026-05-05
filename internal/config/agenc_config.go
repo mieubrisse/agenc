@@ -89,6 +89,11 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: StringPtr("Launch an Adjutant mission in a new window"),
 		Command:     StringPtr("agenc mission new --adjutant"),
 	},
+	"showNotifications": {
+		Title:       StringPtr("🔔  Show Notifications"),
+		Description: StringPtr("Review unread AgenC notifications via Adjutant"),
+		Command:     StringPtr(`agenc mission new --adjutant --prompt "The user opened the Show Notifications palette entry. Run 'agenc notifications ls', read the unread notifications, summarize them concisely, and ask the user how they'd like to proceed. For any writeable_copy.* notifications, follow the guidance in the Notifications section of your prompt to help the user resolve them."`),
+	},
 	"newMission": {
 		Title:          StringPtr("🚀  New Mission"),
 		Description:    StringPtr("Create a new mission and launch Claude"),
@@ -202,6 +207,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 var builtinPaletteCommandOrder = []string{
 	"quickClaude",
 	"talkToAgenc",
+	"showNotifications",
 	"newMission",
 	"switchMission",
 	"detachMission",
@@ -332,8 +338,11 @@ func IsCanonicalRepoName(name string) bool {
 // RepoConfig represents per-repo configuration in the repoConfig map.
 // All fields are optional: alwaysSynced controls whether the server keeps
 // the repo continuously fetched, emoji sets the display emoji for the repo,
-// title sets a user-friendly display name, and postUpdateHook specifies a
-// shell command to run after repo updates.
+// title sets a user-friendly display name, postUpdateHook specifies a shell
+// command to run after repo updates, and writeableCopy designates a separate
+// path the server keeps continuously synced with the same git remote
+// (auto-commit local edits, pull-and-rebase remote changes). Setting
+// writeableCopy implies alwaysSynced=true.
 type RepoConfig struct {
 	AlwaysSynced      bool               `yaml:"alwaysSynced,omitempty"`
 	Emoji             string             `yaml:"emoji,omitempty"`
@@ -342,6 +351,7 @@ type RepoConfig struct {
 	DefaultModel      string             `yaml:"defaultModel,omitempty"`
 	PostUpdateHook    string             `yaml:"postUpdateHook,omitempty"`
 	ClaudeArgs        []string           `yaml:"claudeArgs,omitempty"`
+	WriteableCopy     string             `yaml:"writeableCopy,omitempty"`
 }
 
 // TrustedMcpServers configures MCP server trust for a repository.
@@ -430,6 +440,40 @@ func (c *AgencConfig) GetAllSyncedRepos() []string {
 	}
 	sort.Strings(repos)
 	return repos
+}
+
+// GetWriteableCopy returns the writeable-copy path for a repo and whether one
+// is configured.
+func (c *AgencConfig) GetWriteableCopy(repoName string) (string, bool) {
+	if rc, ok := c.RepoConfigs[repoName]; ok && rc.WriteableCopy != "" {
+		return rc.WriteableCopy, true
+	}
+	return "", false
+}
+
+// GetAllWriteableCopies returns a map of repo name → writeable-copy path for
+// every repo with one configured.
+func (c *AgencConfig) GetAllWriteableCopies() map[string]string {
+	out := make(map[string]string)
+	for name, rc := range c.RepoConfigs {
+		if rc.WriteableCopy != "" {
+			out[name] = rc.WriteableCopy
+		}
+	}
+	return out
+}
+
+// NormalizeRepoConfigs enforces invariants on RepoConfig entries. Currently:
+// any repo with a non-empty WriteableCopy must have AlwaysSynced=true, since
+// writeable copies require the repo library to be continuously fresh as a
+// fan-out trigger.
+func (c *AgencConfig) NormalizeRepoConfigs() {
+	for name, rc := range c.RepoConfigs {
+		if rc.WriteableCopy != "" && !rc.AlwaysSynced {
+			rc.AlwaysSynced = true
+			c.RepoConfigs[name] = rc
+		}
+	}
 }
 
 // GetRepoEmoji returns the configured emoji for a repo, or empty string if none is set.
@@ -591,6 +635,8 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 	if err := ValidateAndPopulateDefaults(&cfg); err != nil {
 		return nil, nil, stacktrace.Propagate(err, "validation failed for %s", configFilepath)
 	}
+
+	cfg.NormalizeRepoConfigs()
 
 	return &cfg, cm, nil
 }

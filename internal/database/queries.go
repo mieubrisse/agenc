@@ -40,3 +40,32 @@ func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
 
 	return query, args
 }
+
+// buildListNotificationsQuery constructs the SQL query and arguments for
+// ListNotifications. Returns the query string and a slice of arguments to be
+// used with db.Query.
+func buildListNotificationsQuery(params ListNotificationsParams) (string, []interface{}) {
+	query := "SELECT id, kind, source_repo, title, body_markdown, created_at, read_at FROM notifications"
+
+	var conditions []string
+	var args []interface{}
+
+	if params.UnreadOnly {
+		conditions = append(conditions, "read_at IS NULL")
+	}
+	if params.SourceRepo != "" {
+		conditions = append(conditions, "source_repo = ?")
+		args = append(args, params.SourceRepo)
+	}
+	if params.Kind != "" {
+		conditions = append(conditions, "kind = ?")
+		args = append(args, params.Kind)
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY created_at DESC"
+
+	return query, args
+}

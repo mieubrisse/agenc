@@ -84,6 +84,12 @@ func (s *Server) processRepoUpdate(ctx context.Context, req repoUpdateRequest) {
 		}
 	}
 
+	// Fan out to writeable copy if one is configured for this repo and HEAD
+	// changed, so the writeable copy reconciles against the new origin tip.
+	if headChanged {
+		s.enqueueWriteableCopyReconcile(req.repoName)
+	}
+
 	// Run hook if HEAD changed or forceRunHook is set
 	if headChanged || req.forceRunHook {
 		cfg, _, err := config.ReadAgencConfig(s.agencDirpath)

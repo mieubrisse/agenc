@@ -4,10 +4,11 @@ Usage:
   agenc repo [command]
 
 Available Commands:
-  add         Add a repository to the repo library
-  ls          List repositories in the repo library
-  mv          Rename a repository in the repo library
-  rm          Remove a repository from the repo library
+  add            Add a repository to the repo library
+  ls             List repositories in the repo library
+  mv             Rename a repository in the repo library
+  rm             Remove a repository from the repo library
+  writeable-copy Manage writeable copies of repos
 
 Flags:
   -h, --help   help for repo

@@ -4,26 +4,27 @@ Usage:
   agenc [command]
 
 Available Commands:
-  attach      Attach to the AgenC tmux session (alias for 'agenc tmux attach')
-  completion  Generate the autocompletion script for the specified shell
-  config      Manage agenc configuration
-  cron        Manage scheduled cron jobs
-  detach      Detach from the AgenC tmux session (alias for 'agenc tmux detach')
-  discord     Open the AgenC Discord community in your browser
-  doctor      Check for common configuration issues
-  feedback    Launch a feedback mission with Adjutant
-  help        Help about any command
-  login       Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
-  mission     Manage agent missions
-  prime       Print AgenC CLI quick reference for AI agent context
-  repo        Manage the repo library
-  server      Manage the AgenC server
-  session     Manage Claude Code sessions
-  star        Open the AgenC GitHub repository in your browser
-  stash       Snapshot and restore running missions
-  summary     Show a daily summary of AgenC activity
-  tmux        Manage the AgenC tmux session
-  version     Print the agenc version
+  attach        Attach to the AgenC tmux session (alias for 'agenc tmux attach')
+  completion    Generate the autocompletion script for the specified shell
+  config        Manage agenc configuration
+  cron          Manage scheduled cron jobs
+  detach        Detach from the AgenC tmux session (alias for 'agenc tmux detach')
+  discord       Open the AgenC Discord community in your browser
+  doctor        Check for common configuration issues
+  feedback      Launch a feedback mission with Adjutant
+  help          Help about any command
+  login         Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
+  mission       Manage agent missions
+  notifications List, read, and create AgenC notifications
+  prime         Print AgenC CLI quick reference for AI agent context
+  repo          Manage the repo library
+  server        Manage the AgenC server
+  session       Manage Claude Code sessions
+  star          Open the AgenC GitHub repository in your browser
+  stash         Snapshot and restore running missions
+  summary       Show a daily summary of AgenC activity
+  tmux          Manage the AgenC tmux session
+  version       Print the agenc version
 
 Flags:
   -h, --help   help for agenc

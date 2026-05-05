@@ -39,6 +39,16 @@ type Server struct {
 	// Repo update worker
 	repoUpdateCh chan repoUpdateRequest
 
+	// Writeable-copy reconcile worker
+	writeableCopyReconcileCh chan writeableCopyReconcileRequest
+
+	// gitCommander is the GitCommander used by writeable-copy logic. Tests
+	// inject a fake; production leaves this nil and falls back to realGit.
+	gitCommander GitCommander
+
+	// writeableCopyWatchers tracks per-repo fsnotify watcher goroutines.
+	writeableCopyWatchers *writeableCopyWatchers
+
 	// Session summarizer: generates auto_summary from first user prompt via Haiku
 	sessionSummaryCh   chan summaryRequest
 	summarizedSessions *sync.Map
@@ -62,11 +72,12 @@ type Server struct {
 // NewServer creates a new Server instance.
 func NewServer(agencDirpath string, socketPath string, logger *log.Logger) *Server {
 	return &Server{
-		agencDirpath: agencDirpath,
-		socketPath:   socketPath,
-		logger:       logger,
-		cronSyncer:   NewCronSyncer(agencDirpath),
-		repoUpdateCh: make(chan repoUpdateRequest, repoUpdateChannelSize),
+		agencDirpath:             agencDirpath,
+		socketPath:               socketPath,
+		logger:                   logger,
+		cronSyncer:               NewCronSyncer(agencDirpath),
+		repoUpdateCh:             make(chan repoUpdateRequest, repoUpdateChannelSize),
+		writeableCopyReconcileCh: make(chan writeableCopyReconcileRequest, writeableCopyReconcileChannelSize),
 	}
 }
 
@@ -197,6 +208,12 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("title-consumer", &wg, ctx, s.runTitleConsumerLoop)
 	go s.runLoop("search-indexer", &wg, ctx, s.runSearchIndexerLoop)
 	go s.runLoop("session-summarizer", &wg, ctx, s.runSessionSummarizerWorker)
+	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
+
+	// Bootstrap writeable copies: clone if missing, install fsnotify watchers,
+	// and enqueue an initial reconcile per copy. Subsequent config changes are
+	// handled by the config watcher (config_watcher.go).
+	s.reconcileWriteableCopiesFromConfig(ctx)
 
 	// Wait for context cancellation, then gracefully shut down
 	<-ctx.Done()
@@ -287,6 +304,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /config/claude-md", appHandler(s.requestLogger, s.handleUpdateClaudeMd))
 	mux.Handle("GET /config/settings-json", appHandler(s.requestLogger, s.handleGetSettingsJson))
 	mux.Handle("PUT /config/settings-json", appHandler(s.requestLogger, s.handleUpdateSettingsJson))
+
+	// Notifications
+	mux.Handle("GET /notifications", appHandler(s.requestLogger, s.handleListNotifications))
+	mux.Handle("POST /notifications", appHandler(s.requestLogger, s.handleCreateNotification))
+	mux.Handle("GET /notifications/unread-count", appHandler(s.requestLogger, s.handleCountUnreadNotifications))
+	mux.Handle("GET /notifications/{id}", appHandler(s.requestLogger, s.handleGetNotification))
+	mux.Handle("POST /notifications/{id}/read", appHandler(s.requestLogger, s.handleMarkNotificationRead))
+
+	// Writeable copies
+	mux.Handle("GET /writeable-copies", appHandler(s.requestLogger, s.handleListWriteableCopies))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) error {

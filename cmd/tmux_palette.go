@@ -189,7 +189,7 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	// Run fzf for selection.
 	// --delimiter/--nth restrict matching to the title portion only (everything
 	// before the em-dash separator) so descriptions don't pollute search results.
-	fzfCmd := exec.Command("fzf",
+	fzfArgs := []string{
 		"--ansi",
 		"--no-multi",
 		"--prompt=  ",
@@ -197,7 +197,11 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		"--no-info",
 		"--delimiter", "—",
 		"--nth", "1",
-	)
+	}
+	if header := buildPaletteHeader(); header != "" {
+		fzfArgs = append(fzfArgs, "--header="+header)
+	}
+	fzfCmd := exec.Command("fzf", fzfArgs...)
 	fzfCmd.Stdin = strings.NewReader(fzfInput.String())
 	fzfCmd.Stderr = os.Stderr
 
@@ -291,6 +295,28 @@ func buildPaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMis
 	fullCommand += fmt.Sprintf(" >> %s 2>&1", logFilepath)
 
 	return fullCommand
+}
+
+// buildPaletteHeader returns the fzf --header line shown above the palette
+// entries. Currently used to surface unread-notification counts. Returns an
+// empty string when there's nothing to show, so the header is omitted.
+//
+// Best-effort: any error talking to the server is swallowed silently — the
+// palette must still open even when the server is down.
+func buildPaletteHeader() string {
+	client, err := serverClient()
+	if err != nil {
+		return ""
+	}
+	count, err := client.CountUnreadNotifications()
+	if err != nil || count == 0 {
+		return ""
+	}
+	noun := "notifications"
+	if count == 1 {
+		noun = "notification"
+	}
+	return fmt.Sprintf("\x1b[33m⚠ %d unread %s — pick \"Show Notifications\" to review\x1b[0m", count, noun)
 }
 
 // stripVariationSelectors removes Unicode variation selectors (U+FE0E and

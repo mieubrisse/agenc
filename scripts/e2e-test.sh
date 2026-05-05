@@ -328,6 +328,106 @@ else
 fi
 
 echo ""
+echo "--- Notifications (requires server) ---"
+
+# Note: tests don't assume an empty starting state — they verify the create →
+# find → read flow is self-consistent for the notification they create.
+
+# Create
+notif_create_output=$("${agenc_test}" notifications create --kind=e2e.test --title="E2E Hello" --body="# Body" 2>&1) || true
+notif_short_id=$(echo "${notif_create_output}" | grep -oE "'[0-9a-f]{8}'" | head -1 | tr -d "'")
+
+if [ -n "${notif_short_id}" ]; then
+    run_test_output_contains "notifications ls shows the new entry" \
+        "E2E Hello" \
+        "${agenc_test}" notifications ls
+
+    run_test_output_contains "notifications show prints body" \
+        "# Body" \
+        "${agenc_test}" notifications show "${notif_short_id}"
+
+    run_test "notifications read marks as read" \
+        0 \
+        "${agenc_test}" notifications read "${notif_short_id}"
+
+    # After read, the entry shouldn't appear in unread filter — but other
+    # unread notifications may exist from earlier tests, so filter to ours
+    # by short ID.
+    run_test "notifications ls --kind=e2e.test no longer includes our entry" \
+        1 \
+        bash -c "'${agenc_test}' notifications ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
+
+    run_test_output_contains "notifications ls --all still shows it" \
+        "E2E Hello" \
+        "${agenc_test}" notifications ls --all
+
+    run_test_output_contains "notifications read is idempotent" \
+        "already marked as read" \
+        "${agenc_test}" notifications read "${notif_short_id}"
+else
+    total=$((total + 1))
+    printf "  %-50s " "notifications create produced ID..."
+    echo "FAIL (could not extract short ID from: ${notif_create_output})"
+    failed=$((failed + 1))
+fi
+
+# Title with newlines is rejected
+run_test "notifications create rejects newline in title" \
+    1 \
+    "${agenc_test}" notifications create --kind=e2e.test --title=$'multi\nline' --body=x
+
+echo ""
+echo "--- Writeable copies (requires server) ---"
+
+# Empty state
+run_test_output_contains "writeable-copy ls (empty)" \
+    "No writeable copies configured" \
+    "${agenc_test}" repo writeable-copy ls
+
+# Set rejects non-canonical repo names
+run_test "writeable-copy set rejects non-canonical repo name" \
+    1 \
+    "${agenc_test}" repo writeable-copy set bare-repo /tmp/foo-e2e-wc
+
+# Set rejects path under agenc dir
+test_env_path="${repo_dirpath}/_test-env"
+run_test "writeable-copy set rejects path inside agenc dir" \
+    1 \
+    "${agenc_test}" repo writeable-copy set github.com/e2e/test "${test_env_path}/inside"
+
+# Successful set (config-only — server-side cloning is manual-test territory)
+e2e_wc_path="$(mktemp -d -t agenc-e2e-wc-XXXXXX)"
+rmdir "${e2e_wc_path}" # remove the tempdir; set wants the path absent
+run_test "writeable-copy set succeeds with valid args" \
+    0 \
+    "${agenc_test}" repo writeable-copy set github.com/e2e/test "${e2e_wc_path}"
+
+# Server caches config; wait for the config-watcher to pick up the change
+# (debounced at 500ms).
+sleep 1
+
+run_test_output_contains "writeable-copy ls shows the new entry" \
+    "github.com/e2e/test" \
+    "${agenc_test}" repo writeable-copy ls
+
+# Always-synced cannot be disabled while writeable copy is set
+run_test "config repoConfig set rejects --always-synced=false with writeable copy" \
+    1 \
+    "${agenc_test}" config repoConfig set github.com/e2e/test --always-synced=false
+
+# Unset
+run_test "writeable-copy unset succeeds" \
+    0 \
+    "${agenc_test}" repo writeable-copy unset github.com/e2e/test
+
+# Wait for config-watcher debounce
+sleep 1
+
+run_test_output_contains "writeable-copy ls is empty after unset" \
+    "No writeable copies configured" \
+    "${agenc_test}" repo writeable-copy ls
+
+echo ""
 echo "--- claude-update stdin handling ---"
 
 # Bug fix: agenc mission send claude-update must not block on stdin for

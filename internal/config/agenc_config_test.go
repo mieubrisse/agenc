@@ -1669,3 +1669,79 @@ repoConfig:
 		t.Errorf("expected repo2 to fall back to 'haiku', got '%s'", cfg.GetDefaultModel("github.com/owner/repo2"))
 	}
 }
+
+func TestWriteableCopy_GetAccessor(t *testing.T) {
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/o/withCopy":    {WriteableCopy: "/tmp/foo"},
+			"github.com/o/withoutCopy": {},
+		},
+	}
+	if got, ok := cfg.GetWriteableCopy("github.com/o/withCopy"); !ok || got != "/tmp/foo" {
+		t.Errorf("expected /tmp/foo, got %q ok=%v", got, ok)
+	}
+	if _, ok := cfg.GetWriteableCopy("github.com/o/withoutCopy"); ok {
+		t.Error("expected no writeable copy for repo without one")
+	}
+	if _, ok := cfg.GetWriteableCopy("github.com/o/notconfigured"); ok {
+		t.Error("expected no writeable copy for non-configured repo")
+	}
+}
+
+func TestWriteableCopy_GetAllWriteableCopies(t *testing.T) {
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/o/a": {WriteableCopy: "/tmp/a"},
+			"github.com/o/b": {WriteableCopy: "/tmp/b"},
+			"github.com/o/c": {},
+		},
+	}
+	all := cfg.GetAllWriteableCopies()
+	if len(all) != 2 {
+		t.Errorf("expected 2 writeable copies, got %d", len(all))
+	}
+	if all["github.com/o/a"] != "/tmp/a" {
+		t.Errorf("expected /tmp/a for repo a, got %q", all["github.com/o/a"])
+	}
+	if all["github.com/o/b"] != "/tmp/b" {
+		t.Errorf("expected /tmp/b for repo b, got %q", all["github.com/o/b"])
+	}
+}
+
+func TestWriteableCopy_NormalizeImpliesAlwaysSynced(t *testing.T) {
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/o/r": {WriteableCopy: "/tmp/foo", AlwaysSynced: false},
+			"github.com/o/q": {WriteableCopy: "/tmp/bar", AlwaysSynced: true},
+			"github.com/o/s": {AlwaysSynced: false},
+		},
+	}
+	cfg.NormalizeRepoConfigs()
+
+	if !cfg.RepoConfigs["github.com/o/r"].AlwaysSynced {
+		t.Error("expected r AlwaysSynced coerced to true (writeable copy set)")
+	}
+	if !cfg.RepoConfigs["github.com/o/q"].AlwaysSynced {
+		t.Error("expected q AlwaysSynced still true")
+	}
+	if cfg.RepoConfigs["github.com/o/s"].AlwaysSynced {
+		t.Error("expected s AlwaysSynced unchanged (no writeable copy)")
+	}
+}
+
+func TestWriteableCopy_NormalizeAtRead(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, "repoConfig:\n  github.com/o/r:\n    writeableCopy: /tmp/foo\n    alwaysSynced: false\n")
+
+	cfg, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+	rc, ok := cfg.GetRepoConfig("github.com/o/r")
+	if !ok {
+		t.Fatal("expected repo config to exist")
+	}
+	if !rc.AlwaysSynced {
+		t.Error("expected AlwaysSynced coerced to true at config read time")
+	}
+}
