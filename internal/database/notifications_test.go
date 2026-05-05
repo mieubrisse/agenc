@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -179,7 +180,7 @@ func TestCountUnreadNotifications(t *testing.T) {
 
 	for i := range 3 {
 		n := &Notification{
-			ID:           "dddddddd-0000-0000-0000-00000000000" + string(rune('0'+i)),
+			ID:           fmt.Sprintf("dddddddd-0000-0000-0000-00000000000%d", i),
 			Kind:         "k",
 			Title:        "x",
 			BodyMarkdown: "x",
