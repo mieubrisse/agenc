@@ -173,7 +173,40 @@ Only spawn a new mission when the work requires **writing** to the other repo. W
 Configuration Boundaries
 ------------------------
 
-Your mission's `claude-config/` directory is **read-only**. It contains the Claude Code configuration that AgenC assembled for this mission — you cannot modify it directly. If you or the user needs to change Claude Code settings, skills, hooks, or the global CLAUDE.md, modify the source files in `~/.claude/` instead and then use the **"Reconfig & Reload"** palette command (accessible via the tmux command palette) to rebuild and apply the updated configuration to the running mission.
+### `~/.claude` is canonical, the per-mission snapshot is read-only
+
+Every mission gets a snapshot of the user's Claude config at
+`$AGENC_DIRPATH/missions/$MISSION_UUID/claude-config/`. The `CLAUDE_CONFIG_DIR`
+env var inside your mission points at that snapshot — but that snapshot is
+**read-only and rebuilt from `~/.claude/` on every Claude reload**. Any direct
+edit you make to the snapshot will be wiped out the next time the mission
+reloads. To change global Claude config (CLAUDE.md, settings.json, skills,
+hooks, commands, agents), edit the source files in `~/.claude/`. The AgenC
+server watches `~/.claude/` with fsnotify and propagates changes into the
+shadow repo automatically; the wrapper rebuilds your snapshot from the shadow
+on every spawn.
+
+### Reloading yourself to pick up config changes
+
+When you (or the user) change `~/.claude/` and the mission needs to pick up
+the new config, reload yourself:
+
+```bash
+{{CLI_NAME}} mission reload --async --prompt "<what to do after reload>" ${{MISSION_UUID_ENV_VAR}}
+```
+
+Always pass `--async`. A synchronous self-reload kills Claude mid-tool-call
+and discards the result of the bash invocation that triggered it; `--async`
+queues the reload for the next idle, so the calling tool result lands cleanly
+and the prompt arrives on the next turn.
+
+The `--prompt` flag carries your intent across the reload boundary — use it
+to tell post-reload-you what to continue doing (e.g., `--prompt "continue
+implementing the plan in docs/plans/foo.md from Task 3"`). Without it, the
+reloaded session has no follow-up instruction.
+
+There is no separate "reconfig" step. The wrapper rebuilds the per-mission
+config directory from the shadow repo automatically on every reload.
 
 ---
 
