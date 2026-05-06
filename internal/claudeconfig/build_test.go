@@ -168,6 +168,57 @@ func TestComputeProjectDirpath(t *testing.T) {
 	}
 }
 
+// TestBuildMergedClaudeMd_AgentInstructionsKeepLiteralClaudeRefs verifies that
+// the AgenC agent-instructions layer of the merged CLAUDE.md keeps literal
+// `~/.claude/` references intact, while user-supplied CLAUDE.md content
+// continues to receive path rewriting. This is load-bearing: the agent
+// instructions teach the canonical-vs-snapshot distinction by referencing
+// `~/.claude/` literally — if rewriting eats that distinction, agents are
+// taught the inverted picture (see mission a7558177 incident, 2026-05-06).
+func TestBuildMergedClaudeMd_AgentInstructionsKeepLiteralClaudeRefs(t *testing.T) {
+	homeDir := setupFakeHome(t)
+	agencDirpath := filepath.Join(homeDir, ".agenc")
+	shadowDir := filepath.Join(agencDirpath, ShadowRepoDirname)
+	agencModsDir := filepath.Join(agencDirpath, "config", "claude-modifications")
+	destDir := filepath.Join(agencDirpath, "missions", "test-mission", "claude-config")
+	for _, d := range []string{shadowDir, agencModsDir, destDir} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// User CLAUDE.md contains a `~/.claude/` path the user expects to resolve
+	// into their per-mission snapshot. This must keep getting rewritten.
+	userClaudeMd := "# user header\nLoad data from ~/.claude/userdata.json\n"
+	if err := os.WriteFile(filepath.Join(shadowDir, "CLAUDE.md"), []byte(userClaudeMd), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := buildMergedClaudeMd(shadowDir, agencModsDir, destDir, agencDirpath); err != nil {
+		t.Fatalf("buildMergedClaudeMd failed: %v", err)
+	}
+
+	out, err := os.ReadFile(filepath.Join(destDir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to read merged CLAUDE.md: %v", err)
+	}
+	text := string(out)
+
+	// Agent instructions must keep at least one literal `~/.claude/` reference
+	// (the Configuration Boundaries section deliberately references it to teach
+	// agents that `~/.claude/` is canonical).
+	if !strings.Contains(text, "~/.claude/") {
+		t.Errorf("expected merged CLAUDE.md to contain literal `~/.claude/` from agent instructions section, but it was rewritten away. Output:\n%s", text)
+	}
+
+	// User content's `~/.claude/userdata.json` must be rewritten to the per-
+	// mission destination (preserves existing user-content rewriting behavior).
+	expectedRewrittenUser := "Load data from " + destDir + "/userdata.json"
+	if !strings.Contains(text, expectedRewrittenUser) {
+		t.Errorf("expected user content `~/.claude/userdata.json` to be rewritten to %q, but it wasn't. Output:\n%s", expectedRewrittenUser, text)
+	}
+}
+
 // setupFakeHome creates a temp dir and overrides HOME so os.UserHomeDir() returns it.
 func setupFakeHome(t *testing.T) string {
 	t.Helper()

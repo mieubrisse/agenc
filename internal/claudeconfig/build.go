@@ -195,7 +195,11 @@ func GetMissionClaudeConfigDirpath(agencDirpath string, missionID string) string
 //
 // The agent instructions provide foundational context about AgenC and missions.
 // User content can override or extend the defaults. Path rewriting is applied
-// to the final result.
+// only to user-supplied layers (2+3): user content may contain technical
+// `~/.claude/...` references that need to resolve into the per-mission snapshot,
+// but agent instructions deliberately reference `~/.claude/` literally to teach
+// agents the canonical-vs-snapshot distinction — rewriting that reference would
+// invert the lesson.
 func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
 	destFilepath := filepath.Join(destDirpath, "CLAUDE.md")
 
@@ -214,19 +218,19 @@ func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirp
 		return stacktrace.Propagate(err, "failed to read agenc modifications CLAUDE.md")
 	}
 
-	// Merge user content (layers 2+3), then prepend agent instructions (layer 1)
+	// Merge user content (layers 2+3) and apply path rewriting only to that —
+	// agent instructions stay literal so `~/.claude/` references survive.
 	mergedUserContent := MergeClaudeMd(userClaudeContent, modsClaudeContent)
-	mergedClaudeMd := MergeClaudeMd([]byte(agentInstructions), mergedUserContent)
+	rewrittenUserContent := RewriteClaudePaths(mergedUserContent, destDirpath)
+
+	mergedClaudeMd := MergeClaudeMd([]byte(agentInstructions), rewrittenUserContent)
 
 	if mergedClaudeMd == nil {
 		_ = os.Remove(destFilepath)
 		return nil
 	}
 
-	// Apply mission-specific path rewriting
-	rewrittenBytes := RewriteClaudePaths(mergedClaudeMd, destDirpath)
-
-	return WriteIfChanged(destFilepath, rewrittenBytes)
+	return WriteIfChanged(destFilepath, mergedClaudeMd)
 }
 
 // buildMergedSettings reads user settings from shadow repo and agenc
