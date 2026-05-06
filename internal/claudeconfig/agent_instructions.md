@@ -178,13 +178,13 @@ Configuration Boundaries
 Every mission gets a snapshot of the user's Claude config at
 `$AGENC_DIRPATH/missions/$MISSION_UUID/claude-config/`. The `CLAUDE_CONFIG_DIR`
 env var inside your mission points at that snapshot — but that snapshot is
-**read-only and rebuilt from `~/.claude/` on every Claude reload**. Any direct
+**read-only and rebuilt from `~/.claude/` on every Claude spawn (initial start, reload, or container rebuild)**. Any direct
 edit you make to the snapshot will be wiped out the next time the mission
 reloads. To change global Claude config (CLAUDE.md, settings.json, skills,
 hooks, commands, agents), edit the source files in `~/.claude/`. The AgenC
-server watches `~/.claude/` with fsnotify and propagates changes into the
-shadow repo automatically; the wrapper rebuilds your snapshot from the shadow
-on every spawn.
+server watches `~/.claude/` with fsnotify and propagates changes into an
+internal staging copy automatically; the wrapper rebuilds your snapshot from
+that staging copy on every spawn.
 
 ### Reloading yourself to pick up config changes
 
