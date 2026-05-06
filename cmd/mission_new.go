@@ -11,7 +11,6 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
-	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/repo"
 	"github.com/odyssey/agenc/internal/server"
@@ -70,16 +69,6 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ensureServerRunning()
-
-	agencDirpath, err := config.GetAgencDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to get agenc directory path")
-	}
-
-	// Ensure shadow repo is initialized (auto-creates from ~/.claude if needed)
-	if err := claudeconfig.EnsureShadowRepo(agencDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to ensure shadow repo")
-	}
 
 	if cloneFlag != "" {
 		return runMissionNewWithClone()
