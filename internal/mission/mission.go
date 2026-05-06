@@ -16,7 +16,8 @@ import (
 // (agent/ IS the repo). When gitRepoSource is empty, an empty agent/ directory
 // is created.
 //
-// The per-mission claude config directory is always built from the shadow repo.
+// The per-mission claude config directory is built by the wrapper on every
+// Claude spawn, so this function does not pre-build it.
 //
 // Returns the mission root directory path (not the agent/ subdirectory).
 func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string, gitRepoSource string) (string, error) {
@@ -36,23 +37,6 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 		if err := os.MkdirAll(agentDirpath, 0755); err != nil {
 			return "", stacktrace.Propagate(err, "failed to create directory '%s'", agentDirpath)
 		}
-	}
-
-	// Look up MCP trust config for this repo
-	var trustedMcpServers *config.TrustedMcpServers
-	if gitRepoName != "" {
-		cfg, _, err := config.ReadAgencConfig(agencDirpath)
-		if err == nil {
-			if rc, ok := cfg.GetRepoConfig(gitRepoName); ok {
-				trustedMcpServers = rc.TrustedMcpServers
-			}
-		}
-	}
-
-	// Build per-mission claude config directory from shadow repo
-	isContainerized := false // containerization is set up later by the wrapper
-	if err := claudeconfig.BuildMissionConfigDir(agencDirpath, missionID, trustedMcpServers, isContainerized); err != nil {
-		return "", stacktrace.Propagate(err, "failed to build per-mission claude config directory")
 	}
 
 	return missionDirpath, nil
