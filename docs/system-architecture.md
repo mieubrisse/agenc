@@ -214,16 +214,17 @@ The wrapper:
 2. Records the tmux pane ID via the server (cleared on exit) for pane→mission resolution
 3. Reads the OAuth token from the token file and sets `CLAUDE_CODE_OAUTH_TOKEN` in the child environment
 4. Resolves the Claude model: checks the repo's `defaultModel` in `config.yml`, falls back to the top-level `defaultModel`, or omits `--model` entirely (letting Claude choose its default)
-5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--model <value>` if a model was resolved
-6. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
-7. Sets `AGENC_MISSION_UUID` for the child process
-8. Starts background goroutines:
+5. Rebuilds the mission's `claude-config/` from the shadow repo at `$AGENC_DIRPATH/claude-config-shadow/` (see "Shadow repo" under Key Architectural Patterns), then writes the shadow's HEAD commit to the mission's `config_commit` DB column via the server. This runs at the top of every Claude spawn — initial start, in-place tmux respawn-pane reload, and devcontainer rebuild — so each spawn picks up the latest user `~/.claude` config without a manual reconfig step.
+6. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--model <value>` if a model was resolved
+7. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
+8. Sets `AGENC_MISSION_UUID` for the child process
+9. Starts background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` via the server every 10 seconds; also piggybacks `last_user_prompt_at` for crash recovery
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
    - **HTTP server** (interactive mode only) — serves an HTTP API on `wrapper.sock` (unix socket) with endpoints for status queries, restart commands, and claude_update events
    - **`watchCredentialUpwardSync`** — polls per-mission Keychain every 60s; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
    - **`watchCredentialDownwardSync`** — fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global credentials into per-mission Keychain
-9. Main event loop implements a three-state machine (see below)
+10. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Exposes an HTTP API on a unix socket for restart commands and state queries.
 
@@ -477,7 +478,7 @@ Key Architectural Patterns
 
 ### Per-mission config merging
 
-Each mission gets its own `claude-config/` directory, built at creation time from five sources:
+Each mission gets its own `claude-config/` directory, rebuilt by the wrapper (`internal/wrapper/wrapper.go`) on every Claude spawn — initial start, in-place tmux respawn-pane reload, and devcontainer rebuild — from five sources. There is no separate manual reconfig step; the previous `agenc mission reconfig` command has been removed. After each rebuild the wrapper writes the shadow repo's HEAD commit to the mission's `config_commit` DB column and logs the short hash. The five sources are:
 
 1. **Agent instructions** — hardcoded operating instructions embedded in the binary (`internal/claudeconfig/agent_instructions.md`). Prepended to every mission's CLAUDE.md. Contains AgenC overview, mission lifecycle, git workflow, repo library access, cross-repo work, and security boundaries. Dynamic values (CLI name, repo library path, env var names) are substituted at runtime.
 2. **Shadow repo** — a verbatim copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `~/.claude` paths rewritten at build time to point to the mission's concrete config path. See "Shadow repo" below.
@@ -502,7 +503,7 @@ Credentials are handled in two layers. Claude's own authentication uses a token 
 
 ### Shadow repo
 
-The shadow repo (`internal/claudeconfig/shadow.go`) tracks the user's `~/.claude` configuration in a local Git repository at `$AGENC_DIRPATH/claude-config-shadow/`. This provides version history for Claude config changes without modifying the user's `~/.claude` directory.
+`~/.claude/` is the canonical home of global Claude config. The shadow repo (`internal/claudeconfig/shadow.go`) is a server-owned snapshot of that config at `$AGENC_DIRPATH/claude-config-shadow/`, kept in lockstep with `~/.claude/` by the server's config watcher. It provides version history for Claude config changes without modifying the user's `~/.claude` directory, and serves as the stable source that the wrapper builds each mission's per-mission config from on every Claude spawn.
 
 **Tracked items:**
 - Files: `CLAUDE.md`, `settings.json`
@@ -512,7 +513,7 @@ The shadow repo (`internal/claudeconfig/shadow.go`) tracks the user's `~/.claude
 
 **Path rewriting:** Path rewriting is a one-way operation at build time only (`RewriteClaudePaths`). When `BuildMissionConfigDir` creates the per-mission config, `~/.claude` paths (absolute, `${HOME}/.claude`, and `~/.claude` forms) are rewritten to point to the mission's `claude-config/` directory. For `settings.json`, rewriting is selective: the `permissions` block is preserved unchanged while all other fields (hooks, etc.) are rewritten (`RewriteSettingsPaths`).
 
-**Workflow:** `IngestFromClaudeDir` copies tracked items from `~/.claude` into the shadow repo as-is and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The server's config watcher loop (`internal/server/config_watcher.go`) triggers ingestion automatically whenever `~/.claude` changes are detected via fsnotify.
+**Workflow:** The server's config watcher loop (`internal/server/config_watcher.go`) owns shadow-repo ingestion. It initializes the shadow repo on server startup and runs an fsnotify watcher on `~/.claude/`; on every change (debounced) it ingests tracked items into the shadow repo as-is and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`. The wrapper consumes the shadow repo on every Claude spawn (see "Per-mission config merging") — there is no manual ingestion or reconfig step.
 
 ### Idle detection via socket
 
@@ -712,7 +713,7 @@ Database Schema
 | `id` | TEXT (PK) | Full UUID |
 | `short_id` | TEXT (UNIQUE) | First 8 characters of UUID, for user-friendly display |
 | `git_repo` | TEXT | Canonical repo name (`github.com/owner/repo`), empty for blank missions |
-| `config_commit` | TEXT | Config source repo HEAD hash at mission creation (nullable) |
+| `config_commit` | TEXT | Shadow repo HEAD hash at the most recent claude-config rebuild — written by the wrapper on every Claude spawn (nullable) |
 | `status` | TEXT | `active` or `archived` |
 | `prompt` | TEXT | First user prompt, cached for listing display |
 | `last_heartbeat` | TEXT | Last wrapper heartbeat timestamp (RFC3339, nullable) |
