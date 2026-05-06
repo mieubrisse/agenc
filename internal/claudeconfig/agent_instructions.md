@@ -66,6 +66,37 @@ Special keys use tmux key names: `Enter`, `Escape`, `C-c`, `C-d`, `Space`, `Tab`
 
 **Why not raw tmux?** You do not know the tmux pane IDs or session names for other missions — those are internal to AgenC. The CLI abstracts this away and ensures your keys reach the correct pane.
 
+### Reloading a Mission
+
+When the on-disk Claude configuration changes — new skills, updated `settings.json`, hook changes, MCP server edits — the running Claude has already loaded the old config into memory and will not pick up the new files until the wrapper restarts. Use `{{CLI_NAME}} mission reload` to bounce the wrapper in-place, preserving the tmux pane and the conversation session.
+
+```bash
+# Bounce the mission to pick up new config
+{{CLI_NAME}} mission reload <mission-id>
+
+# Bounce + feed Claude a follow-up message that runs after reload
+{{CLI_NAME}} mission reload <mission-id> --prompt "now do the next step"
+```
+
+**Reload vs. send-keys.** `send-keys` types into the running Claude — fast, but does NOT pick up new on-disk config. `mission reload` restarts the wrapper, which forces Claude to re-read its config directory at startup. Use reload when config changed; use send-keys when you just want to deliver a message to a running Claude.
+
+#### IMPORTANT — Self-reload requires `--async`
+
+When **YOU** reload **YOUR OWN** mission (i.e., the mission you're currently running in), you MUST pass `--async`:
+
+```bash
+{{CLI_NAME}} mission reload ${{MISSION_UUID_ENV_VAR}} --prompt "follow-up instructions" --async
+```
+
+**Why `--async` is required for self-reload:** A synchronous reload kills your current Claude process *immediately*, which means it dies mid-tool-call (the `mission reload` bash invocation never gets to return). Your conversation history is left with a dangling tool call and no result, which corrupts the resumed session.
+
+`--async` queues the reload on the server and returns 202 immediately. Your bash tool returns success cleanly, your turn finishes normally (Stop hook fires), and *then* the server bounces the wrapper. The next Claude that comes up sees a clean conversation history and the queued `--prompt` arrives as a new user message.
+
+Without `--async`: the reload still works, but you lose the calling tool result from history.
+With `--async`: clean handoff, no history corruption.
+
+**Reloading another mission** (not yourself) does not strictly require `--async` — that mission's Claude is presumably idle or not actively in a tool call related to the reload. But `--async` is still preferred when the target mission is mid-turn, for the same conversation-hygiene reason.
+
 ### Your Identity as a Stable Reference
 
 Your mission UUID (`${{MISSION_UUID_ENV_VAR}}`) and session UUIDs are stable identifiers that persist after your mission ends. Future agents — or you in a later session — can read any conversation transcript using:
