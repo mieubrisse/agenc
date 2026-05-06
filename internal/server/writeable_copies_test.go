@@ -244,7 +244,7 @@ func TestSanityCheck_HappyPath(t *testing.T) {
 
 func TestCommitIfDirty_CleanTreeNoOp(t *testing.T) {
 	gc := &fakeGit{statusClean: true}
-	committed, err := commitIfDirty(gc, "/tmp/foo", "host")
+	committed, err := commitIfDirty(gc, "/tmp/foo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestCommitIfDirty_CleanTreeNoOp(t *testing.T) {
 
 func TestCommitIfDirty_DirtyTreeCommits(t *testing.T) {
 	gc := &fakeGit{statusClean: false}
-	committed, err := commitIfDirty(gc, "/tmp/foo", "host")
+	committed, err := commitIfDirty(gc, "/tmp/foo")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ const (
 	// writeableCopyWorkingTreeDebounce is the quiet period between filesystem
 	// activity in the working tree and the auto-commit-and-push tick. Long
 	// enough to coalesce a multi-file edit burst from an agent or editor.
-	writeableCopyWorkingTreeDebounce = 15 * time.Second
+	writeableCopyWorkingTreeDebounce = 3 * time.Second
 
 	// writeableCopyRefDebounce is the quiet period between fsnotify events on
 	// .git/refs/remotes/origin/<branch> and the library push-event POST.

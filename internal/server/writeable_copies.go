@@ -139,7 +139,7 @@ func normalizeOriginURL(url string) string {
 
 // commitIfDirty stages and commits any working-tree changes. Returns whether
 // a commit was made.
-func commitIfDirty(gc GitCommander, repoDirpath, hostname string) (bool, error) {
+func commitIfDirty(gc GitCommander, repoDirpath string) (bool, error) {
 	clean, _, err := gc.Status(repoDirpath)
 	if err != nil {
 		return false, stacktrace.Propagate(err, "failed to read status before auto-commit in '%v'", repoDirpath)
@@ -150,7 +150,7 @@ func commitIfDirty(gc GitCommander, repoDirpath, hostname string) (bool, error) 
 	if err := gc.AddAll(repoDirpath); err != nil {
 		return false, stacktrace.Propagate(err, "failed to git-add in '%v'", repoDirpath)
 	}
-	msg := fmt.Sprintf("auto-sync: %s @ %s", hostname, time.Now().UTC().Format(time.RFC3339))
+	msg := fmt.Sprintf("auto-sync: %s", time.Now().UTC().Format(time.RFC3339))
 	if err := gc.Commit(repoDirpath, msg); err != nil {
 		return false, stacktrace.Propagate(err, "failed to commit in '%v'", repoDirpath)
 	}
@@ -338,8 +338,7 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return s.postWriteableCopyPause(gc, repoName, repoDirpath, sanity.PauseReason, sanity.PauseDetail)
 	}
 
-	hostname, _ := os.Hostname()
-	if _, err := commitIfDirty(gc, repoDirpath, hostname); err != nil {
+	if _, err := commitIfDirty(gc, repoDirpath); err != nil {
 		s.logger.Printf("Writeable-copy auto-commit failed for '%s': %v", repoName, err)
 		return nil // transient; retry next trigger
 	}
