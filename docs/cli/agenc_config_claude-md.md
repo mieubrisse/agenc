@@ -10,8 +10,7 @@ This file contains instructions that apply to all AgenC missions but not to
 Claude Code sessions outside of AgenC. Content is appended after the user's
 ~/.claude/CLAUDE.md when building per-mission config.
 
-Changes take effect for new missions automatically. Use 'agenc mission reconfig'
-to propagate changes to existing missions.
+Changes propagate to existing missions automatically — running missions pick them up on their next reload.
 
 ### Options
 

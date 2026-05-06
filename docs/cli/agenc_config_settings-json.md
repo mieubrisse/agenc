@@ -11,8 +11,7 @@ to Claude Code sessions outside of AgenC. Settings are deep-merged over the
 user's ~/.claude/settings.json when building per-mission config (objects merge
 recursively, arrays are concatenated, scalars from this file win).
 
-Changes take effect for new missions automatically. Use 'agenc mission reconfig'
-to propagate changes to existing missions.
+Changes propagate to existing missions automatically — running missions pick them up on their next reload.
 
 ### Options
 
