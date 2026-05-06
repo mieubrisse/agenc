@@ -206,7 +206,7 @@ implementing the plan in docs/plans/foo.md from Task 3"`). Without it, the
 reloaded session has no follow-up instruction.
 
 There is no separate "reconfig" step. The wrapper rebuilds the per-mission
-config directory from the shadow repo automatically on every reload.
+config directory from the staging copy automatically on every reload.
 
 ---
 
