@@ -64,8 +64,6 @@ const (
 	archiveCmdStr      = "archive"
 	inspectCmdStr      = "inspect"
 	nukeCmdStr         = "nuke"
-	reconfigCmdStr     = "reconfig"
-	updateConfigCmdStr = "update-config"
 	sendCmdStr         = "send"
 	claudeUpdateCmdStr = "claude-update"
 	renameCmdStr       = "rename"
