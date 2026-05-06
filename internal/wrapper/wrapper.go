@@ -320,27 +320,56 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 // resumes that session; otherwise it starts a new conversation. For non-resume
 // spawns, the wrapper's initialPrompt is passed to Claude.
 //
-// For containerized missions, claude-config is regenerated with container mode
-// before each spawn, and Claude is launched via `devcontainer exec` instead of
-// running the binary directly.
+// Before every spawn (containerized or not) the per-mission claude-config is
+// rebuilt from the shadow repo so each reload picks up the latest ~/.claude
+// state. The server's config_watcher keeps the shadow current via fsnotify;
+// the wrapper just reads from it.
 func (w *Wrapper) spawnClaude(isResume bool) error {
 	isContainerized := w.devcontainer != nil
 
-	// Regenerate claude-config before every containerized spawn so the
-	// latest global config takes effect on reload.
-	if isContainerized {
-		trustedMcpServers := w.loadTrustedMcpServers()
-		if err := claudeconfig.BuildMissionConfigDir(
-			w.agencDirpath, w.missionID, trustedMcpServers, isContainerized,
-		); err != nil {
-			return stacktrace.Propagate(err, "failed to regenerate claude-config for containerized mission")
-		}
+	if err := w.rebuildClaudeConfig(isContainerized); err != nil {
+		return stacktrace.Propagate(err, "failed to rebuild claude-config before spawn")
 	}
 
 	if isContainerized {
 		return w.spawnClaudeInContainer(isResume)
 	}
 	return w.spawnClaudeDirectly(isResume)
+}
+
+// rebuildClaudeConfig regenerates the per-mission claude-config/ directory
+// from the shadow repo, updates the mission's config_commit in the DB, and
+// logs the commit hash. Runs before every Claude spawn so each reload picks
+// up the latest ~/.claude state (the server's config_watcher keeps the shadow
+// current via fsnotify).
+func (w *Wrapper) rebuildClaudeConfig(isContainerized bool) error {
+	commitHash := claudeconfig.GetShadowRepoCommitHash(w.agencDirpath)
+	if commitHash == "" {
+		return stacktrace.NewError("shadow repo missing or empty at '%s' — restart the agenc server",
+			claudeconfig.GetShadowRepoDirpath(w.agencDirpath))
+	}
+
+	trustedMcpServers := w.loadTrustedMcpServers()
+	if err := claudeconfig.BuildMissionConfigDir(
+		w.agencDirpath, w.missionID, trustedMcpServers, isContainerized,
+	); err != nil {
+		return stacktrace.Propagate(err, "failed to build per-mission claude-config")
+	}
+
+	if err := w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{
+		ConfigCommit: &commitHash,
+	}); err != nil {
+		// Log and continue — on-disk config is correct; only the DB column drifts stale.
+		w.logger.Warn("failed to update config_commit in DB; on-disk config is correct",
+			"mission_id", w.missionID, "error", err)
+	}
+
+	shortHash := commitHash
+	if len(shortHash) > 12 {
+		shortHash = shortHash[:12]
+	}
+	w.logger.Info("claude-config rebuilt", "shadow_commit", shortHash)
+	return nil
 }
 
 // spawnClaudeDirectly spawns Claude as a local process (non-containerized path).
