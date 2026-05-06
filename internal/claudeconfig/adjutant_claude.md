@@ -177,7 +177,7 @@ agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=github,s
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=""
 ```
 
-**How it works:** When a mission is created, AgenC checks the repo's `trustedMcpServers` config and writes the appropriate consent entries into the mission's `.claude.json`. This means the trust setting applies to all **new** missions — existing missions are not retroactively updated unless their config is rebuilt with `agenc mission reconfig`.
+**How it works:** When a mission is created, AgenC checks the repo's `trustedMcpServers` config and writes the appropriate consent entries into the mission's `.claude.json`. The trust setting applies to all **new** missions immediately. Existing running missions pick up the new trust setting on their next reload — the wrapper rebuilds the per-mission config directory from an internal staging copy on every Claude spawn, so no separate reconfig step is required.
 
 **Repo name format:** Always use the canonical form `github.com/owner/repo`. You can check existing repos with `agenc repo ls`.
 
@@ -207,7 +207,7 @@ echo '{"permissions":{"allow":["Bash(npm:*)"]}}' | agenc config settings-json se
 
 **Content hash flow:** The `get` command returns a `Content-Hash` header. The `set` command requires `--content-hash` matching the version you last read. If the file was modified by another agent since your read, the update is rejected and you must re-read before retrying.
 
-**When changes take effect:** New missions pick up changes automatically. Existing missions keep their config snapshot from creation time. To propagate changes to existing missions, run `agenc mission reconfig`. Running missions must be restarted after reconfig.
+**When changes take effect:** New missions pick up changes automatically. Running missions pick up changes on their next reload — the wrapper rebuilds the per-mission `claude-config/` directory from an internal staging copy on every Claude spawn. To apply a change to a running mission immediately, ask the user to reload it (or, if the agent is reloading itself in response to a config change, run `agenc mission reload --async --prompt "<continuation>"`).
 
 **Do NOT edit the underlying files directly** — always use the `agenc config claude-md` and `agenc config settings-json` commands.
 
