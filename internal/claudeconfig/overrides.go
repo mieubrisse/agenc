@@ -1,6 +1,7 @@
 package claudeconfig
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,12 +9,31 @@ import (
 	"strings"
 )
 
+// AgencHooksDirname is the per-mission claude-config subdirectory that holds
+// AgenC-managed hook scripts (separate from the user's `hooks/` dir, which is
+// copied verbatim from the shadow repo).
+const AgencHooksDirname = "agenc-hooks"
+
+// RepoLibraryGuardScriptName is the filename of the PreToolUse hook script
+// inside AgencHooksDirname.
+const RepoLibraryGuardScriptName = "repo-library-guard.sh"
+
+// RepoLibraryGuardScript is the embedded body of the PreToolUse hook that
+// blocks Write/Edit/NotebookEdit calls targeting the repo library and
+// substitutes a guidance message in place of the bare permission denial.
+//
+//go:embed repo_library_guard.sh
+var RepoLibraryGuardScript string
+
 // claudeConfigProtectedItems lists the files and directories inside
 // claude-config that agents must not read or modify. These are the
 // AgenC-injected configuration files; everything else (symlinked
 // runtime dirs like shell-snapshots, plugins, projects, etc.) is left
 // accessible so Claude Code can operate normally.
-var claudeConfigProtectedItems = TrackableItemNames
+var claudeConfigProtectedItems = append(
+	[]string{AgencHooksDirname},
+	TrackableItemNames...,
+)
 
 // agencHookEventNames lists the Claude hook events that agenc intercepts to
 // track Claude state and update tmux pane colors.
@@ -25,20 +45,18 @@ var agencHookEventNames = []string{
 	"PostToolUseFailure",
 }
 
-// AgencHookEntries maps each hook event name to the JSON hook group that agenc
-// injects into the mission's settings.json. Each hook calls
-// `agenc mission send claude-update` with the event name, forwarding it to the
-// wrapper's unix socket for state tracking and tmux pane coloring.
-var AgencHookEntries map[string]json.RawMessage
+// staticAgencHookEntries holds the host-mission state-tracking hook entries
+// (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure) that
+// don't depend on any per-mission path. The PreToolUse repo-library guard,
+// which does depend on the per-mission claude-config path, is added by
+// BuildAgencHookEntries.
+var staticAgencHookEntries map[string]json.RawMessage
 
-// ContainerHookEntries maps each hook event name to the JSON hook group used
-// in containerized missions. These hooks use curl to reach the wrapper socket
-// (bind-mounted at $AGENC_WRAPPER_SOCKET) instead of the agenc CLI binary,
-// which is not available inside the container.
-var ContainerHookEntries map[string]json.RawMessage
+// staticContainerHookEntries is the container variant of staticAgencHookEntries.
+var staticContainerHookEntries map[string]json.RawMessage
 
 func init() {
-	AgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
+	staticAgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
 	for _, eventName := range agencHookEventNames {
 		// The Go command handler (runMissionSendClaudeUpdate) skips stdin for
 		// non-Notification events and uses a timeout for Notification events,
@@ -47,10 +65,10 @@ func init() {
 		// command string rather than passing it to sh -c, causing the redirect
 		// tokens to be interpreted as extra positional arguments.
 		entry := `[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID ` + eventName + `"}]}]`
-		AgencHookEntries[eventName] = json.RawMessage(entry)
+		staticAgencHookEntries[eventName] = json.RawMessage(entry)
 	}
 
-	ContainerHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
+	staticContainerHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
 	for _, eventName := range agencHookEventNames {
 		// Only Notification events pass stdin data (-d @-) to extract
 		// notification_type. Other events use an empty body to avoid hanging
@@ -66,8 +84,55 @@ func init() {
 			eventName, stdinFlag,
 		)
 		entry := fmt.Sprintf(`[{"hooks":[{"type":"command","command":"%s"}]}]`, cmd)
-		ContainerHookEntries[eventName] = json.RawMessage(entry)
+		staticContainerHookEntries[eventName] = json.RawMessage(entry)
 	}
+}
+
+// BuildAgencHookEntries returns the full hook entries map for non-containerized
+// missions: the static state-tracking hooks plus the PreToolUse repo-library
+// guard, which references the per-mission claude-config snapshot.
+func BuildAgencHookEntries(claudeConfigDirpath string) map[string]json.RawMessage {
+	entries := make(map[string]json.RawMessage, len(staticAgencHookEntries)+1)
+	for eventName, entry := range staticAgencHookEntries {
+		entries[eventName] = entry
+	}
+	entries["PreToolUse"] = buildRepoLibraryGuardHookEntry(claudeConfigDirpath)
+	return entries
+}
+
+// BuildContainerHookEntries returns the full hook entries map for
+// containerized missions. The repo library is host-only state and is not
+// bind-mounted into containers, so the PreToolUse repo-library guard is
+// omitted — there is no path inside the container that would match it.
+func BuildContainerHookEntries() map[string]json.RawMessage {
+	entries := make(map[string]json.RawMessage, len(staticContainerHookEntries))
+	for eventName, entry := range staticContainerHookEntries {
+		entries[eventName] = entry
+	}
+	return entries
+}
+
+// buildRepoLibraryGuardHookEntry constructs the PreToolUse hook entry that
+// runs the embedded bash guard script. Matches Write, Edit, and NotebookEdit
+// — the file-modifying tools whose permission-deny against the repo library
+// produces the confusing "denied by your permission settings" message we want
+// to replace with explicit guidance.
+//
+// The script lives at <claudeConfigDirpath>/agenc-hooks/repo-library-guard.sh
+// (written by WriteAgencHookScripts at config-build time) and is invoked with
+// an absolute path so no env var expansion or path-rewriting is required at
+// hook-firing time.
+func buildRepoLibraryGuardHookEntry(claudeConfigDirpath string) json.RawMessage {
+	scriptFilepath := filepath.Join(claudeConfigDirpath, AgencHooksDirname, RepoLibraryGuardScriptName)
+
+	command := fmt.Sprintf("bash %s", scriptFilepath)
+	commandJSON, _ := json.Marshal(command)
+
+	entry := fmt.Sprintf(
+		`[{"matcher":"Write|Edit|NotebookEdit","hooks":[{"type":"command","command":%s}]}]`,
+		string(commandJSON),
+	)
+	return json.RawMessage(entry)
 }
 
 // AgencFilePermissionTools lists the Claude Code file-access tools used to

@@ -1,6 +1,7 @@
 package claudeconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,4 +155,60 @@ func TestBuildPathVariantsNonHomePath(t *testing.T) {
 	if variants[0] != expectedAbsolute {
 		t.Errorf("expected %q, got %q", expectedAbsolute, variants[0])
 	}
+}
+
+func TestBuildAgencHookEntries_IncludesPreToolUseGuard(t *testing.T) {
+	claudeConfigDirpath := "/tmp/test-mission/claude-config"
+	entries := BuildAgencHookEntries(claudeConfigDirpath)
+
+	preToolUseRaw, ok := entries["PreToolUse"]
+	if !ok {
+		t.Fatal("expected PreToolUse entry in BuildAgencHookEntries result")
+	}
+
+	var arr []map[string]interface{}
+	if err := json.Unmarshal(preToolUseRaw, &arr); err != nil {
+		t.Fatalf("failed to parse PreToolUse entry: %v", err)
+	}
+	if len(arr) != 1 {
+		t.Fatalf("expected exactly 1 PreToolUse hook group, got %d", len(arr))
+	}
+
+	matcher, _ := arr[0]["matcher"].(string)
+	if matcher != "Write|Edit|NotebookEdit" {
+		t.Errorf("expected matcher 'Write|Edit|NotebookEdit', got %q", matcher)
+	}
+
+	hooks, _ := arr[0]["hooks"].([]interface{})
+	if len(hooks) != 1 {
+		t.Fatalf("expected 1 hook command, got %d", len(hooks))
+	}
+	hookMap, _ := hooks[0].(map[string]interface{})
+	command, _ := hookMap["command"].(string)
+	expectedScript := filepath.Join(claudeConfigDirpath, AgencHooksDirname, RepoLibraryGuardScriptName)
+	if !strings.Contains(command, expectedScript) {
+		t.Errorf("expected hook command to reference %q, got %q", expectedScript, command)
+	}
+}
+
+func TestBuildContainerHookEntries_OmitsPreToolUseGuard(t *testing.T) {
+	// Repo library is host-only state — not bind-mounted into containers — so
+	// the PreToolUse repo-library guard is not installed for containerized
+	// missions. Verifies that BuildContainerHookEntries does not include it.
+	entries := BuildContainerHookEntries()
+	if _, ok := entries["PreToolUse"]; ok {
+		t.Error("BuildContainerHookEntries must not include PreToolUse — repo library is host-only")
+	}
+}
+
+func TestClaudeConfigProtectedItems_IncludesAgencHooks(t *testing.T) {
+	// agenc-hooks holds AgenC-managed scripts (e.g. the repo-library guard)
+	// that the agent must not be able to read or modify.
+	for _, item := range claudeConfigProtectedItems {
+		if item == AgencHooksDirname {
+			return
+		}
+	}
+	t.Errorf("expected %q in claudeConfigProtectedItems, got %v",
+		AgencHooksDirname, claudeConfigProtectedItems)
 }

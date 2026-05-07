@@ -467,6 +467,81 @@ run_test "claude-update Notification without stdin returns immediately" \
     0 \
     timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 Notification
 
+echo "--- Repo library guard hook ---"
+
+# The repo-library-guard.sh hook fires from settings.json PreToolUse to block
+# Write/Edit/NotebookEdit calls targeting the AgenC repo library and replace
+# the bare permission-deny message with explicit guidance about spawning a
+# new mission. We test the script directly here rather than wiring up a real
+# mission — the script's behavior is the contract.
+
+guard_script="${repo_dirpath}/internal/claudeconfig/repo_library_guard.sh"
+guard_test_home="$(mktemp -d)"
+trap "rm -rf '${guard_test_home}'" EXIT
+
+# Use a writeable scratch agenc dir under the temp home so the script's
+# repos_dirpath computation is fully isolated from the real ~/.agenc.
+export AGENC_DIRPATH="${guard_test_home}/.agenc"
+export HOME="${guard_test_home}"
+
+run_guard() {
+    local payload="${1}"
+    printf '%s' "${payload}" | bash "${guard_script}" 2>&1 || true
+}
+
+run_guard_assert_blocks() {
+    local test_name="${1}"
+    local payload="${2}"
+    total=$((total + 1))
+    printf "  %-50s " "${test_name}..."
+    local out
+    out=$(run_guard "${payload}")
+    if echo "${out}" | grep -qE 'permissionDecision.*deny'; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (expected deny, got: ${out})"
+        failed=$((failed + 1))
+    fi
+}
+
+run_guard_assert_allows() {
+    local test_name="${1}"
+    local payload="${2}"
+    total=$((total + 1))
+    printf "  %-50s " "${test_name}..."
+    local out
+    out=$(run_guard "${payload}")
+    if [ -z "${out}" ]; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (expected no output, got: ${out})"
+        failed=$((failed + 1))
+    fi
+}
+
+run_guard_assert_blocks "guard blocks Edit on repo-library path" \
+    "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"${AGENC_DIRPATH}/repos/foo/bar.md\"}}"
+
+run_guard_assert_blocks "guard blocks Write on repo-library path" \
+    "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"${AGENC_DIRPATH}/repos/foo/bar.md\"}}"
+
+run_guard_assert_blocks "guard blocks NotebookEdit on repo-library path" \
+    "{\"tool_name\":\"NotebookEdit\",\"tool_input\":{\"file_path\":\"${AGENC_DIRPATH}/repos/foo/bar.ipynb\"}}"
+
+run_guard_assert_blocks "guard blocks ~/ form repo-library path" \
+    '{"tool_name":"Edit","tool_input":{"file_path":"~/.agenc/repos/foo/bar.md"}}'
+
+run_guard_assert_allows "guard allows Edit on non-repo-library path" \
+    '{"tool_name":"Edit","tool_input":{"file_path":"/tmp/some/file.md"}}'
+
+# Read on a repo-library path must not produce any output — the matcher in
+# settings.json scopes the hook to Write/Edit/NotebookEdit, but the script
+# defends in depth by exiting silently for other tools.
+run_guard_assert_allows "guard allows Read on repo-library path" \
+    "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"${AGENC_DIRPATH}/repos/foo/bar.md\"}}"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

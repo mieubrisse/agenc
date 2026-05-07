@@ -335,6 +335,7 @@ $AGENC_DIRPATH/
 │       │   ├── .claude.json               # Copy of user's account identity + trust entry
 │       │   ├── skills/                    # From shadow repo (path-rewritten)
 │       │   ├── hooks/                     # From shadow repo (path-rewritten)
+│       │   ├── agenc-hooks/                # AgenC-managed hook scripts (e.g. PreToolUse repo-library guard)
 │       │   ├── commands/                  # From shadow repo (path-rewritten)
 │       │   ├── agents/                    # From shadow repo (path-rewritten)
 │       │   ├── plugins/                   # Symlink to ~/.claude/plugins/
@@ -396,7 +397,8 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
 - `agent_instructions.go` — embeds `agent_instructions.md` and substitutes dynamic placeholders (CLI name, repo library path, env var names) at runtime. Prepended to every mission's CLAUDE.md to give agents foundational context about AgenC, missions, workspace structure, and how to spawn other agents.
 - `agent_instructions.md` — hardcoded agent operating instructions covering AgenC overview, mission lifecycle, git workflow, repo library access, cross-repo work, and security boundaries.
-- `overrides.go` — `AgencHookEntries` (Stop, UserPromptSubmit, and Notification hooks for idle detection and state tracking via socket), `AgencRepoLibraryWriteTools` (deny Write/Edit/NotebookEdit on repo library; read tools allowed for code exploration), `BuildRepoLibraryDenyEntries`
+- `overrides.go` — `BuildAgencHookEntries`/`BuildContainerHookEntries` (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure hooks for idle detection and state tracking via socket; plus a PreToolUse repo-library guard for non-containerized missions), `AgencRepoLibraryWriteTools` (deny Write/Edit/NotebookEdit on repo library; read tools allowed for code exploration), `BuildRepoLibraryDenyEntries`, `buildRepoLibraryGuardHookEntry` (constructs the PreToolUse entry pointing at the embedded guard script)
+- `repo_library_guard.sh` — embedded bash script run as a PreToolUse hook. When an agent attempts Write/Edit/NotebookEdit on a path under `<agencDirpath>/repos`, replaces Claude Code's bare permission denial with explicit guidance directing the agent to spawn a new mission scoped to the target repo. Fails open if `jq` is missing — the permission-deny layer in settings.json still blocks the write.
 - `prime_content.go` — embeds the CLI quick reference generated at build time by `cmd/genprime/` from the Cobra command tree. Content is printed by `agenc prime` and injected into adjutant missions via a `SessionStart` hook.
 - `adjutant.go` — adjutant mission config builders: `buildAdjutantClaudeMd` (appends adjutant instructions), `buildAdjutantSettings` (injects adjutant permissions), `BuildAdjutantAllowEntries`/`BuildAdjutantDenyEntries` (permission entry generators)
 - `adjutant_claude.md` — embedded CLAUDE.md instructions for adjutant missions (tells the agent it is the Adjutant, directs CLI usage, establishes filesystem access boundaries)
@@ -519,13 +521,19 @@ Credentials are handled in two layers. Claude's own authentication uses a token 
 
 The wrapper needs to know whether Claude is idle and whether a resumable conversation exists. This is accomplished via Claude Code hooks that send state updates to the wrapper's HTTP API (unix socket).
 
-The config merge injects five hooks into each mission's `settings.json` (`internal/claudeconfig/overrides.go`):
+The config merge injects six hooks into each mission's `settings.json` (`internal/claudeconfig/overrides.go`). Five are fire-and-forget state-tracking hooks that report Claude's lifecycle to the wrapper; the sixth is a PreToolUse repo-library guard that returns a permission-deny decision with explicit guidance.
+
+State-tracking hooks (sent to the wrapper socket):
 
 - **Stop hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Stop` when Claude finishes responding
 - **UserPromptSubmit hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID UserPromptSubmit` when the user submits a prompt
 - **Notification hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID Notification` when Claude needs user attention (permission prompts, idle prompts, elicitation dialogs)
 - **PostToolUse hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID PostToolUse` after a tool call succeeds
 - **PostToolUseFailure hook** — calls `agenc mission send claude-update $AGENC_MISSION_UUID PostToolUseFailure` after a tool call fails
+
+Guidance hook:
+
+- **PreToolUse repo-library guard** — runs `bash <claudeConfigDirpath>/agenc-hooks/repo-library-guard.sh` against Write, Edit, and NotebookEdit calls (matched via the hook entry's `matcher` field). When the target path lies under `<agencDirpath>/repos/`, the script emits a `permissionDecision: deny` JSON response whose reason directs the agent to spawn a new mission scoped to the target repo (`agenc mission new <repo>`). Without the guard, the bare permission-deny message that Claude sees ("denied by your permission settings") gives the agent no actionable next step and it tends to fall back to Bash + an interpreter (e.g. python writing files) as a workaround. Containerized missions skip this hook because the repo library is host-only state and isn't bind-mounted into containers.
 
 The `agenc mission send claude-update` command only reads stdin for Notification events (to extract `notification_type` from the hook JSON payload, with a 500ms timeout). All other events skip stdin entirely in the Go handler — Claude Code may not close stdin for some event types (notably UserPromptSubmit), which would cause `io.ReadAll` to block indefinitely. Shell-level redirects (`< /dev/null`) cannot be used in hook commands because Claude Code may tokenize the command string rather than passing it through `sh -c`, causing redirect tokens to be interpreted as extra positional arguments. The command sends an HTTP POST to the wrapper's `/claude-update` endpoint (unix socket) with a 1-second timeout. It always exits 0 to avoid blocking Claude.
 

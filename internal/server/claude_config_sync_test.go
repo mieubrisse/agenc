@@ -24,6 +24,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 				hooks := parseHooksMap(t, settings)
 				assertHookArrayLen(t, hooks, "Stop", 1)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
+				assertHookArrayLen(t, hooks, "PreToolUse", 1)
 				assertAllowContainsAgentDirEntries(t, settings)
 				assertDenyContainsAgencEntries(t, settings)
 			},
@@ -45,7 +46,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 			},
 		},
 		{
-			name: "other hook types are preserved untouched",
+			name: "existing PreToolUse hooks are preserved and agenc guard appended",
 			inputJSON: `{
 				"hooks": {
 					"PreToolUse": [
@@ -55,7 +56,8 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 			}`,
 			checkMerged: func(t *testing.T, settings map[string]json.RawMessage) {
 				hooks := parseHooksMap(t, settings)
-				assertHookArrayLen(t, hooks, "PreToolUse", 1)
+				// 1 existing user hook + 1 AgenC repo-library guard
+				assertHookArrayLen(t, hooks, "PreToolUse", 2)
 				assertHookArrayLen(t, hooks, "Stop", 1)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
 			},
@@ -120,7 +122,8 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 				hooks := parseHooksMap(t, settings)
 				assertHookArrayLen(t, hooks, "Stop", 2)
 				assertHookArrayLen(t, hooks, "UserPromptSubmit", 1)
-				assertHookArrayLen(t, hooks, "PreToolUse", 1)
+				// 1 existing user hook + 1 AgenC repo-library guard
+				assertHookArrayLen(t, hooks, "PreToolUse", 2)
 				assertDenyContainsAgencEntries(t, settings)
 			},
 		},

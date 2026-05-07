@@ -430,9 +430,11 @@ func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, a
 		return nil, stacktrace.Propagate(err, "failed to parse settings JSON")
 	}
 
-	hookEntries := AgencHookEntries
+	var hookEntries map[string]json.RawMessage
 	if containerized {
-		hookEntries = ContainerHookEntries
+		hookEntries = BuildContainerHookEntries()
+	} else {
+		hookEntries = BuildAgencHookEntries(claudeConfigDirpath)
 	}
 
 	mergedHooks, err := mergeAgencHooks(settings, hookEntries)

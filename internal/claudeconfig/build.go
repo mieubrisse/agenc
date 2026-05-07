@@ -75,6 +75,15 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 		return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
 	}
 
+	// AgenC-managed hook scripts (PreToolUse repo-library guard, etc.).
+	// Containerized missions skip this — the repo library isn't bind-mounted
+	// into containers, so the guard hook isn't installed there either.
+	if !containerized {
+		if err := WriteAgencHookScripts(claudeConfigDirpath); err != nil {
+			return stacktrace.Propagate(err, "failed to write agenc hook scripts")
+		}
+	}
+
 	// settings.json: merge user settings + agenc modifications + hooks/deny
 	if err := buildMergedSettings(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath, missionID, containerized); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged settings.json")
@@ -294,6 +303,24 @@ func symlinkToGlobalClaudeDir(claudeConfigDirpath string, dirName string) error 
 	_ = os.RemoveAll(linkPath)
 
 	return os.Symlink(targetDirpath, linkPath)
+}
+
+// WriteAgencHookScripts writes the AgenC-managed hook scripts into the
+// per-mission claude-config snapshot. Hook scripts are owned by AgenC and
+// must not be modified by the agent — `agenc-hooks/` is included in
+// claudeConfigProtectedItems so the deny entries cover it.
+func WriteAgencHookScripts(claudeConfigDirpath string) error {
+	hooksDirpath := filepath.Join(claudeConfigDirpath, AgencHooksDirname)
+	if err := os.MkdirAll(hooksDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create '%s'", hooksDirpath)
+	}
+
+	scriptFilepath := filepath.Join(hooksDirpath, RepoLibraryGuardScriptName)
+	if err := os.WriteFile(scriptFilepath, []byte(RepoLibraryGuardScript), 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to write hook script '%s'", scriptFilepath)
+	}
+
+	return nil
 }
 
 // copyDirWithRewriting recursively copies a directory tree from src to dst,
