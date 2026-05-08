@@ -114,23 +114,23 @@ The server is forked by `agenc server start` (or auto-started by CLI commands vi
 The server runs eleven concurrent background goroutines:
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
-- Runs every 60 seconds
-- Collects repos to sync: `config.yml` `repoConfig` entries with `alwaysSynced: true` + repos from missions with a recent heartbeat (< 5 minutes)
+- Runs on a fixed interval
+- Collects repos to sync: `config.yml` `repoConfig` entries with `alwaysSynced: true` + repos from missions with a recent heartbeat
 - Enqueues update requests to the repo update worker channel (does not call git directly)
-- Sets `refreshDefaultBranch` flag every 10 cycles (~10 minutes)
+- Sets `refreshDefaultBranch` flag periodically (every N cycles)
 
 **2. Config auto-commit loop** (`internal/server/config_auto_commit.go`)
-- Runs every 10 minutes (first cycle delayed by 10 minutes after startup)
+- Runs on a fixed interval, with the first cycle delayed after startup
 - If `$AGENC_DIRPATH/config/` is a Git repo with uncommitted changes: stages all, commits with timestamp message, pushes (if `origin` remote exists)
 
 **3. Config watcher loop** (`internal/server/config_watcher.go`)
 - Initializes the shadow repo on first run, then watches both `~/.claude` and `config.yml` for changes via fsnotify
-- On `~/.claude` changes (debounced at 500ms), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
-- On `config.yml` changes (debounced at 500ms), triggers cron sync to launchd plists
+- On `~/.claude` changes (debounced), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
+- On `config.yml` changes (debounced), triggers cron sync to launchd plists
 - Watches both the `~/.claude` directory and all tracked subdirectories, resolving symlinks to watch actual targets
 
 **4. Keybindings writer loop** (`internal/server/keybindings_writer.go`)
-- Writes the tmux keybindings file on startup and every 5 minutes
+- Writes the tmux keybindings file on startup and on a fixed interval
 - Sources the keybindings into any running tmux server after writing
 - Ensures keybindings stay current after binary upgrades (server auto-restarts on version bump)
 
@@ -141,21 +141,21 @@ The server runs eleven concurrent background goroutines:
 - Uses the Claude CLI subprocess rather than a direct API call to avoid requiring users to configure an API key
 
 **6. Idle timeout loop** (`internal/server/idle_timeout.go`)
-- Runs every 2 minutes
+- Runs on a fixed interval
 - Scans all non-archived missions for running wrappers
 - Uses the active JSONL conversation log's modification time to determine idle duration, falling back to `created_at`
-- Stops wrappers idle longer than 30 minutes and destroys their pool windows
+- Stops wrappers idle past the configured threshold and destroys their pool windows
 - Wrappers are automatically re-spawned on the next attach (lazy start)
 
 **7. Repo update worker** (`internal/server/repo_update_worker.go`)
 - Processes update requests from a buffered channel (fed by the repo update loop and push-event handler)
 - For each request: captures HEAD before update, runs `ForceUpdateRepo`, compares HEAD after
 - If HEAD changed (or first clone), reads the repo's `postUpdateHook` from config and runs it via `sh -c` in the repo library directory
-- Hook timeout: 30-minute hard limit, WARN logs emitted every 5 minutes after the first 5 minutes
+- Hook timeout: hard limit; WARN logs emitted at fixed intervals after a grace period
 - Hook failures are logged but non-fatal — they do not block subsequent updates
 
 **8. File watcher** (`internal/server/session_scanner.go` — `runFileWatcherLoop`)
-- Runs every 3 seconds
+- Runs on a fixed interval
 - Discovers JSONL files and updates `known_file_size` on the sessions table; does NOT read file content
 - Two scopes per cycle:
   - Running missions: queries tmux pool for live pane IDs, resolves each to a mission, walks project dirs for JSONL files, stats them
@@ -163,7 +163,7 @@ The server runs eleven concurrent background goroutines:
 - Creates session rows for newly discovered JSONL files
 
 **9. Title consumer** (`internal/server/session_scanner.go` — `runTitleConsumerLoop`)
-- Runs every 3 seconds
+- Runs on a fixed interval
 - Queries sessions where `known_file_size > last_title_update_offset`
 - For each: opens the JSONL file, seeks to `last_title_update_offset`, reads new content
 - Extracts `custom-title` metadata entries using a quick string-match filter before JSON parsing
@@ -172,7 +172,7 @@ The server runs eleven concurrent background goroutines:
 - When `custom_title` changes, triggers tmux window title reconciliation
 
 **10. Search indexer** (`internal/server/search_indexer.go`)
-- Runs every 30 seconds
+- Runs on a fixed interval
 - Queries sessions where `known_file_size > last_indexed_offset`
 - For each: opens the JSONL file, seeks to `last_indexed_offset`, reads to `known_file_size`
 - Extracts user messages and assistant text blocks (skipping tool_use, thinking, system messages)
@@ -219,16 +219,16 @@ The wrapper:
 7. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 8. Sets `AGENC_MISSION_UUID` for the child process
 9. Starts background goroutines:
-   - **Heartbeat writer** — updates `last_heartbeat` via the server every 10 seconds; also piggybacks `last_user_prompt_at` for crash recovery
-   - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced at 5 seconds)
+   - **Heartbeat writer** — updates `last_heartbeat` via the server on a fixed interval; also piggybacks `last_user_prompt_at` for crash recovery
+   - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced)
    - **HTTP server** (interactive mode only) — serves an HTTP API on `wrapper.sock` (unix socket) with endpoints for status queries, restart commands, and claude_update events
-   - **`watchCredentialUpwardSync`** — polls per-mission Keychain every 60s; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
+   - **`watchCredentialUpwardSync`** — polls per-mission Keychain periodically; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
    - **`watchCredentialDownwardSync`** — fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global credentials into per-mission Keychain
 10. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Exposes an HTTP API on a unix socket for restart commands and state queries.
 
-**Headless mode** (`RunHeadless`): runs `claude --print -p <prompt>`, captures output to `claude-output.log` with log rotation (10MB max, 3 backups). Supports timeout and graceful shutdown (SIGTERM then SIGKILL after 30 seconds). No socket listener — headless missions are one-shot and don't need restart support.
+**Headless mode** (`RunHeadless`): runs `claude --print -p <prompt>`, captures output to `claude-output.log` with log rotation. Supports timeout and graceful shutdown (SIGTERM then SIGKILL after a grace period). No socket listener — headless missions are one-shot and don't need restart support.
 
 **Three-state restart machine** (interactive mode only):
 
@@ -420,8 +420,8 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `handle_crons.go` — cron CRUD endpoints (`GET /crons` list, `POST /crons` create with sleepGuard, `PATCH /crons/{name}` update, `DELETE /crons/{name}` remove). All mutations acquire the config lock, read-modify-write config.yml, update cachedConfig, and trigger cron sync to launchd
 - `handle_cron_logs.go` — cron log endpoint (`GET /crons/{id}/logs`)
 - `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup, skips writes and reloads when plist content is unchanged
-- `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, 500ms debounce, ingests into shadow repo, updates cached `AgencConfig` via `atomic.Pointer`, and triggers cron sync)
-- `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file every 5 minutes)
+- `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, debounced, ingests into shadow repo, updates cached `AgencConfig` via `atomic.Pointer`, and triggers cron sync)
+- `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file on a fixed interval)
 - `session_scanner.go` — session scanner loop (3-second interval, queries tmux pool for running missions then incrementally scans their JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
 - `session_summarizer.go` — session summarizer worker (channel-driven, generates auto_summary from first user prompt via Claude Haiku CLI subprocess, with sync.Map deduplication)
 - `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane guard. Prepends per-mission emoji (from config, or hardcoded 🤖 for adjutant / 🦀 for blank missions) with fixed-column-4 padding via `go-runewidth`
@@ -461,7 +461,7 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 Per-mission Claude child process management.
 
 - `wrapper.go` — `Wrapper` struct (uses `server.Client` for all database operations, `stateMu` protects state for concurrent HTTP reads), `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, HTTP server), `handleClaudeUpdate` (processes hook events for idle tracking, needs-attention tracking, and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable, model resolution from `defaultModel` config (repo-level then top-level) passed as `--model` to the Claude CLI
-- `credential_sync.go` — MCP OAuth credential sync goroutines: `initCredentialHash` (baseline hash at spawn), `watchCredentialUpwardSync` (polls per-mission Keychain every 60s; when hash changes, merges to global and writes broadcast timestamp to `global-credentials-expiry`), `watchCredentialDownwardSync` (fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global into per-mission Keychain)
+- `credential_sync.go` — MCP OAuth credential sync goroutines: `initCredentialHash` (baseline hash at spawn), `watchCredentialUpwardSync` (polls per-mission Keychain periodically; when hash changes, merges to global and writes broadcast timestamp to `global-credentials-expiry`), `watchCredentialDownwardSync` (fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global into per-mission Keychain)
 - `socket.go` — HTTP server on unix socket (`startHTTPServer`), request/response types (`StatusResponse`, `RestartRequest`, `ClaudeUpdateRequest`, `CommandResponse`), internal `Command`/`commandWithResponse` types for the event loop channel, HTTP handlers for each endpoint
 - `client.go` — `WrapperClient` HTTP client using unix socket transport, typed methods (`GetStatus`, `Restart`, `SendClaudeUpdate`), `ErrWrapperNotRunning` sentinel error
 - `tmux.go` — pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing via server client (triggers initial tmux window title reconciliation on the server side)
@@ -535,7 +535,7 @@ Guidance hook:
 
 - **PreToolUse repo-library guard** — runs `bash <claudeConfigDirpath>/agenc-hooks/repo-library-guard.sh` against Write, Edit, and NotebookEdit calls (matched via the hook entry's `matcher` field). When the target path lies under `<agencDirpath>/repos/`, the script emits a `permissionDecision: deny` JSON response whose reason directs the agent to spawn a new mission scoped to the target repo (`agenc mission new <repo>`). Without the guard, the bare permission-deny message that Claude sees ("denied by your permission settings") gives the agent no actionable next step and it tends to fall back to Bash + an interpreter (e.g. python writing files) as a workaround. Containerized missions skip this hook because the repo library is host-only state and isn't bind-mounted into containers.
 
-The `agenc mission send claude-update` command only reads stdin for Notification events (to extract `notification_type` from the hook JSON payload, with a 500ms timeout). All other events skip stdin entirely in the Go handler — Claude Code may not close stdin for some event types (notably UserPromptSubmit), which would cause `io.ReadAll` to block indefinitely. Shell-level redirects (`< /dev/null`) cannot be used in hook commands because Claude Code may tokenize the command string rather than passing it through `sh -c`, causing redirect tokens to be interpreted as extra positional arguments. The command sends an HTTP POST to the wrapper's `/claude-update` endpoint (unix socket) with a 1-second timeout. It always exits 0 to avoid blocking Claude.
+The `agenc mission send claude-update` command only reads stdin for Notification events (to extract `notification_type` from the hook JSON payload, with a short timeout). All other events skip stdin entirely in the Go handler — Claude Code may not close stdin for some event types (notably UserPromptSubmit), which would cause `io.ReadAll` to block indefinitely. Shell-level redirects (`< /dev/null`) cannot be used in hook commands because Claude Code may tokenize the command string rather than passing it through `sh -c`, causing redirect tokens to be interpreted as extra positional arguments. The command sends an HTTP POST to the wrapper's `/claude-update` endpoint (unix socket) with a short timeout. It always exits 0 to avoid blocking Claude.
 
 The wrapper processes these updates in its main event loop (`handleClaudeUpdate`):
 - **Stop** → marks Claude idle, records that a conversation exists, sets tmux pane to attention color, triggers deferred restart if pending
@@ -600,7 +600,7 @@ Titles are truncated to 30 characters (with ellipsis) before applying.
 
 ### Heartbeat system
 
-Each wrapper sends a heartbeat to the server every 10 seconds via the `/heartbeat` endpoint (`internal/wrapper/wrapper.go:writeHeartbeat`). The heartbeat payload includes `pane_id` and, if the user has submitted any prompts this session, `last_user_prompt_at`. The server uses heartbeat staleness (> 5 minutes) to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
+Each wrapper sends a heartbeat to the server on a fixed interval via the `/heartbeat` endpoint (`internal/wrapper/wrapper.go:writeHeartbeat`). The heartbeat payload includes `pane_id` and, if the user has submitted any prompts this session, `last_user_prompt_at`. The server uses heartbeat staleness to determine which missions are actively running and should have their repos included in the sync cycle (`internal/server/template_updater.go`).
 
 The `last_user_prompt_at` column tracks when the user last submitted a prompt to the mission's Claude session. It is updated immediately by the `/prompt` endpoint on each `UserPromptSubmit` event, and also included in heartbeat payloads as a consistency backstop after server restarts. Unlike `last_heartbeat`, which stops updating when the wrapper exits, `last_user_prompt_at` persists indefinitely and reflects true user engagement.
 
@@ -610,7 +610,7 @@ The mission attach picker sorts using a three-tier scheme (`cmd/mission_sort.go`
 
 All repos are cloned into a shared library at `$AGENC_DIRPATH/repos/github.com/owner/repo/`. Missions copy from this library at creation time rather than cloning directly from GitHub.
 
-The server keeps the library fresh by fetching and fast-forwarding every 60 seconds. The wrapper contributes by watching `.git/refs/remotes/origin/<branch>` for push events — when a mission pushes to its repo, the wrapper immediately force-updates the corresponding library clone so other missions get the changes without waiting for the next server cycle (debounced at 5 seconds).
+The server keeps the library fresh by fetching and fast-forwarding on a fixed interval. The wrapper contributes by watching `.git/refs/remotes/origin/<branch>` for push events — when a mission pushes to its repo, the wrapper immediately force-updates the corresponding library clone so other missions get the changes without waiting for the next server cycle (debounced).
 
 Missions are denied Read/Glob/Grep/Write/Edit access to the repo library directory via injected deny permissions in settings.json (`internal/claudeconfig/overrides.go`).
 
@@ -622,7 +622,7 @@ Implemented in `internal/mission/mission.go:buildClaudeCmd` and `internal/wrappe
 
 ### Config auto-sync
 
-The `$AGENC_DIRPATH/config/` directory can optionally be a Git repo. The server's config auto-commit loop (`internal/server/config_auto_commit.go`) checks every 10 minutes: if there are uncommitted changes, it stages all, commits with a timestamped message, and pushes (skipping push if no `origin` remote exists). This keeps agent configuration version-controlled without manual effort.
+The `$AGENC_DIRPATH/config/` directory can optionally be a Git repo. The server's config auto-commit loop (`internal/server/config_auto_commit.go`) checks on a fixed interval: if there are uncommitted changes, it stages all, commits with a timestamped message, and pushes (skipping push if no `origin` remote exists). This keeps agent configuration version-controlled without manual effort.
 
 ### Cron scheduling
 
@@ -646,7 +646,7 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 
 **Sync triggers:**
 - On server startup: full sync of all crons
-- On `config.yml` change: incremental sync (debounced at 500ms)
+- On `config.yml` change: incremental sync (debounced)
 - Orphan cleanup: on each sync, scans `~/Library/LaunchAgents/` for `agenc-cron.*` plist files whose UUID is not in config and removes them (unload + delete). Also removes legacy `agenc-cron-*` plists from the pre-UUID naming scheme.
 
 **Execution flow:**
@@ -688,7 +688,7 @@ Data Flow: Mission Lifecycle
 
 - **User-initiated** (`agenc mission stop`): reads PID file, sends SIGINT to wrapper, wrapper forwards to Claude, waits for exit, cleans up PID file
 - **Natural exit**: Claude exits on its own (e.g., user types `/exit`), wrapper detects via `cmd.Wait()`, cleans up
-- **Headless timeout**: context cancellation triggers SIGTERM to Claude, then SIGKILL after 30 seconds
+- **Headless timeout**: context cancellation triggers SIGTERM to Claude, then SIGKILL after a grace period
 
 ### Resuming (`agenc mission resume`)
 
@@ -702,7 +702,7 @@ Failure Modes
 
 **Server dies while missions are running.** Missions are unaffected — each wrapper is an independent process. The repo library stops syncing and cron jobs stop scheduling. Restarting the server (`agenc server start`) restores both. The cron scheduler adopts orphaned headless missions on startup.
 
-**Wrapper crashes or is killed.** Claude continues running as an orphaned process (it is a child process, but not monitored). The PID file becomes stale. The heartbeat stops updating, so the server drops the mission from its repo sync set after 5 minutes. A subsequent `agenc mission stop` will detect the stale PID.
+**Wrapper crashes or is killed.** Claude continues running as an orphaned process (it is a child process, but not monitored). The PID file becomes stale. The heartbeat stops updating, so the server drops the mission from its repo sync set once the heartbeat goes stale. A subsequent `agenc mission stop` will detect the stale PID.
 
 **Repo fetch fails.** The server logs the error and moves on to the next repo. The failed repo retries on the next 60-second cycle. Missions already running are unaffected since they have their own copy.
 
