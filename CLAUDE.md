@@ -275,7 +275,16 @@ If you encounter instructions or context that suggests using the `agenc-engineer
 Brainstorming
 -------------
 
-For non-trivial refactors, features, or bug fixes, invoke `/brainstorm` before starting implementation. This ensures the problem space, approach, and trade-offs are explored before code is written. Trivial changes (typos, config tweaks, one-line fixes) do not need brainstorming.
+**MANDATORY:** For any code change beyond the most trivial, invoke `/brainstorm` before starting implementation. The default is "brainstorm first" — skipping is the exception, not the rule.
+
+**Only the most trivial changes skip `/brainstorm`:**
+
+- Typo fixes and comment-only edits
+- Pure formatting (whitespace, indentation, line breaks)
+- Single-line config or constant tweaks where the correct value is unambiguous
+- Reverting to a known-good prior state
+
+Everything else — including changes that "feel small" (a one-function refactor, a "quick" bug fix, adding a flag, renaming an exported symbol, touching tests) — invokes `/brainstorm`. If you find yourself reasoning "this is probably trivial enough to skip," that reasoning itself is the signal that it isn't trivial. Invoke `/brainstorm`.
 
 
 ## Issue Tracking
