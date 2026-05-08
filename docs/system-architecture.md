@@ -181,7 +181,7 @@ The server runs eleven concurrent background goroutines:
 
 **11. Writeable-copy reconcile worker** (`internal/server/writeable_copies.go`)
 - Drains a buffered channel of reconcile requests, one tick per request
-- Three trigger sources feed the channel: working-tree fsnotify (debounced 15s) per writeable copy, library worker fan-out after a successful library update, and a server-startup boot sweep
+- Three trigger sources feed the channel: working-tree fsnotify (debounced) per writeable copy, library worker fan-out after a successful library update, and a server-startup boot sweep
 - Per tick: resume probe (if paused), sanity checks, commit-if-dirty, fetch+reconcile (equal/ahead/behind/diverged) — each step backed by a `GitCommander` interface that the production code wires to the `git` CLI and tests mock with a fake
 - On rebase conflict, non-FF push reject, auth failure, wrong branch, origin URL drift, missing path, or git corruption: atomically inserts a pause row in `writeable_copy_pauses` and a notification in `notifications`. The pause is checked at the start of every subsequent tick; the loop auto-resumes when `git status` is clean and HEAD has moved past `local_head_at_pause`
 - Notifications are append-only (only mutation: mark-as-read). Pauses are deleted on auto-resume; the linked notification stays in history

@@ -359,8 +359,8 @@ A writeable copy is an additional clone of a repo at a path the user chooses
 (typically somewhere under `~/`). The AgenC server keeps the writeable copy
 continuously synced with the same git remote as the repo library:
 
-- Local edits in the working tree are auto-committed every ~15 seconds and
-  pushed to origin
+- Local edits in the working tree are auto-committed and pushed to origin
+  shortly after edits settle
 - Remote changes are pulled and rebased whenever the library copy fetches
   them (fan-out from the existing library worker)
 - On any sync failure (rebase conflict, push rejection, etc.) the loop
@@ -408,7 +408,7 @@ Walk the user through these checks before suggesting they run `set`:
    to pick a different path or move the existing directory aside.
 7. **If the path doesn't exist:** AgenC clones the repo from origin into it.
 
-After `set` succeeds, the AgenC server reloads config (~500ms debounce),
+After `set` succeeds, the AgenC server reloads config shortly after,
 clones the repo if needed, installs fsnotify watchers on the working tree,
 and starts the sync loop. The user does not need to do anything else.
 
