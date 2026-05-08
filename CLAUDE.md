@@ -1,5 +1,5 @@
-Agent Factory
-=============
+AgenC
+=====
 
 Architecture Reference
 ----------------------
@@ -87,7 +87,7 @@ When running the binary, **always** use relative paths — never full absolute p
 ./_build/agenc-test mission ls
 
 # Wrong — will trigger unnecessary permission prompts
-/Users/odyssey/code/agent-factory/_build/agenc mission ls
+/Users/odyssey/code/agenc/_build/agenc mission ls
 ```
 
 The project's `.claude/settings.json` allows `Bash(./_build/agenc:*)` and `Bash(./_build/agenc-test:*)`.
