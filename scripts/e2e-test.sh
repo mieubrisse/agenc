@@ -149,6 +149,30 @@ run_test "config sleep --help succeeds" \
     0 \
     "${agenc_test}" config sleep --help
 
+run_test_output_contains "config get sessionTitleMaxWords returns default" \
+    "^15$" \
+    "${agenc_test}" config get sessionTitleMaxWords
+
+run_test "config set sessionTitleMaxWords accepts valid int" \
+    0 \
+    "${agenc_test}" config set sessionTitleMaxWords 10
+
+run_test_output_contains "config get reflects the new value" \
+    "^10$" \
+    "${agenc_test}" config get sessionTitleMaxWords
+
+run_test "config set sessionTitleMaxWords rejects out-of-range" \
+    1 \
+    "${agenc_test}" config set sessionTitleMaxWords 100
+
+run_test "config set sessionTitleMaxWords rejects non-integer" \
+    1 \
+    "${agenc_test}" config set sessionTitleMaxWords abc
+
+run_test "config set sessionTitleMaxWords reset" \
+    0 \
+    "${agenc_test}" config set sessionTitleMaxWords 15
+
 echo ""
 echo "--- Sleep mode (requires server) ---"
 run_test_output_contains "sleep ls shows empty initially" \
