@@ -426,6 +426,8 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `session_summarizer.go` — session summarizer worker (channel-driven, generates auto_summary from first user prompt via Claude Haiku CLI subprocess, with sync.Map deduplication)
 - `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane guard. Prepends per-mission emoji (from config, or hardcoded 🤖 for adjutant / 🦀 for blank missions) with fixed-column-4 padding via `go-runewidth`
 - `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
+- `notifications_handlers.go` — notifications CRUD endpoints (`POST /notifications`, `GET /notifications`, `GET /notifications/{id}`, `POST /notifications/{id}/read`, `GET /notifications/unread-count`); body-size cap. Cron-source missions auto-create a `cron.triggered` notification linked to the new mission via `MissionID`; failure to insert is logged and never fails the mission request
+- `notifications_helpers.go` — `sanitizeNotificationTitle` strips ANSI sequences and control characters from titles before persistence (defense-in-depth for cron names sourced from user-edited config)
 
 ### `internal/devcontainer/`
 
@@ -441,6 +443,7 @@ SQLite mission tracking with auto-migration.
 
 - `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, generic source tracking (`source`, `source_id`, `source_metadata` columns). Idempotent migrations handle schema evolution.
 - `sessions.go` — `Session` struct, CRUD operations (`CreateSession`, `GetSession`, `UpdateSessionScanResults`, `GetActiveSession`). The `GetActiveSession` query returns the most recently updated session for a mission, used by tmux title reconciliation to determine the current display title.
+- `notifications.go` — `Notification` struct (with optional `MissionID` attach target) and CRUD operations (`CreateNotification`, `GetNotification`, `ListNotifications`, `MarkNotificationRead`, `CountUnreadNotifications`). Notifications are append-only — `read_at` is the only mutation. The `mission_id` column links a notification to a mission so the Notification Center picker can attach on `ENTER`.
 
 ### `internal/launchd/`
 
@@ -653,8 +656,9 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 1. launchd triggers at scheduled time
 2. Invokes `agenc mission new --headless --source cron --source-id <cronUUID> --source-metadata '{"cron_name":"<name>"}' --prompt <prompt> [repo]`
 3. Server creates a normal mission with generic source tracking columns
-4. Mission runs in a tmux pool window like any other headless mission
-5. Standard 30-minute idle timeout applies (JSONL ModTime-based)
+4. After spawn, the server inserts a `cron.triggered` notification with `mission_id` pointing at the new mission so the Notification Center picker can find and attach to it
+5. Mission runs in a tmux pool window like any other headless mission
+6. Standard 30-minute idle timeout applies (JSONL ModTime-based)
 
 **Key behaviors:**
 - **Cron missions are normal missions** — no special lifecycle, timeout, or cleanup. Users can attach/detach them like any other mission.
