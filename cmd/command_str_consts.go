@@ -164,4 +164,5 @@ const (
 	notificationsBodyFileFlagName   = "body-file"
 	notificationsSourceRepoFlagName = "source-repo"
 	notificationsRepoFilterFlagName = "repo"
+	notificationsMissionIDFlagName  = "mission-id"
 )

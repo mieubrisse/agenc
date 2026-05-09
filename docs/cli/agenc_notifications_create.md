@@ -24,6 +24,7 @@ agenc notifications create [flags]
       --body-file string     path to body content file; use - for stdin
   -h, --help                 help for create
       --kind string          kind tag (required, e.g. writeable_copy.conflict)
+      --mission-id string    link this notification to a mission (UUID or short ID); ENTER on the notification in 'manage' attaches to it
       --source-repo string   associated repo in canonical format (optional)
       --title string         one-line title (required)
 ```

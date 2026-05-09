@@ -32,6 +32,7 @@ func init() {
 	notificationsCreateCmd.Flags().String(notificationsKindFlagName, "", "kind tag (required, e.g. writeable_copy.conflict)")
 	notificationsCreateCmd.Flags().String(notificationsTitleFlagName, "", "one-line title (required)")
 	notificationsCreateCmd.Flags().String(notificationsSourceRepoFlagName, "", "associated repo in canonical format (optional)")
+	notificationsCreateCmd.Flags().String(notificationsMissionIDFlagName, "", "link this notification to a mission (UUID or short ID); ENTER on the notification in 'manage' attaches to it")
 	notificationsCreateCmd.Flags().String(notificationsBodyFlagName, "", "body content (mutually exclusive with --body-file)")
 	notificationsCreateCmd.Flags().String(notificationsBodyFileFlagName, "", "path to body content file; use - for stdin")
 }
@@ -40,6 +41,7 @@ func runNotificationsCreate(cmd *cobra.Command, args []string) error {
 	kind, _ := cmd.Flags().GetString(notificationsKindFlagName)
 	title, _ := cmd.Flags().GetString(notificationsTitleFlagName)
 	sourceRepo, _ := cmd.Flags().GetString(notificationsSourceRepoFlagName)
+	missionIDFlag, _ := cmd.Flags().GetString(notificationsMissionIDFlagName)
 	bodyFlag, _ := cmd.Flags().GetString(notificationsBodyFlagName)
 	bodyFile, _ := cmd.Flags().GetString(notificationsBodyFileFlagName)
 
@@ -67,9 +69,18 @@ func runNotificationsCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	resolvedMissionID := ""
+	if missionIDFlag != "" {
+		resolvedMissionID, err = client.ResolveMissionID(missionIDFlag)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve mission '%v'", missionIDFlag)
+		}
+	}
+
 	created, err := client.CreateNotification(server.CreateNotificationRequest{
 		Kind:         kind,
 		SourceRepo:   sourceRepo,
+		MissionID:    resolvedMissionID,
 		Title:        title,
 		BodyMarkdown: body,
 	})
