@@ -91,7 +91,8 @@ func (s *Server) handleSummaryRequest(ctx context.Context, req summaryRequest) {
 	}
 
 	// Generate summary via Haiku
-	summary, err := generateSessionSummary(ctx, s.agencDirpath, req.firstUserMessage)
+	maxWords := s.getConfig().GetSessionTitleMaxWords()
+	summary, err := generateSessionSummary(ctx, s.agencDirpath, req.firstUserMessage, maxWords)
 	if err != nil {
 		s.logger.Printf("Session summarizer: failed to generate summary for session '%s': %v", req.sessionID, err)
 		return
@@ -111,14 +112,15 @@ func (s *Server) handleSummaryRequest(ctx context.Context, req summaryRequest) {
 
 // generateSessionSummary calls Claude Haiku via the CLI to produce a short
 // description of what the user is working on, based on their first message.
-func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserMessage string) (string, error) {
+// maxWords controls the upper word-count bound rendered into the system prompt.
+func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserMessage string, maxWords int) (string, error) {
 	// Truncate long prompts
 	truncated := firstUserMessage
 	if len(truncated) > summarizerMaxPromptLen {
 		truncated = truncated[:summarizerMaxPromptLen-3] + "..."
 	}
 
-	systemPrompt := buildSummarizerSystemPrompt(15)
+	systemPrompt := buildSummarizerSystemPrompt(maxWords)
 
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
