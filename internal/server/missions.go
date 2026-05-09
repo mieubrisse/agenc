@@ -15,6 +15,8 @@ import (
 
 	"path/filepath"
 
+	"github.com/google/uuid"
+
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
@@ -373,9 +375,90 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 		// Return the mission but log the error
 	}
 
+	// Best-effort: surface cron-triggered missions as notifications so the
+	// user can find them via 'agenc notifications manage' without polling.
+	if req.Source == "cron" {
+		s.createCronTriggeredNotification(missionRecord, req)
+	}
+
 	writeJSON(w, http.StatusCreated, toMissionResponse(missionRecord))
 	return nil
 }
+
+// createCronTriggeredNotification inserts a notification linked to the
+// just-created mission. Failures are logged and never propagated — the
+// mission has already been created and must succeed even if notification
+// insert fails.
+func (s *Server) createCronTriggeredNotification(missionRecord *database.Mission, req CreateMissionRequest) {
+	cronName, trigger := parseCronSourceMetadata(req.SourceMetadata)
+	n := buildCronTriggeredNotification(missionRecord, req, cronName, trigger)
+	if err := s.db.CreateNotification(n); err != nil {
+		s.logger.Printf("failed to create cron-triggered notification for mission %s: %v", missionRecord.ShortID, err)
+	}
+}
+
+// parseCronSourceMetadata extracts cron_name and trigger fields from
+// source_metadata JSON. Returns ("", "") on missing/malformed input — the
+// caller falls back to the source ID for the title.
+func parseCronSourceMetadata(metadataJSON string) (cronName, trigger string) {
+	if metadataJSON == "" {
+		return "", ""
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(metadataJSON), &m); err != nil {
+		return "", ""
+	}
+	return m["cron_name"], m["trigger"]
+}
+
+// buildCronTriggeredNotification constructs the notification record for a
+// cron-triggered mission. Pure function — no DB access — so it is unit
+// testable independent of the HTTP handler.
+func buildCronTriggeredNotification(missionRecord *database.Mission, req CreateMissionRequest, cronName, trigger string) *database.Notification {
+	titleSubject := cronName
+	if titleSubject == "" {
+		titleSubject = req.SourceID
+	}
+	title := sanitizeNotificationTitle("Cron triggered: " + titleSubject)
+
+	var bodyParts []string
+	if cronName != "" {
+		bodyParts = append(bodyParts, "**Cron:** "+cronName)
+	}
+	if req.SourceID != "" {
+		bodyParts = append(bodyParts, "**Cron ID:** "+req.SourceID)
+	}
+	triggerLabel := "scheduled"
+	if trigger == "manual" {
+		triggerLabel = "manual"
+	}
+	bodyParts = append(bodyParts, "**Trigger:** "+triggerLabel)
+	bodyParts = append(bodyParts, "**Mission:** "+missionRecord.ShortID)
+	if missionRecord.GitRepo != "" {
+		bodyParts = append(bodyParts, "**Repo:** "+missionRecord.GitRepo)
+	}
+	if req.Prompt != "" {
+		preview := req.Prompt
+		if len(preview) > cronPromptPreviewMaxBytes {
+			preview = preview[:cronPromptPreviewMaxBytes] + "…"
+		}
+		bodyParts = append(bodyParts, "**Prompt:**\n\n"+preview)
+	}
+
+	missionID := missionRecord.ID
+	return &database.Notification{
+		ID:           uuid.New().String(),
+		Kind:         cronTriggeredNotificationKind,
+		Title:        title,
+		BodyMarkdown: strings.Join(bodyParts, "\n\n"),
+		MissionID:    &missionID,
+	}
+}
+
+const (
+	cronTriggeredNotificationKind = "cron.triggered"
+	cronPromptPreviewMaxBytes     = 200
+)
 
 // handleCreateClonedMission creates a mission by cloning the agent directory
 // from an existing mission. The source mission's git_repo carries over.
