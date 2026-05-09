@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -54,6 +55,15 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 	}
 	if len(notifs) == 0 {
 		fmt.Println("No notifications. Schedule a cron with `agenc cron new` and the next run will appear here.")
+		// Wait for a keypress so the message is readable inside a
+		// `tmux display-popup -E` (which closes when the command exits).
+		// In non-TTY contexts (e2e tests) ReadByte returns immediately on EOF
+		// so the function still exits cleanly.
+		if isatty.IsTerminal(os.Stdin.Fd()) {
+			fmt.Println()
+			fmt.Print("Press any key to close...")
+		}
+		_, _ = bufio.NewReader(os.Stdin).ReadByte()
 		return nil
 	}
 
