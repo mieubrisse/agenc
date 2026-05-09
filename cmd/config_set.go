@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -21,6 +22,7 @@ Supported keys:
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
+  sessionTitleMaxWords                       Max words in auto-generated session titles (default: 15; range: 3-50)
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
   tmuxWindowTitle.attentionBackgroundColor   Background color for window tab when Claude needs attention (default: "colour136", empty = disable)
@@ -140,6 +142,18 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 		return nil
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value
+		return nil
+	case "sessionTitleMaxWords":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return stacktrace.NewError(
+				"sessionTitleMaxWords must be an integer, got %q", value,
+			)
+		}
+		if err := config.ValidateSessionTitleMaxWords(n); err != nil {
+			return err
+		}
+		cfg.SessionTitleMaxWords = n
 		return nil
 	case "tmuxWindowTitle.busyBackgroundColor",
 		"tmuxWindowTitle.busyForegroundColor",
