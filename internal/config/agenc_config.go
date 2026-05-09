@@ -282,6 +282,16 @@ const (
 	DefaultTmuxWindowTitleAttentionFg = ""
 )
 
+// Bounds for sessionTitleMaxWords. The lower bound matches the literal "3-"
+// prefix baked into the summarizer system prompt, so values below 3 would
+// render a nonsensical range. The upper cap prevents nonsense values that
+// would no longer behave like a "title."
+const (
+	DefaultSessionTitleMaxWords = 15
+	MinSessionTitleMaxWords     = 3
+	MaxSessionTitleMaxWords     = 50
+)
+
 // TmuxWindowTitleConfig holds foreground and background color settings for
 // the tmux window tab in busy and attention states. Empty strings disable
 // coloring for that component.
@@ -404,6 +414,7 @@ type AgencConfig struct {
 	DefaultModel          string                          `yaml:"defaultModel,omitempty"`
 	ClaudeArgs            []string                        `yaml:"claudeArgs,omitempty"`
 	SleepMode             *SleepModeConfig                `yaml:"sleepMode,omitempty"`
+	SessionTitleMaxWords  int                             `yaml:"sessionTitleMaxWords,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -422,6 +433,16 @@ func (c *AgencConfig) GetTmuxWindowTitleConfig() *TmuxWindowTitleConfig {
 		return c.TmuxWindowTitle
 	}
 	return &TmuxWindowTitleConfig{}
+}
+
+// GetSessionTitleMaxWords returns the configured upper bound for words in the
+// auto-generated session title. Zero means "unset" — defaults to
+// DefaultSessionTitleMaxWords.
+func (c *AgencConfig) GetSessionTitleMaxWords() int {
+	if c.SessionTitleMaxWords == 0 {
+		return DefaultSessionTitleMaxWords
+	}
+	return c.SessionTitleMaxWords
 }
 
 // GetAllSyncedRepos returns the sorted list of repo names that have alwaysSynced enabled.
@@ -687,6 +708,22 @@ func validateSleepMode(cfg *AgencConfig) error {
 		if err := sleep.ValidateWindow(w); err != nil {
 			return stacktrace.Propagate(err, "sleepMode.windows[%d]", i)
 		}
+	}
+	return nil
+}
+
+// ValidateSessionTitleMaxWords returns an error if v is outside the supported
+// range. Zero is allowed and is treated as "use the default" — getter callers
+// resolve zero to DefaultSessionTitleMaxWords.
+func ValidateSessionTitleMaxWords(v int) error {
+	if v == 0 {
+		return nil
+	}
+	if v < MinSessionTitleMaxWords || v > MaxSessionTitleMaxWords {
+		return stacktrace.NewError(
+			"sessionTitleMaxWords must be between %d and %d, got %d",
+			MinSessionTitleMaxWords, MaxSessionTitleMaxWords, v,
+		)
 	}
 	return nil
 }
@@ -1073,6 +1110,10 @@ func ValidateAndPopulateDefaults(cfg *AgencConfig) error {
 				cfg.PaletteCommands[name] = cmdCfg
 			}
 		}
+	}
+
+	if err := ValidateSessionTitleMaxWords(cfg.SessionTitleMaxWords); err != nil {
+		return err
 	}
 
 	return nil

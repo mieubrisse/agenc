@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1743,5 +1744,74 @@ func TestWriteableCopy_NormalizeAtRead(t *testing.T) {
 	}
 	if !rc.AlwaysSynced {
 		t.Error("expected AlwaysSynced coerced to true at config read time")
+	}
+}
+
+func TestSessionTitleMaxWords_DefaultWhenMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDirpath := filepath.Join(tmpDir, ConfigDirname)
+	if err := os.MkdirAll(configDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &AgencConfig{}
+	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+		t.Fatalf("WriteAgencConfig failed: %v", err)
+	}
+
+	got, _, err := ReadAgencConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("ReadAgencConfig failed: %v", err)
+	}
+
+	if v := got.GetSessionTitleMaxWords(); v != DefaultSessionTitleMaxWords {
+		t.Errorf("expected default %d, got %d", DefaultSessionTitleMaxWords, v)
+	}
+}
+
+func TestSessionTitleMaxWords_AcceptsBoundaries(t *testing.T) {
+	for _, v := range []int{3, 15, 50} {
+		t.Run(fmt.Sprintf("value=%d", v), func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configDirpath := filepath.Join(tmpDir, ConfigDirname)
+			if err := os.MkdirAll(configDirpath, 0755); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &AgencConfig{SessionTitleMaxWords: v}
+			if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+				t.Fatalf("WriteAgencConfig failed: %v", err)
+			}
+
+			got, _, err := ReadAgencConfig(tmpDir)
+			if err != nil {
+				t.Fatalf("ReadAgencConfig failed for value %d: %v", v, err)
+			}
+			if got.SessionTitleMaxWords != v {
+				t.Errorf("expected %d, got %d", v, got.SessionTitleMaxWords)
+			}
+		})
+	}
+}
+
+func TestSessionTitleMaxWords_RejectsOutOfRange(t *testing.T) {
+	for _, v := range []int{-1, 1, 2, 51, 1000} {
+		t.Run(fmt.Sprintf("value=%d", v), func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configDirpath := filepath.Join(tmpDir, ConfigDirname)
+			if err := os.MkdirAll(configDirpath, 0755); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &AgencConfig{SessionTitleMaxWords: v}
+			if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
+				t.Fatalf("WriteAgencConfig failed: %v", err)
+			}
+
+			_, _, err := ReadAgencConfig(tmpDir)
+			if err == nil {
+				t.Errorf("expected ReadAgencConfig to reject %d, got nil error", v)
+			}
+		})
 	}
 }
