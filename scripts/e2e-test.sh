@@ -169,6 +169,10 @@ run_test "config set sessionTitleMaxWords rejects non-integer" \
     1 \
     "${agenc_test}" config set sessionTitleMaxWords abc
 
+run_test "config set sessionTitleMaxWords rejects 0 explicitly" \
+    1 \
+    "${agenc_test}" config set sessionTitleMaxWords 0
+
 run_test "config set sessionTitleMaxWords reset" \
     0 \
     "${agenc_test}" config set sessionTitleMaxWords 15

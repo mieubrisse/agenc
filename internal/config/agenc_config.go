@@ -713,12 +713,11 @@ func validateSleepMode(cfg *AgencConfig) error {
 }
 
 // ValidateSessionTitleMaxWords returns an error if v is outside the supported
-// range. Zero is allowed and is treated as "use the default" — getter callers
-// resolve zero to DefaultSessionTitleMaxWords.
+// range [MinSessionTitleMaxWords, MaxSessionTitleMaxWords]. Zero is rejected
+// as out-of-range — the file-load path skips validation when the field is
+// zero (treating it as "key absent from YAML"), but explicit user input via
+// `config set 0` must error rather than silently become the default.
 func ValidateSessionTitleMaxWords(v int) error {
-	if v == 0 {
-		return nil
-	}
 	if v < MinSessionTitleMaxWords || v > MaxSessionTitleMaxWords {
 		return stacktrace.NewError(
 			"sessionTitleMaxWords must be between %d and %d, got %d",
@@ -1112,8 +1111,15 @@ func ValidateAndPopulateDefaults(cfg *AgencConfig) error {
 		}
 	}
 
-	if err := ValidateSessionTitleMaxWords(cfg.SessionTitleMaxWords); err != nil {
-		return err
+	// Zero on the file-load path means "key absent from YAML" (the field is
+	// declared with omitempty, so a missing key and an explicit 0 are
+	// indistinguishable after unmarshal). Skip validation for zero and let
+	// GetSessionTitleMaxWords resolve it to the default. CLI `config set`
+	// validates the user's input directly and rejects 0 there.
+	if cfg.SessionTitleMaxWords != 0 {
+		if err := ValidateSessionTitleMaxWords(cfg.SessionTitleMaxWords); err != nil {
+			return err
+		}
 	}
 
 	return nil

@@ -1815,3 +1815,35 @@ func TestSessionTitleMaxWords_RejectsOutOfRange(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateSessionTitleMaxWords exercises the validator directly. Zero is
+// rejected here even though the file-load path tolerates zero (because zero
+// after YAML unmarshal is indistinguishable from a missing key). The CLI
+// `config set` path calls this validator on user input and must reject zero.
+func TestValidateSessionTitleMaxWords(t *testing.T) {
+	tests := []struct {
+		v       int
+		wantErr bool
+	}{
+		{v: -1, wantErr: true},
+		{v: 0, wantErr: true},
+		{v: 1, wantErr: true},
+		{v: 2, wantErr: true},
+		{v: 3, wantErr: false},
+		{v: 15, wantErr: false},
+		{v: 50, wantErr: false},
+		{v: 51, wantErr: true},
+		{v: 1000, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("v=%d", tt.v), func(t *testing.T) {
+			err := ValidateSessionTitleMaxWords(tt.v)
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for v=%d, got nil", tt.v)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("expected no error for v=%d, got %v", tt.v, err)
+			}
+		})
+	}
+}

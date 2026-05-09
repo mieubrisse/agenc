@@ -91,7 +91,7 @@ Edge Case Discovery
 | # | Case | Severity | Handling |
 |---|------|----------|----------|
 | 1.1 | Key missing from `config.yml` | Low | Default to 15 in `ValidateAndPopulateDefaults()`. |
-| 1.2 | Value = 0 or negative | High | Reject in validation. |
+| 1.2 | Value = 0 or negative | High | Validator strictly rejects. File-load path skips validation when the field is zero, since zero after YAML unmarshal is indistinguishable from "key absent" (the field is declared with `omitempty`). The CLI `config set` path calls the validator on the user's input directly, so `agenc config set sessionTitleMaxWords 0` errors cleanly rather than silently falling back to the default. |
 | 1.3 | Value > 50 | Medium | Reject in validation. |
 | 1.4 | Value = 1 or 2 (below the prompt's hardcoded lower bound of 3) | High | Validation floor set at 3 — keeps the field-level invariant aligned with the prompt's literal `"3-"` prefix. |
 | 1.5 | Value = 3 (renders `"3-3 word title"`) | Low | Awkward but valid. Allow. |
