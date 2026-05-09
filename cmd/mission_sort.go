@@ -6,10 +6,10 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 )
 
-// sortMissionsForPicker sorts missions in-place using three tiers:
+// sortMissionsForPicker sorts missions in-place using two tiers:
 //  1. Missions with claude_state "needs_attention" float to the top
-//  2. Sorted by last_user_prompt_at DESC (nil sorts after non-nil)
-//  3. Fallback to COALESCE(last_heartbeat, created_at) DESC
+//  2. Sorted by COALESCE(last_user_prompt_at, created_at) DESC so brand-new
+//     unprompted missions interleave with prompted ones by user-interaction time
 func sortMissionsForPicker(missions []*database.Mission) {
 	sort.SliceStable(missions, func(i, j int) bool {
 		mi, mj := missions[i], missions[j]
@@ -21,24 +21,14 @@ func sortMissionsForPicker(missions []*database.Mission) {
 			return iAttn
 		}
 
-		// Tier 2: sort by last_user_prompt_at DESC (non-nil before nil)
-		iPrompt := mi.LastUserPromptAt
-		jPrompt := mj.LastUserPromptAt
-		if (iPrompt != nil) != (jPrompt != nil) {
-			return iPrompt != nil
-		}
-		if iPrompt != nil && jPrompt != nil && !iPrompt.Equal(*jPrompt) {
-			return iPrompt.After(*jPrompt)
-		}
-
-		// Tier 3: fallback to coalesce(last_heartbeat, created_at) DESC
+		// Tier 2: COALESCE(last_user_prompt_at, created_at) DESC
 		iTime := mi.CreatedAt
-		if mi.LastHeartbeat != nil {
-			iTime = *mi.LastHeartbeat
+		if mi.LastUserPromptAt != nil {
+			iTime = *mi.LastUserPromptAt
 		}
 		jTime := mj.CreatedAt
-		if mj.LastHeartbeat != nil {
-			jTime = *mj.LastHeartbeat
+		if mj.LastUserPromptAt != nil {
+			jTime = *mj.LastUserPromptAt
 		}
 		return iTime.After(jTime)
 	})

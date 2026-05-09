@@ -40,20 +40,20 @@ func TestSortMissionsForPicker(t *testing.T) {
 			wantIDs: []string{"new", "old"},
 		},
 		{
-			name: "missions with prompt history sort before those without",
+			name: "fresh unprompted mission outranks older prompted mission",
 			missions: []*database.Mission{
-				{ShortID: "noprompt", ClaudeState: busy, LastHeartbeat: timePtr(now)},
-				{ShortID: "prompted", ClaudeState: busy, LastUserPromptAt: timePtr(now.Add(-1 * time.Hour))},
+				{ShortID: "older_prompted", ClaudeState: busy, CreatedAt: now.Add(-3 * time.Hour), LastUserPromptAt: timePtr(now.Add(-1 * time.Hour))},
+				{ShortID: "fresh_unprompted", ClaudeState: busy, CreatedAt: now, LastUserPromptAt: nil},
 			},
-			wantIDs: []string{"prompted", "noprompt"},
+			wantIDs: []string{"fresh_unprompted", "older_prompted"},
 		},
 		{
-			name: "fallback to heartbeat then created_at",
+			name: "unprompted missions order by created_at DESC",
 			missions: []*database.Mission{
-				{ShortID: "created", CreatedAt: now.Add(-2 * time.Hour)},
-				{ShortID: "heartbeat", LastHeartbeat: timePtr(now.Add(-1 * time.Hour))},
+				{ShortID: "older", CreatedAt: now.Add(-2 * time.Hour)},
+				{ShortID: "newer", CreatedAt: now.Add(-1 * time.Hour)},
 			},
-			wantIDs: []string{"heartbeat", "created"},
+			wantIDs: []string{"newer", "older"},
 		},
 		{
 			name: "multiple needs_attention sorted by last_user_prompt_at",

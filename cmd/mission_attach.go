@@ -119,9 +119,9 @@ func runMissionSearchPicker(client *server.Client) (string, error) {
 
 	// Format initial input matching the search-fzf output format
 	var buf bytes.Buffer
-	tbl := tableprinter.NewTable("ID", "SESSION", "REPO", "MATCH").WithWriter(&buf)
+	tbl := tableprinter.NewTable("LAST PROMPT", "ID", "SESSION", "REPO", "MATCH").WithWriter(&buf)
 	for _, e := range entries {
-		tbl.AddRow(e.ShortID, e.Session, e.Repo, "")
+		tbl.AddRow(e.LastPrompt, e.ShortID, e.Session, e.Repo, "")
 	}
 	tbl.Print()
 
@@ -142,7 +142,7 @@ func runMissionSearchPicker(client *server.Client) (string, error) {
 
 	return runFzfSearchPicker(FzfSearchPickerConfig{
 		Prompt:        "Search missions: ",
-		Headers:       []string{"ID", "SESSION", "REPO", "MATCH"},
+		Headers:       []string{"LAST PROMPT", "ID", "SESSION", "REPO", "MATCH"},
 		ReloadCommand: reloadCmd,
 		InitialInput:  initialInput.String(),
 	})

@@ -363,6 +363,26 @@ else
 fi
 
 echo ""
+echo "--- LAST PROMPT column (requires server) ---"
+
+# mission ls renders the new column header
+run_test_output_contains "mission ls header shows LAST PROMPT" \
+    "LAST PROMPT" \
+    "${agenc_test}" mission ls
+
+# mission ls does NOT render the old column header
+if "${agenc_test}" mission ls 2>&1 | grep -q "LAST ACTIVE"; then
+    total=$((total + 1))
+    printf "  %-50s " "mission ls header no longer LAST ACTIVE..."
+    echo "FAIL (still contains LAST ACTIVE)"
+    failed=$((failed + 1))
+else
+    total=$((total + 1))
+    printf "  %-50s " "mission ls header no longer LAST ACTIVE..."
+    echo "PASS"
+fi
+
+echo ""
 echo "--- Notifications (requires server) ---"
 
 # Note: tests don't assume an empty starting state — they verify the create →

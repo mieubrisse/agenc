@@ -22,7 +22,7 @@ import (
 // Fields mirror the mission ls output to maintain visual consistency across commands.
 type missionPickerEntry struct {
 	MissionID  string
-	LastActive string // formatted timestamp
+	LastPrompt string // formatted timestamp from last_user_prompt_at; "--" when nil
 	ShortID    string
 	Status     string // colorized status (RUNNING/STOPPED/ARCHIVED)
 	Session    string // session name (truncated)
@@ -65,7 +65,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 		repo := formatRepoDisplay(m.GitRepo, m.IsAdjutant, cfg)
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,
-			LastActive: formatLastActive(m.LastHeartbeat, m.CreatedAt),
+			LastPrompt: formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
 			ShortID:    m.ShortID,
 			Status:     colorizeStatus(status),
 			Session:    truncatePrompt(sessionName, sessionMaxLen),

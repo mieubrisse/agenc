@@ -36,7 +36,7 @@ func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY COALESCE(last_heartbeat, created_at) DESC"
+	query += " ORDER BY COALESCE(last_user_prompt_at, created_at) DESC, created_at DESC"
 
 	return query, args
 }

@@ -81,9 +81,9 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	var tbl table.Table
 	if lsAllFlag {
-		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "PANE", "SESSION", "REPO")
+		tbl = tableprinter.NewTable("LAST PROMPT", "ID", "STATUS", "PANE", "SESSION", "REPO")
 	} else {
-		tbl = tableprinter.NewTable("LAST ACTIVE", "ID", "STATUS", "SESSION", "REPO")
+		tbl = tableprinter.NewTable("LAST PROMPT", "ID", "STATUS", "SESSION", "REPO")
 	}
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
@@ -96,7 +96,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				pane = *m.TmuxPane
 			}
 			tbl.AddRow(
-				formatLastActive(m.LastHeartbeat, m.CreatedAt),
+				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
 				m.ShortID,
 				colorizeStatus(status),
 				pane,
@@ -105,7 +105,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			)
 		} else {
 			tbl.AddRow(
-				formatLastActive(m.LastHeartbeat, m.CreatedAt),
+				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
 				m.ShortID,
 				colorizeStatus(status),
 				truncatePrompt(sessionName, defaultPromptMaxLen),
@@ -177,13 +177,15 @@ func formatRepoDisplay(repoName string, isAdjutant bool, cfg *config.AgencConfig
 	return displayName
 }
 
-// formatLastActive returns a human-readable timestamp of the mission's last
-// activity. Uses the newest of: LastHeartbeat (wrapper liveness) or CreatedAt.
-func formatLastActive(lastHeartbeat *time.Time, createdAt time.Time) string {
-	if lastHeartbeat != nil {
-		return lastHeartbeat.Local().Format("2006-01-02 15:04")
+// formatLastPrompt returns a human-readable timestamp of the user's last
+// prompt for this mission. Returns "--" when no prompt has been recorded.
+// The createdAt parameter is unused for display; it exists for symmetry with
+// the sort-side COALESCE(last_user_prompt_at, created_at) key.
+func formatLastPrompt(lastUserPromptAt *time.Time, _ time.Time) string {
+	if lastUserPromptAt == nil {
+		return "--"
 	}
-	return createdAt.Local().Format("2006-01-02 15:04")
+	return lastUserPromptAt.Local().Format("2006-01-02 15:04")
 }
 
 // colorizeStatus wraps a status string with ANSI color codes.

@@ -18,6 +18,8 @@ type SearchMissionsResponse struct {
 	Prompt               string  `json:"prompt"`
 	ResolvedSessionTitle string  `json:"resolved_session_title"`
 	LastHeartbeat        *string `json:"last_heartbeat"`
+	LastUserPromptAt     *string `json:"last_user_prompt_at"`
+	CreatedAt            string  `json:"created_at"`
 }
 
 // handleSearchMissions handles GET /missions/search?q=<query>&limit=<n>.
@@ -56,12 +58,17 @@ func (s *Server) handleSearchMissions(w http.ResponseWriter, r *http.Request) er
 			resp.GitRepo = mission.GitRepo
 			resp.Status = mission.Status
 			resp.Prompt = mission.Prompt
+			resp.CreatedAt = mission.CreatedAt.Format(time.RFC3339)
 			if activeSession, sessionErr := s.db.GetActiveSession(sr.MissionID); sessionErr == nil {
 				resp.ResolvedSessionTitle = resolveSessionTitle(activeSession)
 			}
 			if mission.LastHeartbeat != nil {
 				ts := mission.LastHeartbeat.Format(time.RFC3339)
 				resp.LastHeartbeat = &ts
+			}
+			if mission.LastUserPromptAt != nil {
+				ts := mission.LastUserPromptAt.Format(time.RFC3339)
+				resp.LastUserPromptAt = &ts
 			}
 		}
 
