@@ -82,10 +82,10 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 		},
 		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.LastPrompt, e.ShortID, e.Status, e.Session, e.Repo}
+			return []string{e.ShortID, e.LastPrompt, e.Status, e.Session, e.Repo}
 		},
 		FzfPrompt:         "Select mission to print session: ",
-		FzfHeaders:        []string{"LAST PROMPT", "ID", "STATUS", "SESSION", "REPO"},
+		FzfHeaders:        []string{"ID", "LAST PROMPT", "STATUS", "SESSION", "REPO"},
 		MultiSelect:       false,
 		NotCanonicalError: "not a valid mission ID",
 	})

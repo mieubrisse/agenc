@@ -81,9 +81,9 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 
 	var tbl table.Table
 	if lsAllFlag {
-		tbl = tableprinter.NewTable("LAST PROMPT", "ID", "STATUS", "PANE", "SESSION", "REPO")
+		tbl = tableprinter.NewTable("ID", "LAST PROMPT", "STATUS", "PANE", "SESSION", "REPO")
 	} else {
-		tbl = tableprinter.NewTable("LAST PROMPT", "ID", "STATUS", "SESSION", "REPO")
+		tbl = tableprinter.NewTable("ID", "LAST PROMPT", "STATUS", "SESSION", "REPO")
 	}
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
@@ -96,8 +96,8 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 				pane = *m.TmuxPane
 			}
 			tbl.AddRow(
-				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
 				m.ShortID,
+				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
 				colorizeStatus(status),
 				pane,
 				truncatePrompt(sessionName, defaultPromptMaxLen),
@@ -105,8 +105,8 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			)
 		} else {
 			tbl.AddRow(
-				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
 				m.ShortID,
+				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
 				colorizeStatus(status),
 				truncatePrompt(sessionName, defaultPromptMaxLen),
 				repo,

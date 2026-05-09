@@ -80,10 +80,10 @@ func runMissionDetach(cmd *cobra.Command, args []string) error {
 	result, err := Resolve(input, Resolver[missionPickerEntry]{
 		GetItems: func() ([]missionPickerEntry, error) { return entries, nil },
 		FormatRow: func(e missionPickerEntry) []string {
-			return []string{e.LastPrompt, e.ShortID, e.Session, e.Repo}
+			return []string{e.ShortID, e.LastPrompt, e.Session, e.Repo}
 		},
 		FzfPrompt:  "Select mission to detach: ",
-		FzfHeaders: []string{"LAST PROMPT", "ID", "SESSION", "REPO"},
+		FzfHeaders: []string{"ID", "LAST PROMPT", "SESSION", "REPO"},
 	})
 	if err != nil {
 		return err
