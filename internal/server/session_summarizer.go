@@ -118,10 +118,7 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 		truncated = truncated[:summarizerMaxPromptLen-3] + "..."
 	}
 
-	systemPrompt := "You are a title generator. You will receive the text of a user's request to an AI coding assistant. " +
-		"Your job: output a 3-15 word terminal window title summarizing what the user is working on. " +
-		"Rules: output ONLY the title. No quotes. No punctuation at the end. No markdown. No explanation. " +
-		"Do NOT answer the user's request. Do NOT ask questions. Do NOT offer help. Just the title."
+	systemPrompt := buildSummarizerSystemPrompt(15)
 
 	claudeBinary, err := exec.LookPath("claude")
 	if err != nil {
@@ -183,4 +180,18 @@ func generateSessionSummary(ctx context.Context, agencDirpath string, firstUserM
 func (s *Server) initSessionSummarizer() {
 	s.sessionSummaryCh = make(chan summaryRequest, summarizerChannelSize)
 	s.summarizedSessions = &sync.Map{}
+}
+
+// buildSummarizerSystemPrompt renders the system prompt used by the auto-
+// summarizer. The "3-N word" range is the only knob; all other instructions
+// are fixed. The lower bound of 3 is intentionally hardcoded — it matches the
+// floor enforced by ValidateSessionTitleMaxWords.
+func buildSummarizerSystemPrompt(maxWords int) string {
+	return fmt.Sprintf(
+		"You are a title generator. You will receive the text of a user's request to an AI coding assistant. "+
+			"Your job: output a 3-%d word terminal window title summarizing what the user is working on. "+
+			"Rules: output ONLY the title. No quotes. No punctuation at the end. No markdown. No explanation. "+
+			"Do NOT answer the user's request. Do NOT ask questions. Do NOT offer help. Just the title.",
+		maxWords,
+	)
 }
