@@ -388,6 +388,24 @@ echo "--- Notifications (requires server) ---"
 # Note: tests don't assume an empty starting state — they verify the create →
 # find → read flow is self-consistent for the notification they create.
 
+# `notifications manage` is the interactive picker. When run without a TTY it
+# either short-circuits with the empty-list message (zero notifications) or
+# refuses with the interactive-terminal error (any notifications exist). Both
+# exit 0/1 cleanly — verify the command is wired up and doesn't panic.
+run_test_no_crash "notifications manage runs without crashing in non-TTY" \
+    "${agenc_test}" notifications manage
+
+# Cron-source missions auto-create a cron.triggered notification. Use the
+# hidden --source flags on mission new (the same flags the launchd plist
+# passes) to drive handleCreateMission's cron branch end-to-end.
+"${agenc_test}" mission new --blank --headless \
+    --source cron --source-id e2e-cron-id \
+    --source-metadata '{"cron_name":"e2e-cron-name"}' >/dev/null 2>&1 || true
+
+run_test_output_contains "cron-source mission creates cron.triggered notification" \
+    "e2e-cron-name" \
+    "${agenc_test}" notifications ls --kind=cron.triggered --all
+
 # Create
 notif_create_output=$("${agenc_test}" notifications create --kind=e2e.test --title="E2E Hello" --body="# Body" 2>&1) || true
 notif_short_id=$(echo "${notif_create_output}" | grep -oE "'[0-9a-f]{8}'" | head -1 | tr -d "'")
