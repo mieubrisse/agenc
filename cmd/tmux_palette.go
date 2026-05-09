@@ -316,7 +316,7 @@ func buildPaletteHeader() string {
 	if count == 1 {
 		noun = "notification"
 	}
-	return fmt.Sprintf("\x1b[33m⚠ %d unread %s — pick \"Show Notifications\" to review\x1b[0m", count, noun)
+	return fmt.Sprintf("\x1b[33m⚠ %d unread %s — pick \"Notification Center\" to review\x1b[0m", count, noun)
 }
 
 // stripVariationSelectors removes Unicode variation selectors (U+FE0E and

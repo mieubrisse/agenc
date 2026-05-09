@@ -90,9 +90,9 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     StringPtr("agenc mission new --adjutant"),
 	},
 	"showNotifications": {
-		Title:       StringPtr("🔔  Show Notifications"),
-		Description: StringPtr("Review unread AgenC notifications via Adjutant"),
-		Command:     StringPtr(`agenc mission new --adjutant --prompt "The user opened the Show Notifications palette entry. Run 'agenc notifications ls', read the unread notifications, summarize them concisely, and ask the user how they'd like to proceed. For any writeable_copy.* notifications, follow the guidance in the Notifications section of your prompt to help the user resolve them."`),
+		Title:       StringPtr("🔔  Notification Center"),
+		Description: StringPtr("Browse notifications and ENTER to attach to the linked mission"),
+		Command:     StringPtr(`tmux display-popup -E -w 85% -h 80% "agenc notifications manage"`),
 	},
 	"newMission": {
 		Title:          StringPtr("🚀  New Mission"),
