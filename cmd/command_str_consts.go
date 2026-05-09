@@ -31,6 +31,7 @@ const (
 	showCmdStr          = "show"
 	readCmdStr          = "read"
 	createCmdStr        = "create"
+	manageCmdStr        = "manage"
 
 	writeableCopyCmdStr = "writeable-copy"
 	unsetCmdStr         = "unset"

@@ -20,6 +20,7 @@ and either remain unread or get marked as read. They are never deleted.
 * [agenc](agenc.md)	 - The AgenC — agent mission management CLI
 * [agenc notifications create](agenc_notifications_create.md)	 - Create a new notification (typically for agents)
 * [agenc notifications ls](agenc_notifications_ls.md)	 - List notifications (default: unread only)
+* [agenc notifications manage](agenc_notifications_manage.md)	 - Interactive notification picker — ENTER attaches to the linked mission
 * [agenc notifications read](agenc_notifications_read.md)	 - Mark a notification as read
 * [agenc notifications show](agenc_notifications_show.md)	 - Print the full body of a notification
 
