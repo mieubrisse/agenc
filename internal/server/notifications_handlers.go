@@ -19,16 +19,18 @@ const notificationBodyMaxBytes = 256 * 1024
 type CreateNotificationRequest struct {
 	Kind         string `json:"kind"`
 	SourceRepo   string `json:"source_repo,omitempty"`
+	MissionID    string `json:"mission_id,omitempty"`
 	Title        string `json:"title"`
 	BodyMarkdown string `json:"body_markdown"`
 }
 
 // NotificationResponse is the JSON shape returned for notification reads.
-// Times are RFC3339 strings; ReadAt is omitted when null.
+// Times are RFC3339 strings; ReadAt and MissionID are omitted when null.
 type NotificationResponse struct {
 	ID           string `json:"id"`
 	Kind         string `json:"kind"`
 	SourceRepo   string `json:"source_repo,omitempty"`
+	MissionID    string `json:"mission_id,omitempty"`
 	Title        string `json:"title"`
 	BodyMarkdown string `json:"body_markdown"`
 	CreatedAt    string `json:"created_at"`
@@ -43,6 +45,9 @@ func toNotificationResponse(n *database.Notification) NotificationResponse {
 		Title:        n.Title,
 		BodyMarkdown: n.BodyMarkdown,
 		CreatedAt:    n.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+	}
+	if n.MissionID != nil {
+		resp.MissionID = *n.MissionID
 	}
 	if n.ReadAt != nil {
 		resp.ReadAt = n.ReadAt.UTC().Format("2006-01-02T15:04:05Z07:00")
@@ -73,6 +78,10 @@ func (s *Server) handleCreateNotification(w http.ResponseWriter, r *http.Request
 		SourceRepo:   req.SourceRepo,
 		Title:        req.Title,
 		BodyMarkdown: body,
+	}
+	if req.MissionID != "" {
+		missionID := req.MissionID
+		n.MissionID = &missionID
 	}
 	if err := s.db.CreateNotification(n); err != nil {
 		s.logger.Printf("CreateNotification failed: %v", err)
