@@ -14,7 +14,7 @@ Scope
 
 In scope:
 
-- New global field on `AgencConfig`: `SessionTitleMaxWords int` (YAML: `session_title_max_words`).
+- New global field on `AgencConfig`: `SessionTitleMaxWords int` (YAML / user-facing key: `sessionTitleMaxWords`, matching existing camelCase convention).
 - Wiring through `config get` / `config set` per the `/config-key-checklist` skill.
 - Refactoring the inline system-prompt string into a small named helper so the rendering can be unit-tested.
 - Validation at both the file-load path and the `config set` path.
@@ -63,7 +63,7 @@ The summarizer reads the value once at the top of `generateSessionSummary()` via
 | Scope | Global only | No use case for per-mission yet; can add later if needed. |
 | Default | 15 | Preserves current behavior. |
 | Validation range | `3 ≤ value ≤ 50` | Floor of 3 matches the prompt's hardcoded lower bound (an invariant — see edge case 1.4). Cap of 50 prevents nonsense. |
-| Name | `session_title_max_words` (YAML), `SessionTitleMaxWords` (Go) | "Session title" is the user-facing concept (the tmux pane title). "Summarizer" is an implementation detail. |
+| Name | `sessionTitleMaxWords` (YAML, user-facing key), `SessionTitleMaxWords` (Go) | "Session title" is the user-facing concept (the tmux pane title). "Summarizer" is an implementation detail. CamelCase matches existing keys (`paletteTmuxKeybinding`, `defaultModel`, `claudeArgs`). |
 | Prompt rendering | `fmt.Sprintf("...output a 3-%d word terminal window title...", maxWords)` inside a new helper `buildSummarizerSystemPrompt(maxWords int) string` | The helper makes unit testing the rendering possible without booting the server. |
 
 ### Components touched
@@ -71,10 +71,10 @@ The summarizer reads the value once at the top of `generateSessionSummary()` via
 | # | File | Change |
 |---|------|--------|
 | 1 | `internal/config/agenc_config.go` | Add `SessionTitleMaxWords int` field; add `GetSessionTitleMaxWords()` getter; add default + range validation in `ValidateAndPopulateDefaults()`; extract a small `validateSessionTitleMaxWords(int) error` helper so file-load and `config set` share the same range check. |
-| 2 | `internal/server/session_summarizer.go` | Extract the inline system prompt at lines 121-124 into a new package-private helper `buildSummarizerSystemPrompt(maxWords int) string`. Call it from `generateSessionSummary()` with `s.getConfig().SessionTitleMaxWords`. |
+| 2 | `internal/server/session_summarizer.go` | Extract the inline system prompt at lines 121-124 into a new package-private helper `buildSummarizerSystemPrompt(maxWords int) string`. Add `maxWords int` parameter to `generateSessionSummary()`. The caller `handleSummaryRequest` (a method on `*Server`) reads `s.getConfig().GetSessionTitleMaxWords()` and passes it through. |
 | 3 | `cmd/config_get.go` | Register the key in `supportedConfigKeys`; add a switch arm in `getConfigValue()` returning the resolved value via the getter; update help text. |
 | 4 | `cmd/config_set.go` | Add a switch arm: `strconv.Atoi`, then call the shared validator from (1), then persist. Update help text. |
-| 5 | `README.md` | Add a commented example to the `config.yml` block. |
+| 5 | `docs/configuration.md` | Add a commented example to the global config.yml block (between `paletteTmuxKeybinding` and `tmuxWindowTitle`). The README itself has no inline example block — it points at `docs/configuration.md`. |
 | 6 | Tests | See Phase 2. |
 
 ### Components NOT touched
