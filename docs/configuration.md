@@ -75,6 +75,10 @@ paletteCommands:
 # paletteTmuxKeybinding: "-T agenc p"    # still in agenc table, different key
 # paletteTmuxKeybinding: "C-k"           # bind directly on prefix
 
+# Max words in auto-generated session titles (default: 15; range: 3-50).
+# Lower bound stays at 3; this configures only the upper bound.
+# sessionTitleMaxWords: 10
+
 # Tmux window tab coloring — visual feedback for Claude state
 # tmuxWindowTitle:
 #   busyBackgroundColor: "colour018"        # background when Claude is working (default: colour018; empty = disable)
