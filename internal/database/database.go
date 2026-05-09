@@ -46,6 +46,7 @@ func getMigrationSteps() []migrationStep {
 		{migrateSearchIndex, "create FTS5 search index and session processing columns"},
 		{migrateCreateNotificationsTable, "create notifications table"},
 		{migrateCreateWriteableCopyPausesTable, "create writeable_copy_pauses table"},
+		{migrateAddNotificationsMissionID, "add mission_id column to notifications"},
 	}
 }
 

@@ -14,6 +14,7 @@ type Notification struct {
 	ID           string
 	Kind         string
 	SourceRepo   string
+	MissionID    *string // attach target — nil for notifications without a linked mission
 	Title        string
 	BodyMarkdown string
 	CreatedAt    time.Time
@@ -38,9 +39,13 @@ func (db *DB) CreateNotification(n *Notification) error {
 	if n.SourceRepo != "" {
 		sourceRepo = sql.NullString{String: n.SourceRepo, Valid: true}
 	}
+	var missionID sql.NullString
+	if n.MissionID != nil && *n.MissionID != "" {
+		missionID = sql.NullString{String: *n.MissionID, Valid: true}
+	}
 	_, err := db.conn.Exec(
-		"INSERT INTO notifications (id, kind, source_repo, title, body_markdown, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
-		n.ID, n.Kind, sourceRepo, n.Title, n.BodyMarkdown, n.CreatedAt.UTC().Format(time.RFC3339),
+		"INSERT INTO notifications (id, kind, source_repo, mission_id, title, body_markdown, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+		n.ID, n.Kind, sourceRepo, missionID, n.Title, n.BodyMarkdown, n.CreatedAt.UTC().Format(time.RFC3339),
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to insert notification with id '%v' kind '%v'", n.ID, n.Kind)
@@ -52,7 +57,7 @@ func (db *DB) CreateNotification(n *Notification) error {
 // if not found.
 func (db *DB) GetNotification(id string) (*Notification, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, kind, source_repo, title, body_markdown, created_at, read_at FROM notifications WHERE id = ?",
+		"SELECT id, kind, source_repo, mission_id, title, body_markdown, created_at, read_at FROM notifications WHERE id = ?",
 		id,
 	)
 	return scanNotification(row)

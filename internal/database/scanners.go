@@ -95,13 +95,13 @@ func scanNotifications(rows *sql.Rows) ([]*Notification, error) {
 // scanNotification scans a single notification row from a QueryRow result.
 func scanNotification(row *sql.Row) (*Notification, error) {
 	var n Notification
-	var sourceRepo sql.NullString
+	var sourceRepo, missionID sql.NullString
 	var createdAt string
 	var readAt sql.NullString
-	if err := row.Scan(&n.ID, &n.Kind, &sourceRepo, &n.Title, &n.BodyMarkdown, &createdAt, &readAt); err != nil {
+	if err := row.Scan(&n.ID, &n.Kind, &sourceRepo, &missionID, &n.Title, &n.BodyMarkdown, &createdAt, &readAt); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to scan notification row")
 	}
-	if err := populateNotificationTimes(&n, sourceRepo, createdAt, readAt); err != nil {
+	if err := populateNotificationFields(&n, sourceRepo, missionID, createdAt, readAt); err != nil {
 		return nil, err
 	}
 	return &n, nil
@@ -112,21 +112,25 @@ func scanNotification(row *sql.Row) (*Notification, error) {
 // a common Scan interface in the standard library.
 func scanNotificationFromRows(rows *sql.Rows) (*Notification, error) {
 	var n Notification
-	var sourceRepo sql.NullString
+	var sourceRepo, missionID sql.NullString
 	var createdAt string
 	var readAt sql.NullString
-	if err := rows.Scan(&n.ID, &n.Kind, &sourceRepo, &n.Title, &n.BodyMarkdown, &createdAt, &readAt); err != nil {
+	if err := rows.Scan(&n.ID, &n.Kind, &sourceRepo, &missionID, &n.Title, &n.BodyMarkdown, &createdAt, &readAt); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to scan notification row")
 	}
-	if err := populateNotificationTimes(&n, sourceRepo, createdAt, readAt); err != nil {
+	if err := populateNotificationFields(&n, sourceRepo, missionID, createdAt, readAt); err != nil {
 		return nil, err
 	}
 	return &n, nil
 }
 
-func populateNotificationTimes(n *Notification, sourceRepo sql.NullString, createdAt string, readAt sql.NullString) error {
+func populateNotificationFields(n *Notification, sourceRepo, missionID sql.NullString, createdAt string, readAt sql.NullString) error {
 	if sourceRepo.Valid {
 		n.SourceRepo = sourceRepo.String
+	}
+	if missionID.Valid {
+		v := missionID.String
+		n.MissionID = &v
 	}
 	t, err := time.Parse(time.RFC3339, createdAt)
 	if err != nil {

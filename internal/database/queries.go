@@ -45,7 +45,7 @@ func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
 // ListNotifications. Returns the query string and a slice of arguments to be
 // used with db.Query.
 func buildListNotificationsQuery(params ListNotificationsParams) (string, []interface{}) {
-	query := "SELECT id, kind, source_repo, title, body_markdown, created_at, read_at FROM notifications"
+	query := "SELECT id, kind, source_repo, mission_id, title, body_markdown, created_at, read_at FROM notifications"
 
 	var conditions []string
 	var args []interface{}

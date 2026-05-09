@@ -72,6 +72,8 @@ const (
 );`
 	createNotificationsUnreadIndexSQL = `CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at) WHERE read_at IS NULL;`
 
+	addNotificationsMissionIDColumnSQL = `ALTER TABLE notifications ADD COLUMN mission_id TEXT;`
+
 	createWriteableCopyPausesTableSQL = `CREATE TABLE IF NOT EXISTS writeable_copy_pauses (
 	repo_name              TEXT    PRIMARY KEY,
 	paused_at              TEXT    NOT NULL,
@@ -592,6 +594,46 @@ func migrateCreateNotificationsTable(conn *sql.DB) error {
 	}
 	if _, err := conn.Exec(createNotificationsUnreadIndexSQL); err != nil {
 		return stacktrace.Propagate(err, "failed to create notifications unread index")
+	}
+	return nil
+}
+
+// migrateAddNotificationsMissionID idempotently adds the mission_id column to
+// the notifications table. The column is nullable: notifications without an
+// associated mission (e.g. writeable_copy.conflict) leave it NULL, while
+// cron-triggered notifications populate it so the picker can attach to the
+// linked mission on ENTER.
+func migrateAddNotificationsMissionID(conn *sql.DB) error {
+	rows, err := conn.Query("PRAGMA table_info(notifications)")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read notifications table info")
+	}
+	defer rows.Close()
+
+	hasColumn := false
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return stacktrace.Propagate(err, "failed to scan notifications table_info row")
+		}
+		if name == "mission_id" {
+			hasColumn = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return stacktrace.Propagate(err, "error iterating notifications table_info rows")
+	}
+
+	if hasColumn {
+		return nil
+	}
+
+	if _, err := conn.Exec(addNotificationsMissionIDColumnSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to add mission_id column to notifications")
 	}
 	return nil
 }

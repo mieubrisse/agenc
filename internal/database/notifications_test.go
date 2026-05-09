@@ -197,3 +197,52 @@ func TestCountUnreadNotifications(t *testing.T) {
 		t.Errorf("expected 3 unread, got %d", count)
 	}
 }
+
+func TestCreateNotification_WithMissionID(t *testing.T) {
+	db := openTestDB(t)
+
+	missionID := "11111111-2222-3333-4444-555555555555"
+	n := &Notification{
+		ID:           "aaaaaaaa-0000-0000-0000-000000000099",
+		Kind:         "cron.triggered",
+		Title:        "Cron triggered: foo",
+		BodyMarkdown: "body",
+		MissionID:    &missionID,
+	}
+	if err := db.CreateNotification(n); err != nil {
+		t.Fatalf("CreateNotification failed: %v", err)
+	}
+
+	got, err := db.GetNotification(n.ID)
+	if err != nil {
+		t.Fatalf("GetNotification failed: %v", err)
+	}
+	if got.MissionID == nil {
+		t.Fatalf("expected MissionID set, got nil")
+	}
+	if *got.MissionID != missionID {
+		t.Fatalf("MissionID mismatch: want '%v' got '%v'", missionID, *got.MissionID)
+	}
+}
+
+func TestCreateNotification_WithoutMissionID_PersistsNil(t *testing.T) {
+	db := openTestDB(t)
+
+	n := &Notification{
+		ID:           "aaaaaaaa-0000-0000-0000-000000000098",
+		Kind:         "k",
+		Title:        "no mission",
+		BodyMarkdown: "x",
+	}
+	if err := db.CreateNotification(n); err != nil {
+		t.Fatalf("CreateNotification failed: %v", err)
+	}
+
+	got, err := db.GetNotification(n.ID)
+	if err != nil {
+		t.Fatalf("GetNotification failed: %v", err)
+	}
+	if got.MissionID != nil {
+		t.Fatalf("expected nil MissionID, got '%v'", *got.MissionID)
+	}
+}
