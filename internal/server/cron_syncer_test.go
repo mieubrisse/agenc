@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -415,3 +416,92 @@ func TestRemoveOrphanedLaunchdJobs(t *testing.T) {
 type syncerTestLogger struct{}
 
 func (l *syncerTestLogger) Printf(format string, v ...any) {}
+
+// TestBuildCronPlistXML_DefaultNamespaceIncludesHomeUserPath verifies that the
+// generated plist always populates HOME, USER, and PATH in EnvironmentVariables,
+// even for the default-namespace installation. launchd starts processes with a
+// minimal environment, so without these set the agenc binary fails with
+// EX_CONFIG (78) when trying to resolve ~/.agenc/.
+func TestBuildCronPlistXML_DefaultNamespaceIncludesHomeUserPath(t *testing.T) {
+	// Use the default agenc dirpath (no namespace suffix) to exercise the path
+	// that previously left envVars nil.
+	t.Setenv("AGENC_DIRPATH", "")
+	t.Setenv("HOME", "/Users/testuser")
+	t.Setenv("USER", "testuser")
+
+	defaultDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		t.Fatalf("GetAgencDirpath failed: %v", err)
+	}
+	if config.GetNamespaceSuffix(defaultDirpath) != "" {
+		t.Fatalf("test precondition: expected empty namespace suffix for default dirpath, got %q", config.GetNamespaceSuffix(defaultDirpath))
+	}
+
+	mock := newMockManager()
+	syncer := newCronSyncerWithManager(defaultDirpath, mock)
+
+	cronCfg := config.CronConfig{
+		ID:       "test-uuid-env",
+		Schedule: "0 9 * * *",
+		Prompt:   "test",
+	}
+
+	xmlData, err := syncer.buildCronPlistXML("test-job", cronCfg, "agenc-cron.test-uuid-env", "/usr/bin/agenc")
+	if err != nil {
+		t.Fatalf("buildCronPlistXML failed: %v", err)
+	}
+	if xmlData == nil {
+		t.Fatal("expected XML data, got nil")
+	}
+
+	xmlStr := string(xmlData)
+	if !strings.Contains(xmlStr, "<key>EnvironmentVariables</key>") {
+		t.Errorf("expected EnvironmentVariables block in plist XML, got:\n%s", xmlStr)
+	}
+	for _, requiredKey := range []string{"HOME", "USER", "PATH"} {
+		if !strings.Contains(xmlStr, "<key>"+requiredKey+"</key>") {
+			t.Errorf("expected %s in EnvironmentVariables, got:\n%s", requiredKey, xmlStr)
+		}
+	}
+	if !strings.Contains(xmlStr, "<string>/Users/testuser</string>") {
+		t.Errorf("expected HOME value '/Users/testuser' in plist XML, got:\n%s", xmlStr)
+	}
+}
+
+// TestBuildCronPlistXML_NamespacedIncludesAgencDirpath verifies that a
+// non-default namespace still gets AGENC_DIRPATH alongside HOME/USER/PATH.
+func TestBuildCronPlistXML_NamespacedIncludesAgencDirpath(t *testing.T) {
+	t.Setenv("HOME", "/Users/testuser")
+	t.Setenv("USER", "testuser")
+
+	// Use a temp dir as agencDirpath — this is not the default, so it will
+	// produce a non-empty namespace suffix.
+	customDirpath := t.TempDir()
+	if config.GetNamespaceSuffix(customDirpath) == "" {
+		t.Fatalf("test precondition: expected non-empty namespace suffix for custom dirpath %q", customDirpath)
+	}
+
+	mock := newMockManager()
+	syncer := newCronSyncerWithManager(customDirpath, mock)
+
+	cronCfg := config.CronConfig{
+		ID:       "test-uuid-namespaced",
+		Schedule: "0 9 * * *",
+		Prompt:   "test",
+	}
+
+	xmlData, err := syncer.buildCronPlistXML("test-job", cronCfg, "agenc-xxx-cron.test-uuid-namespaced", "/usr/bin/agenc")
+	if err != nil {
+		t.Fatalf("buildCronPlistXML failed: %v", err)
+	}
+
+	xmlStr := string(xmlData)
+	for _, requiredKey := range []string{"HOME", "USER", "PATH", "AGENC_DIRPATH"} {
+		if !strings.Contains(xmlStr, "<key>"+requiredKey+"</key>") {
+			t.Errorf("expected %s in EnvironmentVariables, got:\n%s", requiredKey, xmlStr)
+		}
+	}
+	if !strings.Contains(xmlStr, "<string>"+customDirpath+"</string>") {
+		t.Errorf("expected AGENC_DIRPATH value %q in plist XML, got:\n%s", customDirpath, xmlStr)
+	}
+}

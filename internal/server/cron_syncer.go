@@ -218,13 +218,16 @@ func (s *CronSyncer) buildCronPlistXML(name string, cronCfg config.CronConfig, l
 		programArgs = append(programArgs, "--blank")
 	}
 
-	// When running with a non-default AGENC_DIRPATH, pass it through to the
-	// cron job's environment so it targets the correct installation.
-	var envVars map[string]string
+	// launchd starts processes with a minimal environment (PATH only — no HOME, no USER).
+	// The agenc binary needs HOME to locate ~/.agenc/ (see config.GetAgencDirpath), so
+	// without these set the binary exits with EX_CONFIG (78) before producing any output.
+	envVars := map[string]string{
+		"HOME": os.Getenv("HOME"),
+		"USER": os.Getenv("USER"),
+		"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+	}
 	if config.GetNamespaceSuffix(s.agencDirpath) != "" {
-		envVars = map[string]string{
-			"AGENC_DIRPATH": s.agencDirpath,
-		}
+		envVars["AGENC_DIRPATH"] = s.agencDirpath
 	}
 
 	logFilepath := config.GetCronLogFilepath(s.agencDirpath, cronCfg.ID)
