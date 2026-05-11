@@ -285,9 +285,15 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 
 // CreateMissionRequest is the JSON body for POST /missions.
 type CreateMissionRequest struct {
-	Repo           string `json:"repo"`
-	Prompt         string `json:"prompt"`
-	CallingPaneID  string `json:"calling_pane_id"`
+	Repo   string `json:"repo"`
+	Prompt string `json:"prompt"`
+	// TmuxSession is the name of the user's currently-attached tmux session.
+	// If non-empty, the new mission's pool window is linked into it. Empty
+	// means "no session link" — the mission runs headless in the pool. The
+	// CLI sends this directly rather than a pane ID for consistency with
+	// attach/detach (see "Calling pane and session resolution" in
+	// docs/system-architecture.md).
+	TmuxSession    string `json:"tmux_session"`
 	Headless       bool   `json:"headless"`
 	Adjutant       bool   `json:"adjutant"`
 	Source         string `json:"source"`
@@ -498,8 +504,8 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 }
 
 // spawnWrapper launches the wrapper process for a mission.
-// All missions run in a pool window. If CallingPaneID is provided,
-// the server resolves the caller's tmux session and links the pool window into it.
+// All missions run in a pool window. If TmuxSession is provided, the pool
+// window is linked into that session; if empty, the mission runs headless.
 func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMissionRequest) error {
 	// Build the wrapper command for the pool window.
 	// --run-wrapper tells the resume command to run the wrapper directly
@@ -520,21 +526,13 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		s.logger.Printf("Warning: failed to store pane ID for mission %s: %v", missionRecord.ShortID, err)
 	}
 
-	// Resolve the caller's tmux session from their pane ID. The CLI sends
-	// $TMUX_PANE instead of the session name so it doesn't need to talk to
-	// the tmux socket (which may be blocked by a sandbox).
-	tmuxSession := ""
-	if req.CallingPaneID != "" {
-		tmuxSession = getSessionForPane(req.CallingPaneID, s.getPoolSessionName())
-	}
-
-	if tmuxSession != "" {
-		if err := linkPoolWindowByPane(paneID, tmuxSession); err != nil {
+	if req.TmuxSession != "" {
+		if err := linkPoolWindowByPane(paneID, req.TmuxSession); err != nil {
 			s.destroyPoolWindow(paneID)
 			return fmt.Errorf("failed to link pool window: %w", err)
 		}
 		if !req.NoFocus {
-			focusPaneInSession(paneID, tmuxSession)
+			focusPaneInSession(paneID, req.TmuxSession)
 		}
 	}
 

@@ -565,12 +565,12 @@ Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — n
 
 ### Calling pane and session resolution
 
-CLI commands that create, attach, or detach missions need to tell the server two things about the invocation: which tmux pane the user invoked from (the "calling pane") and which tmux session the user is currently attached to (the "calling session"). These are two distinct concepts and require independent resolution:
+CLI commands that create, attach, or detach missions need to tell the server two things about the invocation: which tmux pane the user invoked from (the "calling pane") and which tmux session the user is currently attached to (the "calling session"). These are two distinct concepts and serve different purposes:
 
-- **Calling pane ID** identifies the underlying pane the user pressed a key in. It is used for resolving the focused mission UUID (`agenc tmux resolve-mission`) and for the create-mission flow where the pane is the source for session inference.
+- **Calling pane ID** identifies the underlying pane the user pressed a key in. It is used by `agenc tmux resolve-mission` to look up which mission owns the focused pane (so `AGENC_CALLING_MISSION_UUID` can be exported into mission-scoped commands).
 - **Calling session name** identifies the session the user is *attached to* via their tmux client. This is the authoritative answer for "where should I link/unlink the mission window?" — pane IDs are not authoritative here, because a mission's window can be linked into multiple sessions simultaneously, making pane-ID-based session resolution ambiguous.
 
-For attach and detach, the CLI sends `tmux_session` in the request body and the server uses it directly. For create-mission, the server still resolves the session from the pane via `getSessionForPane()` (`internal/server/pool.go`) because there is no existing mission window to disambiguate. The CLI never queries the tmux server in sandboxed contexts — it forwards env-var values that tmux populates at key-press time.
+All three endpoints (create, attach, detach) send `tmux_session` in the request body and the server uses it directly — pane-ID-based session inference is no longer used for any session-linking decision. The CLI never queries the tmux server in sandboxed contexts; it forwards env-var values that tmux populates at key-press time.
 
 There are three execution contexts that reach these server endpoints. Each must supply both env vars:
 
@@ -585,7 +585,7 @@ There are three execution contexts that reach these server endpoints. Each must 
 **Key constraints:**
 
 - tmux popup panes (created by `display-popup`) do not appear in `tmux list-panes -a`. Any code that resolves pane IDs to sessions will fail on popup pane IDs. This is why `$AGENC_CALLING_PANE_ID` (the underlying pane, captured at keybinding time before any popup is created) must be preferred over `$TMUX_PANE` in popup contexts.
-- A mission's pane can be linked into multiple sessions simultaneously (e.g., when "migrating" a mission between sessions). Resolving a session by listing panes (`tmux list-panes -a` and picking the first non-pool match) returns an arbitrary linked session, not necessarily the user's current one. The session must come from `#{session_name}` in the calling client's context — never from pane-listing on a multi-linked pane. The create-mission flow is exempt only because the calling pane is the user's pre-existing shell pane (single-session), not a mission pane.
+- A mission's pane can be linked into multiple sessions simultaneously (e.g., when "migrating" a mission between sessions). Resolving a session by listing panes (`tmux list-panes -a` and picking the first non-pool match) returns an arbitrary linked session, not necessarily the user's current one. The session must come from `#{session_name}` in the calling client's context — never from pane-listing on a multi-linked pane.
 
 When adding new palette commands or keybindings that invoke CLI commands needing pane or session context, ensure both `AGENC_CALLING_PANE_ID` and `AGENC_CALLING_SESSION_NAME` are available in the execution environment. For display-popup commands, this means injecting both via `-e` flags. The keybinding generator (`internal/tmux/keybindings.go`) and palette dispatch (`cmd/tmux_palette.go`) handle this automatically.
 
