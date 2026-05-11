@@ -41,9 +41,10 @@ func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
-	// Should contain run-shell with AGENC_CALLING_PANE_ID
-	if !strings.Contains(content, "run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} agenc mission new'") {
-		t.Error("expected non-mission-scoped keybinding to include AGENC_CALLING_PANE_ID")
+	// Should contain run-shell with both AGENC_CALLING_PANE_ID and
+	// AGENC_CALLING_SESSION_NAME (the latter is what attach/detach use).
+	if !strings.Contains(content, "run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} agenc mission new'") {
+		t.Errorf("expected non-mission-scoped keybinding to include AGENC_CALLING_PANE_ID and AGENC_CALLING_SESSION_NAME\ngot:\n%s", content)
 	}
 
 	// The keybinding line itself should NOT contain resolve-mission
@@ -75,6 +76,14 @@ func TestGenerateKeybindingsContent_PaletteIncludesResolveMission(t *testing.T) 
 	// Should pass calling pane ID into the popup environment
 	if !strings.Contains(content, "AGENC_CALLING_PANE_ID=#{pane_id}") {
 		t.Error("expected palette keybinding to pass AGENC_CALLING_PANE_ID with #{pane_id}")
+	}
+
+	// Should pass calling session name into the popup environment so that
+	// attach/detach can identify the user's actual session (which is ambiguous
+	// from pane ID alone when a mission's window is linked into multiple
+	// sessions).
+	if !strings.Contains(content, "AGENC_CALLING_SESSION_NAME=#{session_name}") {
+		t.Error("expected palette keybinding to pass AGENC_CALLING_SESSION_NAME with #{session_name}")
 	}
 
 	// Should use #{pane_id} directly, not via display-message
@@ -186,9 +195,10 @@ func TestGenerateKeybindingsContent_DisplayPopupKeybindingInjectsPaneID(t *testi
 
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
-	// Should inject -e AGENC_CALLING_PANE_ID=#{pane_id} into the display-popup flags
-	if !strings.Contains(content, "display-popup -e AGENC_CALLING_PANE_ID=#{pane_id}") {
-		t.Errorf("expected display-popup keybinding to inject AGENC_CALLING_PANE_ID\ncontent:\n%s", content)
+	// Should inject -e AGENC_CALLING_PANE_ID=#{pane_id} and
+	// -e AGENC_CALLING_SESSION_NAME=#{session_name} into the display-popup flags
+	if !strings.Contains(content, "display-popup -e AGENC_CALLING_PANE_ID=#{pane_id} -e AGENC_CALLING_SESSION_NAME=#{session_name}") {
+		t.Errorf("expected display-popup keybinding to inject AGENC_CALLING_PANE_ID and AGENC_CALLING_SESSION_NAME\ncontent:\n%s", content)
 	}
 }
 
@@ -206,7 +216,7 @@ func TestGenerateKeybindingsContent_SingleQuotesInCommand(t *testing.T) {
 	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
 
 	// The inner single quotes must be escaped as '\'' so tmux parses them correctly.
-	expected := `run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} bash -c '\''echo hello'\'''`
+	expected := `run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} bash -c '\''echo hello'\'''`
 	if !strings.Contains(content, expected) {
 		t.Errorf("expected single quotes to be escaped in run-shell wrapper\nwant substring: %s\ngot content:\n%s", expected, content)
 	}

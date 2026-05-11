@@ -44,8 +44,8 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	callingPaneID := getCallingPaneID()
-	if callingPaneID == "" {
+	tmuxSession := getCallingSessionName()
+	if tmuxSession == "" {
 		return stacktrace.NewError("mission attach requires tmux; run inside a tmux session")
 	}
 
@@ -87,7 +87,7 @@ func runMissionAttach(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Attaching mission: %s\n", database.ShortID(missionID))
 
-	if err := client.AttachMission(missionID, callingPaneID, attachNoFocusFlag); err != nil {
+	if err := client.AttachMission(missionID, tmuxSession, attachNoFocusFlag); err != nil {
 		return stacktrace.Propagate(err, "failed to attach mission")
 	}
 

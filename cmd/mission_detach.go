@@ -36,8 +36,8 @@ func runMissionDetach(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	callingPaneID := getCallingPaneID()
-	if callingPaneID == "" {
+	tmuxSession := getCallingSessionName()
+	if tmuxSession == "" {
 		return stacktrace.NewError("mission detach requires tmux; run inside a tmux session")
 	}
 
@@ -54,17 +54,14 @@ func runMissionDetach(cmd *cobra.Command, args []string) error {
 			return stacktrace.Propagate(err, "failed to resolve mission ID")
 		}
 		fmt.Printf("Detaching mission: %s\n", database.ShortID(missionID))
-		if err := client.DetachMission(missionID, callingPaneID); err != nil {
+		if err := client.DetachMission(missionID, tmuxSession); err != nil {
 			return stacktrace.Propagate(err, "failed to detach mission")
 		}
 		return nil
 	}
 
-	// No args: list linked missions and show fzf picker.
-	// filterLinkedMissions needs the session name, which requires querying the
-	// tmux server. This may fail in sandboxed environments, but detach is
-	// typically run by the user (not agents), so the tmux socket is accessible.
-	tmuxSession := getCurrentTmuxSessionName()
+	// No args: list linked missions and show fzf picker. The session resolved
+	// above is also used to filter the picker entries.
 	missions, err := client.ListMissions(server.ListMissionsRequest{})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to list missions")
@@ -96,7 +93,7 @@ func runMissionDetach(cmd *cobra.Command, args []string) error {
 	missionID := result.Items[0].MissionID
 	fmt.Printf("Detaching mission: %s\n", database.ShortID(missionID))
 
-	if err := client.DetachMission(missionID, callingPaneID); err != nil {
+	if err := client.DetachMission(missionID, tmuxSession); err != nil {
 		return stacktrace.Propagate(err, "failed to detach mission")
 	}
 

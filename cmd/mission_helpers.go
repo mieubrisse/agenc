@@ -181,6 +181,24 @@ func getCurrentTmuxSessionName() string {
 	return strings.TrimSpace(string(out))
 }
 
+// getCallingSessionName returns the tmux session the user is currently
+// attached to. For attach/detach, this is the authoritative answer to "which
+// session should the mission window be linked/unlinked into?" — pane IDs are
+// not, because a mission's pane can be linked into multiple sessions
+// simultaneously.
+//
+// Prefers $AGENC_CALLING_SESSION_NAME (forwarded by the keybinding generator
+// and palette dispatch from tmux's #{session_name} format at key-press time)
+// over a direct `tmux display-message` query. The env var is preferred because
+// it is captured in the user's client context — independent of any popup or
+// run-shell wrapper the command may be running inside.
+func getCallingSessionName() string {
+	if session := os.Getenv("AGENC_CALLING_SESSION_NAME"); session != "" {
+		return session
+	}
+	return getCurrentTmuxSessionName()
+}
+
 // readConfig centralizes the config reading boilerplate. It returns the config
 // only; use readConfigWithComments when the comment map is needed for write-back.
 func readConfig() (*config.AgencConfig, error) {

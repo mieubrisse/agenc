@@ -252,10 +252,11 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 
 // buildPaletteDispatchCommand assembles the full shell command for a palette
 // entry, including env exports and output redirection. It handles two contexts:
-//   - run-shell (no pane): exports AGENC_CALLING_PANE_ID so CLI commands can
-//     tell the server which session to use
-//   - display-popup (temporary pane): injects -e flag to pass the calling pane
-//     ID into the popup's environment, since TMUX_PANE inside the popup refers
+//   - run-shell (no pane): exports AGENC_CALLING_PANE_ID and
+//     AGENC_CALLING_SESSION_NAME so CLI commands can tell the server which
+//     pane and session to use
+//   - display-popup (temporary pane): injects -e flags to pass both env vars
+//     into the popup's environment, since TMUX_PANE inside the popup refers
 //     to the temporary popup pane
 //
 // See "Calling pane resolution" in docs/system-architecture.md for full context.
@@ -273,18 +274,31 @@ func buildPaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMis
 	if callingPane != "" {
 		envPrefix += fmt.Sprintf("export AGENC_CALLING_PANE_ID=%s; ", callingPane)
 	}
+	callingSession := os.Getenv("AGENC_CALLING_SESSION_NAME")
+	if callingSession != "" {
+		envPrefix += fmt.Sprintf("export AGENC_CALLING_SESSION_NAME=%s; ", callingSession)
+	}
 	if entry.IsMissionScoped() && callingMissionUUID != "" {
 		envPrefix += fmt.Sprintf("export AGENC_CALLING_MISSION_UUID=%s; ", callingMissionUUID)
 	}
 
 	fullCommand := envPrefix + entry.Command
 
-	// For display-popup commands, pass the calling pane ID into the popup's
-	// environment via -e. Without this, AGENC_CALLING_PANE_ID from the
-	// run-shell env doesn't propagate into the popup.
-	if callingPane != "" && strings.Contains(fullCommand, "display-popup") {
-		fullCommand = strings.Replace(fullCommand, "display-popup",
-			fmt.Sprintf("display-popup -e AGENC_CALLING_PANE_ID=%s", callingPane), 1)
+	// For display-popup commands, pass the calling pane ID and session name
+	// into the popup's environment via -e. Without this, the env vars from
+	// the run-shell env don't propagate into the popup.
+	if strings.Contains(fullCommand, "display-popup") {
+		var popupEnv string
+		if callingPane != "" {
+			popupEnv += fmt.Sprintf(" -e AGENC_CALLING_PANE_ID=%s", callingPane)
+		}
+		if callingSession != "" {
+			popupEnv += fmt.Sprintf(" -e AGENC_CALLING_SESSION_NAME=%s", callingSession)
+		}
+		if popupEnv != "" {
+			fullCommand = strings.Replace(fullCommand, "display-popup",
+				"display-popup"+popupEnv, 1)
+		}
 	}
 
 	// Redirect output to the palette log file so tmux run-shell doesn't

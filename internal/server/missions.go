@@ -840,8 +840,12 @@ func (s *Server) fireQueuedReload(missionID string) {
 
 // AttachRequest is the JSON body for POST /missions/{id}/attach.
 type AttachRequest struct {
-	CallingPaneID string `json:"calling_pane_id"`
-	NoFocus       bool   `json:"no_focus"`
+	// TmuxSession is the name of the user's currently-attached tmux session —
+	// the session the mission window should be linked into. The CLI sends this
+	// directly (rather than a pane ID) because a mission's pane can be linked
+	// into multiple sessions, making pane-ID-based resolution ambiguous.
+	TmuxSession string `json:"tmux_session"`
+	NoFocus     bool   `json:"no_focus"`
 }
 
 // handleAttachMission handles POST /missions/{id}/attach.
@@ -854,13 +858,10 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
-	if req.CallingPaneID == "" {
-		return newHTTPError(http.StatusBadRequest, "calling_pane_id is required")
+	if req.TmuxSession == "" {
+		return newHTTPError(http.StatusBadRequest, "tmux_session is required")
 	}
-	tmuxSession := getSessionForPane(req.CallingPaneID, s.getPoolSessionName())
-	if tmuxSession == "" {
-		return newHTTPError(http.StatusBadRequest, "could not resolve tmux session for pane "+req.CallingPaneID)
-	}
+	tmuxSession := req.TmuxSession
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {
@@ -917,7 +918,13 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 
 // DetachRequest is the JSON body for POST /missions/{id}/detach.
 type DetachRequest struct {
-	CallingPaneID string `json:"calling_pane_id"`
+	// TmuxSession is the name of the user's currently-attached tmux session —
+	// the session the mission window should be unlinked from. The CLI sends
+	// this directly (rather than a pane ID) because a mission's pane can be
+	// linked into multiple sessions, making pane-ID-based resolution
+	// ambiguous (it would unlink from whichever session tmux happens to list
+	// first, not necessarily the user's current one).
+	TmuxSession string `json:"tmux_session"`
 }
 
 // handleDetachMission handles POST /missions/{id}/detach.
@@ -930,13 +937,10 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
-	if req.CallingPaneID == "" {
-		return newHTTPError(http.StatusBadRequest, "calling_pane_id is required")
+	if req.TmuxSession == "" {
+		return newHTTPError(http.StatusBadRequest, "tmux_session is required")
 	}
-	tmuxSession := getSessionForPane(req.CallingPaneID, s.getPoolSessionName())
-	if tmuxSession == "" {
-		return newHTTPError(http.StatusBadRequest, "could not resolve tmux session for pane "+req.CallingPaneID)
-	}
+	tmuxSession := req.TmuxSession
 
 	resolvedID, err := s.db.ResolveMissionID(id)
 	if err != nil {

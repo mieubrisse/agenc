@@ -331,16 +331,20 @@ func (c *Client) NotifyClaudeIdle(id string) error {
 }
 
 // AttachMission ensures the mission's wrapper is running in the pool and links
-// the pool window into the caller's tmux session (resolved from callingPaneID).
-func (c *Client) AttachMission(id string, callingPaneID string, noFocus bool) error {
-	body := AttachRequest{CallingPaneID: callingPaneID, NoFocus: noFocus}
+// the pool window into the given tmux session. The caller is responsible for
+// supplying the session the user is currently attached to — pane-ID-based
+// resolution is not used here because a mission's pane can be linked into
+// multiple sessions.
+func (c *Client) AttachMission(id string, tmuxSession string, noFocus bool) error {
+	body := AttachRequest{TmuxSession: tmuxSession, NoFocus: noFocus}
 	return c.Post("/missions/"+id+"/attach", body, nil)
 }
 
-// DetachMission unlinks the mission's pool window from the caller's tmux session
-// (resolved from callingPaneID). The wrapper keeps running in the pool.
-func (c *Client) DetachMission(id string, callingPaneID string) error {
-	body := DetachRequest{CallingPaneID: callingPaneID}
+// DetachMission unlinks the mission's pool window from the given tmux session.
+// The wrapper keeps running in the pool. Same session-resolution caveat as
+// AttachMission.
+func (c *Client) DetachMission(id string, tmuxSession string) error {
+	body := DetachRequest{TmuxSession: tmuxSession}
 	return c.Post("/missions/"+id+"/detach", body, nil)
 }
 

@@ -72,7 +72,10 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 	// Command palette (requires tmux >= 3.2 for display-popup).
 	// Always resolves the focused mission UUID so the palette can filter
 	// mission-scoped commands and pass the UUID into executed commands.
-	// #{pane_id} is expanded by tmux at key-press time to the active pane.
+	// #{pane_id} and #{session_name} are expanded by tmux at key-press time:
+	// pane_id identifies the underlying pane the user invoked from; session_name
+	// identifies the user's actual current session (which a mission's pane
+	// alone cannot, since mission windows may be linked into several sessions).
 	// The paletteKey is inserted verbatim after "bind-key" so users can
 	// control the key table (e.g. "-T agenc k") or bind directly on prefix.
 	if tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2) {
@@ -81,7 +84,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 			"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
 			"tmux display-popup -E -w 75%% -h 63%% "+
-			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID AGENC_CALLING_PANE_ID=#{pane_id} %s tmux palette\""+
+			"\"AGENC_CALLING_MISSION_UUID=$AGENC_CALLING_MISSION_UUID AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} %s tmux palette\""+
 			"'\n", paletteKey, agencBinary, agencBinary)
 	}
 
@@ -94,10 +97,15 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 	}
 
 	// Emit all keybindings from resolved palette commands.
-	// Every keybinding passes AGENC_CALLING_PANE_ID=#{pane_id} so CLI commands
-	// can tell the server which tmux session to use. For display-popup commands,
-	// the pane ID is also injected via -e since popup environments don't inherit
-	// run-shell env vars. See "Calling pane resolution" in docs/system-architecture.md.
+	// Every keybinding passes:
+	//   - AGENC_CALLING_PANE_ID=#{pane_id}        — the underlying pane the
+	//     user invoked from (used for create-mission and mission-UUID resolution)
+	//   - AGENC_CALLING_SESSION_NAME=#{session_name} — the user's actual current
+	//     session (used by attach/detach; pane ID is ambiguous for multi-linked
+	//     mission windows)
+	// For display-popup commands, both env vars are also injected via -e since
+	// popup environments don't inherit run-shell env vars.
+	// See "Calling pane resolution" in docs/system-architecture.md.
 	for _, kb := range customKeybindings {
 		sb.WriteString("\n")
 		if kb.Comment != "" {
@@ -118,23 +126,23 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 
 		escapedCommand := escapeSingleQuotes(kb.Command)
 
-		// For display-popup commands, pass the calling pane ID into the
-		// popup's environment via -e so that CLI commands inside the popup
-		// can resolve the correct tmux session (TMUX_PANE inside a popup
-		// refers to the temporary popup pane).
+		// For display-popup commands, pass the calling pane ID and session
+		// name into the popup's environment via -e so that CLI commands inside
+		// the popup can resolve the correct tmux session (TMUX_PANE inside a
+		// popup refers to the temporary popup pane).
 		popupEscapedCommand := escapedCommand
 		if strings.Contains(escapedCommand, "display-popup") {
 			popupEscapedCommand = strings.Replace(escapedCommand, "display-popup",
-				"display-popup -e AGENC_CALLING_PANE_ID=#{pane_id}", 1)
+				"display-popup -e AGENC_CALLING_PANE_ID=#{pane_id} -e AGENC_CALLING_SESSION_NAME=#{session_name}", 1)
 		}
 
 		if kb.IsMissionScoped {
 			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && AGENC_CALLING_PANE_ID=#{pane_id} %s%s"+
+				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} %s%s"+
 				"'\n", bindKeyArgs, agencBinary, popupEscapedCommand, redirectSuffix)
 		} else {
-			fmt.Fprintf(&sb, "bind-key %s run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} %s%s'\n", bindKeyArgs, popupEscapedCommand, redirectSuffix)
+			fmt.Fprintf(&sb, "bind-key %s run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} %s%s'\n", bindKeyArgs, popupEscapedCommand, redirectSuffix)
 		}
 	}
 
