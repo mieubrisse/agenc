@@ -383,6 +383,48 @@ else
 fi
 
 echo ""
+echo "--- Auto-Summary Pipeline (requires server) ---"
+
+# The split-loop architecture (custom-title + auto-summary) replaced the old
+# title-consumer / summarizer-worker pipeline. These tests verify the wiring:
+#   (1) the schema migration added the two new offset columns
+#   (2) both background loops register as "running" against the live server
+#
+# Deeper happy-path verification (Haiku actually populating auto_summary) is
+# the manual smoke in Task 10 — it requires a real OAuth token and writing
+# fixtures into ~/.claude/projects/ (the production Claude state directory),
+# both of which are too invasive for an automated E2E pass.
+
+db_filepath="${repo_dirpath}/_test-env/database.sqlite"
+
+run_test "auto-summary DB file exists" \
+    0 \
+    test -f "${db_filepath}"
+
+# Schema check: both new offset columns must exist on the sessions table.
+# PRAGMA table_info(sessions) lists one row per column; the column name is
+# the second pipe-delimited field, so a literal substring match is enough.
+run_test_output_contains "schema has last_custom_title_scan_offset column" \
+    "last_custom_title_scan_offset" \
+    sqlite3 "${db_filepath}" "PRAGMA table_info(sessions);"
+
+run_test_output_contains "schema has last_auto_summary_scan_offset column" \
+    "last_auto_summary_scan_offset" \
+    sqlite3 "${db_filepath}" "PRAGMA table_info(sessions);"
+
+# Loop registration: `agenc server status` queries /health and prints one
+# line per background loop with its state ("running", "stopped", or
+# "crashed"). Both new loops must show as "running" — this catches the
+# regression "Task 6 forgot to wire the loop into server.go".
+run_test_output_contains "server status reports custom-title loop running" \
+    "custom-title +running" \
+    "${agenc_test}" server status
+
+run_test_output_contains "server status reports auto-summary loop running" \
+    "auto-summary +running" \
+    "${agenc_test}" server status
+
+echo ""
 echo "--- Notifications (requires server) ---"
 
 # Note: tests don't assume an empty starting state — they verify the create →
