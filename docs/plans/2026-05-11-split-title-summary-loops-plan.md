@@ -788,13 +788,23 @@ go s.runLoop("auto-summary", &wg, ctx, s.runAutoSummaryLoop)
 
 Also remove the `sessionSummaryCh` and `summarizedSessions` fields from the `Server` struct.
 
-**Step 3: `make check`.**
+**Step 3: Remove `//nolint:unused` directives.**
+
+Tasks 4 and 5 added `//nolint:unused` directives on the new loops' top-level symbols because golangci-lint's `unused` linter (strict) flagged them as dead code. Once the loops are wired in Step 2, those directives are no longer needed. Grep and remove:
+
+```bash
+grep -n "nolint:unused" internal/server/auto_summary_loop.go internal/server/custom_title_loop.go
+```
+
+Remove every match. Run `make check` after to confirm `golangci-lint`'s `unused` check still passes (it should — the symbols are reachable now).
+
+**Step 4: `make check`.**
 
 This will likely fail because the old `runTitleConsumerLoop`, `runSessionSummarizerWorker`, `initSessionSummarizer`, `requestSessionSummary`, etc. are still defined but now reference removed struct fields. Don't fix that here — Task 7 deletes them. Instead, temporarily comment out the calls in those dead functions if the compiler insists. Better: combine this task with Task 7 if the dead code blocks compilation.
 
 **Decision point.** If `make check` fails purely on dead-function references to removed struct fields, just include the deletions from Task 7 in this commit and merge the two tasks. The plan splits them for clarity, but they may need to be one commit.
 
-**Step 4: Commit.**
+**Step 5: Commit.**
 
 ```bash
 git add internal/server/server.go
