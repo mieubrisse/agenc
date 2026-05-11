@@ -280,7 +280,7 @@ func (db *DB) SessionsNeedingAutoSummary() ([]*Session, error) {
 func (db *DB) UpdateCustomTitleAndOffset(sessionID, customTitle string, newOffset int64) error {
 	_, err := db.conn.Exec(
 		`UPDATE sessions SET custom_title = ?, last_custom_title_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		customTitle, newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+		customTitle, newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update custom_title and offset for session '%s'", sessionID)
@@ -293,7 +293,7 @@ func (db *DB) UpdateCustomTitleAndOffset(sessionID, customTitle string, newOffse
 func (db *DB) UpdateCustomTitleScanOffset(sessionID string, newOffset int64) error {
 	_, err := db.conn.Exec(
 		`UPDATE sessions SET last_custom_title_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+		newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update custom_title offset for session '%s'", sessionID)
@@ -306,7 +306,7 @@ func (db *DB) UpdateCustomTitleScanOffset(sessionID string, newOffset int64) err
 func (db *DB) UpdateAutoSummaryAndOffset(sessionID, summary string, newOffset int64) error {
 	_, err := db.conn.Exec(
 		`UPDATE sessions SET auto_summary = ?, last_auto_summary_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		summary, newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+		summary, newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update auto_summary and offset for session '%s'", sessionID)
@@ -319,7 +319,7 @@ func (db *DB) UpdateAutoSummaryAndOffset(sessionID, summary string, newOffset in
 func (db *DB) UpdateAutoSummaryScanOffset(sessionID string, newOffset int64) error {
 	_, err := db.conn.Exec(
 		`UPDATE sessions SET last_auto_summary_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+		newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update auto_summary offset for session '%s'", sessionID)

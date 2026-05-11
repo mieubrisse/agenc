@@ -490,6 +490,23 @@ func TestUpdateCustomTitleAndOffset(t *testing.T) {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
+	// Pre-populate the auto_summary side so we can verify the update doesn't
+	// clobber sibling fields.
+	if err := db.UpdateAutoSummaryAndOffset(sess.ID, "sibling summary", 42); err != nil {
+		t.Fatalf("UpdateAutoSummaryAndOffset (pre-populate) failed: %v", err)
+	}
+
+	// Capture pre-update state, then sleep > 1s so the post-update
+	// RFC3339 timestamp (second precision) is strictly greater. This lets
+	// us assert UpdatedAt moves strictly forward with .After() rather than
+	// settling for .Before() == false. The 1s cost is acceptable for the
+	// guarantee that the function actually bumps updated_at.
+	before, err := db.GetSession(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession (before) failed: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+
 	if err := db.UpdateCustomTitleAndOffset(sess.ID, "My Title", 1234); err != nil {
 		t.Fatalf("update failed: %v", err)
 	}
@@ -503,6 +520,17 @@ func TestUpdateCustomTitleAndOffset(t *testing.T) {
 	if got.LastCustomTitleScanOffset != 1234 {
 		t.Errorf("offset = %d, want 1234", got.LastCustomTitleScanOffset)
 	}
+	// Sibling fields must be untouched.
+	if got.AutoSummary != "sibling summary" {
+		t.Errorf("auto_summary clobbered: got %q, want %q", got.AutoSummary, "sibling summary")
+	}
+	if got.LastAutoSummaryScanOffset != 42 {
+		t.Errorf("last_auto_summary_scan_offset clobbered: got %d, want 42", got.LastAutoSummaryScanOffset)
+	}
+	// updated_at must strictly advance.
+	if !got.UpdatedAt.After(before.UpdatedAt) {
+		t.Errorf("UpdatedAt did not advance: before=%v after=%v", before.UpdatedAt, got.UpdatedAt)
+	}
 }
 
 func TestUpdateCustomTitleScanOffset(t *testing.T) {
@@ -514,6 +542,12 @@ func TestUpdateCustomTitleScanOffset(t *testing.T) {
 	sess, err := db.CreateSession(mission.ID, "sess-1")
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Pre-populate the auto_summary side so we can verify the update doesn't
+	// clobber sibling fields.
+	if err := db.UpdateAutoSummaryAndOffset(sess.ID, "sibling summary", 42); err != nil {
+		t.Fatalf("UpdateAutoSummaryAndOffset (pre-populate) failed: %v", err)
 	}
 
 	if err := db.UpdateCustomTitleScanOffset(sess.ID, 999); err != nil {
@@ -529,6 +563,13 @@ func TestUpdateCustomTitleScanOffset(t *testing.T) {
 	if got.LastCustomTitleScanOffset != 999 {
 		t.Errorf("offset = %d, want 999", got.LastCustomTitleScanOffset)
 	}
+	// Sibling fields must be untouched.
+	if got.AutoSummary != "sibling summary" {
+		t.Errorf("auto_summary clobbered: got %q, want %q", got.AutoSummary, "sibling summary")
+	}
+	if got.LastAutoSummaryScanOffset != 42 {
+		t.Errorf("last_auto_summary_scan_offset clobbered: got %d, want 42", got.LastAutoSummaryScanOffset)
+	}
 }
 
 func TestUpdateAutoSummaryAndOffset(t *testing.T) {
@@ -540,6 +581,12 @@ func TestUpdateAutoSummaryAndOffset(t *testing.T) {
 	sess, err := db.CreateSession(mission.ID, "sess-1")
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Pre-populate the custom_title side so we can verify the update doesn't
+	// clobber sibling fields.
+	if err := db.UpdateCustomTitleAndOffset(sess.ID, "sibling title", 99); err != nil {
+		t.Fatalf("UpdateCustomTitleAndOffset (pre-populate) failed: %v", err)
 	}
 
 	if err := db.UpdateAutoSummaryAndOffset(sess.ID, "the summary", 5000); err != nil {
@@ -555,6 +602,13 @@ func TestUpdateAutoSummaryAndOffset(t *testing.T) {
 	if got.LastAutoSummaryScanOffset != 5000 {
 		t.Errorf("offset = %d", got.LastAutoSummaryScanOffset)
 	}
+	// Sibling fields must be untouched.
+	if got.CustomTitle != "sibling title" {
+		t.Errorf("custom_title clobbered: got %q, want %q", got.CustomTitle, "sibling title")
+	}
+	if got.LastCustomTitleScanOffset != 99 {
+		t.Errorf("last_custom_title_scan_offset clobbered: got %d, want 99", got.LastCustomTitleScanOffset)
+	}
 }
 
 func TestUpdateAutoSummaryScanOffset(t *testing.T) {
@@ -566,6 +620,12 @@ func TestUpdateAutoSummaryScanOffset(t *testing.T) {
 	sess, err := db.CreateSession(mission.ID, "sess-1")
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Pre-populate the custom_title side so we can verify the update doesn't
+	// clobber sibling fields.
+	if err := db.UpdateCustomTitleAndOffset(sess.ID, "sibling title", 99); err != nil {
+		t.Fatalf("UpdateCustomTitleAndOffset (pre-populate) failed: %v", err)
 	}
 
 	if err := db.UpdateAutoSummaryScanOffset(sess.ID, 777); err != nil {
@@ -580,6 +640,13 @@ func TestUpdateAutoSummaryScanOffset(t *testing.T) {
 	}
 	if got.LastAutoSummaryScanOffset != 777 {
 		t.Errorf("offset = %d, want 777", got.LastAutoSummaryScanOffset)
+	}
+	// Sibling fields must be untouched.
+	if got.CustomTitle != "sibling title" {
+		t.Errorf("custom_title clobbered: got %q, want %q", got.CustomTitle, "sibling title")
+	}
+	if got.LastCustomTitleScanOffset != 99 {
+		t.Errorf("last_custom_title_scan_offset clobbered: got %d, want 99", got.LastCustomTitleScanOffset)
 	}
 }
 
