@@ -248,6 +248,85 @@ func (db *DB) SessionsNeedingTitleUpdate() ([]*Session, error) {
 	return scanSessions(rows)
 }
 
+// SessionsNeedingCustomTitleUpdate returns sessions where known_file_size >
+// last_custom_title_scan_offset, meaning there are new bytes the custom-title
+// loop hasn't scanned yet.
+func (db *DB) SessionsNeedingCustomTitleUpdate() ([]*Session, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_custom_title_scan_offset, last_auto_summary_scan_offset, known_file_size, last_indexed_offset, created_at, updated_at FROM sessions WHERE known_file_size IS NOT NULL AND known_file_size > last_custom_title_scan_offset",
+	)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to query sessions needing custom title update")
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
+// SessionsNeedingAutoSummary returns sessions where auto_summary is empty AND
+// there are new bytes since the last auto-summary scan.
+func (db *DB) SessionsNeedingAutoSummary() ([]*Session, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_custom_title_scan_offset, last_auto_summary_scan_offset, known_file_size, last_indexed_offset, created_at, updated_at FROM sessions WHERE auto_summary = '' AND known_file_size IS NOT NULL AND known_file_size > last_auto_summary_scan_offset",
+	)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to query sessions needing auto-summary")
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
+// UpdateCustomTitleAndOffset atomically sets custom_title and advances
+// last_custom_title_scan_offset.
+func (db *DB) UpdateCustomTitleAndOffset(sessionID, customTitle string, newOffset int64) error {
+	_, err := db.conn.Exec(
+		`UPDATE sessions SET custom_title = ?, last_custom_title_scan_offset = ?, updated_at = ? WHERE id = ?`,
+		customTitle, newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update custom_title and offset for session '%s'", sessionID)
+	}
+	return nil
+}
+
+// UpdateCustomTitleScanOffset advances only last_custom_title_scan_offset —
+// used when a scan completed but found no new title metadata.
+func (db *DB) UpdateCustomTitleScanOffset(sessionID string, newOffset int64) error {
+	_, err := db.conn.Exec(
+		`UPDATE sessions SET last_custom_title_scan_offset = ?, updated_at = ? WHERE id = ?`,
+		newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update custom_title offset for session '%s'", sessionID)
+	}
+	return nil
+}
+
+// UpdateAutoSummaryAndOffset atomically sets auto_summary and advances
+// last_auto_summary_scan_offset.
+func (db *DB) UpdateAutoSummaryAndOffset(sessionID, summary string, newOffset int64) error {
+	_, err := db.conn.Exec(
+		`UPDATE sessions SET auto_summary = ?, last_auto_summary_scan_offset = ?, updated_at = ? WHERE id = ?`,
+		summary, newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update auto_summary and offset for session '%s'", sessionID)
+	}
+	return nil
+}
+
+// UpdateAutoSummaryScanOffset advances only last_auto_summary_scan_offset —
+// used when a scan completed but found no first user message yet.
+func (db *DB) UpdateAutoSummaryScanOffset(sessionID string, newOffset int64) error {
+	_, err := db.conn.Exec(
+		`UPDATE sessions SET last_auto_summary_scan_offset = ?, updated_at = ? WHERE id = ?`,
+		newOffset, time.Now().UTC().Format(time.RFC3339Nano), sessionID,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update auto_summary offset for session '%s'", sessionID)
+	}
+	return nil
+}
+
 // ResolveSessionID resolves a user-provided session identifier (either a full
 // UUID or an 8-character short ID) to the full session UUID. Returns an error
 // if the identifier matches zero or multiple sessions.

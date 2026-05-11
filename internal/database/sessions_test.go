@@ -388,6 +388,201 @@ func TestSessionsCascadeDeleteWithMission(t *testing.T) {
 	}
 }
 
+func TestSessionsNeedingCustomTitleUpdate(t *testing.T) {
+	db := openTestDB(t)
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	// Session with known_size > custom_title_offset → selected
+	sess1, err := db.CreateSession(mission.ID, "sess-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if err := db.UpdateKnownFileSize(sess1.ID, 100); err != nil {
+		t.Fatalf("UpdateKnownFileSize failed: %v", err)
+	}
+
+	// Session with known_size == custom_title_offset → not selected
+	sess2, err := db.CreateSession(mission.ID, "sess-2")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if err := db.UpdateKnownFileSize(sess2.ID, 50); err != nil {
+		t.Fatalf("UpdateKnownFileSize failed: %v", err)
+	}
+	if err := db.UpdateCustomTitleScanOffset(sess2.ID, 50); err != nil {
+		t.Fatalf("UpdateCustomTitleScanOffset failed: %v", err)
+	}
+
+	// Session with NULL known_size → not selected
+	if _, err := db.CreateSession(mission.ID, "sess-3"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	rows, err := db.SessionsNeedingCustomTitleUpdate()
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != "sess-1" {
+		t.Errorf("expected exactly sess-1, got %v", rows)
+	}
+}
+
+func TestSessionsNeedingAutoSummary(t *testing.T) {
+	db := openTestDB(t)
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	// Empty auto_summary, known_size > offset → selected
+	sess1, err := db.CreateSession(mission.ID, "sess-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if err := db.UpdateKnownFileSize(sess1.ID, 100); err != nil {
+		t.Fatalf("UpdateKnownFileSize failed: %v", err)
+	}
+
+	// Non-empty auto_summary → NOT selected even though offset is 0
+	sess2, err := db.CreateSession(mission.ID, "sess-2")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if err := db.UpdateKnownFileSize(sess2.ID, 100); err != nil {
+		t.Fatalf("UpdateKnownFileSize failed: %v", err)
+	}
+	if err := db.UpdateAutoSummaryAndOffset(sess2.ID, "an existing summary", 100); err != nil {
+		t.Fatalf("UpdateAutoSummaryAndOffset failed: %v", err)
+	}
+
+	// Empty auto_summary but offset == known_size → not selected
+	sess3, err := db.CreateSession(mission.ID, "sess-3")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if err := db.UpdateKnownFileSize(sess3.ID, 50); err != nil {
+		t.Fatalf("UpdateKnownFileSize failed: %v", err)
+	}
+	if err := db.UpdateAutoSummaryScanOffset(sess3.ID, 50); err != nil {
+		t.Fatalf("UpdateAutoSummaryScanOffset failed: %v", err)
+	}
+
+	rows, err := db.SessionsNeedingAutoSummary()
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != "sess-1" {
+		t.Errorf("expected exactly sess-1, got %v", rows)
+	}
+}
+
+func TestUpdateCustomTitleAndOffset(t *testing.T) {
+	db := openTestDB(t)
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+	sess, err := db.CreateSession(mission.ID, "sess-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if err := db.UpdateCustomTitleAndOffset(sess.ID, "My Title", 1234); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	got, err := db.GetSession(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.CustomTitle != "My Title" {
+		t.Errorf("custom_title = %q, want %q", got.CustomTitle, "My Title")
+	}
+	if got.LastCustomTitleScanOffset != 1234 {
+		t.Errorf("offset = %d, want 1234", got.LastCustomTitleScanOffset)
+	}
+}
+
+func TestUpdateCustomTitleScanOffset(t *testing.T) {
+	db := openTestDB(t)
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+	sess, err := db.CreateSession(mission.ID, "sess-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if err := db.UpdateCustomTitleScanOffset(sess.ID, 999); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetSession(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.CustomTitle != "" {
+		t.Errorf("custom_title should be empty, got %q", got.CustomTitle)
+	}
+	if got.LastCustomTitleScanOffset != 999 {
+		t.Errorf("offset = %d, want 999", got.LastCustomTitleScanOffset)
+	}
+}
+
+func TestUpdateAutoSummaryAndOffset(t *testing.T) {
+	db := openTestDB(t)
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+	sess, err := db.CreateSession(mission.ID, "sess-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if err := db.UpdateAutoSummaryAndOffset(sess.ID, "the summary", 5000); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetSession(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.AutoSummary != "the summary" {
+		t.Errorf("auto_summary = %q", got.AutoSummary)
+	}
+	if got.LastAutoSummaryScanOffset != 5000 {
+		t.Errorf("offset = %d", got.LastAutoSummaryScanOffset)
+	}
+}
+
+func TestUpdateAutoSummaryScanOffset(t *testing.T) {
+	db := openTestDB(t)
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+	sess, err := db.CreateSession(mission.ID, "sess-1")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if err := db.UpdateAutoSummaryScanOffset(sess.ID, 777); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetSession(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if got.AutoSummary != "" {
+		t.Errorf("auto_summary should be empty, got %q", got.AutoSummary)
+	}
+	if got.LastAutoSummaryScanOffset != 777 {
+		t.Errorf("offset = %d, want 777", got.LastAutoSummaryScanOffset)
+	}
+}
+
 func TestOrphanedSessionsCleanedOnOpen(t *testing.T) {
 	dbFilepath := filepath.Join(t.TempDir(), "test.sqlite")
 
