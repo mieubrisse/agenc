@@ -172,6 +172,96 @@ func TestScanJSONLFromOffset_SkipsUserMessageWhenNotRequested(t *testing.T) {
 	}
 }
 
+// writeTempJSONL writes content to a temp JSONL file and returns its path.
+func writeTempJSONL(t *testing.T, content string) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	jsonlFilepath := filepath.Join(tmpDir, "test-session.jsonl")
+	if err := os.WriteFile(jsonlFilepath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+	return jsonlFilepath
+}
+
+func TestScanJSONLForCustomTitle_FindsLastTitle(t *testing.T) {
+	path := writeTempJSONL(t, `{"type":"file-history-snapshot"}
+{"type":"custom-title","customTitle":"first"}
+{"type":"user","message":{"role":"user","content":"hello"}}
+{"type":"custom-title","customTitle":"second"}
+`)
+	got, err := scanJSONLForCustomTitle(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "second" {
+		t.Errorf("got %q, want %q", got, "second")
+	}
+}
+
+func TestScanJSONLForCustomTitle_NoTitle(t *testing.T) {
+	path := writeTempJSONL(t, `{"type":"user","message":{"role":"user","content":"hi"}}
+`)
+	got, err := scanJSONLForCustomTitle(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}
+
+func TestScanJSONLForCustomTitle_RespectsOffset(t *testing.T) {
+	line1 := `{"type":"custom-title","customTitle":"before"}` + "\n"
+	line2 := `{"type":"custom-title","customTitle":"after"}` + "\n"
+	path := writeTempJSONL(t, line1+line2)
+	got, err := scanJSONLForCustomTitle(path, int64(len(line1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "after" {
+		t.Errorf("got %q, want %q", got, "after")
+	}
+}
+
+func TestScanJSONLForFirstUserMessage_FindsFirst(t *testing.T) {
+	path := writeTempJSONL(t, `{"type":"file-history-snapshot"}
+{"type":"user","message":{"role":"user","content":"first prompt"}}
+{"type":"user","message":{"role":"user","content":"second prompt"}}
+`)
+	got, err := scanJSONLForFirstUserMessage(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "first prompt" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestScanJSONLForFirstUserMessage_SkipsArrayContent(t *testing.T) {
+	path := writeTempJSONL(t, `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"x"}]}}
+{"type":"user","message":{"role":"user","content":"the real prompt"}}
+`)
+	got, err := scanJSONLForFirstUserMessage(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "the real prompt" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestScanJSONLForFirstUserMessage_None(t *testing.T) {
+	path := writeTempJSONL(t, `{"type":"assistant","message":{"role":"assistant","content":[]}}
+`)
+	got, err := scanJSONLForFirstUserMessage(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
 func TestTruncateTitle(t *testing.T) {
 	tests := []struct {
 		title  string

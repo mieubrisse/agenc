@@ -326,6 +326,74 @@ func tryExtractUserMessage(line string) string {
 	return msg.Content
 }
 
+// scanJSONLForCustomTitle reads a JSONL file from `offset` to EOF and returns
+// the last custom-title metadata value found, or "" if none.
+func scanJSONLForCustomTitle(jsonlFilepath string, offset int64) (string, error) {
+	file, err := os.Open(jsonlFilepath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	if offset > 0 {
+		if _, err := file.Seek(offset, 0); err != nil {
+			return "", err
+		}
+	}
+
+	reader := bufio.NewReaderSize(file, 64*1024)
+	var customTitle string
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			if t := tryExtractCustomTitle(line); t != "" {
+				customTitle = t
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", err
+		}
+	}
+	return customTitle, nil
+}
+
+// scanJSONLForFirstUserMessage reads a JSONL file from `offset` and returns the
+// first user-role line with string content. Early-returns on the first match —
+// does NOT read to EOF. Array-content lines (tool results, multimodal) are
+// silently skipped by tryExtractUserMessage's existing behavior.
+func scanJSONLForFirstUserMessage(jsonlFilepath string, offset int64) (string, error) {
+	file, err := os.Open(jsonlFilepath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	if offset > 0 {
+		if _, err := file.Seek(offset, 0); err != nil {
+			return "", err
+		}
+	}
+
+	reader := bufio.NewReaderSize(file, 64*1024)
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			if msg := tryExtractUserMessage(line); msg != "" {
+				return msg, nil
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return "", nil
+			}
+			return "", err
+		}
+	}
+}
+
 // scanJSONLFromOffset reads a JSONL file starting at the given byte offset and
 // returns any custom-title values found in the new data, plus optionally the
 // first user message if extractUserMessage is true.
