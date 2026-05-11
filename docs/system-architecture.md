@@ -134,42 +134,46 @@ The server runs eleven concurrent background goroutines:
 - Sources the keybindings into any running tmux server after writing
 - Ensures keybindings stay current after binary upgrades (server auto-restarts on version bump)
 
-**5. Session summarizer worker** (`internal/server/session_summarizer.go`)
-- Consumes summary requests from a buffered channel (fed by the session scanner when a session has no `auto_summary`)
-- For each request: calls Claude Haiku via `claude --print --model claude-haiku-4-5-20251001` to generate a 3-8 word description from the user's first message, stores the result in the session's `auto_summary` column
-- Uses a `sync.Map` to permanently deduplicate: each session ID triggers at most one Haiku call per process lifetime
+**5. Custom-title loop** (`internal/server/custom_title_loop.go`)
+- Runs on a fixed 3-second interval
+- Queries sessions where `known_file_size > last_custom_title_scan_offset` (new bytes since the last custom-title scan)
+- For each: scans new bytes for `custom-title` metadata entries using a quick string-match filter before JSON parsing
+- Branches:
+  - Title found and different from existing `custom_title` → atomically writes the new title and advances `last_custom_title_scan_offset` to `known_file_size`, then triggers tmux window title reconciliation
+  - Title found and equal to existing (or no title found) → advances `last_custom_title_scan_offset` only (no spurious write, no tmux reconcile)
+  - Scan I/O error → offset stays put, retry on next cycle
+
+**6. Auto-summary loop** (`internal/server/auto_summary_loop.go`)
+- Runs on a fixed 3-second interval
+- Queries sessions where `auto_summary = ''` AND `known_file_size > last_auto_summary_scan_offset` (empty summary plus new bytes since the last auto-summary scan)
+- For each: scans new bytes for the first user-role line with string content (skipping tool results / multimodal array content), early-returning on the first match
+- Branches:
+  - First user message found → calls Claude Haiku via `claude --print --model <haiku>` to generate a 3-N word description; on success, atomically writes `auto_summary` and advances `last_auto_summary_scan_offset` to `known_file_size`, then triggers tmux window title reconciliation
+  - Haiku failure (CLI killed, OAuth missing, oversized response, etc.) → offset stays put, naturally retried on the next cycle (this is the retry semantics that make the loop self-healing)
+  - No user message in the scanned range → advances `last_auto_summary_scan_offset` only; session re-selected when the file grows
 - Uses the Claude CLI subprocess rather than a direct API call to avoid requiring users to configure an API key
 
-**6. Idle timeout loop** (`internal/server/idle_timeout.go`)
+**7. Idle timeout loop** (`internal/server/idle_timeout.go`)
 - Runs on a fixed interval
 - Scans all non-archived missions for running wrappers
 - Uses the active JSONL conversation log's modification time to determine idle duration, falling back to `created_at`
 - Stops wrappers idle past the configured threshold and destroys their pool windows
 - Wrappers are automatically re-spawned on the next attach (lazy start)
 
-**7. Repo update worker** (`internal/server/repo_update_worker.go`)
+**8. Repo update worker** (`internal/server/repo_update_worker.go`)
 - Processes update requests from a buffered channel (fed by the repo update loop and push-event handler)
 - For each request: captures HEAD before update, runs `ForceUpdateRepo`, compares HEAD after
 - If HEAD changed (or first clone), reads the repo's `postUpdateHook` from config and runs it via `sh -c` in the repo library directory
 - Hook timeout: hard limit; WARN logs emitted at fixed intervals after a grace period
 - Hook failures are logged but non-fatal — they do not block subsequent updates
 
-**8. File watcher** (`internal/server/session_scanner.go` — `runFileWatcherLoop`)
+**9. File watcher** (`internal/server/session_scanner.go` — `runFileWatcherLoop`)
 - Runs on a fixed interval
 - Discovers JSONL files and updates `known_file_size` on the sessions table; does NOT read file content
 - Two scopes per cycle:
   - Running missions: queries tmux pool for live pane IDs, resolves each to a mission, walks project dirs for JSONL files, stats them
   - NULL file size sessions: queries sessions where `known_file_size IS NULL`, computes JSONL paths, stats files to set initial sizes (backfill trigger for historical sessions)
 - Creates session rows for newly discovered JSONL files
-
-**9. Title consumer** (`internal/server/session_scanner.go` — `runTitleConsumerLoop`)
-- Runs on a fixed interval
-- Queries sessions where `known_file_size > last_title_update_offset`
-- For each: opens the JSONL file, seeks to `last_title_update_offset`, reads new content
-- Extracts `custom-title` metadata entries using a quick string-match filter before JSON parsing
-- When a session has no `auto_summary`, also extracts the first user message and sends a summary request to the session summarizer worker
-- Updates the session row with any new `custom_title` and advances `last_title_update_offset`
-- When `custom_title` changes, triggers tmux window title reconciliation
 
 **10. Search indexer** (`internal/server/search_indexer.go`)
 - Runs on a fixed interval
@@ -187,7 +191,7 @@ The server runs eleven concurrent background goroutines:
 - Notifications are append-only (only mutation: mark-as-read). Pauses are deleted on auto-resume; the linked notification stays in history
 - Per-writeable-copy fsnotify watchers are managed by `writeableCopyWatchers` (`internal/server/writeable_copies_watcher.go`): one watcher on the working tree (excluding `.git/`) and one on `.git/refs/remotes/origin/<default-branch>`. The latter triggers an existing-machinery library push-event refresh when the writeable copy successfully pushes to origin
 
-The file watcher, title consumer, and search indexer form a three-layer session processing pipeline. The file watcher (layer 1) tracks file sizes. Consumers (layer 2) independently query for sessions where `known_file_size > their_offset` and process new content at their own cadence. The sessions table (layer 3) coordinates via three columns: `known_file_size` (nullable, written by file watcher), `last_title_update_offset` (title consumer), `last_indexed_offset` (search indexer).
+The file watcher, custom-title loop, auto-summary loop, and search indexer form a multi-layer session processing pipeline. The file watcher (layer 1) tracks file sizes. Consumers (layer 2) independently query for sessions where `known_file_size > their_offset` and process new content at their own cadence. The sessions table (layer 3) coordinates via four columns: `known_file_size` (nullable, written by file watcher), `last_custom_title_scan_offset` (custom-title loop), `last_auto_summary_scan_offset` (auto-summary loop), and `last_indexed_offset` (search indexer). Each consumer's output column and its offset are advanced together in a single atomic UPDATE — on failure the offset stays put and the session is naturally re-picked on the next cycle.
 
 The FTS5 virtual table `mission_search_index` stores indexed conversation text with `mission_id` and `session_id` as unindexed columns. It uses the `porter unicode61` tokenizer for stemming and Unicode normalization. Queries use BM25 ranking with results deduplicated by mission.
 
@@ -422,8 +426,10 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup, skips writes and reloads when plist content is unchanged
 - `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, debounced, ingests into shadow repo, updates cached `AgencConfig` via `atomic.Pointer`, and triggers cron sync)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file on a fixed interval)
-- `session_scanner.go` — session scanner loop (3-second interval, queries tmux pool for running missions then incrementally scans their JSONL files, updates sessions table, triggers tmux title reconciliation on changes)
-- `session_summarizer.go` — session summarizer worker (channel-driven, generates auto_summary from first user prompt via Claude Haiku CLI subprocess, with sync.Map deduplication)
+- `session_scanner.go` — file watcher loop (3-second interval, discovers JSONL files via tmux pool + backfills NULL file sizes, updates `known_file_size`) plus shared scan helpers used by the custom-title and auto-summary loops: `scanJSONLForCustomTitle` (reads new bytes for `custom-title` metadata) and `scanJSONLForFirstUserMessage` (early-returns on the first user-role string-content line, skipping array-content tool-result / multimodal lines)
+- `custom_title_loop.go` — custom-title loop (3-second interval; atomically writes `custom_title` and advances `last_custom_title_scan_offset` together; triggers tmux title reconciliation when the title changes)
+- `auto_summary_loop.go` — auto-summary loop (3-second interval; on first-user-message hit, invokes the Haiku helper and atomically writes `auto_summary` + advances `last_auto_summary_scan_offset` on success; Haiku failures leave the offset untouched so the session is retried on the next cycle)
+- `session_summarizer.go` — Haiku helper used by the auto-summary loop: `generateSessionSummary` calls Claude Haiku via the `claude --print --model <haiku>` CLI subprocess to produce a short description from the first user prompt, and `buildSummarizerSystemPrompt` constructs the system prompt. Uses the Claude CLI rather than a direct API call to avoid requiring users to configure an API key
 - `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane guard. Prepends per-mission emoji (from config, or hardcoded 🤖 for adjutant / 🦀 for blank missions) with fixed-column-4 padding via `go-runewidth`
 - `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
 - `notifications_handlers.go` — notifications CRUD endpoints (`POST /notifications`, `GET /notifications`, `GET /notifications/{id}`, `POST /notifications/{id}/read`, `GET /notifications/unread-count`); body-size cap. Cron-source missions auto-create a `cron.triggered` notification linked to the new mission via `MissionID`; failure to insert is logged and never fails the mission request
@@ -442,7 +448,7 @@ Devcontainer detection, configuration overlay, and project path encoding for con
 SQLite mission tracking with auto-migration.
 
 - `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, generic source tracking (`source`, `source_id`, `source_metadata` columns). Idempotent migrations handle schema evolution.
-- `sessions.go` — `Session` struct, CRUD operations (`CreateSession`, `GetSession`, `UpdateSessionScanResults`, `GetActiveSession`). The `GetActiveSession` query returns the most recently updated session for a mission, used by tmux title reconciliation to determine the current display title.
+- `sessions.go` — `Session` struct and CRUD operations: `CreateSession`, `GetSession`, `ListSessions`, `ListSessionsByMission`, `GetActiveSession`, `UpdateSessionAgencCustomTitle`, `UpdateKnownFileSize`, `SessionsWithNullFileSize`, plus the split-loop query and atomic-update helpers — `SessionsNeedingCustomTitleUpdate` / `UpdateCustomTitleAndOffset` / `UpdateCustomTitleScanOffset` for the custom-title loop, and `SessionsNeedingAutoSummary` / `UpdateAutoSummaryAndOffset` / `UpdateAutoSummaryScanOffset` for the auto-summary loop. Each `*AndOffset` helper writes the output column and advances its scan offset in a single UPDATE so failure rolls back both. `GetActiveSession` returns the most recently updated session for a mission, used by tmux title reconciliation to determine the current display title.
 - `notifications.go` — `Notification` struct (with optional `MissionID` attach target) and CRUD operations (`CreateNotification`, `GetNotification`, `ListNotifications`, `MarkNotificationRead`, `CountUnreadNotifications`). Notifications are append-only — `read_at` is the only mutation. The `mission_id` column links a notification to a mission so the Notification Center picker can attach on `ENTER`.
 
 ### `internal/launchd/`
@@ -591,13 +597,13 @@ When adding new palette commands or keybindings that invoke CLI commands needing
 
 ### Tmux title reconciliation
 
-The server provides an idempotent function (`internal/server/tmux.go`) that examines all available data for a mission and converges the tmux window to the correct title. It can be called from any context — the session scanner, the session summarizer, or a mission switch — and always produces the same result for the same input state.
+The server provides an idempotent function (`internal/server/tmux.go`) that examines all available data for a mission and converges the tmux window to the correct title. It can be called from any context — the custom-title loop, the auto-summary loop, or a mission switch — and always produces the same result for the same input state.
 
 **Title priority chain** (highest to lowest):
 
 1. Active session's `custom_title` (from Claude's `/rename`, stored in the `sessions` table)
 2. Active session's `agenc_custom_title` (user-set via `agenc mission rename` CLI, stored in the `sessions` table)
-3. Active session's `auto_summary` (generated by the session summarizer from the first user prompt via Haiku)
+3. Active session's `auto_summary` (generated by the auto-summary loop from the first user prompt via Haiku)
 4. Repo short name (extracted from the mission's `git_repo` field)
 5. Mission short ID (fallback)
 
@@ -766,8 +772,11 @@ Database Schema
 | `mission_id` | TEXT (FK) | References `missions(id)` with `ON DELETE CASCADE` |
 | `custom_title` | TEXT | User-assigned title from Claude's `/rename`, extracted from JSONL `custom-title` entries |
 | `agenc_custom_title` | TEXT | User-assigned title from `agenc mission rename` CLI command |
-| `auto_summary` | TEXT | AI-generated session description from the first user prompt, produced by the session summarizer via Claude Haiku |
-| `last_scanned_offset` | INTEGER | Byte offset into the JSONL file up to which the scanner has read. Enables incremental scanning — the scanner seeks to this offset and only parses new data. |
+| `auto_summary` | TEXT | AI-generated session description from the first user prompt, produced by the auto-summary loop via Claude Haiku |
+| `known_file_size` | INTEGER | File size of the session's JSONL file (nullable). Written by the file watcher; consumed by the custom-title, auto-summary, and search-indexer loops to detect new bytes. |
+| `last_custom_title_scan_offset` | INTEGER | Byte offset up to which the custom-title loop has scanned for `custom-title` metadata. Advanced atomically with any `custom_title` write — on failure the offset stays put so the session is retried on the next cycle. |
+| `last_auto_summary_scan_offset` | INTEGER | Byte offset up to which the auto-summary loop has scanned for the first user message. Advanced atomically with `auto_summary` only when Haiku succeeds — Haiku failures leave the offset untouched so the session is retried on the next cycle. |
+| `last_indexed_offset` | INTEGER | Byte offset up to which the search indexer has read. Advanced atomically with FTS5 inserts in a single transaction. |
 | `created_at` | TEXT | Session creation timestamp (RFC3339) |
 | `updated_at` | TEXT | Last update timestamp (RFC3339) |
 
