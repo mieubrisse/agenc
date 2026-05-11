@@ -15,13 +15,8 @@ import (
 	"github.com/odyssey/agenc/internal/database"
 )
 
-const (
-	// fileWatcherInterval is how often the file watcher checks for JSONL changes.
-	fileWatcherInterval = 3 * time.Second
-
-	// titleConsumerInterval is how often the title consumer processes new content.
-	titleConsumerInterval = 3 * time.Second
-)
+// fileWatcherInterval is how often the file watcher checks for JSONL changes.
+const fileWatcherInterval = 3 * time.Second
 
 // ============================================================================
 // Layer 1: File Watcher — discovers JSONL files and tracks their sizes
@@ -183,86 +178,8 @@ func (s *Server) resolveSessionJSONLPath(sess *database.Session) string {
 }
 
 // ============================================================================
-// Layer 2: Title Consumer — reads new content and extracts titles/summaries
+// JSONL parsing helpers (shared by the custom-title and auto-summary loops)
 // ============================================================================
-
-// runTitleConsumerLoop processes sessions with unscanned content, extracting
-// custom titles and first user messages for auto-summary.
-func (s *Server) runTitleConsumerLoop(ctx context.Context) {
-	// Initial delay to let file watcher populate known_file_size first
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(titleConsumerInterval + 1*time.Second):
-		s.runTitleConsumerCycle()
-	}
-
-	ticker := time.NewTicker(titleConsumerInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.runTitleConsumerCycle()
-		}
-	}
-}
-
-// runTitleConsumerCycle queries for sessions with new content and processes them.
-func (s *Server) runTitleConsumerCycle() {
-	sessions, err := s.db.SessionsNeedingTitleUpdate()
-	if err != nil {
-		s.logger.Printf("Title consumer: failed to query sessions: %v", err)
-		return
-	}
-
-	for _, sess := range sessions {
-		jsonlPath := s.resolveSessionJSONLPath(sess)
-		if jsonlPath == "" {
-			continue
-		}
-
-		knownSize := int64(0)
-		if sess.KnownFileSize != nil {
-			knownSize = *sess.KnownFileSize
-		}
-
-		needsUserMessage := sess.AutoSummary == ""
-
-		scanResult, err := scanJSONLFromOffset(jsonlPath, sess.LastCustomTitleScanOffset, needsUserMessage)
-		if err != nil {
-			s.logger.Printf("Title consumer: failed to scan '%s': %v", jsonlPath, err)
-			continue
-		}
-
-		customTitleChanged := scanResult.customTitle != "" && scanResult.customTitle != sess.CustomTitle
-
-		if err := s.db.UpdateSessionScanResults(sess.ID, scanResult.customTitle, knownSize); err != nil {
-			s.logger.Printf("Title consumer: failed to update session '%s': %v", sess.ID, err)
-			continue
-		}
-
-		if customTitleChanged {
-			s.reconcileTmuxWindowTitle(sess.MissionID)
-		}
-
-		if needsUserMessage && scanResult.firstUserMessage != "" {
-			s.requestSessionSummary(sess.ID, sess.MissionID, scanResult.firstUserMessage)
-		}
-	}
-}
-
-// ============================================================================
-// JSONL parsing helpers (shared by title consumer and future consumers)
-// ============================================================================
-
-// jsonlScanResult holds the results of scanning a JSONL file.
-type jsonlScanResult struct {
-	customTitle      string
-	firstUserMessage string
-}
 
 // jsonlMetadataEntry represents a metadata line in a session JSONL file.
 type jsonlMetadataEntry struct {
@@ -392,53 +309,4 @@ func scanJSONLForFirstUserMessage(jsonlFilepath string, offset int64) (string, e
 			return "", err
 		}
 	}
-}
-
-// scanJSONLFromOffset reads a JSONL file starting at the given byte offset and
-// returns any custom-title values found in the new data, plus optionally the
-// first user message if extractUserMessage is true.
-// Uses bufio.Reader (not Scanner) to handle arbitrarily long lines without
-// aborting, and quick string matching before JSON parsing to avoid parsing
-// every line.
-func scanJSONLFromOffset(jsonlFilepath string, offset int64, extractUserMessage bool) (jsonlScanResult, error) {
-	var result jsonlScanResult
-
-	file, err := os.Open(jsonlFilepath)
-	if err != nil {
-		return result, err
-	}
-	defer file.Close()
-
-	if offset > 0 {
-		if _, err := file.Seek(offset, 0); err != nil {
-			return result, err
-		}
-	}
-
-	reader := bufio.NewReaderSize(file, 64*1024) // 64 KB read buffer
-	foundUserMessage := false
-
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			if title := tryExtractCustomTitle(line); title != "" {
-				result.customTitle = title
-			}
-
-			if extractUserMessage && !foundUserMessage {
-				if msg := tryExtractUserMessage(line); msg != "" {
-					result.firstUserMessage = msg
-					foundUserMessage = true
-				}
-			}
-		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return result, err
-		}
-	}
-
-	return result, nil
 }

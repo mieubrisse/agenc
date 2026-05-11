@@ -49,10 +49,6 @@ type Server struct {
 	// writeableCopyWatchers tracks per-repo fsnotify watcher goroutines.
 	writeableCopyWatchers *writeableCopyWatchers
 
-	// Session summarizer: generates auto_summary from first user prompt via Haiku
-	sessionSummaryCh   chan summaryRequest
-	summarizedSessions *sync.Map
-
 	// stashInProgress is set while a stash push or pop is running.
 	// Mutating mission endpoints return 503 while this is true.
 	stashInProgress atomic.Bool
@@ -190,9 +186,6 @@ func (s *Server) Run(ctx context.Context) error {
 	// Load config and perform initial cron sync on startup
 	s.loadConfigOnStartup()
 
-	// Initialize session summarizer channel and deduplication map
-	s.initSessionSummarizer()
-
 	var wg sync.WaitGroup
 
 	// Start HTTP server in a goroutine
@@ -212,9 +205,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("keybindings-writer", &wg, ctx, s.runKeybindingsWriterLoop)
 	go s.runLoop("idle-timeout", &wg, ctx, s.runIdleTimeoutLoop)
 	go s.runLoop("file-watcher", &wg, ctx, s.runFileWatcherLoop)
-	go s.runLoop("title-consumer", &wg, ctx, s.runTitleConsumerLoop)
+	go s.runLoop("custom-title", &wg, ctx, s.runCustomTitleLoop)
+	go s.runLoop("auto-summary", &wg, ctx, s.runAutoSummaryLoop)
 	go s.runLoop("search-indexer", &wg, ctx, s.runSearchIndexerLoop)
-	go s.runLoop("session-summarizer", &wg, ctx, s.runSessionSummarizerWorker)
 	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
 
 	// Bootstrap writeable copies: clone if missing, install fsnotify watchers,

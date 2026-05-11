@@ -63,46 +63,6 @@ func (db *DB) GetSession(sessionID string) (*Session, error) {
 	return s, nil
 }
 
-// UpdateSessionScanResults updates the custom_title and
-// last_custom_title_scan_offset for a session after an incremental JSONL scan.
-// Only updates non-empty title values (preserves existing values when the
-// new scan found nothing new).
-//
-// updated_at is only bumped when custom_title actually changes. Offset-only
-// updates are silent — they must not affect GetActiveSession ordering, which
-// uses updated_at to determine the "active" session for a mission.
-func (db *DB) UpdateSessionScanResults(sessionID string, customTitle string, lastCustomTitleScanOffset int64) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.conn.Exec(
-		`UPDATE sessions SET
-			custom_title = CASE WHEN ? != '' THEN ? ELSE custom_title END,
-			last_custom_title_scan_offset = ?,
-			updated_at = CASE WHEN ? != '' THEN ? ELSE updated_at END
-		WHERE id = ?`,
-		customTitle, customTitle, lastCustomTitleScanOffset, customTitle, now, sessionID,
-	)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to update scan results for session '%s'", sessionID)
-	}
-	return nil
-}
-
-// UpdateSessionAutoSummary sets the auto_summary for a session.
-//
-// Does not bump updated_at — auto_summary is a background operation that must
-// not affect GetActiveSession ordering. Only user-initiated actions (session
-// creation, rename) should influence which session is considered "active."
-func (db *DB) UpdateSessionAutoSummary(sessionID string, autoSummary string) error {
-	_, err := db.conn.Exec(
-		"UPDATE sessions SET auto_summary = ? WHERE id = ?",
-		autoSummary, sessionID,
-	)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to update auto_summary for session '%s'", sessionID)
-	}
-	return nil
-}
-
 // UpdateSessionAgencCustomTitle sets the agenc_custom_title for a session.
 // An empty title clears the custom title.
 func (db *DB) UpdateSessionAgencCustomTitle(sessionID string, title string) error {
@@ -230,19 +190,6 @@ func (db *DB) SessionsWithNullFileSize() ([]*Session, error) {
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to query sessions with null file size")
-	}
-	defer rows.Close()
-	return scanSessions(rows)
-}
-
-// SessionsNeedingTitleUpdate returns sessions where known_file_size > last_custom_title_scan_offset,
-// meaning there is new content the title consumer hasn't processed yet.
-func (db *DB) SessionsNeedingTitleUpdate() ([]*Session, error) {
-	rows, err := db.conn.Query(
-		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_custom_title_scan_offset, last_auto_summary_scan_offset, known_file_size, last_indexed_offset, created_at, updated_at FROM sessions WHERE known_file_size IS NOT NULL AND known_file_size > last_custom_title_scan_offset",
-	)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to query sessions needing title update")
 	}
 	defer rows.Close()
 	return scanSessions(rows)

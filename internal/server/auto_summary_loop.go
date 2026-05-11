@@ -9,8 +9,6 @@ import (
 
 // autoSummaryInterval is how often the auto-summary loop scans for sessions
 // needing a generated title from Claude Haiku.
-//
-//nolint:unused // wired into Server.Start in a follow-up commit
 const autoSummaryInterval = 3 * time.Second
 
 // summarizeFunc is the signature of the auto-summary generator. Production code
@@ -19,8 +17,6 @@ type summarizeFunc func(ctx context.Context, agencDirpath, firstUserMessage stri
 
 // runAutoSummaryLoop runs the auto-summary cycle every autoSummaryInterval until
 // ctx is cancelled.
-//
-//nolint:unused // wired into Server.Start in a follow-up commit
 func (s *Server) runAutoSummaryLoop(ctx context.Context) {
 	// Initial delay to let the file watcher populate known_file_size first.
 	select {
@@ -45,8 +41,6 @@ func (s *Server) runAutoSummaryLoop(ctx context.Context) {
 
 // runAutoSummaryCycle is the production entrypoint: it scans sessions that need
 // an auto_summary and invokes the real Haiku summarizer.
-//
-//nolint:unused // called from runAutoSummaryLoop, which is wired in a follow-up commit
 func (s *Server) runAutoSummaryCycle(ctx context.Context) {
 	s.runAutoSummaryCycleWith(ctx, generateSessionSummary)
 }

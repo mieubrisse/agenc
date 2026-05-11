@@ -9,14 +9,10 @@ import (
 
 // customTitleInterval is how often the custom-title loop scans for sessions
 // whose JSONL has grown since their last custom-title scan.
-//
-//nolint:unused // wired into Server.Start in a follow-up commit
 const customTitleInterval = 3 * time.Second
 
 // runCustomTitleLoop runs the custom-title cycle every customTitleInterval
 // until ctx is cancelled.
-//
-//nolint:unused // wired into Server.Start in a follow-up commit
 func (s *Server) runCustomTitleLoop(ctx context.Context) {
 	// Initial delay to let the file watcher populate known_file_size first.
 	select {
