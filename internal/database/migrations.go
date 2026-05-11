@@ -533,9 +533,10 @@ func getSessionColumnNames(conn *sql.DB) (map[string]bool, error) {
 }
 
 // migrateSearchIndex idempotently creates the FTS5 virtual table for full-text
-// mission search, renames last_scanned_offset to last_title_update_offset, and
-// adds the known_file_size and last_indexed_offset columns for the session
-// processing pipeline.
+// mission search, renames last_scanned_offset to last_custom_title_scan_offset
+// (via the intermediate last_title_update_offset), and adds the
+// known_file_size, last_indexed_offset, and last_auto_summary_scan_offset
+// columns for the session processing pipeline.
 func migrateSearchIndex(conn *sql.DB) error {
 	// Create FTS5 table. Virtual tables don't appear in PRAGMA table_info,
 	// so check sqlite_master directly.
@@ -579,6 +580,34 @@ func migrateSearchIndex(conn *sql.DB) error {
 	if !columns["last_indexed_offset"] {
 		if _, err := conn.Exec(addLastIndexedOffsetColumnSQL); err != nil {
 			return stacktrace.Propagate(err, "failed to add last_indexed_offset column")
+		}
+	}
+
+	// Rename last_title_update_offset → last_custom_title_scan_offset.
+	// The custom-title scan and auto-summary scan now have independent offsets
+	// (see runCustomTitleLoop / runAutoSummaryLoop) so the original name is no
+	// longer accurate.
+	columns, err = getSessionColumnNames(conn)
+	if err != nil {
+		return err
+	}
+	if columns["last_title_update_offset"] && !columns["last_custom_title_scan_offset"] {
+		if _, err := conn.Exec("ALTER TABLE sessions RENAME COLUMN last_title_update_offset TO last_custom_title_scan_offset"); err != nil {
+			return stacktrace.Propagate(err, "failed to rename last_title_update_offset to last_custom_title_scan_offset")
+		}
+	}
+
+	// Add last_auto_summary_scan_offset column. Default 0 means existing rows
+	// with empty auto_summary are naturally re-scanned (and re-summarized) by
+	// the new auto-summary loop; rows that already have a non-empty
+	// auto_summary are filtered out by the loop's WHERE clause.
+	columns, err = getSessionColumnNames(conn)
+	if err != nil {
+		return err
+	}
+	if !columns["last_auto_summary_scan_offset"] {
+		if _, err := conn.Exec("ALTER TABLE sessions ADD COLUMN last_auto_summary_scan_offset INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return stacktrace.Propagate(err, "failed to add last_auto_summary_scan_offset column")
 		}
 	}
 

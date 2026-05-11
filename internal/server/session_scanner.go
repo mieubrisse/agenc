@@ -231,7 +231,7 @@ func (s *Server) runTitleConsumerCycle() {
 
 		needsUserMessage := sess.AutoSummary == ""
 
-		scanResult, err := scanJSONLFromOffset(jsonlPath, sess.LastTitleUpdateOffset, needsUserMessage)
+		scanResult, err := scanJSONLFromOffset(jsonlPath, sess.LastCustomTitleScanOffset, needsUserMessage)
 		if err != nil {
 			s.logger.Printf("Title consumer: failed to scan '%s': %v", jsonlPath, err)
 			continue

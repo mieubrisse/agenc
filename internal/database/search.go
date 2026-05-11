@@ -159,7 +159,7 @@ func (db *DB) DeleteAllSearchContent() error {
 // meaning there is new content the FTS indexer hasn't processed yet.
 func (db *DB) SessionsNeedingIndexing() ([]*Session, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_title_update_offset, known_file_size, last_indexed_offset, created_at, updated_at FROM sessions WHERE known_file_size IS NOT NULL AND known_file_size > last_indexed_offset",
+		"SELECT id, short_id, mission_id, custom_title, agenc_custom_title, auto_summary, last_custom_title_scan_offset, last_auto_summary_scan_offset, known_file_size, last_indexed_offset, created_at, updated_at FROM sessions WHERE known_file_size IS NOT NULL AND known_file_size > last_indexed_offset",
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to query sessions needing indexing")
