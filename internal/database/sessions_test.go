@@ -110,9 +110,10 @@ func TestGetActiveSession(t *testing.T) {
 	// Sleep so the second update gets a strictly later RFC3339 second.
 	time.Sleep(1100 * time.Millisecond)
 
-	// Update the older session to make it "most recently modified"
-	if err := db.UpdateCustomTitleAndOffset("older-session", "Updated", 100); err != nil {
-		t.Fatalf("UpdateCustomTitleAndOffset failed: %v", err)
+	// Update the older session via a user-driven rename, which is one of the
+	// writes that bumps updated_at, making it "most recently modified".
+	if err := db.UpdateSessionAgencCustomTitle("older-session", "Updated"); err != nil {
+		t.Fatalf("UpdateSessionAgencCustomTitle failed: %v", err)
 	}
 
 	active, err := db.GetActiveSession(mission.ID)
@@ -141,6 +142,106 @@ func TestGetActiveSession_NoSessions(t *testing.T) {
 	}
 	if active != nil {
 		t.Errorf("expected nil for mission with no sessions, got %v", active)
+	}
+}
+
+func TestGetActiveSession_CustomTitleScanDoesNotDisplaceRename(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	// Create two sessions. "older" is created first, "current" is created second.
+	if _, err := db.CreateSession(mission.ID, "older-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if _, err := db.CreateSession(mission.ID, "current-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Sleep to ensure the rename gets a distinct RFC3339 timestamp
+	// (second-level precision).
+	time.Sleep(1100 * time.Millisecond)
+
+	// Rename the current session — this is a user-driven write and bumps
+	// updated_at.
+	if err := db.UpdateSessionAgencCustomTitle("current-session", "My Rename"); err != nil {
+		t.Fatalf("UpdateSessionAgencCustomTitle failed: %v", err)
+	}
+
+	// Simulate the custom-title scanner advancing the offset (and writing a
+	// title) on the older session. This is a background-scanner write — it
+	// must NOT bump updated_at, and must NOT displace the renamed session
+	// from being the active one.
+	if err := db.UpdateCustomTitleAndOffset("older-session", "Scanner Title", 4096); err != nil {
+		t.Fatalf("UpdateCustomTitleAndOffset failed: %v", err)
+	}
+	// And the offset-only variant must also preserve updated_at.
+	if err := db.UpdateCustomTitleScanOffset("older-session", 8192); err != nil {
+		t.Fatalf("UpdateCustomTitleScanOffset failed: %v", err)
+	}
+
+	active, err := db.GetActiveSession(mission.ID)
+	if err != nil {
+		t.Fatalf("GetActiveSession failed: %v", err)
+	}
+	if active == nil {
+		t.Fatal("expected active session, got nil")
+	}
+	if active.ID != "current-session" {
+		t.Errorf("expected renamed session 'current-session' to remain active, got %q", active.ID)
+	}
+	if active.AgencCustomTitle != "My Rename" {
+		t.Errorf("expected agenc_custom_title %q, got %q", "My Rename", active.AgencCustomTitle)
+	}
+}
+
+func TestGetActiveSession_AutoSummaryDoesNotDisplaceRename(t *testing.T) {
+	db := openTestDB(t)
+
+	mission, err := db.CreateMission("github.com/owner/repo", nil)
+	if err != nil {
+		t.Fatalf("failed to create mission: %v", err)
+	}
+
+	if _, err := db.CreateSession(mission.ID, "older-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	if _, err := db.CreateSession(mission.ID, "current-session"); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	// Sleep to ensure the rename gets a distinct RFC3339 timestamp
+	// (second-level precision).
+	time.Sleep(1100 * time.Millisecond)
+
+	// Rename the current session — bumps updated_at.
+	if err := db.UpdateSessionAgencCustomTitle("current-session", "My Rename"); err != nil {
+		t.Fatalf("UpdateSessionAgencCustomTitle failed: %v", err)
+	}
+
+	// Simulate the auto-summary scanner finishing on the older session. This
+	// is a background-scanner write — it must NOT displace the renamed
+	// session.
+	if err := db.UpdateAutoSummaryAndOffset("older-session", "Working on auth", 4096); err != nil {
+		t.Fatalf("UpdateAutoSummaryAndOffset failed: %v", err)
+	}
+	// And the offset-only variant must also preserve updated_at.
+	if err := db.UpdateAutoSummaryScanOffset("older-session", 8192); err != nil {
+		t.Fatalf("UpdateAutoSummaryScanOffset failed: %v", err)
+	}
+
+	active, err := db.GetActiveSession(mission.ID)
+	if err != nil {
+		t.Fatalf("GetActiveSession failed: %v", err)
+	}
+	if active == nil {
+		t.Fatal("expected active session, got nil")
+	}
+	if active.ID != "current-session" {
+		t.Errorf("expected renamed session 'current-session' to remain active, got %q", active.ID)
 	}
 }
 
@@ -317,11 +418,9 @@ func TestUpdateCustomTitleAndOffset(t *testing.T) {
 		t.Fatalf("UpdateAutoSummaryAndOffset (pre-populate) failed: %v", err)
 	}
 
-	// Capture pre-update state, then sleep > 1s so the post-update
-	// RFC3339 timestamp (second precision) is strictly greater. This lets
-	// us assert UpdatedAt moves strictly forward with .After() rather than
-	// settling for .Before() == false. The 1s cost is acceptable for the
-	// guarantee that the function actually bumps updated_at.
+	// Capture pre-update state, then sleep > 1s so an UpdatedAt bump (which
+	// must NOT happen for this scanner write) would be observable at
+	// RFC3339 second precision.
 	before, err := db.GetSession(sess.ID)
 	if err != nil {
 		t.Fatalf("GetSession (before) failed: %v", err)
@@ -348,9 +447,11 @@ func TestUpdateCustomTitleAndOffset(t *testing.T) {
 	if got.LastAutoSummaryScanOffset != 42 {
 		t.Errorf("last_auto_summary_scan_offset clobbered: got %d, want 42", got.LastAutoSummaryScanOffset)
 	}
-	// updated_at must strictly advance.
-	if !got.UpdatedAt.After(before.UpdatedAt) {
-		t.Errorf("UpdatedAt did not advance: before=%v after=%v", before.UpdatedAt, got.UpdatedAt)
+	// updated_at must NOT change — this is a background-scanner write, and
+	// bumping updated_at would displace user-renamed sessions in
+	// GetActiveSession's ORDER BY updated_at DESC.
+	if !got.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Errorf("UpdatedAt changed when it should have been preserved: before=%v after=%v", before.UpdatedAt, got.UpdatedAt)
 	}
 }
 

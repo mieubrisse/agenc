@@ -224,10 +224,14 @@ func (db *DB) SessionsNeedingAutoSummary() ([]*Session, error) {
 
 // UpdateCustomTitleAndOffset atomically sets custom_title and advances
 // last_custom_title_scan_offset.
+//
+// This is a background-scanner write — it deliberately does NOT bump
+// updated_at. GetActiveSession orders by updated_at DESC, and scanner activity
+// must not displace a user-renamed session from being the active one.
 func (db *DB) UpdateCustomTitleAndOffset(sessionID, customTitle string, newOffset int64) error {
 	_, err := db.conn.Exec(
-		`UPDATE sessions SET custom_title = ?, last_custom_title_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		customTitle, newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
+		`UPDATE sessions SET custom_title = ?, last_custom_title_scan_offset = ? WHERE id = ?`,
+		customTitle, newOffset, sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update custom_title and offset for session '%s'", sessionID)
@@ -237,10 +241,14 @@ func (db *DB) UpdateCustomTitleAndOffset(sessionID, customTitle string, newOffse
 
 // UpdateCustomTitleScanOffset advances only last_custom_title_scan_offset —
 // used when a scan completed but found no new title metadata.
+//
+// This is a background-scanner write — it deliberately does NOT bump
+// updated_at. GetActiveSession orders by updated_at DESC, and scanner activity
+// must not displace a user-renamed session from being the active one.
 func (db *DB) UpdateCustomTitleScanOffset(sessionID string, newOffset int64) error {
 	_, err := db.conn.Exec(
-		`UPDATE sessions SET last_custom_title_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
+		`UPDATE sessions SET last_custom_title_scan_offset = ? WHERE id = ?`,
+		newOffset, sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update custom_title offset for session '%s'", sessionID)
@@ -250,10 +258,14 @@ func (db *DB) UpdateCustomTitleScanOffset(sessionID string, newOffset int64) err
 
 // UpdateAutoSummaryAndOffset atomically sets auto_summary and advances
 // last_auto_summary_scan_offset.
+//
+// This is a background-scanner write — it deliberately does NOT bump
+// updated_at. GetActiveSession orders by updated_at DESC, and scanner activity
+// must not displace a user-renamed session from being the active one.
 func (db *DB) UpdateAutoSummaryAndOffset(sessionID, summary string, newOffset int64) error {
 	_, err := db.conn.Exec(
-		`UPDATE sessions SET auto_summary = ?, last_auto_summary_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		summary, newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
+		`UPDATE sessions SET auto_summary = ?, last_auto_summary_scan_offset = ? WHERE id = ?`,
+		summary, newOffset, sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update auto_summary and offset for session '%s'", sessionID)
@@ -263,10 +275,14 @@ func (db *DB) UpdateAutoSummaryAndOffset(sessionID, summary string, newOffset in
 
 // UpdateAutoSummaryScanOffset advances only last_auto_summary_scan_offset —
 // used when a scan completed but found no first user message yet.
+//
+// This is a background-scanner write — it deliberately does NOT bump
+// updated_at. GetActiveSession orders by updated_at DESC, and scanner activity
+// must not displace a user-renamed session from being the active one.
 func (db *DB) UpdateAutoSummaryScanOffset(sessionID string, newOffset int64) error {
 	_, err := db.conn.Exec(
-		`UPDATE sessions SET last_auto_summary_scan_offset = ?, updated_at = ? WHERE id = ?`,
-		newOffset, time.Now().UTC().Format(time.RFC3339), sessionID,
+		`UPDATE sessions SET last_auto_summary_scan_offset = ? WHERE id = ?`,
+		newOffset, sessionID,
 	)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to update auto_summary offset for session '%s'", sessionID)
