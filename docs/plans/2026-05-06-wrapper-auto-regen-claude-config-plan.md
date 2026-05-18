@@ -36,7 +36,7 @@ Before starting any task: read the design doc at `docs/plans/2026-05-06-wrapper-
 - `make check` — quality checks only (formatting, vet, lint, vulncheck, deadcode, tests)
 - `make e2e` — full E2E (builds binary, creates test env, runs `scripts/e2e-test.sh`, tears down)
 
-**Coding conventions:** Invoke `/alembiq:software-engineer` and `/alembiq:go-coding` before any Go edit. Build only via `make` — never `go build` directly.
+**Coding conventions:** Invoke `/software-engineer` and `/go-coding` before any Go edit. Build only via `make` — never `go build` directly.
 
 **Commits:** Single-line messages, no co-author lines. After every commit: `git pull --rebase && git push`.
 

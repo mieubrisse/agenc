@@ -1,7 +1,7 @@
 Split Title/Summary Pipeline Implementation Plan
 =================================================
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Also invoke `/alembiq:software-engineer` and `/alembiq:go-coding` before touching any `.go` file (per repo CLAUDE.md).
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Also invoke `/software-engineer` and `/go-coding` before touching any `.go` file (per repo CLAUDE.md).
 
 **Goal:** Fix the bug where a failed Haiku call permanently leaves a session unsummarized, by splitting the title/summary pipeline into two independent DB-backed loops, each gating its offset advance on operation success.
 
