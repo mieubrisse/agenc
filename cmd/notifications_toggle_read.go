@@ -12,7 +12,7 @@ import (
 // notificationsToggleReadCmd flips the read state of a notification — used by
 // the Notification Center picker's Ctrl-R bind so the same keystroke marks
 // unread rows as read and re-marks read rows as unread. Hidden from the
-// public CLI because the user-facing entry points are `notifications read`
+// public CLI because the user-facing entry points are `notification read`
 // (one-way mark) and, eventually, an `unread` sibling if one is needed.
 var notificationsToggleReadCmd = &cobra.Command{
 	Use:    "toggle-read <id>",

@@ -8,7 +8,7 @@ import (
 )
 
 // Notification is an append-only record surfaced to the user via
-// `agenc notifications ls`. Created by AgenC subsystems (e.g. the
+// `agenc notification ls`. Created by AgenC subsystems (e.g. the
 // writeable-copy reconcile loop) or by agents via the CLI.
 type Notification struct {
 	ID           string

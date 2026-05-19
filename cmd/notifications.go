@@ -3,8 +3,8 @@ package cmd
 import "github.com/spf13/cobra"
 
 var notificationsCmd = &cobra.Command{
-	Use:   notificationsCmdStr,
-	Short: "List, read, and create AgenC notifications",
+	Use:   notificationCmdStr,
+	Short: "List, read, and post AgenC notifications",
 	Long: `Notifications surface events that need user awareness — most commonly,
 sync conflicts in writeable copies, but extensible to anything an agent or
 subsystem wants to flag. Notifications are append-only: they are created once

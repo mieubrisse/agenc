@@ -1,4 +1,4 @@
-## agenc notifications manage
+## agenc notification manage
 
 Interactive notification picker — ENTER attaches to the linked mission
 
@@ -10,7 +10,7 @@ attach to its linked mission. Notifications without a linked mission are not
 actionable from this view.
 
 ```
-agenc notifications manage [flags]
+agenc notification manage [flags]
 ```
 
 ### Options
@@ -21,5 +21,5 @@ agenc notifications manage [flags]
 
 ### SEE ALSO
 
-* [agenc notifications](agenc_notifications.md)	 - List, read, and create AgenC notifications
+* [agenc notification](agenc_notification.md)	 - List, read, and post AgenC notifications
 

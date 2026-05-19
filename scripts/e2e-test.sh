@@ -431,12 +431,12 @@ echo "--- Notifications (requires server) ---"
 # Note: tests don't assume an empty starting state — they verify the create →
 # find → read flow is self-consistent for the notification they create.
 
-# `notifications manage` is the interactive picker. When run without a TTY it
+# `notification manage` is the interactive picker. When run without a TTY it
 # either short-circuits with the empty-list message (zero notifications) or
 # refuses with the interactive-terminal error (any notifications exist). Both
 # exit 0/1 cleanly — verify the command is wired up and doesn't panic.
-run_test_no_crash "notifications manage runs without crashing in non-TTY" \
-    "${agenc_test}" notifications manage
+run_test_no_crash "notification manage runs without crashing in non-TTY" \
+    "${agenc_test}" notification manage
 
 # Cron-source missions auto-create a cron.triggered notification. Use the
 # hidden --source flags on mission new (the same flags the launchd plist
@@ -447,73 +447,73 @@ run_test_no_crash "notifications manage runs without crashing in non-TTY" \
 
 run_test_output_contains "cron-source mission creates cron.triggered notification" \
     "e2e-cron-name" \
-    "${agenc_test}" notifications ls --kind=cron.triggered --all
+    "${agenc_test}" notification ls --kind=cron.triggered --all
 
 # Create
-notif_create_output=$("${agenc_test}" notifications create --kind=e2e.test --title="E2E Hello" --body="# Body" 2>&1) || true
+notif_create_output=$("${agenc_test}" notification new --kind=e2e.test --title="E2E Hello" --body="# Body" 2>&1) || true
 notif_short_id=$(echo "${notif_create_output}" | grep -oE "'[0-9a-f]{8}'" | head -1 | tr -d "'")
 
 if [ -n "${notif_short_id}" ]; then
-    run_test_output_contains "notifications ls shows the new entry" \
+    run_test_output_contains "notification ls shows the new entry" \
         "E2E Hello" \
-        "${agenc_test}" notifications ls
+        "${agenc_test}" notification ls
 
-    run_test_output_contains "notifications show prints body" \
+    run_test_output_contains "notification show prints body" \
         "# Body" \
-        "${agenc_test}" notifications show "${notif_short_id}"
+        "${agenc_test}" notification show "${notif_short_id}"
 
-    run_test "notifications read marks as read" \
+    run_test "notification read marks as read" \
         0 \
-        "${agenc_test}" notifications read "${notif_short_id}"
+        "${agenc_test}" notification read "${notif_short_id}"
 
     # After read, the entry shouldn't appear in unread filter — but other
     # unread notifications may exist from earlier tests, so filter to ours
     # by short ID.
-    run_test "notifications ls --kind=e2e.test no longer includes our entry" \
+    run_test "notification ls --kind=e2e.test no longer includes our entry" \
         1 \
-        bash -c "'${agenc_test}' notifications ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
+        bash -c "'${agenc_test}' notification ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
 
-    run_test_output_contains "notifications ls --all still shows it" \
+    run_test_output_contains "notification ls --all still shows it" \
         "E2E Hello" \
-        "${agenc_test}" notifications ls --all
+        "${agenc_test}" notification ls --all
 
-    run_test_output_contains "notifications read is idempotent" \
+    run_test_output_contains "notification read is idempotent" \
         "already marked as read" \
-        "${agenc_test}" notifications read "${notif_short_id}"
+        "${agenc_test}" notification read "${notif_short_id}"
 
-    # `notifications manage-fzf-input` is the hidden reload source the picker
+    # `notification manage-fzf-input` is the hidden reload source the picker
     # invokes after Ctrl-R. It must print the notification short ID and the
     # short ID must appear in the output even after the notification is read
     # (the picker shows all notifications, not just unread).
-    run_test_output_contains "notifications manage-fzf-input lists our read entry" \
+    run_test_output_contains "notification manage-fzf-input lists our read entry" \
         "${notif_short_id}" \
-        "${agenc_test}" notifications manage-fzf-input
+        "${agenc_test}" notification manage-fzf-input
 
-    # `notifications toggle-read` is the hidden command behind the picker's
+    # `notification toggle-read` is the hidden command behind the picker's
     # Ctrl-R bind. The just-read notification toggles back to unread; a
     # second toggle returns it to read. Verify both halves of the flip.
-    run_test_output_contains "notifications toggle-read flips read -> unread" \
+    run_test_output_contains "notification toggle-read flips read -> unread" \
         "as unread" \
-        "${agenc_test}" notifications toggle-read "${notif_short_id}"
+        "${agenc_test}" notification toggle-read "${notif_short_id}"
 
-    run_test "notifications toggle-read leaves it unread (visible in unread filter)" \
+    run_test "notification toggle-read leaves it unread (visible in unread filter)" \
         0 \
-        bash -c "'${agenc_test}' notifications ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
+        bash -c "'${agenc_test}' notification ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
 
-    run_test_output_contains "notifications toggle-read flips unread -> read" \
+    run_test_output_contains "notification toggle-read flips unread -> read" \
         "as read" \
-        "${agenc_test}" notifications toggle-read "${notif_short_id}"
+        "${agenc_test}" notification toggle-read "${notif_short_id}"
 else
     total=$((total + 1))
-    printf "  %-50s " "notifications create produced ID..."
+    printf "  %-50s " "notification new produced ID..."
     echo "FAIL (could not extract short ID from: ${notif_create_output})"
     failed=$((failed + 1))
 fi
 
 # Title with newlines is rejected
-run_test "notifications create rejects newline in title" \
+run_test "notification new rejects newline in title" \
     1 \
-    "${agenc_test}" notifications create --kind=e2e.test --title=$'multi\nline' --body=x
+    "${agenc_test}" notification new --kind=e2e.test --title=$'multi\nline' --body=x
 
 echo ""
 echo "--- Writeable copies (requires server) ---"

@@ -382,7 +382,7 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 	}
 
 	// Best-effort: surface cron-triggered missions as notifications so the
-	// user can find them via 'agenc notifications manage' without polling.
+	// user can find them via 'agenc notification manage' without polling.
 	if req.Source == "cron" {
 		s.createCronTriggeredNotification(missionRecord, req)
 	}

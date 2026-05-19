@@ -47,7 +47,7 @@ func runNotificationsLs(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Println("No unread notifications.")
 			fmt.Println()
-			fmt.Println("Show all (incl read): agenc notifications ls --all")
+			fmt.Println("Show all (incl read): agenc notification ls --all")
 		}
 		return nil
 	}
@@ -70,10 +70,10 @@ func runNotificationsLs(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%d unread notifications.\n", len(list))
 	}
 	fmt.Println()
-	fmt.Println("View full content:    agenc notifications show <id>")
-	fmt.Println("Mark as read:         agenc notifications read <id>")
+	fmt.Println("View full content:    agenc notification show <id>")
+	fmt.Println("Mark as read:         agenc notification read <id>")
 	if !all {
-		fmt.Println("Show all (incl read): agenc notifications ls --all")
+		fmt.Println("Show all (incl read): agenc notification ls --all")
 	}
 
 	return nil

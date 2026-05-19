@@ -1,4 +1,4 @@
-## agenc notifications ls
+## agenc notification ls
 
 List notifications (default: unread only)
 
@@ -8,7 +8,7 @@ List notifications. By default only unread notifications are shown.
 Use --all to see read notifications too. Use --repo or --kind to filter.
 
 ```
-agenc notifications ls [flags]
+agenc notification ls [flags]
 ```
 
 ### Options
@@ -22,5 +22,5 @@ agenc notifications ls [flags]
 
 ### SEE ALSO
 
-* [agenc notifications](agenc_notifications.md)	 - List, read, and create AgenC notifications
+* [agenc notification](agenc_notification.md)	 - List, read, and post AgenC notifications
 

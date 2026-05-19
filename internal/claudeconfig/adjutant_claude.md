@@ -304,16 +304,16 @@ marked as read. They are never deleted.
 
 ### Listing and reading notifications
 
-- `agenc notifications ls` — unread notifications, table form (default)
-- `agenc notifications ls --all` — full history
-- `agenc notifications ls --repo <name>` — filter by source repo
-- `agenc notifications ls --kind <kind>` — filter by kind
-- `agenc notifications show <short-id>` — full Markdown body of one notification
-- `agenc notifications read <short-id>` — mark as read
+- `agenc notification ls` — unread notifications, table form (default)
+- `agenc notification ls --all` — full history
+- `agenc notification ls --repo <name>` — filter by source repo
+- `agenc notification ls --kind <kind>` — filter by kind
+- `agenc notification show <short-id>` — full Markdown body of one notification
+- `agenc notification read <short-id>` — mark as read
 
 When the user asks about their notifications or you are spawned via the
-"Show Notifications" palette entry: run `agenc notifications ls` first, then
-use `agenc notifications show <id>` for any notification whose body the user
+"Show Notifications" palette entry: run `agenc notification ls` first, then
+use `agenc notification show <id>` for any notification whose body the user
 wants to see or that you need to act on.
 
 ### When to mark as read
@@ -378,7 +378,7 @@ synchronize via origin.
 
 - `agenc repo writeable-copy ls` — table of configured writeable copies and
   their current sync status (ok / paused / missing). When any are paused,
-  the output points at `agenc notifications ls`.
+  the output points at `agenc notification ls`.
 
 Status legend:
 - `✅ ok` — the sync loop is healthy
@@ -434,7 +434,7 @@ State this explicitly when running `unset` for them.
 Other agents or subsystems can post notifications via:
 
 ```
-agenc notifications create --kind=<kind> --title=<title> [--source-repo=<repo>] (--body=<text> | --body-file=<path>)
+agenc notification new --kind=<kind> --title=<title> [--source-repo=<repo>] (--body=<text> | --body-file=<path>)
 ```
 
 `--body-file=-` reads from stdin (handy for piping). Use this sparingly — the

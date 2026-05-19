@@ -59,7 +59,7 @@ func runRepoWriteableCopyLs(cmd *cobra.Command, args []string) error {
 	if pausedCount > 0 {
 		fmt.Println()
 		fmt.Printf("%d writeable copy needs attention. See:\n", pausedCount)
-		fmt.Println("  agenc notifications ls")
+		fmt.Println("  agenc notification ls")
 	}
 
 	return nil

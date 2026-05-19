@@ -27,11 +27,10 @@ const (
 	sessionCmdStr  = "session"
 	stashCmdStr    = "stash"
 
-	notificationsCmdStr = "notifications"
-	showCmdStr          = "show"
-	readCmdStr          = "read"
-	createCmdStr        = "create"
-	manageCmdStr        = "manage"
+	notificationCmdStr = "notification"
+	showCmdStr         = "show"
+	readCmdStr         = "read"
+	manageCmdStr       = "manage"
 
 	writeableCopyCmdStr = "writeable-copy"
 	unsetCmdStr         = "unset"

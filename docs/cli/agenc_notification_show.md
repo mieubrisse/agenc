@@ -1,4 +1,4 @@
-## agenc notifications show
+## agenc notification show
 
 Print the full body of a notification
 
@@ -10,7 +10,7 @@ The body is sanitized of ANSI escape sequences before display so that a
 malicious or malformed body cannot manipulate the terminal.
 
 ```
-agenc notifications show <id> [flags]
+agenc notification show <id> [flags]
 ```
 
 ### Options
@@ -21,5 +21,5 @@ agenc notifications show <id> [flags]
 
 ### SEE ALSO
 
-* [agenc notifications](agenc_notifications.md)	 - List, read, and create AgenC notifications
+* [agenc notification](agenc_notification.md)	 - List, read, and post AgenC notifications
 

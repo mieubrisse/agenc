@@ -58,7 +58,7 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 	}
 
 	if !isatty.IsTerminal(os.Stdin.Fd()) {
-		return stacktrace.NewError("notifications manage requires an interactive terminal")
+		return stacktrace.NewError("notification manage requires an interactive terminal")
 	}
 	fzfBinary, err := exec.LookPath("fzf")
 	if err != nil {
@@ -72,9 +72,9 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to get agenc executable path")
 	}
 
-	previewCmd := fmt.Sprintf("%s notifications show {1}", execPath)
-	toggleReadCmd := fmt.Sprintf("%s notifications toggle-read {1}", execPath)
-	reloadCmd := fmt.Sprintf("%s notifications manage-fzf-input", execPath)
+	previewCmd := fmt.Sprintf("%s notification show {1}", execPath)
+	toggleReadCmd := fmt.Sprintf("%s notification toggle-read {1}", execPath)
+	reloadCmd := fmt.Sprintf("%s notification manage-fzf-input", execPath)
 	fzfArgs := []string{
 		"--ansi",
 		"--header-lines", "1",

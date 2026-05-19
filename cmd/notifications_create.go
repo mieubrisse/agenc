@@ -14,7 +14,7 @@ import (
 )
 
 var notificationsCreateCmd = &cobra.Command{
-	Use:   createCmdStr,
+	Use:   newCmdStr,
 	Short: "Create a new notification (typically for agents)",
 	Long: `Create a new notification.
 
@@ -22,7 +22,7 @@ Body content can be supplied either via --body=<string> for short content or
 via --body-file=<path> for longer content. Use --body-file=- to read the body
 from stdin (handy for piping):
 
-  cat conflict-report.md | agenc notifications create \
+  cat conflict-report.md | agenc notification new \
       --kind=writeable_copy.conflict --title="Rebase conflict" --body-file=-`,
 	RunE: runNotificationsCreate,
 }

@@ -8,7 +8,7 @@ import (
 )
 
 // notificationsManageFzfInputCmd is a hidden subcommand used by the
-// `notifications manage` picker as its fzf `reload` source. Each invocation
+// `notification manage` picker as its fzf `reload` source. Each invocation
 // fetches the full notifications list and prints the same tab-prefixed table
 // format used for the picker's initial input, so a reload after marking a
 // notification as read re-sorts the picker with the just-read row pushed
