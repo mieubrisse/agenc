@@ -480,6 +480,14 @@ if [ -n "${notif_short_id}" ]; then
     run_test_output_contains "notifications read is idempotent" \
         "already marked as read" \
         "${agenc_test}" notifications read "${notif_short_id}"
+
+    # `notifications manage-fzf-input` is the hidden reload source the picker
+    # invokes after Ctrl-R. It must print the notification short ID and the
+    # short ID must appear in the output even after the notification is read
+    # (the picker shows all notifications, not just unread).
+    run_test_output_contains "notifications manage-fzf-input lists our read entry" \
+        "${notif_short_id}" \
+        "${agenc_test}" notifications manage-fzf-input
 else
     total=$((total + 1))
     printf "  %-50s " "notifications create produced ID..."

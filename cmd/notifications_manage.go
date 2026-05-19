@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/mattn/go-isatty"
@@ -21,6 +22,9 @@ const (
 	notificationsManagePromptText                = "Notification Center > "
 	notificationsManageHeaderText                = "ENTER attach │ Ctrl-R mark read │ ESC cancel"
 	notificationsManagePreviewWindow             = "right:60%:wrap"
+	// notificationsManageUnreadMarker is shown in the READ column for any
+	// notification whose ReadAt is empty. Read notifications get a blank cell.
+	notificationsManageUnreadMarker = "❗"
 	// missionIDColorANSI tints the mission column cyan so rows actionable by
 	// ENTER pop out from rows with no linked mission.
 	missionIDColorANSI = "\x1b[36m"
@@ -70,6 +74,7 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 
 	previewCmd := fmt.Sprintf("%s notifications show {1}", execPath)
 	markReadCmd := fmt.Sprintf("%s notifications read {1}", execPath)
+	reloadCmd := fmt.Sprintf("%s notifications manage-fzf-input", execPath)
 	fzfArgs := []string{
 		"--ansi",
 		"--header-lines", "1",
@@ -78,7 +83,7 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 		"--prompt", notificationsManagePromptText,
 		"--preview", previewCmd,
 		"--preview-window", notificationsManagePreviewWindow,
-		"--bind", fmt.Sprintf("ctrl-r:execute-silent(%s)", markReadCmd),
+		"--bind", fmt.Sprintf("ctrl-r:execute-silent(%s)+reload(%s)", markReadCmd, reloadCmd),
 	}
 
 	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
@@ -125,14 +130,27 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 // buildNotificationsManageFzfInput renders the notifications as a tableprinter
 // table, then prepends a hidden notification short-ID column (tab-separated)
 // to each row so fzf's `{1}` placeholder resolves to the short ID for both
-// preview and selection.
+// preview and selection. Rows are sorted so unread notifications appear first
+// (stable within each group); the leading READ column shows an unread marker
+// on unread rows so the user can scan them at a glance.
 func buildNotificationsManageFzfInput(notifs []server.NotificationResponse) string {
+	sorted := make([]server.NotificationResponse, len(notifs))
+	copy(sorted, notifs)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		iUnread := sorted[i].ReadAt == ""
+		jUnread := sorted[j].ReadAt == ""
+		if iUnread != jUnread {
+			return iUnread
+		}
+		return false
+	})
+
 	var buf bytes.Buffer
-	tbl := tableprinter.NewTable("WHEN", "KIND", "MISSION", "TITLE").WithWriter(&buf)
-	shortIDs := make([]string, 0, len(notifs))
-	for _, n := range notifs {
+	tbl := tableprinter.NewTable("READ", "WHEN", "KIND", "MISSION", "TITLE").WithWriter(&buf)
+	shortIDs := make([]string, 0, len(sorted))
+	for _, n := range sorted {
 		shortIDs = append(shortIDs, database.ShortID(n.ID))
-		tbl.AddRow(formatNotificationWhen(n.CreatedAt), n.Kind, formatMissionCell(n.MissionID), n.Title)
+		tbl.AddRow(formatReadCell(n.ReadAt), formatNotificationWhen(n.CreatedAt), n.Kind, formatMissionCell(n.MissionID), n.Title)
 	}
 	tbl.Print()
 
@@ -163,4 +181,13 @@ func formatMissionCell(missionID string) string {
 		return notificationsManageMissionMissingPlaceholder
 	}
 	return missionIDColorANSI + database.ShortID(missionID) + missionIDResetANSI
+}
+
+// formatReadCell renders the READ column. Empty ReadAt means unread — show
+// the marker; otherwise the cell is blank so read rows visually recede.
+func formatReadCell(readAt string) string {
+	if readAt == "" {
+		return notificationsManageUnreadMarker
+	}
+	return ""
 }
