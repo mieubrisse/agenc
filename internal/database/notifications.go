@@ -90,6 +90,19 @@ func (db *DB) MarkNotificationRead(id string) error {
 	return nil
 }
 
+// MarkNotificationUnread clears read_at on the given notification. Idempotent:
+// if the notification is already unread, this is a no-op.
+func (db *DB) MarkNotificationUnread(id string) error {
+	_, err := db.conn.Exec(
+		"UPDATE notifications SET read_at = NULL WHERE id = ?",
+		id,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to mark notification '%v' as unread", id)
+	}
+	return nil
+}
+
 // CountUnreadNotifications returns the number of notifications with read_at IS NULL.
 func (db *DB) CountUnreadNotifications() (int, error) {
 	var count int

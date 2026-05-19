@@ -312,6 +312,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /notifications/unread-count", appHandler(s.requestLogger, s.handleCountUnreadNotifications))
 	mux.Handle("GET /notifications/{id}", appHandler(s.requestLogger, s.handleGetNotification))
 	mux.Handle("POST /notifications/{id}/read", appHandler(s.requestLogger, s.handleMarkNotificationRead))
+	mux.Handle("POST /notifications/{id}/unread", appHandler(s.requestLogger, s.handleMarkNotificationUnread))
 
 	// Writeable copies
 	mux.Handle("GET /writeable-copies", appHandler(s.requestLogger, s.handleListWriteableCopies))

@@ -488,6 +488,21 @@ if [ -n "${notif_short_id}" ]; then
     run_test_output_contains "notifications manage-fzf-input lists our read entry" \
         "${notif_short_id}" \
         "${agenc_test}" notifications manage-fzf-input
+
+    # `notifications toggle-read` is the hidden command behind the picker's
+    # Ctrl-R bind. The just-read notification toggles back to unread; a
+    # second toggle returns it to read. Verify both halves of the flip.
+    run_test_output_contains "notifications toggle-read flips read -> unread" \
+        "as unread" \
+        "${agenc_test}" notifications toggle-read "${notif_short_id}"
+
+    run_test "notifications toggle-read leaves it unread (visible in unread filter)" \
+        0 \
+        bash -c "'${agenc_test}' notifications ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
+
+    run_test_output_contains "notifications toggle-read flips unread -> read" \
+        "as read" \
+        "${agenc_test}" notifications toggle-read "${notif_short_id}"
 else
     total=$((total + 1))
     printf "  %-50s " "notifications create produced ID..."

@@ -20,8 +20,8 @@ import (
 const (
 	notificationsManageMissionMissingPlaceholder = "—"
 	notificationsManagePromptText                = "Notification Center > "
-	notificationsManageHeaderText                = "ENTER attach │ Ctrl-R mark read │ ESC cancel"
-	notificationsManagePreviewWindow             = "right:60%:wrap"
+	notificationsManageHeaderText                = "ENTER attach │ Ctrl-R toggle read │ ESC cancel"
+	notificationsManagePreviewWindow             = "right:50%:wrap"
 	// notificationsManageUnreadMarker is shown in the READ column for any
 	// notification whose ReadAt is empty. Read notifications get a blank cell.
 	notificationsManageUnreadMarker = "❗"
@@ -73,7 +73,7 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 	}
 
 	previewCmd := fmt.Sprintf("%s notifications show {1}", execPath)
-	markReadCmd := fmt.Sprintf("%s notifications read {1}", execPath)
+	toggleReadCmd := fmt.Sprintf("%s notifications toggle-read {1}", execPath)
 	reloadCmd := fmt.Sprintf("%s notifications manage-fzf-input", execPath)
 	fzfArgs := []string{
 		"--ansi",
@@ -88,7 +88,7 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 		"--prompt", notificationsManagePromptText,
 		"--preview", previewCmd,
 		"--preview-window", notificationsManagePreviewWindow,
-		"--bind", fmt.Sprintf("ctrl-r:execute-silent(%s)+reload(%s)", markReadCmd, reloadCmd),
+		"--bind", fmt.Sprintf("ctrl-r:execute-silent(%s)+reload(%s)", toggleReadCmd, reloadCmd),
 	}
 
 	fzfCmd := exec.Command(fzfBinary, fzfArgs...)

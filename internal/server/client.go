@@ -712,6 +712,11 @@ func (c *Client) MarkNotificationRead(id string) error {
 	return c.Post("/notifications/"+id+"/read", nil, nil)
 }
 
+// MarkNotificationUnread clears read_at on the given notification. Idempotent.
+func (c *Client) MarkNotificationUnread(id string) error {
+	return c.Post("/notifications/"+id+"/unread", nil, nil)
+}
+
 // CountUnreadNotifications returns the number of unread notifications.
 func (c *Client) CountUnreadNotifications() (int, error) {
 	var result struct {

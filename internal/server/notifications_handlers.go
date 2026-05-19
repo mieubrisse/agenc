@@ -144,6 +144,23 @@ func (s *Server) handleMarkNotificationRead(w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
+func (s *Server) handleMarkNotificationUnread(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	if id == "" {
+		return newHTTPError(http.StatusBadRequest, "notification id is required")
+	}
+	resolvedID, err := s.db.ResolveNotificationID(id)
+	if err != nil {
+		return newHTTPError(http.StatusNotFound, err.Error())
+	}
+	if err := s.db.MarkNotificationUnread(resolvedID); err != nil {
+		s.logger.Printf("MarkNotificationUnread failed for '%v': %v", id, err)
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to mark notification unread: %v", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 func (s *Server) handleCountUnreadNotifications(w http.ResponseWriter, r *http.Request) error {
 	count, err := s.db.CountUnreadNotifications()
 	if err != nil {
