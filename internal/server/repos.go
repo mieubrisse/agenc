@@ -214,9 +214,10 @@ func cleanupEmptyParentDirs(dirpath string, stopAtDirpath string) {
 
 // RepoResponse is the JSON shape returned by GET /repos.
 type RepoResponse struct {
-	Name   string `json:"name"`
-	Synced bool   `json:"synced"`
-	Path   string `json:"path"`
+	Name              string `json:"name"`
+	Synced            bool   `json:"synced"`
+	Path              string `json:"path"`
+	WriteableCopyPath string `json:"writeable_copy_path,omitempty"`
 }
 
 // AddRepoRequest is the JSON body for POST /repos.
@@ -257,10 +258,12 @@ func (s *Server) handleListRepos(w http.ResponseWriter, r *http.Request) error {
 
 	repos := make([]RepoResponse, len(repoNames))
 	for i, name := range repoNames {
+		writeableCopy, _ := cfg.GetWriteableCopy(name)
 		repos[i] = RepoResponse{
-			Name:   name,
-			Synced: cfg.IsAlwaysSynced(name),
-			Path:   config.GetRepoDirpath(s.agencDirpath, name),
+			Name:              name,
+			Synced:            cfg.IsAlwaysSynced(name),
+			Path:              config.GetRepoDirpath(s.agencDirpath, name),
+			WriteableCopyPath: writeableCopy,
 		}
 	}
 

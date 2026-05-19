@@ -39,13 +39,14 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 	cfg, _ := readConfig()
 
 	type repoRow struct {
-		emoji       string
-		title       string
-		repo        string
-		synced      string
-		path        string
-		displayName string
-		tier        int
+		emoji         string
+		title         string
+		repo          string
+		synced        string
+		path          string
+		writeablePath string
+		displayName   string
+		tier          int
 	}
 
 	rows := make([]repoRow, len(repos))
@@ -80,14 +81,20 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 			displayName = repoTitle
 		}
 
+		writeablePath := "--"
+		if r.WriteableCopyPath != "" {
+			writeablePath = r.WriteableCopyPath
+		}
+
 		rows[i] = repoRow{
-			emoji:       emoji,
-			title:       title,
-			repo:        displayGitRepo(r.Name),
-			synced:      formatCheckmark(r.Synced),
-			path:        r.Path,
-			displayName: displayName,
-			tier:        tier,
+			emoji:         emoji,
+			title:         title,
+			repo:          displayGitRepo(r.Name),
+			synced:        formatCheckmark(r.Synced),
+			path:          r.Path,
+			writeablePath: writeablePath,
+			displayName:   displayName,
+			tier:          tier,
 		}
 	}
 
@@ -98,9 +105,9 @@ func runRepoLs(cmd *cobra.Command, args []string) error {
 		return rows[i].displayName < rows[j].displayName
 	})
 
-	tbl := tableprinter.NewTable("EMOJI", "TITLE", "REPO", "SYNCED", "PATH")
+	tbl := tableprinter.NewTable("EMOJI", "TITLE", "REPO", "SYNCED", "READ-ONLY PATH", "WRITEABLE PATH")
 	for _, row := range rows {
-		tbl.AddRow(row.emoji, row.title, row.repo, row.synced, row.path)
+		tbl.AddRow(row.emoji, row.title, row.repo, row.synced, row.path, row.writeablePath)
 	}
 	tbl.Print()
 
