@@ -380,6 +380,7 @@ else
     total=$((total + 1))
     printf "  %-50s " "mission ls header no longer LAST ACTIVE..."
     echo "PASS"
+    passed=$((passed + 1))
 fi
 
 echo ""
