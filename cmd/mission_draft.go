@@ -85,6 +85,10 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "failed to load buffer into tmux: %s", string(output))
 	}
 
+	// Drop the target pane out of copy mode if it's in it, so the paste lands in the prompt.
+	// No-op if the pane isn't in copy mode; best-effort, so errors don't block the paste.
+	_ = exec.Command("tmux", "send-keys", "-t", targetPane, "-X", "cancel").Run()
+
 	pasteCmd := exec.Command("tmux", "paste-buffer", "-t", targetPane)
 	if output, err := pasteCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "failed to paste buffer into pane: %s", string(output))
