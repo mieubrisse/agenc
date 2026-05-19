@@ -86,8 +86,12 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 	}
 
 	// Drop the target pane out of copy mode if it's in it, so the paste lands in the prompt.
-	// No-op if the pane isn't in copy mode; best-effort, so errors don't block the paste.
-	_ = exec.Command("tmux", "send-keys", "-t", targetPane, "-X", "cancel").Run()
+	// Gated on pane_in_mode — send-keys -X against a pane not in any mode can deliver a stray
+	// key to the running program (e.g. accepting Claude's default-suggestion prompt).
+	modeOut, modeErr := exec.Command("tmux", "display-message", "-p", "-t", targetPane, "#{pane_in_mode}").Output()
+	if modeErr == nil && strings.TrimSpace(string(modeOut)) == "1" {
+		_ = exec.Command("tmux", "send-keys", "-t", targetPane, "-X", "cancel").Run()
+	}
 
 	pasteCmd := exec.Command("tmux", "paste-buffer", "-t", targetPane)
 	if output, err := pasteCmd.CombinedOutput(); err != nil {
