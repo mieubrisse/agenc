@@ -24,7 +24,7 @@ const (
 	notificationsManagePreviewWindow             = "right:50%:wrap"
 	// notificationsManageUnreadMarker is shown in the READ column for any
 	// notification whose ReadAt is empty. Read notifications get a blank cell.
-	notificationsManageUnreadMarker = "❗"
+	notificationsManageUnreadMarker = "🔔"
 	// missionIDColorANSI tints the mission column cyan so rows actionable by
 	// ENTER pop out from rows with no linked mission.
 	missionIDColorANSI = "\x1b[36m"
@@ -151,11 +151,11 @@ func buildNotificationsManageFzfInput(notifs []server.NotificationResponse) stri
 	})
 
 	var buf bytes.Buffer
-	tbl := tableprinter.NewTable("READ", "WHEN", "KIND", "MISSION", "TITLE").WithWriter(&buf)
+	tbl := tableprinter.NewTable("READ", "WHEN", "MISSION", "TITLE").WithWriter(&buf)
 	shortIDs := make([]string, 0, len(sorted))
 	for _, n := range sorted {
 		shortIDs = append(shortIDs, database.ShortID(n.ID))
-		tbl.AddRow(formatReadCell(n.ReadAt), formatNotificationWhen(n.CreatedAt), n.Kind, formatMissionCell(n.MissionID), n.Title)
+		tbl.AddRow(formatReadCell(n.ReadAt), formatNotificationWhen(n.CreatedAt), formatMissionCell(n.MissionID), n.Title)
 	}
 	tbl.Print()
 
