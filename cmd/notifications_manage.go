@@ -19,7 +19,7 @@ import (
 const (
 	notificationsManageMissionMissingPlaceholder = "—"
 	notificationsManagePromptText                = "Notification Center > "
-	notificationsManageHeaderText                = "ENTER attach │ ESC cancel"
+	notificationsManageHeaderText                = "ENTER attach │ Ctrl-R mark read │ ESC cancel"
 	notificationsManagePreviewWindow             = "right:60%:wrap"
 	// missionIDColorANSI tints the mission column cyan so rows actionable by
 	// ENTER pop out from rows with no linked mission.
@@ -69,6 +69,7 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 	}
 
 	previewCmd := fmt.Sprintf("%s notifications show {1}", execPath)
+	markReadCmd := fmt.Sprintf("%s notifications read {1}", execPath)
 	fzfArgs := []string{
 		"--ansi",
 		"--header-lines", "1",
@@ -77,6 +78,7 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 		"--prompt", notificationsManagePromptText,
 		"--preview", previewCmd,
 		"--preview-window", notificationsManagePreviewWindow,
+		"--bind", fmt.Sprintf("ctrl-r:execute-silent(%s)", markReadCmd),
 	}
 
 	fzfCmd := exec.Command(fzfBinary, fzfArgs...)
