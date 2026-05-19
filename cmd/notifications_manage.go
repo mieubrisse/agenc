@@ -78,7 +78,12 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 	fzfArgs := []string{
 		"--ansi",
 		"--header-lines", "1",
-		"--with-nth", "2..",
+		// Tab delimiter keeps the tableprinter-rendered row (field 2) intact
+		// as a single field — otherwise fzf's default whitespace tokenizer
+		// would collapse empty leading cells and re-join with single spaces,
+		// destroying column alignment.
+		"--delimiter", "\t",
+		"--with-nth", "2",
 		"--header", notificationsManageHeaderText,
 		"--prompt", notificationsManagePromptText,
 		"--preview", previewCmd,

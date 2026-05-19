@@ -92,7 +92,7 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 	"showNotifications": {
 		Title:       StringPtr("🔔  Notification Center"),
 		Description: StringPtr("Browse notifications and ENTER to attach to the linked mission"),
-		Command:     StringPtr(`tmux display-popup -E -w 85% -h 80% "agenc notifications manage"`),
+		Command:     StringPtr(`tmux display-popup -E -w 95% -h 90% "agenc notifications manage"`),
 	},
 	"newMission": {
 		Title:          StringPtr("🚀  New Mission"),
