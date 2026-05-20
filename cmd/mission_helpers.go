@@ -178,7 +178,7 @@ func getCurrentTmuxSessionName() string {
 // it is captured in the user's client context — independent of any popup or
 // run-shell wrapper the command may be running inside.
 func getCallingSessionName() string {
-	if session := os.Getenv("AGENC_CALLING_SESSION_NAME"); session != "" {
+	if session := os.Getenv(config.CallingSessionNameEnvVar); session != "" {
 		return session
 	}
 	return getCurrentTmuxSessionName()

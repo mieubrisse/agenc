@@ -298,6 +298,21 @@ run_test_no_crash "mission reload with bad ID does not crash" \
 run_test_no_crash "mission reload --async with bad ID does not crash" \
     "${agenc_test}" mission reload aabbccdd --prompt "hello" --async
 
+# mission detach without a resolvable tmux session must emit the
+# sandbox-hint error (not the old "requires tmux; run inside a tmux session"
+# message, which misled agents into thinking they weren't in tmux).
+total=$((total + 1))
+printf "  %-50s " "mission detach error message mentions sandbox..."
+detach_output=$(env -u TMUX -u AGENC_CALLING_SESSION_NAME "${agenc_test}" mission detach deadbeef 2>&1 || true)
+if echo "${detach_output}" | grep -qE "sandbox"; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (output missing 'sandbox' hint)"
+    echo "    Output: ${detach_output}" | head -5
+    failed=$((failed + 1))
+fi
+
 echo ""
 echo "--- Mission time filtering (requires server) ---"
 

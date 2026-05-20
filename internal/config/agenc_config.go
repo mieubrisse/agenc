@@ -235,6 +235,12 @@ func BuiltinPaletteCommandOrder() []string {
 // focused mission's UUID into palette and keybinding commands.
 const CallingMissionUUIDEnvVar = "AGENC_CALLING_MISSION_UUID"
 
+// CallingSessionNameEnvVar is the environment variable name that carries the
+// user's tmux session name (captured at key-press time by the keybinding
+// generator and palette dispatch) into CLI commands that need to resolve
+// "which session am I being invoked from?" — primarily attach/detach.
+const CallingSessionNameEnvVar = "AGENC_CALLING_SESSION_NAME"
+
 // ResolvedPaletteCommand is a palette command with all defaults applied and
 // the agenc binary substituted in the command string.
 type ResolvedPaletteCommand struct {

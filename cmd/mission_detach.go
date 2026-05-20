@@ -7,6 +7,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
 )
@@ -38,7 +39,13 @@ func runMissionDetach(cmd *cobra.Command, args []string) error {
 
 	tmuxSession := getCallingSessionName()
 	if tmuxSession == "" {
-		return stacktrace.NewError("mission detach requires tmux; run inside a tmux session")
+		return stacktrace.NewError(
+			"mission detach could not resolve your tmux session "+
+				"($%s unset and `tmux display-message` returned nothing). "+
+				"If you're calling this from inside a Claude Code mission, "+
+				"the bash sandbox is likely blocking the tmux socket — "+
+				"retry with sandbox disabled.",
+			config.CallingSessionNameEnvVar)
 	}
 
 	input := strings.Join(args, " ")
