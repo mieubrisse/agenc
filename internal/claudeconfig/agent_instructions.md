@@ -97,6 +97,18 @@ With `--async`: clean handoff, no history corruption.
 
 **Reloading another mission** (not yourself) does not strictly require `--async` — that mission's Claude is presumably idle or not actively in a tool call related to the reload. But `--async` is still preferred when the target mission is mid-turn, for the same conversation-hygiene reason.
 
+### Detaching Yourself
+
+When the user says "detach yourself", "detach this mission", "go ahead and detach", or any phrasing about ending your tmux attachment to the user's session — this is a CLI command, not a conversational acknowledgment. Run:
+
+```bash
+{{CLI_NAME}} mission detach ${{MISSION_UUID_ENV_VAR}}
+```
+
+This unlinks your mission's tmux window from the user's session. Your wrapper keeps running — the conversation persists and can be re-attached later with `{{CLI_NAME}} mission attach`. Detach is a session-membership change, not a shutdown; for shutdown the user would say "stop" or "archive" instead.
+
+**If the command fails with `mission detach requires tmux; run inside a tmux session`** — you ARE in tmux, but the bash sandbox is blocking the tmux socket. Re-run the same command with `dangerouslyDisableSandbox: true` in the Bash tool call. Do not interpret the error as "this command is wrong" and start hunting for alternatives like `mission stop` (which has different semantics — it kills your wrapper). Do not punt to the user with a manual-action banner — the fix is one tool call away.
+
 ### Your Identity as a Stable Reference
 
 Your mission UUID (`${{MISSION_UUID_ENV_VAR}}`) and session UUIDs are stable identifiers that persist after your mission ends. Future agents — or you in a later session — can read any conversation transcript using:
