@@ -37,9 +37,7 @@ crons:
     schedule: "0 9 * * *"      # Cron expression (5 or 6 fields, evaluated by gronx)
     prompt: "Do something"     # Initial prompt sent to Claude
     description: ""            # Human-readable description (optional)
-    git: github.com/owner/repo # Git repo for the mission workspace (optional)
-    timeout: "1h"              # Max runtime as Go duration (default: 1h)
-    overlap: skip              # "skip" (default) or "allow"
+    repo: github.com/owner/repo # Git repo for the mission workspace (optional)
     enabled: true              # Defaults to true if omitted
 -->
 
@@ -134,8 +132,6 @@ crons
 Cron jobs spawn headless missions on a schedule. Each cron needs at minimum a `schedule` (cron expression) and a `prompt` (what to tell Claude). The server evaluates cron expressions every 60 seconds.
 
 Key behaviors:
-- **Overlap policy:** `skip` (default) prevents a new run if the previous one is still active. `allow` permits concurrent runs.
-- **Timeout:** Defaults to 1 hour. After timeout, the mission receives SIGTERM then SIGKILL after 30 seconds.
 - **Max concurrent:** Controlled by `cronsMaxConcurrent` (default: 10). Crons are skipped when the limit is reached.
 
 Manage crons via the CLI:

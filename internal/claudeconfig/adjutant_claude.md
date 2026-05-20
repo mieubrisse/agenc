@@ -100,7 +100,7 @@ agenc config cron update daily-report --enabled=false
 agenc config cron rm daily-report
 ```
 
-Additional flags for `agenc config cron add`: `--description`, `--overlap` (`skip` or `allow`). The `agenc config cron update` command also supports `--description`, `--overlap`, and `--prompt`.
+Additional flags for `agenc config cron add`: `--description`. The `agenc config cron update` command also supports `--description` and `--prompt`.
 
 ### Runtime cron commands
 

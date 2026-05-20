@@ -19,14 +19,12 @@ Example config.yml:
     daily-report:
       schedule: "0 9 * * *"
       prompt: "Generate the daily status report"
-      git: github.com/owner/my-repo
-      timeout: 30m
+      repo: github.com/owner/my-repo
       enabled: true
 
     weekly-cleanup:
       schedule: "0 0 * * SUN"
       prompt: "Clean up old temporary files"
-      overlap: skip
 
 ALIASES:
 

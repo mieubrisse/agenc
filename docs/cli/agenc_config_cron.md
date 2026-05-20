@@ -13,8 +13,6 @@ identified by a unique name and has the following configurable fields:
   prompt       - Initial prompt for the Claude mission
   description  - Human-readable description (optional)
   repo         - Repository to clone into workspace (optional)
-  timeout      - Maximum runtime (e.g., "1h", "30m") (optional)
-  overlap      - Overlap policy: "skip" (default) or "allow" (optional)
   enabled      - Whether the cron job is enabled (defaults to true)
 
 Example config.yml:
@@ -25,13 +23,11 @@ Example config.yml:
       prompt: "Generate the daily status report"
       description: "Automated daily report generation"
       repo: github.com/owner/my-repo
-      timeout: 30m
       enabled: true
 
     weekly-cleanup:
       schedule: "0 0 * * SUN"
       prompt: "Clean up old temporary files"
-      overlap: skip
 
 ALIASES:
 

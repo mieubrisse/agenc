@@ -22,8 +22,7 @@ Examples:
 
   agenc config cron add weekly-cleanup \
     --schedule="0 0 * * 0" \
-    --prompt="Clean up old temporary files" \
-    --overlap=skip
+    --prompt="Clean up old temporary files"
 
 
 ```

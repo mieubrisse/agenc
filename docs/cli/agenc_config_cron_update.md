@@ -19,8 +19,7 @@ Examples:
   # Update multiple fields at once
   agenc config cron update weekly-cleanup \
     --prompt="Clean up old files and logs" \
-    --timeout=2h \
-    --overlap=allow
+    --description="Weekly cleanup of old files and logs"
 
   # Clear the repository
   agenc config cron update daily-report --repo=""

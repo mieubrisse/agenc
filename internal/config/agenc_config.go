@@ -674,7 +674,7 @@ func validateRepoConfigs(cfg *AgencConfig, configFilepath string) error {
 }
 
 // validateCronConfigs initializes the Crons map if nil and validates each cron
-// entry's name, schedule, prompt, repo, overlap policy, and timeout.
+// entry's name, schedule, prompt, and repo.
 func validateCronConfigs(cfg *AgencConfig, configFilepath string) error {
 	if cfg.Crons == nil {
 		cfg.Crons = make(map[string]CronConfig)
