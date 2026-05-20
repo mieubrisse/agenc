@@ -107,7 +107,7 @@ When the user says "detach yourself", "detach this mission", "go ahead and detac
 
 This unlinks your mission's tmux window from the user's session. Your wrapper keeps running — the conversation persists and can be re-attached later with `{{CLI_NAME}} mission attach`. Detach is a session-membership change, not a shutdown; for shutdown the user would say "stop" or "archive" instead.
 
-**If the command fails with `mission detach requires tmux; run inside a tmux session`** — you ARE in tmux, but the bash sandbox is blocking the tmux socket. Re-run the same command with `dangerouslyDisableSandbox: true` in the Bash tool call. Do not interpret the error as "this command is wrong" and start hunting for alternatives like `mission stop` (which has different semantics — it kills your wrapper). Do not punt to the user with a manual-action banner — the fix is one tool call away.
+**If the command fails with `mission detach could not resolve your tmux session ... the bash sandbox is likely blocking the tmux socket`** — that's exactly what's happening. Re-run the same command with `dangerouslyDisableSandbox: true` in the Bash tool call. Do not interpret the error as "this command is wrong" and start hunting for alternatives like `mission stop` (which has different semantics — it kills your wrapper). Do not punt to the user with a manual-action banner — the fix is one tool call away. The user can also avoid this entirely by adding their tmux socket to `network.allowUnixSockets` in `~/.claude/settings.json`.
 
 ### Your Identity as a Stable Reference
 
