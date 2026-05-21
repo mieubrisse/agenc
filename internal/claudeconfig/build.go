@@ -120,6 +120,15 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 		"paste-cache",     // paste buffer cache
 	}
 
+	// Files that link to ~/.claude/ for shared state across missions.
+	// mcp-needs-auth-cache.json tracks which claude.ai-connector MCP servers
+	// Claude believes need (re-)authentication. Without sharing this file,
+	// every per-mission CLAUDE_CONFIG_DIR starts fresh and prompts the user to
+	// re-auth even when global Keychain tokens are present.
+	symlinkFileNames := []string{
+		"mcp-needs-auth-cache.json",
+	}
+
 	if containerized {
 		// For containerized missions, create empty directories instead of symlinks.
 		// Bind mounts from the host will overlay these at container start.
@@ -130,12 +139,23 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 				return stacktrace.Propagate(err, "failed to create directory '%s' for containerized mission", dirName)
 			}
 		}
+		// Remove any per-mission files that would otherwise shadow a future
+		// bind-mounted host file; the container's bind mount handles the share.
+		for _, fileName := range symlinkFileNames {
+			filePath := filepath.Join(claudeConfigDirpath, fileName)
+			_ = os.Remove(filePath)
+		}
 	} else {
 		// Non-containerized: symlink to ~/.claude/ so all missions share centralized
 		// state rather than fragmenting caches, telemetry, and session data.
 		for _, dirName := range symlinkDirNames {
 			if err := symlinkToGlobalClaudeDir(claudeConfigDirpath, dirName); err != nil {
 				return stacktrace.Propagate(err, "failed to symlink %s", dirName)
+			}
+		}
+		for _, fileName := range symlinkFileNames {
+			if err := symlinkToGlobalClaudeFile(claudeConfigDirpath, fileName); err != nil {
+				return stacktrace.Propagate(err, "failed to symlink %s", fileName)
 			}
 		}
 	}
@@ -303,6 +323,39 @@ func symlinkToGlobalClaudeDir(claudeConfigDirpath string, dirName string) error 
 	_ = os.RemoveAll(linkPath)
 
 	return os.Symlink(targetDirpath, linkPath)
+}
+
+// symlinkToGlobalClaudeFile creates a symlink from claudeConfigDirpath/fileName
+// to ~/.claude/fileName so per-mission Claude instances share the underlying
+// file across missions. Ensures ~/.claude exists and creates an empty `{}`
+// target file if missing, so the symlink is never dangling. Any existing
+// file or symlink at the link path is removed before creating the new symlink.
+func symlinkToGlobalClaudeFile(claudeConfigDirpath string, fileName string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine home directory")
+	}
+
+	targetFilepath := filepath.Join(homeDir, ".claude", fileName)
+	linkPath := filepath.Join(claudeConfigDirpath, fileName)
+
+	// Ensure ~/.claude exists so Claude Code can write into the target file
+	if err := os.MkdirAll(filepath.Dir(targetFilepath), 0700); err != nil {
+		return stacktrace.Propagate(err, "failed to create parent dir for '%s'", targetFilepath)
+	}
+
+	// Create an empty JSON object at the target if it doesn't yet exist so the
+	// symlink resolves to a readable file from Claude's perspective.
+	if _, statErr := os.Stat(targetFilepath); os.IsNotExist(statErr) {
+		if err := os.WriteFile(targetFilepath, []byte("{}"), 0644); err != nil {
+			return stacktrace.Propagate(err, "failed to seed empty '%s'", targetFilepath)
+		}
+	}
+
+	// Remove existing file/symlink if it exists
+	_ = os.Remove(linkPath)
+
+	return os.Symlink(targetFilepath, linkPath)
 }
 
 // WriteAgencHookScripts writes the AgenC-managed hook scripts into the

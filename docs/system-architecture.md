@@ -343,7 +343,8 @@ $AGENC_DIRPATH/
 │       │   ├── commands/                  # From shadow repo (path-rewritten)
 │       │   ├── agents/                    # From shadow repo (path-rewritten)
 │       │   ├── plugins/                   # Symlink to ~/.claude/plugins/
-│       │   └── projects/                  # Symlink to ~/.claude/projects/ (persistent sessions)
+│       │   ├── projects/                  # Symlink to ~/.claude/projects/ (persistent sessions)
+│       │   └── mcp-needs-auth-cache.json  # Symlink to ~/.claude/mcp-needs-auth-cache.json (shared MCP OAuth state)
 │       ├── pid                            # Wrapper process ID
 │       ├── wrapper.sock                   # Unix socket for wrapper commands (restart, claude_update)
 │       ├── wrapper.log                    # Wrapper lifecycle log
@@ -503,7 +504,7 @@ Each mission gets its own `claude-config/` directory, rebuilt by the wrapper (`i
 - **settings.json** — adjutant permissions are injected: allow entries for Read/Write/Edit/Glob/Grep on `$AGENC_DIRPATH/**` and `Bash(agenc:*)`, plus deny entries for Write/Edit on other missions' agent directories
 - **`agenc prime` SessionStart hook** — project-level hook in adjutant missions only (regular missions do not get it)
 
-Two directories are symlinked rather than copied: `plugins/` → `~/.claude/plugins/` (so plugin installations are shared), and `projects/` → `~/.claude/projects/` (so conversation transcripts and auto-memory persist beyond the mission lifecycle).
+Directories and files are symlinked rather than copied to share state across missions. Notable examples: `plugins/` → `~/.claude/plugins/` (so plugin installations are shared), `projects/` → `~/.claude/projects/` (so conversation transcripts and auto-memory persist beyond the mission lifecycle), and `mcp-needs-auth-cache.json` → `~/.claude/mcp-needs-auth-cache.json` (so a successful MCP OAuth flow in one mission removes the "needs auth" prompt in all others; without this, every per-mission `CLAUDE_CONFIG_DIR` would start fresh and re-prompt even with valid tokens in the Keychain entry). See `symlinkDirNames` and `symlinkFileNames` in `BuildMissionConfigDir` for the full lists.
 
 Merging logic (`internal/claudeconfig/merge.go`):
 - CLAUDE.md: three-layer concatenation (agent instructions + user content + modifications content)
