@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
@@ -455,14 +453,6 @@ func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, a
 		return nil, stacktrace.Propagate(err, "")
 	}
 
-	allowWritePathsToAdd, err := buildAgencSandboxFilesystemAllowWriteAdditions()
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to compute agenc sandbox filesystem additions")
-	}
-	if err := mergeAgencSandboxFilesystem(settings, allowWritePathsToAdd); err != nil {
-		return nil, stacktrace.Propagate(err, "")
-	}
-
 	result, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to marshal merged settings")
@@ -470,110 +460,6 @@ func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, a
 
 	result = append(result, '\n')
 	return result, nil
-}
-
-// buildAgencSandboxFilesystemAllowWriteAdditions returns the absolute path
-// globs that AgenC must inject into every mission's
-// sandbox.filesystem.allowWrite. Currently this is only the macOS BSD user
-// temp directory; on non-Darwin platforms (including Linux containers) it
-// returns nil.
-//
-// macOS BSD mktemp(1) without args calls confstr(_CS_DARWIN_USER_TEMP_DIR),
-// which returns /var/folders/<hash>/T/ regardless of $TMPDIR. Many third-party
-// tools (husky pre-commit hooks, test runners, build scripts) shell out to
-// `mktemp -d` and would otherwise fail under sandbox with EPERM.
-func buildAgencSandboxFilesystemAllowWriteAdditions() ([]string, error) {
-	darwinUserTempDirpath, err := resolveDarwinUserTempDir()
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to resolve macOS BSD user temp dir")
-	}
-	if darwinUserTempDirpath == "" {
-		return nil, nil
-	}
-	return []string{strings.TrimRight(darwinUserTempDirpath, "/") + "/**"}, nil
-}
-
-// resolveDarwinUserTempDir returns the macOS BSD user temp directory — the
-// path returned by confstr(_CS_DARWIN_USER_TEMP_DIR), which BSD mktemp(1)
-// uses when invoked without args. Returns ("", nil) on non-Darwin systems.
-func resolveDarwinUserTempDir() (string, error) {
-	if runtime.GOOS != "darwin" {
-		return "", nil
-	}
-	out, err := exec.Command("getconf", "DARWIN_USER_TEMP_DIR").Output()
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to run 'getconf DARWIN_USER_TEMP_DIR'")
-	}
-	darwinUserTempDirpath := strings.TrimSpace(string(out))
-	if darwinUserTempDirpath == "" {
-		return "", stacktrace.NewError("'getconf DARWIN_USER_TEMP_DIR' returned empty output")
-	}
-	return darwinUserTempDirpath, nil
-}
-
-// mergeAgencSandboxFilesystem ensures the given absolute-path globs are
-// present in sandbox.filesystem.allowWrite. Existing entries are preserved
-// and duplicates are not appended. No-op when the additions list is empty.
-func mergeAgencSandboxFilesystem(settings map[string]json.RawMessage, allowWritePathsToAdd []string) error {
-	if len(allowWritePathsToAdd) == 0 {
-		return nil
-	}
-
-	var sandboxMap map[string]json.RawMessage
-	if existing, ok := settings["sandbox"]; ok {
-		if err := json.Unmarshal(existing, &sandboxMap); err != nil {
-			return stacktrace.Propagate(err, "failed to parse existing sandbox object")
-		}
-	} else {
-		sandboxMap = make(map[string]json.RawMessage)
-	}
-
-	var filesystemMap map[string]json.RawMessage
-	if existing, ok := sandboxMap["filesystem"]; ok {
-		if err := json.Unmarshal(existing, &filesystemMap); err != nil {
-			return stacktrace.Propagate(err, "failed to parse existing sandbox.filesystem object")
-		}
-	} else {
-		filesystemMap = make(map[string]json.RawMessage)
-	}
-
-	var allowWrite []string
-	if existing, ok := filesystemMap["allowWrite"]; ok {
-		if err := json.Unmarshal(existing, &allowWrite); err != nil {
-			return stacktrace.Propagate(err, "failed to parse existing sandbox.filesystem.allowWrite array")
-		}
-	}
-
-	existing := make(map[string]bool, len(allowWrite))
-	for _, p := range allowWrite {
-		existing[p] = true
-	}
-	for _, p := range allowWritePathsToAdd {
-		if !existing[p] {
-			allowWrite = append(allowWrite, p)
-			existing[p] = true
-		}
-	}
-
-	allowWriteBytes, err := json.Marshal(allowWrite)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to marshal sandbox.filesystem.allowWrite")
-	}
-	filesystemMap["allowWrite"] = json.RawMessage(allowWriteBytes)
-
-	filesystemBytes, err := json.Marshal(filesystemMap)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to marshal sandbox.filesystem")
-	}
-	sandboxMap["filesystem"] = json.RawMessage(filesystemBytes)
-
-	sandboxBytes, err := json.Marshal(sandboxMap)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to marshal sandbox")
-	}
-	settings["sandbox"] = json.RawMessage(sandboxBytes)
-
-	return nil
 }
 
 // RewriteSettingsPaths rewrites ~/.claude paths in settings JSON while
