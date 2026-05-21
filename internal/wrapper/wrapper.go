@@ -368,19 +368,6 @@ func (w *Wrapper) rebuildClaudeConfig(isContainerized bool) error {
 	if len(shortHash) > 12 {
 		shortHash = shortHash[:12]
 	}
-
-	// Debug: record whether the mcp-needs-auth-cache.json symlink survived
-	// BuildMissionConfigDir. Investigation 2026-05-21: missions show the file
-	// missing entirely after spawn, suggesting Claude removes it on startup.
-	cachePath := filepath.Join(claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID), "mcp-needs-auth-cache.json")
-	if info, lstatErr := os.Lstat(cachePath); lstatErr != nil {
-		w.logger.Info("mcp-needs-auth-cache.json status after BuildMissionConfigDir", "state", "missing", "error", lstatErr.Error())
-	} else if info.Mode()&os.ModeSymlink != 0 {
-		w.logger.Info("mcp-needs-auth-cache.json status after BuildMissionConfigDir", "state", "symlink", "mode", info.Mode().String())
-	} else {
-		w.logger.Info("mcp-needs-auth-cache.json status after BuildMissionConfigDir", "state", "regular_file", "size", info.Size())
-	}
-
 	w.logger.Info("claude-config rebuilt", "shadow_commit", shortHash)
 	return nil
 }
