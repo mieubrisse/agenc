@@ -343,7 +343,8 @@ $AGENC_DIRPATH/
 │       │   ├── commands/                  # From shadow repo (path-rewritten)
 │       │   ├── agents/                    # From shadow repo (path-rewritten)
 │       │   ├── plugins/                   # Symlink to ~/.claude/plugins/
-│       │   └── projects/                  # Symlink to ~/.claude/projects/ (persistent sessions)
+│       │   ├── projects/                  # Symlink to ~/.claude/projects/ (persistent sessions)
+│       │   └── mcp-needs-auth-cache.json  # Copied (NOT symlinked) from ~/.claude/ at spawn — see `seedMcpNeedsAuthCache`
 │       ├── pid                            # Wrapper process ID
 │       ├── wrapper.sock                   # Unix socket for wrapper commands (restart, claude_update)
 │       ├── wrapper.log                    # Wrapper lifecycle log

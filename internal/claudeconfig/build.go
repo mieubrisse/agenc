@@ -140,6 +140,52 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 		}
 	}
 
+	// Seed mcp-needs-auth-cache.json from ~/.claude/ at spawn. Claude Code's
+	// startup behavior depends on whether this file exists: if absent (fresh
+	// CLAUDE_CONFIG_DIR), Claude pessimistically marks every claude.ai-connector
+	// MCP server as "needs authentication" without verifying tokens — so the UI
+	// shows yellow for everything even when valid OAuth tokens exist in the
+	// Keychain. If present (even with stale or empty content), Claude does a
+	// verification-driven update and shows correctly-authed servers as green.
+	// Symlinking doesn't work because Claude atomic-renames a regular file
+	// over the link on first write, so we copy. Each mission's writes stay
+	// per-mission (no write-back); the cache file is short-lived state and
+	// Claude rebuilds it from Keychain truth on each session.
+	if err := seedMcpNeedsAuthCache(claudeConfigDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to seed mcp-needs-auth-cache.json")
+	}
+
+	return nil
+}
+
+// seedMcpNeedsAuthCache writes a mcp-needs-auth-cache.json file into the
+// per-mission claude-config dir, copied from ~/.claude/mcp-needs-auth-cache.json
+// when present or seeded with "{}" when absent. Any existing entry (file or
+// symlink) at the destination is removed first.
+//
+// See the call site in BuildMissionConfigDir for why this matters.
+func seedMcpNeedsAuthCache(claudeConfigDirpath string) error {
+	const fileName = "mcp-needs-auth-cache.json"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to determine home directory")
+	}
+
+	sourceFilepath := filepath.Join(homeDir, ".claude", fileName)
+	destFilepath := filepath.Join(claudeConfigDirpath, fileName)
+
+	_ = os.Remove(destFilepath)
+
+	data, readErr := os.ReadFile(sourceFilepath)
+	if os.IsNotExist(readErr) {
+		data = []byte("{}")
+	} else if readErr != nil {
+		return stacktrace.Propagate(readErr, "failed to read source '%s'", sourceFilepath)
+	}
+
+	if err := os.WriteFile(destFilepath, data, 0644); err != nil {
+		return stacktrace.Propagate(err, "failed to write '%s'", destFilepath)
+	}
 	return nil
 }
 
