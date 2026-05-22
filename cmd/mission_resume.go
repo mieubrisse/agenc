@@ -81,6 +81,22 @@ func doRunWrapperDirect(missionID string, initialPrompt string) error {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
 
+	// Propagate the mission source into the spawned Claude process's
+	// environment so hooks (e.g. yappblocker-gate.sh) can distinguish
+	// cron-spawned missions from interactive ones. The wrapper's
+	// BuildClaudeCmd appends os.Environ() onto the Claude command, so
+	// anything set here inherits automatically.
+	if missionRecord.Source != nil {
+		if err := os.Setenv(config.MissionSourceEnvVar, *missionRecord.Source); err != nil {
+			return stacktrace.Propagate(err, "failed to set %s env var", config.MissionSourceEnvVar)
+		}
+	}
+	if missionRecord.SourceMetadata != nil {
+		if err := os.Setenv(config.MissionSourceMetadataEnvVar, *missionRecord.SourceMetadata); err != nil {
+			return stacktrace.Propagate(err, "failed to set %s env var", config.MissionSourceMetadataEnvVar)
+		}
+	}
+
 	// Check if the wrapper is already running for this mission
 	pidFilepath := config.GetMissionPIDFilepath(agencDirpath, missionID)
 	pid, err := server.ReadPID(pidFilepath)

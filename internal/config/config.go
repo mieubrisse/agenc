@@ -49,6 +49,8 @@ const (
 	WrapperSocketFilename           = "wrapper.sock"
 	CLIName                         = "agenc"
 	MissionUUIDEnvVar               = "AGENC_MISSION_UUID"
+	MissionSourceEnvVar             = "AGENC_MISSION_SOURCE"
+	MissionSourceMetadataEnvVar     = "AGENC_MISSION_SOURCE_METADATA"
 	AdjutantMarkerFilename          = ".adjutant"
 	GlobalCredentialsExpiryFilename = "global-credentials-expiry"
 	CacheDirname                    = "cache"
