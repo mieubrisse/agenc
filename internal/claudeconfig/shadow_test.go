@@ -235,6 +235,119 @@ func TestIngestFromClaudeDir(t *testing.T) {
 	}
 }
 
+// TestIngestFromClaudeDir_PreservesExecutableBit is a regression test for
+// https://github.com/mieubrisse/agenc/issues/6 — skill scripts in ~/.claude
+// were being copied into the shadow repo with hard-coded 0644, stripping +x
+// from anything like skills/foo/upload.py that relies on direct invocation.
+func TestIngestFromClaudeDir_PreservesExecutableBit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	claudeDirpath := filepath.Join(tmpDir, ".claude")
+	skillDirpath := filepath.Join(claudeDirpath, "skills", "mdbin")
+	if err := os.MkdirAll(skillDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Minimal required tracked files so we don't trip the "no source" branch.
+	if err := os.WriteFile(filepath.Join(claudeDirpath, "CLAUDE.md"), []byte("# test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	execScript := filepath.Join(skillDirpath, "upload.py")
+	if err := os.WriteFile(execScript, []byte("#!/usr/bin/env python3\nprint('hi')\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile only honors mode on creation; assert the source is indeed 0755
+	// so the test fails on the perms behavior, not on a setup mistake.
+	if err := os.Chmod(execScript, 0755); err != nil {
+		t.Fatal(err)
+	}
+	plainFile := filepath.Join(skillDirpath, "SKILL.md")
+	if err := os.WriteFile(plainFile, []byte("# mdbin\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	shadowDirpath, err := InitShadowRepo(tmpDir)
+	if err != nil {
+		t.Fatalf("InitShadowRepo failed: %v", err)
+	}
+	if err := IngestFromClaudeDir(claudeDirpath, shadowDirpath); err != nil {
+		t.Fatalf("IngestFromClaudeDir failed: %v", err)
+	}
+
+	shadowedExec := filepath.Join(shadowDirpath, "skills", "mdbin", "upload.py")
+	execInfo, err := os.Stat(shadowedExec)
+	if err != nil {
+		t.Fatalf("failed to stat shadowed script: %v", err)
+	}
+	if execInfo.Mode().Perm() != 0755 {
+		t.Errorf("expected shadow copy of executable script to have mode 0755, got %o", execInfo.Mode().Perm())
+	}
+
+	shadowedPlain := filepath.Join(shadowDirpath, "skills", "mdbin", "SKILL.md")
+	plainInfo, err := os.Stat(shadowedPlain)
+	if err != nil {
+		t.Fatalf("failed to stat shadowed plain file: %v", err)
+	}
+	if plainInfo.Mode().Perm() != 0644 {
+		t.Errorf("expected shadow copy of plain file to have mode 0644, got %o", plainInfo.Mode().Perm())
+	}
+}
+
+// TestIngestFromClaudeDir_RepairsStaleMode covers the upgrade path from a
+// previously-buggy shadow repo: identical content but stale 0644 perms on the
+// shadowed file should be repaired to match the (executable) source on
+// re-ingest, not skipped by the content-equality fast path.
+func TestIngestFromClaudeDir_RepairsStaleMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	claudeDirpath := filepath.Join(tmpDir, ".claude")
+	skillDirpath := filepath.Join(claudeDirpath, "skills", "mdbin")
+	if err := os.MkdirAll(skillDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDirpath, "CLAUDE.md"), []byte("# test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	scriptBody := []byte("#!/usr/bin/env python3\nprint('hi')\n")
+	execScript := filepath.Join(skillDirpath, "upload.py")
+	if err := os.WriteFile(execScript, scriptBody, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(execScript, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	shadowDirpath, err := InitShadowRepo(tmpDir)
+	if err != nil {
+		t.Fatalf("InitShadowRepo failed: %v", err)
+	}
+
+	// Simulate the legacy buggy state: shadow has identical content but 0644.
+	stalePath := filepath.Join(shadowDirpath, "skills", "mdbin", "upload.py")
+	if err := os.MkdirAll(filepath.Dir(stalePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stalePath, scriptBody, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stalePath, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := IngestFromClaudeDir(claudeDirpath, shadowDirpath); err != nil {
+		t.Fatalf("IngestFromClaudeDir failed: %v", err)
+	}
+
+	info, err := os.Stat(stalePath)
+	if err != nil {
+		t.Fatalf("failed to stat shadowed script after re-ingest: %v", err)
+	}
+	if info.Mode().Perm() != 0755 {
+		t.Errorf("expected re-ingest to repair stale 0644 perms to 0755, got %o", info.Mode().Perm())
+	}
+}
+
 func TestIngestFromClaudeDir_MissingSource(t *testing.T) {
 	tmpDir := t.TempDir()
 

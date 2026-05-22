@@ -207,6 +207,11 @@ func getFileExtension(path string) string {
 // ingestFile copies a single file from src to dst as-is (no path
 // transformation). Returns true if the destination was changed.
 // If the source doesn't exist, removes the destination if it exists.
+//
+// File mode bits (notably the executable bit) are preserved from the source.
+// Skill scripts under ~/.claude/skills frequently carry +x and rely on being
+// invoked directly (e.g. ./upload.py); dropping that bit produces
+// permission-denied failures inside missions.
 func ingestFile(srcFilepath string, dstFilepath string) (bool, error) {
 	// Resolve symlinks so we read actual content
 	resolvedSrc, err := resolveSymlink(srcFilepath)
@@ -224,19 +229,39 @@ func ingestFile(srcFilepath string, dstFilepath string) (bool, error) {
 		return false, stacktrace.Propagate(err, "failed to resolve symlink for '%s'", srcFilepath)
 	}
 
+	srcInfo, err := os.Stat(resolvedSrc)
+	if err != nil {
+		return false, stacktrace.Propagate(err, "failed to stat '%s'", resolvedSrc)
+	}
+	srcPerm := srcInfo.Mode().Perm()
+
 	data, err := os.ReadFile(resolvedSrc)
 	if err != nil {
 		return false, stacktrace.Propagate(err, "failed to read '%s'", resolvedSrc)
 	}
 
-	// Check if destination already has the same content
-	existingData, readErr := os.ReadFile(dstFilepath)
-	if readErr == nil && bytes.Equal(existingData, data) {
-		return false, nil
+	// If destination already has identical content AND identical perms, nothing to do.
+	// If content matches but perms differ, chmod and report changed so the caller commits.
+	if existingInfo, statErr := os.Stat(dstFilepath); statErr == nil {
+		existingData, readErr := os.ReadFile(dstFilepath)
+		if readErr == nil && bytes.Equal(existingData, data) {
+			if existingInfo.Mode().Perm() == srcPerm {
+				return false, nil
+			}
+			if err := os.Chmod(dstFilepath, srcPerm); err != nil {
+				return false, stacktrace.Propagate(err, "failed to chmod '%s'", dstFilepath)
+			}
+			return true, nil
+		}
 	}
 
-	if err := os.WriteFile(dstFilepath, data, 0644); err != nil {
+	if err := os.WriteFile(dstFilepath, data, srcPerm); err != nil {
 		return false, stacktrace.Propagate(err, "failed to write '%s'", dstFilepath)
+	}
+	// os.WriteFile only honors perm on creation; chmod explicitly to cover
+	// the case where dst already existed with a stale mode.
+	if err := os.Chmod(dstFilepath, srcPerm); err != nil {
+		return false, stacktrace.Propagate(err, "failed to chmod '%s'", dstFilepath)
 	}
 
 	return true, nil
