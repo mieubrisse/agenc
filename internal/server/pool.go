@@ -55,8 +55,18 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	poolName := s.getPoolSessionName()
 	windowName := database.ShortID(missionID)
 	target := fmt.Sprintf("=%s:", poolName)
+	windowTarget := fmt.Sprintf("%s:%s", poolName, windowName)
 
-	cmd := exec.Command("tmux", "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", target, "-n", windowName, command)
+	// Pin allow-rename=off on the new window so shell-emitted OSC title escapes
+	// (e.g. zsh prompt themes writing `\e]2;<cwd>\a`) cannot overwrite the
+	// mission title AgenC sets via rename-window. Without this, opening a side
+	// shell inside the mission's window clobbers the title for users with
+	// `allow-rename on` in their tmux config. See GitHub issue #5.
+	cmd := exec.Command("tmux",
+		"new-window", "-d", "-P", "-F", "#{pane_id}", "-t", target, "-n", windowName, command,
+		";",
+		"set-window-option", "-t", windowTarget, "allow-rename", "off",
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", "", stacktrace.NewError("failed to create pool window: %v (output: %s)", err, string(output))
@@ -66,8 +76,6 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	// to match the DB convention (database stores "42", not "%42").
 	paneID := strings.TrimSpace(string(output))
 	paneID = strings.TrimPrefix(paneID, "%")
-
-	windowTarget := fmt.Sprintf("%s:%s", poolName, windowName)
 	s.logger.Printf("Created pool window %s (pane %s) for mission %s", windowTarget, paneID, database.ShortID(missionID))
 	return windowTarget, paneID, nil
 }
