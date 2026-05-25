@@ -9,6 +9,7 @@ import (
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
 )
@@ -32,7 +33,7 @@ func init() {
 	notificationsCreateCmd.Flags().String(notificationsKindFlagName, "", "kind tag (required, e.g. writeable_copy.conflict)")
 	notificationsCreateCmd.Flags().String(notificationsTitleFlagName, "", "one-line title (required)")
 	notificationsCreateCmd.Flags().String(notificationsSourceRepoFlagName, "", "associated repo in canonical format (optional)")
-	notificationsCreateCmd.Flags().String(notificationsMissionIDFlagName, "", "link this notification to a mission (UUID or short ID); ENTER on the notification in 'manage' attaches to it")
+	notificationsCreateCmd.Flags().String(notificationsMissionIDFlagName, "", "link this notification to a mission (UUID or short ID); defaults to $AGENC_MISSION_UUID when set; ENTER on the notification in 'manage' attaches to it")
 	notificationsCreateCmd.Flags().String(notificationsBodyFlagName, "", "body content (mutually exclusive with --body-file)")
 	notificationsCreateCmd.Flags().String(notificationsBodyFileFlagName, "", "path to body content file; use - for stdin")
 }
@@ -42,6 +43,14 @@ func runNotificationsCreate(cmd *cobra.Command, args []string) error {
 	title, _ := cmd.Flags().GetString(notificationsTitleFlagName)
 	sourceRepo, _ := cmd.Flags().GetString(notificationsSourceRepoFlagName)
 	missionIDFlag, _ := cmd.Flags().GetString(notificationsMissionIDFlagName)
+	// Default to the calling mission's UUID when run inside a mission and the
+	// caller didn't pass --mission-id explicitly. This makes the picker's ENTER
+	// shortcut work for notifications posted by agents inside missions (e.g.
+	// the HN daily pull skill) without each caller having to thread the env
+	// var through manually.
+	if missionIDFlag == "" {
+		missionIDFlag = os.Getenv(config.MissionUUIDEnvVar)
+	}
 	bodyFlag, _ := cmd.Flags().GetString(notificationsBodyFlagName)
 	bodyFile, _ := cmd.Flags().GetString(notificationsBodyFileFlagName)
 

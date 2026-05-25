@@ -2,6 +2,13 @@
 set -euo pipefail
 script_dirpath="$(cd "$(dirname "${0}")" && pwd)"
 
+# When the developer runs `make e2e` from inside a real AgenC mission, their
+# shell has AGENC_MISSION_UUID set — but the test environment has its own
+# isolated mission DB that doesn't know about the parent mission. Strip the
+# var here so commands picking up env-var defaults (e.g. `notification new`)
+# don't try to resolve a UUID that only exists in the parent's universe.
+unset AGENC_MISSION_UUID
+
 repo_dirpath="$(cd "${script_dirpath}/.." && pwd)"
 agenc_test="${repo_dirpath}/_build/agenc-test"
 
@@ -529,6 +536,27 @@ fi
 run_test "notification new rejects newline in title" \
     1 \
     "${agenc_test}" notification new --kind=e2e.test --title=$'multi\nline' --body=x
+
+# notification new defaults --mission-id to $AGENC_MISSION_UUID when not
+# passed explicitly. Reuses the blank mission created earlier in this script
+# (mission_short_id, line 368). Reproduces the bug where notifications posted
+# by agents inside missions (e.g. the HN daily pull skill) had empty mission_id
+# and the picker's ENTER attach was a no-op.
+if [ -n "${mission_short_id}" ]; then
+    env_mission_notif_output=$(AGENC_MISSION_UUID="${mission_short_id}" "${agenc_test}" notification new --kind=e2e.mission-default --title="E2E AGENC_MISSION_UUID default" --body=x 2>&1) || true
+    env_mission_notif_id=$(echo "${env_mission_notif_output}" | grep -oE "'[0-9a-f]{8}'" | head -1 | tr -d "'")
+
+    if [ -n "${env_mission_notif_id}" ]; then
+        run_test "notification new picks up AGENC_MISSION_UUID when --mission-id omitted" \
+            0 \
+            bash -c "'${agenc_test}' notification manage-fzf-input | grep '${env_mission_notif_id}' | grep -q '${mission_short_id}'"
+    else
+        total=$((total + 1))
+        printf "  %-50s " "notification new picks up AGENC_MISSION_UUID..."
+        echo "FAIL (could not create env-default notification: ${env_mission_notif_output})"
+        failed=$((failed + 1))
+    fi
+fi
 
 echo ""
 echo "--- Writeable copies (requires server) ---"
