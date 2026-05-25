@@ -69,3 +69,26 @@ func TestTryAcquireServerLock_CreatesParentDir(t *testing.T) {
 		t.Fatal("expected parent directory to be created")
 	}
 }
+
+func TestFindOrphanServerPIDs_EmptyPathReturnsNothing(t *testing.T) {
+	// Defensive: if the caller could not determine the executable path, the
+	// function must skip the sweep entirely. Falling back to an unscoped
+	// pattern would reintroduce the cross-installation kill bug where a
+	// `make e2e` teardown nukes the user's production agenc server.
+	pids := findOrphanServerPIDs("", map[int]bool{})
+	if len(pids) != 0 {
+		t.Fatalf("expected no PIDs when executableFilepath is empty, got %v", pids)
+	}
+}
+
+func TestFindOrphanServerPIDs_NoMatchForBogusPath(t *testing.T) {
+	// A path that no process could possibly have launched from must yield no
+	// matches. This guards against a regression that reintroduces a substring
+	// fallback (e.g. pgrep -f "agenc server run") which would happily match
+	// unrelated installations.
+	bogusPath := filepath.Join(t.TempDir(), "definitely-not-a-real-agenc-binary")
+	pids := findOrphanServerPIDs(bogusPath, map[int]bool{})
+	if len(pids) != 0 {
+		t.Fatalf("expected no PIDs for path that no process matches, got %v", pids)
+	}
+}

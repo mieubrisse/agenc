@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -156,8 +157,12 @@ func StopServer(pidFilepath string) error {
 
 	_ = os.Remove(pidFilepath)
 
-	// Sweep for orphaned server processes
-	orphans := findOrphanServerPIDs(killedPIDs)
+	// Sweep for orphaned server processes launched from THIS installation's
+	// binary. Scoping by executable path is critical: a system-wide sweep
+	// would also kill agenc servers from unrelated installations (e.g. a
+	// `make e2e` teardown nuking the user's production server).
+	executableFilepath, _ := os.Executable()
+	orphans := findOrphanServerPIDs(executableFilepath, killedPIDs)
 	for _, orphanPID := range orphans {
 		killProcess(orphanPID)
 	}
@@ -186,11 +191,22 @@ func killProcess(pid int) {
 	_ = process.Signal(syscall.SIGKILL)
 }
 
-// findOrphanServerPIDs finds all running `agenc server run` processes,
-// excluding the given set of PIDs.
-// Returns nil (not an error) if pgrep is unavailable or finds nothing.
-func findOrphanServerPIDs(excludePIDs map[int]bool) []int {
-	cmd := exec.Command("pgrep", "-f", "agenc server run")
+// findOrphanServerPIDs finds running `<executableFilepath> server run`
+// processes, excluding the given set of PIDs. The pattern is anchored to the
+// exact binary path so a sweep from one installation never kills servers from
+// another (the unscoped pattern "agenc server run" used to make `make e2e`
+// teardown nuke the user's production server).
+//
+// Returns nil (not an error) if executableFilepath is empty, if pgrep is
+// unavailable, or if there are no matches.
+func findOrphanServerPIDs(executableFilepath string, excludePIDs map[int]bool) []int {
+	if executableFilepath == "" {
+		// Refuse to fall back to an unscoped sweep — losing scope would
+		// reintroduce the cross-installation kill bug.
+		return nil
+	}
+	pattern := "^" + regexp.QuoteMeta(executableFilepath) + " server run"
+	cmd := exec.Command("pgrep", "-f", pattern)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil // pgrep returns exit 1 when no matches
