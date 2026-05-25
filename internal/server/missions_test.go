@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 )
 
@@ -139,6 +140,39 @@ func TestBuildCronTriggeredNotification_ManualTrigger(t *testing.T) {
 
 	if !strings.Contains(n.BodyMarkdown, "**Trigger:** manual") {
 		t.Errorf("expected manual trigger label: %v", n.BodyMarkdown)
+	}
+}
+
+func TestCronWantsNotifications(t *testing.T) {
+	disabled := false
+	enabled := true
+	cfg := &config.AgencConfig{
+		Crons: map[string]config.CronConfig{
+			"silent": {ID: "cron-silent", NotificationsEnabled: &disabled},
+			"loud":   {ID: "cron-loud", NotificationsEnabled: &enabled},
+			"legacy": {ID: "cron-legacy"},
+		},
+	}
+	s := &Server{}
+	s.cachedConfig.Store(cfg)
+
+	tests := []struct {
+		name   string
+		cronID string
+		want   bool
+	}{
+		{"disabled cron suppresses notification", "cron-silent", false},
+		{"explicitly enabled cron keeps notification", "cron-loud", true},
+		{"unset field defaults to enabled", "cron-legacy", true},
+		{"unknown cron ID defaults to enabled", "cron-unknown", true},
+		{"empty cron ID defaults to enabled", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := s.cronWantsNotifications(tt.cronID); got != tt.want {
+				t.Errorf("cronWantsNotifications(%q) = %v, want %v", tt.cronID, got, tt.want)
+			}
+		})
 	}
 }
 

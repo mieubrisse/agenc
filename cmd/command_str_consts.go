@@ -151,11 +151,12 @@ const (
 	contentHashFlagName = "content-hash"
 
 	// config cron flags
-	cronConfigScheduleFlagName    = "schedule"
-	cronConfigPromptFlagName      = "prompt"
-	cronConfigDescriptionFlagName = "description"
-	cronConfigRepoFlagName        = "repo"
-	cronConfigEnabledFlagName     = "enabled"
+	cronConfigScheduleFlagName             = "schedule"
+	cronConfigPromptFlagName               = "prompt"
+	cronConfigDescriptionFlagName          = "description"
+	cronConfigRepoFlagName                 = "repo"
+	cronConfigEnabledFlagName              = "enabled"
+	cronConfigNotificationsEnabledFlagName = "notifications-enabled"
 
 	// notifications flags
 	notificationsKindFlagName       = "kind"

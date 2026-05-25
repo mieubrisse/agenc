@@ -12,43 +12,47 @@ import (
 
 // CronInfo represents a cron job in API responses.
 type CronInfo struct {
-	Name        string `json:"name"`
-	ID          string `json:"id"`
-	Schedule    string `json:"schedule"`
-	Prompt      string `json:"prompt"`
-	Description string `json:"description,omitempty"`
-	Repo        string `json:"repo,omitempty"`
-	Enabled     bool   `json:"enabled"`
+	Name                 string `json:"name"`
+	ID                   string `json:"id"`
+	Schedule             string `json:"schedule"`
+	Prompt               string `json:"prompt"`
+	Description          string `json:"description,omitempty"`
+	Repo                 string `json:"repo,omitempty"`
+	Enabled              bool   `json:"enabled"`
+	NotificationsEnabled bool   `json:"notificationsEnabled"`
 }
 
 // CreateCronRequest is the request body for POST /crons.
 type CreateCronRequest struct {
-	Name        string `json:"name"`
-	Schedule    string `json:"schedule"`
-	Prompt      string `json:"prompt"`
-	Description string `json:"description,omitempty"`
-	Repo        string `json:"repo,omitempty"`
+	Name                 string `json:"name"`
+	Schedule             string `json:"schedule"`
+	Prompt               string `json:"prompt"`
+	Description          string `json:"description,omitempty"`
+	Repo                 string `json:"repo,omitempty"`
+	NotificationsEnabled *bool  `json:"notificationsEnabled,omitempty"`
 }
 
 // UpdateCronRequest is the request body for PATCH /crons/{name}.
 // Only non-nil fields are applied.
 type UpdateCronRequest struct {
-	Schedule    *string `json:"schedule,omitempty"`
-	Prompt      *string `json:"prompt,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Repo        *string `json:"repo,omitempty"`
-	Enabled     *bool   `json:"enabled,omitempty"`
+	Schedule             *string `json:"schedule,omitempty"`
+	Prompt               *string `json:"prompt,omitempty"`
+	Description          *string `json:"description,omitempty"`
+	Repo                 *string `json:"repo,omitempty"`
+	Enabled              *bool   `json:"enabled,omitempty"`
+	NotificationsEnabled *bool   `json:"notificationsEnabled,omitempty"`
 }
 
 func cronInfoFromConfig(name string, cronCfg config.CronConfig) CronInfo {
 	return CronInfo{
-		Name:        name,
-		ID:          cronCfg.ID,
-		Schedule:    cronCfg.Schedule,
-		Prompt:      cronCfg.Prompt,
-		Description: cronCfg.Description,
-		Repo:        cronCfg.Repo,
-		Enabled:     cronCfg.IsEnabled(),
+		Name:                 name,
+		ID:                   cronCfg.ID,
+		Schedule:             cronCfg.Schedule,
+		Prompt:               cronCfg.Prompt,
+		Description:          cronCfg.Description,
+		Repo:                 cronCfg.Repo,
+		Enabled:              cronCfg.IsEnabled(),
+		NotificationsEnabled: cronCfg.AreNotificationsEnabled(),
 	}
 }
 
@@ -100,11 +104,12 @@ func (s *Server) handleCreateCron(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	cronCfg := config.CronConfig{
-		ID:          uuid.New().String(),
-		Schedule:    req.Schedule,
-		Prompt:      req.Prompt,
-		Description: req.Description,
-		Repo:        req.Repo,
+		ID:                   uuid.New().String(),
+		Schedule:             req.Schedule,
+		Prompt:               req.Prompt,
+		Description:          req.Description,
+		Repo:                 req.Repo,
+		NotificationsEnabled: req.NotificationsEnabled,
 	}
 
 	if cfg.Crons == nil {
@@ -167,6 +172,9 @@ func (s *Server) handleUpdateCron(w http.ResponseWriter, r *http.Request) error 
 	}
 	if req.Enabled != nil {
 		cronCfg.Enabled = req.Enabled
+	}
+	if req.NotificationsEnabled != nil {
+		cronCfg.NotificationsEnabled = req.NotificationsEnabled
 	}
 
 	cfg.Crons[name] = cronCfg

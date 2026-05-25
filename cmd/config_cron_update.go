@@ -24,6 +24,9 @@ Examples:
   # Disable a cron job
   agenc config cron update daily-report --enabled=false
 
+  # Turn off the cron.triggered notification for this cron
+  agenc config cron update daily-report --notifications-enabled=false
+
   # Update multiple fields at once
   agenc config cron update weekly-cleanup \
     --prompt="Clean up old files and logs" \
@@ -43,6 +46,7 @@ func init() {
 	configCronUpdateCmd.Flags().String(cronConfigDescriptionFlagName, "", "human-readable description")
 	configCronUpdateCmd.Flags().String(cronConfigRepoFlagName, "", "repository to clone (e.g., github.com/owner/repo)")
 	configCronUpdateCmd.Flags().Bool(cronConfigEnabledFlagName, true, "whether the cron job is enabled")
+	configCronUpdateCmd.Flags().Bool(cronConfigNotificationsEnabledFlagName, true, "whether triggers of this cron create a cron.triggered notification")
 }
 
 func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
@@ -51,7 +55,7 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 	allFlags := []string{
 		cronConfigScheduleFlagName, cronConfigPromptFlagName,
 		cronConfigDescriptionFlagName, cronConfigRepoFlagName,
-		cronConfigEnabledFlagName,
+		cronConfigEnabledFlagName, cronConfigNotificationsEnabledFlagName,
 	}
 	if !anyFlagChanged(cmd, allFlags) {
 		return stacktrace.NewError("at least one configuration flag must be provided")
@@ -85,6 +89,10 @@ func runConfigCronUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed(cronConfigEnabledFlagName) {
 		enabled, _ := cmd.Flags().GetBool(cronConfigEnabledFlagName)
 		req.Enabled = &enabled
+	}
+	if cmd.Flags().Changed(cronConfigNotificationsEnabledFlagName) {
+		notificationsEnabled, _ := cmd.Flags().GetBool(cronConfigNotificationsEnabledFlagName)
+		req.NotificationsEnabled = &notificationsEnabled
 	}
 
 	client, err := serverClient()

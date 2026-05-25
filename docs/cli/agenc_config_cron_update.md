@@ -16,6 +16,9 @@ Examples:
   # Disable a cron job
   agenc config cron update daily-report --enabled=false
 
+  # Turn off the cron.triggered notification for this cron
+  agenc config cron update daily-report --notifications-enabled=false
+
   # Update multiple fields at once
   agenc config cron update weekly-cleanup \
     --prompt="Clean up old files and logs" \
@@ -32,12 +35,13 @@ agenc config cron update <name> [flags]
 ### Options
 
 ```
-      --description string   human-readable description
-      --enabled              whether the cron job is enabled (default true)
-  -h, --help                 help for update
-      --prompt string        initial prompt for the Claude mission
-      --repo string          repository to clone (e.g., github.com/owner/repo)
-      --schedule string      cron schedule expression (e.g., '0 9 * * *')
+      --description string      human-readable description
+      --enabled                 whether the cron job is enabled (default true)
+  -h, --help                    help for update
+      --notifications-enabled   whether triggers of this cron create a cron.triggered notification (default true)
+      --prompt string           initial prompt for the Claude mission
+      --repo string             repository to clone (e.g., github.com/owner/repo)
+      --schedule string         cron schedule expression (e.g., '0 9 * * *')
 ```
 
 ### SEE ALSO

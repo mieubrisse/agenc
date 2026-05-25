@@ -394,13 +394,36 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 // createCronTriggeredNotification inserts a notification linked to the
 // just-created mission. Failures are logged and never propagated — the
 // mission has already been created and must succeed even if notification
-// insert fails.
+// insert fails. Skips insertion if the cron has notifications disabled.
 func (s *Server) createCronTriggeredNotification(missionRecord *database.Mission, req CreateMissionRequest) {
+	if !s.cronWantsNotifications(req.SourceID) {
+		return
+	}
 	cronName, trigger := parseCronSourceMetadata(req.SourceMetadata)
 	n := buildCronTriggeredNotification(missionRecord, req, cronName, trigger)
 	if err := s.db.CreateNotification(n); err != nil {
 		s.logger.Printf("failed to create cron-triggered notification for mission %s: %v", missionRecord.ShortID, err)
 	}
+}
+
+// cronWantsNotifications returns whether the cron identified by cronID has
+// notifications enabled. Defaults to true when the cron cannot be found in
+// cached config — preserves existing behavior for legacy crons or races
+// where the cron was deleted between trigger and mission creation.
+func (s *Server) cronWantsNotifications(cronID string) bool {
+	if cronID == "" {
+		return true
+	}
+	cfg := s.getConfig()
+	if cfg == nil {
+		return true
+	}
+	for _, cronCfg := range cfg.Crons {
+		if cronCfg.ID == cronID {
+			return cronCfg.AreNotificationsEnabled()
+		}
+	}
+	return true
 }
 
 // parseCronSourceMetadata extracts cron_name and trigger fields from

@@ -32,11 +32,12 @@ agenc config cron add <name> [flags]
 ### Options
 
 ```
-      --description string   human-readable description (optional)
-  -h, --help                 help for add
-      --prompt string        initial prompt for the Claude mission (required)
-      --repo string          repository to clone (e.g., github.com/owner/repo) (optional)
-      --schedule string      cron schedule expression (e.g., '0 9 * * *') (required)
+      --description string      human-readable description (optional)
+  -h, --help                    help for add
+      --notifications-enabled   whether triggers of this cron create a cron.triggered notification (default true)
+      --prompt string           initial prompt for the Claude mission (required)
+      --repo string             repository to clone (e.g., github.com/owner/repo) (optional)
+      --schedule string         cron schedule expression (e.g., '0 9 * * *') (required)
 ```
 
 ### SEE ALSO

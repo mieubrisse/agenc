@@ -42,6 +42,7 @@ func init() {
 	configCronAddCmd.Flags().String(cronConfigPromptFlagName, "", "initial prompt for the Claude mission (required)")
 	configCronAddCmd.Flags().String(cronConfigDescriptionFlagName, "", "human-readable description (optional)")
 	configCronAddCmd.Flags().String(cronConfigRepoFlagName, "", "repository to clone (e.g., github.com/owner/repo) (optional)")
+	configCronAddCmd.Flags().Bool(cronConfigNotificationsEnabledFlagName, true, "whether triggers of this cron create a cron.triggered notification")
 	_ = configCronAddCmd.MarkFlagRequired(cronConfigScheduleFlagName)
 	_ = configCronAddCmd.MarkFlagRequired(cronConfigPromptFlagName)
 }
@@ -75,13 +76,19 @@ func runConfigCronAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if _, err := client.CreateCron(server.CreateCronRequest{
+	createReq := server.CreateCronRequest{
 		Name:        name,
 		Schedule:    schedule,
 		Prompt:      prompt,
 		Description: description,
 		Repo:        repo,
-	}); err != nil {
+	}
+	if cmd.Flags().Changed(cronConfigNotificationsEnabledFlagName) {
+		notificationsEnabled, _ := cmd.Flags().GetBool(cronConfigNotificationsEnabledFlagName)
+		createReq.NotificationsEnabled = &notificationsEnabled
+	}
+
+	if _, err := client.CreateCron(createReq); err != nil {
 		return stacktrace.Propagate(err, "failed to create cron job")
 	}
 

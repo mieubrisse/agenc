@@ -236,6 +236,40 @@ run_test "cron enable enables the cron" \
     0 \
     "${agenc_test}" cron enable test-cron
 
+config_filepath="${repo_dirpath}/_test-env/config/config.yml"
+
+run_test "config cron add accepts --notifications-enabled=false" \
+    0 \
+    "${agenc_test}" config cron add quiet-cron --schedule="0 9 * * *" --prompt="quiet" --notifications-enabled=false
+
+run_test_output_contains "config.yml records notificationsEnabled: false" \
+    "notificationsEnabled: false" \
+    grep -F "notificationsEnabled" "${config_filepath}"
+
+run_test "config cron update flips notifications back on" \
+    0 \
+    "${agenc_test}" config cron update quiet-cron --notifications-enabled=true
+
+run_test_output_contains "config.yml records notificationsEnabled: true" \
+    "notificationsEnabled: true" \
+    grep -F "notificationsEnabled" "${config_filepath}"
+
+run_test "config cron rm removes quiet-cron" \
+    0 \
+    "${agenc_test}" config cron rm quiet-cron
+
+run_test "config cron add omits notificationsEnabled when flag not passed" \
+    0 \
+    "${agenc_test}" config cron add default-cron --schedule="0 9 * * *" --prompt="default"
+
+run_test "config.yml omits notificationsEnabled by default" \
+    1 \
+    grep -F "notificationsEnabled" "${config_filepath}"
+
+run_test "config cron rm removes default-cron" \
+    0 \
+    "${agenc_test}" config cron rm default-cron
+
 run_test "config cron add rejects duplicate name" \
     1 \
     "${agenc_test}" config cron add test-cron --schedule="0 9 * * *" --prompt="Duplicate"

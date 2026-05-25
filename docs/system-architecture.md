@@ -375,7 +375,7 @@ Core Packages
 Path management and YAML configuration. All path construction flows from `GetAgencDirpath()`, which reads `$AGENC_DIRPATH` and falls back to `~/.agenc`.
 
 - `config.go` — path helper functions (`GetMissionDirpath`, `GetRepoDirpath`, `GetDatabaseFilepath`, `GetCacheDirpath`, `GetOAuthTokenFilepath`, etc.), directory structure initialization (`EnsureDirStructure`), constant definitions for filenames and directory names, adjutant mission detection (`IsMissionAdjutant` checks for `.adjutant` marker file), OAuth token file read/write (`ReadOAuthToken`, `WriteOAuthToken`)
-- `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation, `defaultModel` for specifying the default Claude model), `RepoConfig` struct (per-repo settings: `alwaysSynced`, `emoji`, `trustedMcpServers`, `defaultModel`), `TrustedMcpServers` struct (custom YAML marshal/unmarshal supporting `all` string or a list of named servers), `CronConfig` struct, `PaletteCommandConfig` struct (user-defined and builtin palette entries with optional tmux keybindings), `PaletteTmuxKeybinding` (configurable key for the command palette, defaults to `k`), `BuiltinPaletteCommands` defaults map, `GetResolvedPaletteCommands` merge logic, validation functions for repo format, cron names, palette command names, and schedules. Cron schedule validation via `launchd.ParseCronExpression` (rejects expressions launchd cannot represent).
+- `agenc_config.go` — `AgencConfig` struct (YAML round-trip with comment preservation, `defaultModel` for specifying the default Claude model), `RepoConfig` struct (per-repo settings: `alwaysSynced`, `emoji`, `trustedMcpServers`, `defaultModel`), `TrustedMcpServers` struct (custom YAML marshal/unmarshal supporting `all` string or a list of named servers), `CronConfig` struct (with per-cron `notificationsEnabled` opt-out for the cron.triggered notification, default-on), `PaletteCommandConfig` struct (user-defined and builtin palette entries with optional tmux keybindings), `PaletteTmuxKeybinding` (configurable key for the command palette, defaults to `k`), `BuiltinPaletteCommands` defaults map, `GetResolvedPaletteCommands` merge logic, validation functions for repo format, cron names, palette command names, and schedules. Cron schedule validation via `launchd.ParseCronExpression` (rejects expressions launchd cannot represent).
 - `first_run.go` — `IsFirstRun()` detection
 
 ### `internal/repo/`
@@ -670,7 +670,7 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 1. launchd triggers at scheduled time
 2. Invokes `agenc mission new --headless --source cron --source-id <cronUUID> --source-metadata '{"cron_name":"<name>"}' --prompt <prompt> [repo]`
 3. Server creates a normal mission with generic source tracking columns
-4. After spawn, the server inserts a `cron.triggered` notification with `mission_id` pointing at the new mission so the Notification Center picker can find and attach to it
+4. After spawn, the server inserts a `cron.triggered` notification with `mission_id` pointing at the new mission so the Notification Center picker can find and attach to it. Skipped when the cron's `notificationsEnabled` is false (default true). Applies to both scheduled and manual `agenc cron run` triggers — the per-cron opt-out is universal across trigger modes.
 5. Mission runs in a tmux pool window like any other headless mission
 6. Standard 30-minute idle timeout applies (JSONL ModTime-based)
 
