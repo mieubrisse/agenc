@@ -124,7 +124,7 @@ func runMissionNewWithClone() error {
 		tmuxSession = getCallingSessionName()
 	}
 
-	stopSpinner := startSpinner("Preparing mission...")
+	fmt.Println("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
 		Repo:        sourceMission.GitRepo,
 		Prompt:      promptFlag,
@@ -132,7 +132,6 @@ func runMissionNewWithClone() error {
 		TmuxSession: tmuxSession,
 		NoFocus:     noFocusFlag,
 	})
-	stopSpinner()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
 	}
@@ -142,7 +141,7 @@ func runMissionNewWithClone() error {
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
 	}
 
-	if tmuxSession != "" {
+	if tmuxSession != "" || sourceFlag == "mission" {
 		fmt.Println("Launched in tmux pool")
 	} else {
 		fmt.Println("Running in background (pool window)")
@@ -236,21 +235,20 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		tmuxSession = getCallingSessionName()
 	}
 
-	stopSpinner := startSpinner("Preparing mission...")
+	fmt.Println("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
 		Adjutant:    true,
 		Prompt:      initialPrompt,
 		TmuxSession: tmuxSession,
 		NoFocus:     noFocusFlag,
 	})
-	stopSpinner()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create adjutant mission")
 	}
 
 	fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
 
-	if tmuxSession != "" {
+	if tmuxSession != "" || sourceFlag == "mission" {
 		fmt.Println("Launched in tmux pool")
 	} else {
 		fmt.Println("Running in background (pool window)")
@@ -374,7 +372,7 @@ func createAndLaunchMission(
 		tmuxSession = getCallingSessionName()
 	}
 
-	stopSpinner := startSpinner("Preparing mission...")
+	fmt.Println("Preparing mission...")
 	missionRecord, err := client.CreateMission(server.CreateMissionRequest{
 		Repo:           gitRepoName,
 		Prompt:         initialPrompt,
@@ -384,14 +382,13 @@ func createAndLaunchMission(
 		SourceMetadata: sourceMetadataFlag,
 		NoFocus:        noFocusFlag,
 	})
-	stopSpinner()
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
 	}
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
-	if tmuxSession != "" {
+	if tmuxSession != "" || sourceFlag == "mission" {
 		fmt.Println("Launched in tmux pool")
 	} else {
 		fmt.Println("Running in background (pool window)")
