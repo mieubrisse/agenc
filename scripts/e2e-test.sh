@@ -751,6 +751,63 @@ run_guard_assert_allows "guard allows Edit on non-repo-library path" \
 run_guard_assert_allows "guard allows Read on repo-library path" \
     "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"${AGENC_DIRPATH}/repos/foo/bar.md\"}}"
 
+echo ""
+echo "--- Mission spawn-from-mission provenance (requires server) ---"
+
+# These tests verify the CLI auto-population + DB persistence of source/source_id
+# when `agenc mission new` runs from inside a mission (AGENC_MISSION_UUID set).
+# The tmux-link-set MIRRORING side of the feature (parent's link-set onto child)
+# cannot be reliably E2E-tested — see CLAUDE.md "Tmux integration changes
+# require manual testing". The DB-level round-trip below is the testable surface.
+
+db_filepath="${repo_dirpath}/_test-env/database.sqlite"
+
+# 1. CLI validation: --source without --source-id errors out
+run_test "mission new rejects --source without --source-id" \
+    1 \
+    "${agenc_test}" mission new --blank --source=mission
+
+# 2. CLI validation: --source-id without --source errors out
+run_test "mission new rejects --source-id without --source" \
+    1 \
+    "${agenc_test}" mission new --blank --source-id=some-uuid
+
+# 3. CLI validation: --source-id too long errors out
+long_id=$(printf 'x%.0s' $(seq 1 300))
+run_test "mission new rejects oversize --source-id" \
+    1 \
+    "${agenc_test}" mission new --blank --source=mission --source-id="${long_id}"
+
+# 4. Happy path: AGENC_MISSION_UUID set → child mission row carries source=mission, source_id=<env>
+fake_parent_uuid="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+AGENC_MISSION_UUID="${fake_parent_uuid}" run_test \
+    "mission new with AGENC_MISSION_UUID succeeds" \
+    0 \
+    "${agenc_test}" mission new --blank --headless
+
+# Verify the DB row reflects the auto-populated source
+run_test_output_contains \
+    "child mission has source=mission in DB" \
+    "mission" \
+    sqlite3 "${db_filepath}" "SELECT source FROM missions WHERE source_id='${fake_parent_uuid}' ORDER BY created_at DESC LIMIT 1;"
+
+run_test_output_contains \
+    "child mission has source_id=<parent-uuid> in DB" \
+    "${fake_parent_uuid}" \
+    sqlite3 "${db_filepath}" "SELECT source_id FROM missions WHERE source_id='${fake_parent_uuid}' ORDER BY created_at DESC LIMIT 1;"
+
+# 5. Explicit override: --source=cron from inside a mission stays cron
+fake_cron_id="cron-override-test"
+AGENC_MISSION_UUID="${fake_parent_uuid}" run_test \
+    "mission new --source=cron overrides auto-detection" \
+    0 \
+    "${agenc_test}" mission new --blank --headless --source=cron --source-id="${fake_cron_id}"
+
+run_test_output_contains \
+    "explicit cron source wins over auto-detected mission source" \
+    "cron" \
+    sqlite3 "${db_filepath}" "SELECT source FROM missions WHERE source_id='${fake_cron_id}' ORDER BY created_at DESC LIMIT 1;"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
