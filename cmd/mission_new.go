@@ -70,6 +70,26 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	}
 	ensureServerRunning()
 
+	// Provenance auto-population: when invoked from inside a mission and the
+	// caller didn't explicitly set --source, stamp source="mission" and
+	// source_id=$AGENC_MISSION_UUID. The calling agent cannot forget to
+	// record provenance — the CLI does it. Explicit --source always wins
+	// (e.g., a cron firing from a mission context with --source=cron).
+	if sourceFlag == "" {
+		if parentUUID := os.Getenv(config.MissionUUIDEnvVar); parentUUID != "" {
+			sourceFlag = "mission"
+			sourceIDFlag = parentUUID
+		}
+	}
+
+	// Cheap validation: source and source-id must travel together.
+	if (sourceFlag == "") != (sourceIDFlag == "") {
+		return stacktrace.NewError("--source and --source-id must be set together")
+	}
+	if len(sourceIDFlag) > 256 {
+		return stacktrace.NewError("--source-id exceeds 256 characters")
+	}
+
 	if cloneFlag != "" {
 		return runMissionNewWithClone()
 	}
