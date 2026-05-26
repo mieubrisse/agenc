@@ -288,14 +288,19 @@ type CreateMissionRequest struct {
 	Repo   string `json:"repo"`
 	Prompt string `json:"prompt"`
 	// TmuxSession is the name of the user's currently-attached tmux session.
-	// If non-empty, the new mission's pool window is linked into it. Empty
-	// means "no session link" — the mission runs headless in the pool. The
-	// CLI sends this directly rather than a pane ID for consistency with
-	// attach/detach (see "Calling pane and session resolution" in
-	// docs/system-architecture.md).
-	TmuxSession    string `json:"tmux_session"`
-	Headless       bool   `json:"headless"`
-	Adjutant       bool   `json:"adjutant"`
+	// Used only when Source is empty (the user-terminal spawn path). When
+	// Source is "mission", the link-set is derived server-side from the
+	// parent mission's current tmux state and TmuxSession is ignored.
+	// See "Calling pane and session resolution" in docs/system-architecture.md.
+	TmuxSession string `json:"tmux_session"`
+	Headless    bool   `json:"headless"`
+	Adjutant    bool   `json:"adjutant"`
+	// Source identifies what kind of caller created this mission and acts
+	// as the dispatch key for UI affordance at spawn time:
+	//   "mission" → mirror parent mission's tmux link-set (parent UUID in SourceID)
+	//   "cron"    → pool-only (cron UUID in SourceID)
+	//   ""        → use TmuxSession (user-terminal path)
+	// Source/SourceID also persist to the missions row as durable provenance.
 	Source         string `json:"source"`
 	SourceID       string `json:"source_id"`
 	SourceMetadata string `json:"source_metadata"`
@@ -526,9 +531,49 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	return nil
 }
 
+// resolveLinkSessions returns the set of tmux session names to link a newly-
+// created mission's pool window into. The Source field acts as the dispatch
+// key:
+//   - Source == "mission" → mirror the parent mission's current link-set
+//     (every non-pool session the parent's pane is visible in).
+//   - Otherwise → fall back to req.TmuxSession as a single-element slice (the
+//     user-terminal path), or empty for pool-only.
+//
+// All failure modes (parent not found, parent has no tmux pane, parent is
+// pool-only, tmux query failed) degrade to an empty slice — the caller leaves
+// the child pool-only. Spawn must never fail because of a parent-resolution
+// problem.
+func (s *Server) resolveLinkSessions(req CreateMissionRequest) []string {
+	if req.Source == "mission" && req.SourceID != "" {
+		parent, err := s.db.GetMission(req.SourceID)
+		if err != nil || parent == nil {
+			s.logger.Printf("Warning: parent mission %s not found, child spawning pool-only", req.SourceID)
+			return nil
+		}
+		if parent.TmuxPane == nil || *parent.TmuxPane == "" {
+			s.logger.Printf("Warning: parent mission %s has no tmux pane, child spawning pool-only", database.ShortID(req.SourceID))
+			return nil
+		}
+		poolName := s.getPoolSessionName()
+		sessions := getLinkedPaneSessions(poolName)[*parent.TmuxPane]
+		if len(sessions) == 0 {
+			s.logger.Printf("Info: parent mission %s is pool-only, child spawning pool-only", database.ShortID(req.SourceID))
+			return nil
+		}
+		return sessions
+	}
+	if req.TmuxSession != "" {
+		return []string{req.TmuxSession}
+	}
+	return nil
+}
+
 // spawnWrapper launches the wrapper process for a mission.
-// All missions run in a pool window. If TmuxSession is provided, the pool
-// window is linked into that session; if empty, the mission runs headless.
+// All missions run in a pool window. After the pool window is created, the
+// window is linked into zero or more user sessions per resolveLinkSessions
+// (source-driven). req.Headless skips all linking. Link failures degrade
+// gracefully — the spawn always succeeds as long as the pool window itself
+// was created.
 func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMissionRequest) error {
 	// Build the wrapper command for the pool window.
 	// --run-wrapper tells the resume command to run the wrapper directly
@@ -549,13 +594,15 @@ func (s *Server) spawnWrapper(missionRecord *database.Mission, req CreateMission
 		s.logger.Printf("Warning: failed to store pane ID for mission %s: %v", missionRecord.ShortID, err)
 	}
 
-	if req.TmuxSession != "" {
-		if err := linkPoolWindowByPane(paneID, req.TmuxSession); err != nil {
-			s.destroyPoolWindow(paneID)
-			return fmt.Errorf("failed to link pool window: %w", err)
-		}
-		if !req.NoFocus {
-			focusPaneInSession(paneID, req.TmuxSession)
+	if !req.Headless {
+		for _, session := range s.resolveLinkSessions(req) {
+			if err := linkPoolWindowByPane(paneID, session); err != nil {
+				s.logger.Printf("Warning: failed to link child %s into session %s: %v (continuing)", missionRecord.ShortID, session, err)
+				continue
+			}
+			if !req.NoFocus {
+				focusPaneInSession(paneID, session)
+			}
 		}
 	}
 
