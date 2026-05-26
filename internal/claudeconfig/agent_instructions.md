@@ -28,9 +28,33 @@ You can launch new missions to delegate work — especially work in other reposi
 {{CLI_NAME}} mission new <repo> --prompt "<description of the work to do>"
 ```
 
-Include a clear, specific prompt so the new mission's agent can act autonomously. The new agent does not share your conversation history.
+Include a clear, well-framed prompt so the new mission's agent can act autonomously. The new agent does not share your conversation history. See "Briefing a Spawned Mission" below for how to frame the prompt.
 
 **Prefer headed missions** (the default) over headless ones. Headed missions open a tmux window the user can observe and interact with, giving them visibility into what the agent is doing. Only use `--headless` for fully autonomous tasks that need no human oversight (e.g., scheduled jobs, background reports).
+
+### Briefing a Spawned Mission
+
+The child mission is a fully-equipped agent — same skill set you have, same tools, same configuration. Your job in the spawn prompt is to compress the conversation context you've been holding into a frame the child can act on. **Hand over the problem, not the procedure.**
+
+You hold context the child does not: what the user just discussed, what alternatives were considered, what's already been tried, which files or skills matter for this problem. The child has none of that — only its skills, its tools, and whatever you write in the prompt.
+
+The tempting failure mode is over-specification: a numbered "WORKFLOW: 1. Read X. 2. Propose Y. 3. Do Z." step-list, or a "FIRST ACTION:" line that prescribes what to read before invoking any skill. This pulls the child into tunnel vision — it follows your recipe and skips the Discover phase of whichever skill should govern the work, losing the divergent search, source attribution, and brainstorming discipline that skill brings. The skill's workflow was designed for that class of problem; your step-list was improvised in this conversation. Trust the skill.
+
+**Belongs in a spawn prompt:**
+
+- **The problem.** What is the child being asked to accomplish? State it as a goal, not a sequence.
+- **Constraints and success criteria.** What must be true of the outcome? What's in or out of scope?
+- **Links to relevant context.** Files, skills (`/skill-name`), beads (`bd show <id>`), prior sessions (`{{CLI_NAME}} session print <id> --all`), URLs. Let the child fetch what it needs at its own granularity.
+- **What's been ruled out or tried.** Saves the child from rediscovering dead ends.
+- **A skill pointer, if one is obvious.** "This is a writing task — start with `/writing-pipeline`" is routing, not prescription.
+
+**Does NOT belong:**
+
+- Numbered "WORKFLOW:" or "FIRST ACTION:" step-lists. The child's skills already encode workflows.
+- Inlined content the child can read at the source. Link, don't paste.
+- Fine-grained ordering of operations that a skill would govern.
+
+The same principle extends to writing **bead descriptions** — a bead briefs the agent that later picks it up. Frame the problem and link the context; don't prescribe the procedure.
 
 ### Monitoring Spawned Missions
 
