@@ -595,6 +595,20 @@ There are three execution contexts that reach these server endpoints. Each must 
 
 When adding new palette commands or keybindings that invoke CLI commands needing pane or session context, ensure both `AGENC_CALLING_PANE_ID` and `AGENC_CALLING_SESSION_NAME` are available in the execution environment. For display-popup commands, this means injecting both via `-e` flags. The keybinding generator (`internal/tmux/keybindings.go`) and palette dispatch (`cmd/tmux_palette.go`) handle this automatically.
 
+**Source-driven UI dispatch for mission creation.** When a CLI command creates a new mission, the `source` field on `CreateMissionRequest` doubles as the dispatch key for the new mission's UI affordance at spawn time:
+
+| `source` | UI affordance | Driver |
+|----------|---------------|--------|
+| `"mission"` | Mirror parent's tmux link-set: server looks up the parent mission's pane via `source_id`, calls `getLinkedPaneSessions(poolName)`, and links the child's pool window into every session the parent currently appears in. | A Claude agent running inside another mission |
+| `"cron"` | Pool-only | launchd-fired cron job |
+| `""` (empty) | Single session from `tmux_session` field (the legacy user-terminal path) | User typing `agenc mission new` in their own tmux shell |
+
+The CLI auto-populates `source="mission"` and `source_id=$AGENC_MISSION_UUID` whenever it detects it is running from inside a mission (`cmd/mission_new.go:runMissionNew`). The calling agent does not need to opt in — the CLI cannot forget. Explicit `--source=X` overrides the auto-detection (e.g., a cron firing from a mission context).
+
+`source`/`source_id` are persisted to the `missions` table as durable provenance: every mission-spawned child carries a permanent pointer back to its parent. UI affordance and provenance ride the same field by design.
+
+The "calling session" concept does not apply to mission-originated CLI calls: a mission has no single "calling session" because its pane can be linked into multiple sessions simultaneously. The parent's link-set is the replacement.
+
 ### Tmux title reconciliation
 
 The server provides an idempotent function (`internal/server/tmux.go`) that examines all available data for a mission and converges the tmux window to the correct title. It can be called from any context — the custom-title loop, the auto-summary loop, or a mission switch — and always produces the same result for the same input state.
