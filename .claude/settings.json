@@ -51,12 +51,22 @@
     },
     "sandbox": {
         "filesystem": {
-            "allowWrite": ["//tmp", "//private/tmp/claude", "~/Library/Caches/golangci-lint"]
+            "allowWrite": [
+                "//tmp",
+                "//private/tmp/claude",
+                "//private/tmp/claude-*/**",
+                "~/Library/Caches/golangci-lint"
+            ]
         },
         "network": {
             "allowLocalBinding": true,
             "allowedDomains": ["vuln.go.dev"],
-            "allowUnixSockets": ["//tmp/claude", "//private/tmp/claude"]
+            "allowUnixSockets": [
+                "//tmp/claude",
+                "//private/tmp/claude",
+                "//tmp/claude-*/**",
+                "//private/tmp/claude-*/**"
+            ]
         }
     },
     "hooks": {
