@@ -44,8 +44,8 @@ crons:
 # Palette commands — customize the tmux command palette and keybindings
 paletteCommands:
   # Override a builtin's keybinding
-  newMission:
-    tmuxKeybinding: "C-n"
+  showNotifications:
+    tmuxKeybinding: "C-j"
 
   # Disable a builtin entirely (no palette entry, no keybinding)
   nukeMissions: {}
@@ -154,7 +154,7 @@ Each entry supports four fields:
 - **title** — label shown in the palette picker (entries without a title are keybinding-only)
 - **description** — context shown alongside the title
 - **command** — full shell command to execute (e.g. `agenc mission new`)
-- **tmuxKeybinding** — tmux keybinding. By default, a bare key like `"f"` or `"C-n"` is bound in the agenc key table (prefix + a, key). To make a global binding in the root table (no prefix needed), use `"-n C-s"` syntax — the value is passed through to tmux's `bind-key` command
+- **tmuxKeybinding** — tmux keybinding. By default, a bare key like `"f"` or `"C-j"` is bound in the agenc key table (prefix + a, key). To make a global binding in the root table (no prefix needed), use `"-n C-s"` syntax — the value is passed through to tmux's `bind-key` command
 
 **Merge rules for builtins:**
 - Key absent from config: full defaults
@@ -175,9 +175,9 @@ Manage palette commands via the CLI:
 ```
 agenc config paletteCommand ls                                    # list all (builtin + custom)
 agenc config paletteCommand add myCmd --title="Test" --command="echo hello" --keybinding="t"
-agenc config paletteCommand update newMission --keybinding="C-n"  # override builtin
-agenc config paletteCommand rm myCmd                              # remove custom
-agenc config paletteCommand rm newMission                         # restore builtin defaults
+agenc config paletteCommand update showNotifications --keybinding="C-j"  # override builtin
+agenc config paletteCommand rm myCmd                                     # remove custom
+agenc config paletteCommand rm showNotifications                         # restore builtin defaults
 ```
 
 Tmux Window Coloring
