@@ -509,18 +509,39 @@ func TestPaletteCommands_BuiltinDefaults(t *testing.T) {
 	}
 
 	// Check specific defaults
+	foundShowNotifications := false
+	foundNewMission := false
 	for _, cmd := range resolved {
+		if cmd.Name == "showNotifications" {
+			foundShowNotifications = true
+			if cmd.Title != "🔔  Notification Center" {
+				t.Errorf("expected showNotifications title '🔔  Notification Center', got '%s'", cmd.Title)
+			}
+			if cmd.TmuxKeybinding != "-n C-n" {
+				t.Errorf("expected showNotifications keybinding '-n C-n', got '%s'", cmd.TmuxKeybinding)
+			}
+			if !cmd.IsBuiltin {
+				t.Error("expected showNotifications to be marked as builtin")
+			}
+		}
 		if cmd.Name == "newMission" {
+			foundNewMission = true
 			if cmd.Title != "🚀  New Mission" {
 				t.Errorf("expected newMission title '🚀  New Mission', got '%s'", cmd.Title)
 			}
-			if cmd.TmuxKeybinding != "-n C-n" {
-				t.Errorf("expected newMission keybinding '-n C-n', got '%s'", cmd.TmuxKeybinding)
+			if cmd.TmuxKeybinding != "" {
+				t.Errorf("expected newMission to have no default keybinding, got '%s'", cmd.TmuxKeybinding)
 			}
 			if !cmd.IsBuiltin {
 				t.Error("expected newMission to be marked as builtin")
 			}
 		}
+	}
+	if !foundShowNotifications {
+		t.Error("expected showNotifications to appear in resolved commands")
+	}
+	if !foundNewMission {
+		t.Error("expected newMission to appear in resolved commands")
 	}
 }
 
@@ -528,8 +549,8 @@ func TestPaletteCommands_BuiltinOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
-  newMission:
-    tmuxKeybinding: "C-n"
+  showNotifications:
+    tmuxKeybinding: "C-j"
 `)
 
 	cfg, _, err := ReadAgencConfig(tmpDir)
@@ -539,30 +560,30 @@ paletteCommands:
 
 	resolved := cfg.GetResolvedPaletteCommands()
 	for _, cmd := range resolved {
-		if cmd.Name == "newMission" {
-			if cmd.TmuxKeybinding != "C-n" {
-				t.Errorf("expected overridden keybinding 'C-n', got '%s'", cmd.TmuxKeybinding)
+		if cmd.Name == "showNotifications" {
+			if cmd.TmuxKeybinding != "C-j" {
+				t.Errorf("expected overridden keybinding 'C-j', got '%s'", cmd.TmuxKeybinding)
 			}
 			// Title should keep the default
-			if cmd.Title != "🚀  New Mission" {
-				t.Errorf("expected default title '🚀  New Mission', got '%s'", cmd.Title)
+			if cmd.Title != "🔔  Notification Center" {
+				t.Errorf("expected default title '🔔  Notification Center', got '%s'", cmd.Title)
 			}
 			if !cmd.IsBuiltin {
-				t.Error("expected newMission to be marked as builtin")
+				t.Error("expected showNotifications to be marked as builtin")
 			}
 			return
 		}
 	}
-	t.Error("newMission not found in resolved commands")
+	t.Error("showNotifications not found in resolved commands")
 }
 
 func TestPaletteCommands_BuiltinClearKeybinding(t *testing.T) {
 	tmpDir := t.TempDir()
-	// newMission has a default keybinding of "-n C-n"; clearing it should
+	// showNotifications has a default keybinding of "-n C-n"; clearing it should
 	// produce an empty keybinding in the resolved output.
 	writeConfigYAML(t, tmpDir, `
 paletteCommands:
-  newMission:
+  showNotifications:
     tmuxKeybinding: ""
 `)
 
@@ -572,9 +593,9 @@ paletteCommands:
 	}
 
 	// The override entry should persist (not be cleaned up as empty)
-	override, exists := cfg.PaletteCommands["newMission"]
+	override, exists := cfg.PaletteCommands["showNotifications"]
 	if !exists {
-		t.Fatal("expected newMission override to exist in config")
+		t.Fatal("expected showNotifications override to exist in config")
 	}
 	if override.TmuxKeybinding == nil {
 		t.Fatal("expected TmuxKeybinding to be non-nil (explicitly set to empty)")
@@ -586,18 +607,18 @@ paletteCommands:
 	// The resolved command should have no keybinding
 	resolved := cfg.GetResolvedPaletteCommands()
 	for _, cmd := range resolved {
-		if cmd.Name == "newMission" {
+		if cmd.Name == "showNotifications" {
 			if cmd.TmuxKeybinding != "" {
 				t.Errorf("expected cleared keybinding (empty string), got '%s'", cmd.TmuxKeybinding)
 			}
 			// Title should still have the builtin default
-			if cmd.Title != "🚀  New Mission" {
+			if cmd.Title != "🔔  Notification Center" {
 				t.Errorf("expected default title, got '%s'", cmd.Title)
 			}
 			return
 		}
 	}
-	t.Error("newMission not found in resolved commands")
+	t.Error("showNotifications not found in resolved commands")
 }
 
 func TestPaletteCommands_BuiltinDisable(t *testing.T) {

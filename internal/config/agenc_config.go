@@ -100,15 +100,15 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Command:     StringPtr("agenc mission new --adjutant"),
 	},
 	"showNotifications": {
-		Title:       StringPtr("🔔  Notification Center"),
-		Description: StringPtr("Browse notifications and ENTER to attach to the linked mission"),
-		Command:     StringPtr(`tmux display-popup -E -w 95% -h 90% "agenc notification manage"`),
+		Title:          StringPtr("🔔  Notification Center"),
+		Description:    StringPtr("Browse notifications and ENTER to attach to the linked mission"),
+		Command:        StringPtr(`tmux display-popup -E -w 95% -h 90% "agenc notification manage"`),
+		TmuxKeybinding: StringPtr("-n C-n"),
 	},
 	"newMission": {
-		Title:          StringPtr("🚀  New Mission"),
-		Description:    StringPtr("Create a new mission and launch Claude"),
-		Command:        StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission new"`),
-		TmuxKeybinding: StringPtr("-n C-n"),
+		Title:       StringPtr("🚀  New Mission"),
+		Description: StringPtr("Create a new mission and launch Claude"),
+		Command:     StringPtr(`tmux display-popup -E -w 68% -h 63% "agenc mission new"`),
 	},
 	"switchMission": {
 		Title:          StringPtr("🔀  Attach Mission"),
