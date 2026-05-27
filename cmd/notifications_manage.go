@@ -122,6 +122,14 @@ func runNotificationsManage(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Mark read before attach: once we hand control to tmux the user won't
+	// return here, so deferring would mean the row stays unread until detach.
+	// Non-fatal — failing to mark read shouldn't block the attach the user
+	// actually pressed ENTER for.
+	if err := client.MarkNotificationRead(notif.ID); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to mark notification '%v' read: %v\n", shortID, err)
+	}
+
 	attachCmd := exec.Command(execPath, "mission", "attach", notif.MissionID)
 	attachCmd.Stdin = os.Stdin
 	attachCmd.Stdout = os.Stdout
