@@ -163,7 +163,8 @@ Press `ctrl-y` to open the command palette and...
 
 - 🐚 Open a side shell in your current mission's workspace ("Side Shell" or `ctrl-p`)
   > 💡 [cmdk](https://github.com/mieubrisse/cmdk) is amazing in the side shell
-- 🚀 Launch a side mission ("New Mission" or `ctrl-n`, or "Side Claude" or "Quick Claude")
+- 🔔 Check your notifications ("Notification Center" or `ctrl-n`)
+- 🚀 Launch a side mission ("New Mission", "Side Claude", or "Quick Claude")
 - 🔀 Switch between your running missions ("Switch Mission" or `ctrl-m`)
 - 💬 Send me feedback about AgenC!
 
