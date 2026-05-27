@@ -29,7 +29,7 @@ Use --disabled to hide a command from the palette without removing its config.
 Use --disabled=false to re-enable a previously disabled command.
 
 Example:
-  agenc config paletteCommand update newMission --keybinding="C-n"
+  agenc config paletteCommand update showNotifications --keybinding="C-j"
   agenc config paletteCommand update stopMission --keybinding="-n C-s"
   agenc config paletteCommand update nukeMissions --disabled
 `,

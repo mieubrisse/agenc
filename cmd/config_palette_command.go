@@ -17,8 +17,8 @@ Example config.yml:
 
   paletteCommands:
     # Override a builtin keybinding
-    newMission:
-      tmuxKeybinding: "C-n"
+    showNotifications:
+      tmuxKeybinding: "C-j"
 
     # Disable a builtin
     nukeMissions:
