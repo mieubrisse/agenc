@@ -185,6 +185,19 @@ run_test "config set sessionTitleMaxWords reset" \
     "${agenc_test}" config set sessionTitleMaxWords 15
 
 echo ""
+echo "--- Palette command default keybindings ---"
+
+# Ctrl+N is the global hotkey for Notification Center (see internal/config/agenc_config.go).
+# New Mission is reachable via the palette but has no default global hotkey.
+run_test_output_contains "paletteCommand ls shows showNotifications with C-n keybinding" \
+    "showNotifications.*C-n" \
+    "${agenc_test}" config paletteCommand ls
+
+run_test "paletteCommand ls does not bind newMission to C-n" \
+    1 \
+    bash -c "'${agenc_test}' config paletteCommand ls | grep -E 'newMission.*C-n'"
+
+echo ""
 echo "--- Sleep mode (requires server) ---"
 run_test_output_contains "sleep ls shows empty initially" \
     "No sleep windows configured" \
