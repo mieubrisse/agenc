@@ -68,7 +68,7 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 			lastPrompt := formatLastPrompt(m.LastUserPromptAt, m.CreatedAt)
 			rows = append(rows, searchFzfRow{
 				shortID: m.ShortID,
-				cols:    []string{m.ShortID, lastPrompt, session, repo, ""},
+				cols:    []string{m.ShortID, attachedDot(m.IsAttached), lastPrompt, session, repo, ""},
 			})
 			seenMissionIDs[m.ID] = true
 		}
@@ -107,7 +107,7 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 
 		rows = append(rows, searchFzfRow{
 			shortID: shortID,
-			cols:    []string{shortID, lastPrompt, session, repo, snippet},
+			cols:    []string{shortID, attachedDot(r.IsAttached), lastPrompt, session, repo, snippet},
 		})
 	}
 
@@ -122,7 +122,7 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 
 	// Render through tableprinter for alignment
 	var buf strings.Builder
-	tbl := tableprinter.NewTable("ID", "LAST PROMPT", "SESSION", "REPO", "MATCH").WithWriter(&buf)
+	tbl := tableprinter.NewTable("ID", "●", "LAST PROMPT", "SESSION", "REPO", "MATCH").WithWriter(&buf)
 	for _, r := range rows {
 		tbl.AddRow(toAnySlice(r.cols)...)
 	}
@@ -181,7 +181,7 @@ func appendSubstringMatches(
 		lastPrompt := formatLastPrompt(m.LastUserPromptAt, m.CreatedAt)
 		rows = append(rows, searchFzfRow{
 			shortID: m.ShortID,
-			cols:    []string{m.ShortID, lastPrompt, session, repo, ""},
+			cols:    []string{m.ShortID, attachedDot(m.IsAttached), lastPrompt, session, repo, ""},
 		})
 	}
 	return rows
@@ -233,9 +233,9 @@ func printRecentMissionsForFzf() error {
 	entries := buildMissionPickerEntries(missions, 30)
 
 	var buf strings.Builder
-	tbl := tableprinter.NewTable("ID", "LAST PROMPT", "SESSION", "REPO", "MATCH").WithWriter(&buf)
+	tbl := tableprinter.NewTable("ID", "●", "LAST PROMPT", "SESSION", "REPO", "MATCH").WithWriter(&buf)
 	for _, e := range entries {
-		tbl.AddRow(e.ShortID, e.LastPrompt, e.Session, e.Repo, "")
+		tbl.AddRow(e.ShortID, attachedDot(e.IsAttached), e.LastPrompt, e.Session, e.Repo, "")
 	}
 	tbl.Print()
 
