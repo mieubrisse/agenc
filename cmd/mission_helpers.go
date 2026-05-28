@@ -27,6 +27,7 @@ type missionPickerEntry struct {
 	Status     string // colorized status (RUNNING/STOPPED/ARCHIVED)
 	Session    string // session name (truncated)
 	Repo       string // display-formatted (may contain ANSI)
+	IsAttached bool   // true if mission is currently linked into a non-pool tmux session
 }
 
 // shortIDPattern matches 8 hex characters (mission short ID).
@@ -70,6 +71,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 			Status:     colorizeStatus(status),
 			Session:    truncatePrompt(sessionName, sessionMaxLen),
 			Repo:       repo,
+			IsAttached: m.IsAttached,
 		})
 	}
 	return entries
@@ -250,4 +252,15 @@ func resolveCronID(client *server.Client, nameOrID string) (string, error) {
 	}
 
 	return "", stacktrace.NewError("cron job '%s' not found", nameOrID)
+}
+
+// attachedDot returns a green dot when the mission is currently attached
+// (linked into a tmux session outside the pool), or an empty string otherwise.
+// The dot is a middle column in the picker table, so an empty value is safe —
+// fzf's leading-whitespace stripping only affects the first column.
+func attachedDot(isAttached bool) string {
+	if isAttached {
+		return ansiGreen + "●" + ansiReset
+	}
+	return ""
 }
