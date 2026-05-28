@@ -109,6 +109,8 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		ResolvedSessionTitle: m.ResolvedSessionTitle,
 		IsAdjutant:           m.IsAdjutant,
 		IsAttached:           m.IsAttached,
+		// ClaudeState intentionally omitted — it is set post-conversion by
+		// enrichMissionResponse; database.Mission.ClaudeState is always nil here.
 	}
 }
 
