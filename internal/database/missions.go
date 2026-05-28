@@ -44,6 +44,11 @@ type Mission struct {
 	// ClaudeState is a transient field populated by the server API, not stored in the database.
 	// Possible values: "idle", "busy", "needs_attention", or nil when wrapper is not running.
 	ClaudeState *string
+
+	// IsAttached is a transient field populated by the server API, not stored in
+	// the database. True if the mission's tmux pane is currently linked into a
+	// session outside the pool (i.e. the mission is "attached").
+	IsAttached bool
 }
 
 // CreateMissionParams holds optional parameters for creating a mission.

@@ -20,6 +20,7 @@ type SearchMissionsResponse struct {
 	LastHeartbeat        *string `json:"last_heartbeat"`
 	LastUserPromptAt     *string `json:"last_user_prompt_at"`
 	CreatedAt            string  `json:"created_at"`
+	IsAttached           bool    `json:"is_attached"`
 }
 
 // handleSearchMissions handles GET /missions/search?q=<query>&limit=<n>.

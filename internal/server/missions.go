@@ -54,6 +54,10 @@ type MissionResponse struct {
 	// ClaudeState is the current state of Claude in this mission. Nil when the
 	// wrapper is not running. Possible values: "idle", "busy", "needs_attention".
 	ClaudeState *string `json:"claude_state"`
+
+	// IsAttached is true if the mission's tmux pane is currently linked into a
+	// session outside the pool. Computed live per request; never persisted.
+	IsAttached bool `json:"is_attached"`
 }
 
 // ToMission converts a MissionResponse to a database.Mission.
@@ -79,6 +83,7 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		ResolvedSessionTitle: mr.ResolvedSessionTitle,
 		IsAdjutant:           mr.IsAdjutant,
 		ClaudeState:          mr.ClaudeState,
+		IsAttached:           mr.IsAttached,
 	}
 }
 
@@ -103,6 +108,7 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		UpdatedAt:            m.UpdatedAt,
 		ResolvedSessionTitle: m.ResolvedSessionTitle,
 		IsAdjutant:           m.IsAdjutant,
+		IsAttached:           m.IsAttached,
 	}
 }
 
