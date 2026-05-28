@@ -233,6 +233,13 @@ func getLinkedPaneIDs(poolSessionName string) map[string]bool {
 	return linked
 }
 
+// computeMissionAttached reports whether a mission is currently attached: its
+// tmux pane is present in the linked-pane set (panes linked into a session
+// outside the pool). A mission with no pane is never attached.
+func computeMissionAttached(paneID *string, linkedPanes map[string]bool) bool {
+	return paneID != nil && linkedPanes[*paneID]
+}
+
 // getLinkedPaneSessions returns a map of pane IDs to the list of tmux session
 // names they are linked into (excluding the pool session). Pane IDs are
 // returned without the "%" prefix to match the database convention.
