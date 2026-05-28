@@ -44,6 +44,7 @@ func (s *Server) handleSearchMissions(w http.ResponseWriter, r *http.Request) er
 		return newHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	linkedPanes := getLinkedPaneIDs(s.getPoolSessionName())
 	responses := make([]SearchMissionsResponse, 0, len(results))
 	for _, sr := range results {
 		resp := SearchMissionsResponse{
@@ -71,6 +72,7 @@ func (s *Server) handleSearchMissions(w http.ResponseWriter, r *http.Request) er
 				ts := mission.LastUserPromptAt.Format(time.RFC3339)
 				resp.LastUserPromptAt = &ts
 			}
+			resp.IsAttached = computeMissionAttached(mission.TmuxPane, linkedPanes)
 		}
 
 		responses = append(responses, resp)

@@ -146,6 +146,16 @@ func (s *Server) enrichMissionWithSessionTitle(m *database.Mission) {
 	m.ResolvedSessionTitle = resolveSessionTitle(activeSession)
 }
 
+// markMissionsAttached sets IsAttached on each mission via a single live tmux
+// query for the linked-pane set. If tmux is unreachable the set is empty and
+// every mission is reported unattached.
+func (s *Server) markMissionsAttached(missions []*database.Mission) {
+	linkedPanes := getLinkedPaneIDs(s.getPoolSessionName())
+	for _, m := range missions {
+		m.IsAttached = computeMissionAttached(m.TmuxPane, linkedPanes)
+	}
+}
+
 const wrapperQueryTimeout = 500 * time.Millisecond
 
 // wrapperStatusResponse mirrors the wrapper's StatusResponse for JSON decoding
@@ -210,6 +220,7 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 			return nil
 		}
 		s.enrichMissionWithSessionTitle(mission)
+		s.markMissionsAttached([]*database.Mission{mission})
 		resp := toMissionResponse(mission)
 		s.enrichMissionResponse(&resp)
 		writeJSON(w, http.StatusOK, []MissionResponse{resp})
@@ -248,6 +259,7 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 	for _, m := range missions {
 		s.enrichMissionWithSessionTitle(m)
 	}
+	s.markMissionsAttached(missions)
 
 	responses := toMissionResponses(missions)
 
@@ -283,6 +295,7 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	s.enrichMissionWithSessionTitle(mission)
+	s.markMissionsAttached([]*database.Mission{mission})
 	resp := toMissionResponse(mission)
 	s.enrichMissionResponse(&resp)
 	writeJSON(w, http.StatusOK, resp)
