@@ -486,6 +486,11 @@ else
     echo "SKIP (could not create test mission)"
 fi
 
+# Regression: the attach picker reload command (search-fzf) still renders rows
+# after the attached-indicator column was added.
+run_test_no_crash "mission search-fzf empty query renders" \
+    "${agenc_test}" mission search-fzf
+
 echo ""
 echo "--- LAST PROMPT column (requires server) ---"
 
