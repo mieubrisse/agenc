@@ -334,6 +334,61 @@ run_test "repo rm cleans up renamed repo" \
     "${agenc_test}" repo rm github.com/mieubrisse/stacktrace-renamed
 
 echo ""
+echo "--- Repo description (requires server + network) ---"
+run_test_output_contains "repo add --help mentions --description" \
+    "description" \
+    "${agenc_test}" repo add --help
+
+run_test_output_contains "config repoConfig set --help mentions --description" \
+    "description" \
+    "${agenc_test}" config repoConfig set --help
+
+run_test_output_contains "config repoConfig --help lists description in supported settings" \
+    "description.*human/agent-readable" \
+    "${agenc_test}" config repoConfig --help
+
+run_test "repo add with --description succeeds" \
+    0 \
+    "${agenc_test}" repo add mieubrisse/stacktrace --description "Initial test description"
+
+run_test_output_contains "repo ls shows DESCRIPTION column header" \
+    "DESCRIPTION" \
+    "${agenc_test}" repo ls
+
+run_test_output_contains "repo ls shows the added description" \
+    "Initial test description" \
+    "${agenc_test}" repo ls
+
+run_test "config repoConfig set --description updates the value" \
+    0 \
+    "${agenc_test}" config repoConfig set github.com/mieubrisse/stacktrace --description "Updated test description"
+
+run_test_output_contains "repo ls reflects the updated description" \
+    "Updated test description" \
+    "${agenc_test}" repo ls
+
+run_test "config repoConfig set --description= clears the value" \
+    0 \
+    "${agenc_test}" config repoConfig set github.com/mieubrisse/stacktrace --description=""
+
+# After clearing, repo ls should no longer show the old description text.
+total=$((total + 1))
+printf "  %-50s " "repo ls no longer shows cleared description..."
+ls_output=$("${agenc_test}" repo ls 2>&1) || true
+if echo "${ls_output}" | grep -q "Updated test description"; then
+    echo "FAIL (cleared description still present in output)"
+    echo "    Output: ${ls_output}" | head -5
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
+run_test "repo rm cleans up description-test repo" \
+    0 \
+    "${agenc_test}" repo rm github.com/mieubrisse/stacktrace
+
+echo ""
 echo "--- Mission commands (requires server) ---"
 run_test_no_crash "mission ls does not crash" \
     "${agenc_test}" mission ls

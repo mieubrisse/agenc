@@ -367,6 +367,7 @@ type RepoConfig struct {
 	AlwaysSynced      bool               `yaml:"alwaysSynced,omitempty"`
 	Emoji             string             `yaml:"emoji,omitempty"`
 	Title             string             `yaml:"title,omitempty"`
+	Description       string             `yaml:"description,omitempty"`
 	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
 	DefaultModel      string             `yaml:"defaultModel,omitempty"`
 	PostUpdateHook    string             `yaml:"postUpdateHook,omitempty"`
@@ -519,6 +520,14 @@ func (c *AgencConfig) GetRepoEmoji(repoName string) string {
 func (c *AgencConfig) GetRepoTitle(repoName string) string {
 	if rc, ok := c.RepoConfigs[repoName]; ok {
 		return rc.Title
+	}
+	return ""
+}
+
+// GetRepoDescription returns the configured description for a repo, or empty string if none is set.
+func (c *AgencConfig) GetRepoDescription(repoName string) string {
+	if rc, ok := c.RepoConfigs[repoName]; ok {
+		return rc.Description
 	}
 	return ""
 }

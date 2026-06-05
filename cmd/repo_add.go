@@ -30,8 +30,9 @@ to choose.
 
 Use --%s to keep the repo continuously synced by the server.
 Use --%s to set an emoji for the repo.
-Use --%s to set a friendly title for the repo.`,
-		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName),
+Use --%s to set a friendly title for the repo.
+Use --%s to set a human/agent-readable description of what the repo is for.`,
+		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName, repoConfigDescriptionFlagName),
 	Args: cobra.MinimumNArgs(1),
 	RunE: runRepoAdd,
 }
@@ -40,6 +41,7 @@ func init() {
 	repoAddCmd.Flags().Bool(repoConfigAlwaysSyncedFlagName, false, "keep this repo continuously synced by the server")
 	repoAddCmd.Flags().String(repoConfigEmojiFlagName, "", "emoji to display for missions using this repo")
 	repoAddCmd.Flags().String(repoConfigTitleFlagName, "", `friendly title for the repo (e.g., "Dotfiles")`)
+	repoAddCmd.Flags().String(repoConfigDescriptionFlagName, "", "human/agent-readable description of what the repo is for")
 	repoCmd.AddCommand(repoAddCmd)
 }
 
@@ -76,6 +78,14 @@ func runRepoAdd(cmd *cobra.Command, args []string) error {
 				return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigTitleFlagName)
 			}
 			req.Title = &title
+		}
+
+		if cmd.Flags().Changed(repoConfigDescriptionFlagName) {
+			description, err := cmd.Flags().GetString(repoConfigDescriptionFlagName)
+			if err != nil {
+				return stacktrace.Propagate(err, "failed to read --%s flag", repoConfigDescriptionFlagName)
+			}
+			req.Description = &description
 		}
 
 		resp, err := client.AddRepo(req)

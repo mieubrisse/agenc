@@ -340,6 +340,25 @@ func TestRepoConfig_GetRepoTitle(t *testing.T) {
 	}
 }
 
+func TestRepoConfig_GetRepoDescription(t *testing.T) {
+	cfg := &AgencConfig{
+		RepoConfigs: map[string]RepoConfig{
+			"github.com/owner/repo1": {Description: "The AgenC orchestration system"},
+			"github.com/owner/repo2": {},
+		},
+	}
+
+	if got := cfg.GetRepoDescription("github.com/owner/repo1"); got != "The AgenC orchestration system" {
+		t.Errorf("expected 'The AgenC orchestration system', got '%s'", got)
+	}
+	if got := cfg.GetRepoDescription("github.com/owner/repo2"); got != "" {
+		t.Errorf("expected empty string for repo without description, got '%s'", got)
+	}
+	if got := cfg.GetRepoDescription("github.com/owner/nonexistent"); got != "" {
+		t.Errorf("expected empty string for nonexistent repo, got '%s'", got)
+	}
+}
+
 func TestRepoConfig_GetAllSyncedRepos(t *testing.T) {
 	cfg := &AgencConfig{
 		RepoConfigs: map[string]RepoConfig{

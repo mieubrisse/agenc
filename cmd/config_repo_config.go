@@ -10,10 +10,11 @@ var configRepoConfigCmd = &cobra.Command{
 	Long: `Manage per-repo configuration in config.yml.
 
 Each repo is identified by its canonical name (github.com/owner/repo) and
-supports four optional settings:
+supports five optional settings:
 
   alwaysSynced       - server keeps the repo continuously fetched (every 60s)
   emoji              - emoji to display for missions using this repo
+  description        - human/agent-readable description of what the repo is for
   defaultModel       - default Claude model for missions using this repo
   trustedMcpServers  - pre-approve MCP servers to skip the consent prompt
 
@@ -23,6 +24,7 @@ Example config.yml:
     github.com/owner/repo:
       alwaysSynced: true
       emoji: "🔥"
+      description: "The AgenC orchestration system"
       defaultModel: opus
       trustedMcpServers: all
     github.com/owner/other:
