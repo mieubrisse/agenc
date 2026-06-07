@@ -20,16 +20,28 @@ func TestGetPrimeContent(t *testing.T) {
 		}
 	})
 
-	t.Run("contains expected CLI reference sections", func(t *testing.T) {
+	t.Run("contains expected operating context and CLI reference sections", func(t *testing.T) {
 		content := GetPrimeContent()
 		expectedPhrases := []string{
-			"AgenC CLI Quick Reference",
+			// Operating-context preamble (prime_preamble.md)
+			"AgenC Operating Context",
+			"Mission Filesystem Semantics",
+			"Self-Reload Requires `--async`",
+			"Cross-Repo Writes Need a New Mission",
+			"Briefing a Spawned Mission",
+			// Regression guard: the corrected ephemerality framing must survive.
+			// Older versions said "only pushed work survives" which was factually wrong
+			// and misled agents into mandatory push-everything behavior.
+			"does this need to leave the mission",
+			// Auto-generated CLI command groups
 			"agenc mission",
 			"agenc repo",
 			"agenc config",
 			"agenc cron",
 			"agenc server",
+			// Repo Formats postamble (prime_postamble.md)
 			"Repo Formats",
+			// Operational CLI warning
 			"Never use interactive commands",
 		}
 		for _, phrase := range expectedPhrases {

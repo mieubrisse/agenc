@@ -201,6 +201,35 @@ func TestBuildContainerHookEntries_OmitsPreToolUseGuard(t *testing.T) {
 	}
 }
 
+// TestSessionStartHookEntry_WiresPrimeInjection verifies that the SessionStart
+// hook entries fire `agenc prime` (host) or curl the wrapper /prime endpoint
+// (container) on every fresh Claude spawn. This is what replaced the old
+// hardcoded Layer 1 CLAUDE.md prepend (see bead agenc-88kh).
+func TestSessionStartHookEntry_WiresPrimeInjection(t *testing.T) {
+	t.Run("host missions invoke agenc prime", func(t *testing.T) {
+		entries := BuildAgencHookEntries("/tmp/test-mission/claude-config")
+		raw, ok := entries["SessionStart"]
+		if !ok {
+			t.Fatal("expected SessionStart entry in BuildAgencHookEntries result")
+		}
+		if !strings.Contains(string(raw), `"agenc prime"`) {
+			t.Errorf("expected SessionStart command to be \"agenc prime\", got: %s", string(raw))
+		}
+	})
+
+	t.Run("container missions curl the wrapper /prime endpoint", func(t *testing.T) {
+		entries := BuildContainerHookEntries()
+		raw, ok := entries["SessionStart"]
+		if !ok {
+			t.Fatal("expected SessionStart entry in BuildContainerHookEntries result")
+		}
+		s := string(raw)
+		if !strings.Contains(s, "$AGENC_WRAPPER_SOCKET") || !strings.Contains(s, "/prime") {
+			t.Errorf("expected container SessionStart command to curl $AGENC_WRAPPER_SOCKET .../prime, got: %s", s)
+		}
+	})
+}
+
 func TestClaudeConfigProtectedItems_IncludesAgencHooks(t *testing.T) {
 	// agenc-hooks holds AgenC-managed scripts (e.g. the repo-library guard)
 	// that the agent must not be able to read or modify.

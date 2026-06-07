@@ -168,14 +168,12 @@ func TestComputeProjectDirpath(t *testing.T) {
 	}
 }
 
-// TestBuildMergedClaudeMd_AgentInstructionsKeepLiteralClaudeRefs verifies that
-// the AgenC agent-instructions layer of the merged CLAUDE.md keeps literal
-// `~/.claude/` references intact, while user-supplied CLAUDE.md content
-// continues to receive path rewriting. This is load-bearing: the agent
-// instructions teach the canonical-vs-snapshot distinction by referencing
-// `~/.claude/` literally — if rewriting eats that distinction, agents are
-// taught the inverted picture (see mission a7558177 incident, 2026-05-06).
-func TestBuildMergedClaudeMd_AgentInstructionsKeepLiteralClaudeRefs(t *testing.T) {
+// TestBuildMergedClaudeMd verifies that user CLAUDE.md content gets path
+// rewriting applied, and that no AgenC operating-context layer is prepended.
+// AgenC context is delivered via the SessionStart `agenc prime` hook now;
+// any reintroduction of a hardcoded Layer 1 prepend would break the design
+// in agenc-88kh.
+func TestBuildMergedClaudeMd(t *testing.T) {
 	homeDir := setupFakeHome(t)
 	agencDirpath := filepath.Join(homeDir, ".agenc")
 	shadowDir := filepath.Join(agencDirpath, ShadowRepoDirname)
@@ -187,14 +185,12 @@ func TestBuildMergedClaudeMd_AgentInstructionsKeepLiteralClaudeRefs(t *testing.T
 		}
 	}
 
-	// User CLAUDE.md contains a `~/.claude/` path the user expects to resolve
-	// into their per-mission snapshot. This must keep getting rewritten.
 	userClaudeMd := "# user header\nLoad data from ~/.claude/userdata.json\n"
 	if err := os.WriteFile(filepath.Join(shadowDir, "CLAUDE.md"), []byte(userClaudeMd), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := buildMergedClaudeMd(shadowDir, agencModsDir, destDir, agencDirpath); err != nil {
+	if err := buildMergedClaudeMd(shadowDir, agencModsDir, destDir); err != nil {
 		t.Fatalf("buildMergedClaudeMd failed: %v", err)
 	}
 
@@ -204,18 +200,23 @@ func TestBuildMergedClaudeMd_AgentInstructionsKeepLiteralClaudeRefs(t *testing.T
 	}
 	text := string(out)
 
-	// Agent instructions must keep at least one literal `~/.claude/` reference
-	// (the Configuration Boundaries section deliberately references it to teach
-	// agents that `~/.claude/` is canonical).
-	if !strings.Contains(text, "~/.claude/") {
-		t.Errorf("expected merged CLAUDE.md to contain literal `~/.claude/` from agent instructions section, but it was rewritten away. Output:\n%s", text)
-	}
-
-	// User content's `~/.claude/userdata.json` must be rewritten to the per-
-	// mission destination (preserves existing user-content rewriting behavior).
 	expectedRewrittenUser := "Load data from " + destDir + "/userdata.json"
 	if !strings.Contains(text, expectedRewrittenUser) {
 		t.Errorf("expected user content `~/.claude/userdata.json` to be rewritten to %q, but it wasn't. Output:\n%s", expectedRewrittenUser, text)
+	}
+
+	// Regression guard: no AgenC operating-context layer should be prepended.
+	// Sentinels are stable phrases from the old agent_instructions.md that
+	// would only appear if a Layer 1 prepend was reintroduced.
+	forbiddenPhrases := []string{
+		"AgenC Agent Operating Instructions",
+		"What You Are Running In",
+		"Configuration Boundaries",
+	}
+	for _, phrase := range forbiddenPhrases {
+		if strings.Contains(text, phrase) {
+			t.Errorf("merged CLAUDE.md unexpectedly contains old agent-instructions phrase %q — Layer 1 prepend may have been reintroduced. Output:\n%s", phrase, text)
+		}
 	}
 }
 

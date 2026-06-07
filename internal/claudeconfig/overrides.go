@@ -56,7 +56,7 @@ var staticAgencHookEntries map[string]json.RawMessage
 var staticContainerHookEntries map[string]json.RawMessage
 
 func init() {
-	staticAgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
+	staticAgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames)+1)
 	for _, eventName := range agencHookEventNames {
 		// The Go command handler (runMissionSendClaudeUpdate) skips stdin for
 		// non-Notification events and uses a timeout for Notification events,
@@ -67,8 +67,13 @@ func init() {
 		entry := `[{"hooks":[{"type":"command","command":"agenc mission send claude-update $AGENC_MISSION_UUID ` + eventName + `"}]}]`
 		staticAgencHookEntries[eventName] = json.RawMessage(entry)
 	}
+	// SessionStart fires `agenc prime` and emits the routing index as a
+	// system-reminder. Claude Code's bare SessionStart matcher covers startup,
+	// resume, clear, AND post-compaction resume — same delivery model as the
+	// `bd prime` hook. This replaces the old Layer 1 CLAUDE.md prepend.
+	staticAgencHookEntries[sessionStartHookEvent] = json.RawMessage(`[{"hooks":[{"type":"command","command":"agenc prime"}]}]`)
 
-	staticContainerHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames))
+	staticContainerHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames)+1)
 	for _, eventName := range agencHookEventNames {
 		// Only Notification events pass stdin data (-d @-) to extract
 		// notification_type. Other events use an empty body to avoid hanging
@@ -86,7 +91,17 @@ func init() {
 		entry := fmt.Sprintf(`[{"hooks":[{"type":"command","command":"%s"}]}]`, cmd)
 		staticContainerHookEntries[eventName] = json.RawMessage(entry)
 	}
+	// Container SessionStart: curl the wrapper socket's GET /prime endpoint,
+	// since the `agenc` CLI binary isn't mounted into the container. The
+	// endpoint returns the same content `agenc prime` would print.
+	containerPrimeCmd := `curl -s --unix-socket $AGENC_WRAPPER_SOCKET http://w/prime`
+	staticContainerHookEntries[sessionStartHookEvent] = json.RawMessage(fmt.Sprintf(`[{"hooks":[{"type":"command","command":"%s"}]}]`, containerPrimeCmd))
 }
+
+// sessionStartHookEvent is Claude Code's SessionStart hook event name. A bare
+// SessionStart (no matcher) fires on startup, resume, clear, and post-compaction
+// resume — covering every moment we need to re-inject the prime routing index.
+const sessionStartHookEvent = "SessionStart"
 
 // BuildAgencHookEntries returns the full hook entries map for non-containerized
 // missions: the static state-tracking hooks plus the PreToolUse repo-library

@@ -876,6 +876,40 @@ run_test_output_contains \
     "cron" \
     sqlite3 "${db_filepath}" "SELECT source FROM missions WHERE source_id='${fake_cron_id}' ORDER BY created_at DESC LIMIT 1;"
 
+echo ""
+echo "--- agenc prime routing-index content (agenc-88kh trim) ---"
+
+# The corrected ephemerality framing is the load-bearing bug-fix from this trim.
+# The old wording ("only pushed work survives") misled agents into mandatory
+# push-everything behavior; the new wording lets local-only work stay local.
+run_test_output_contains \
+    "agenc prime contains corrected ephemerality framing" \
+    "does this need to leave the mission" \
+    "${agenc_test}" prime
+
+run_test_output_contains \
+    "agenc prime contains new operating-context preamble header" \
+    "AgenC Operating Context" \
+    "${agenc_test}" prime
+
+run_test_output_contains \
+    "agenc prime contains the self-reload --async constraint" \
+    "Self-Reload Requires" \
+    "${agenc_test}" prime
+
+# Regression guard against reintroducing the old Layer 1 CLAUDE.md prepend
+# title. If this string ever shows up in 'agenc prime' output, someone re-added
+# the old agent_instructions.md content under a new name.
+if "${agenc_test}" prime 2>&1 | grep -q "AgenC Agent Operating Instructions"; then
+    echo "FAIL: agenc prime output contains old 'AgenC Agent Operating Instructions' header — Layer 1 prepend content has been reintroduced"
+    failed=$((failed + 1))
+    total=$((total + 1))
+else
+    echo "PASS: agenc prime output does not contain old Layer 1 header"
+    passed=$((passed + 1))
+    total=$((total + 1))
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

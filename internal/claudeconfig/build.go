@@ -71,7 +71,7 @@ func BuildMissionConfigDir(agencDirpath string, missionID string, trustedMcpServ
 	agencModsDirpath := config.GetClaudeModificationsDirpath(agencDirpath)
 
 	// CLAUDE.md: merge user content + agenc modifications
-	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath, agencDirpath); err != nil {
+	if err := buildMergedClaudeMd(shadowDirpath, agencModsDirpath, claudeConfigDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to build merged CLAUDE.md")
 	}
 
@@ -197,42 +197,29 @@ func GetMissionClaudeConfigDirpath(agencDirpath string, missionID string) string
 }
 
 // buildMergedClaudeMd assembles the final CLAUDE.md for a mission by combining
-// three layers:
-//  1. AgenC agent instructions (hardcoded, embedded in the binary)
-//  2. User's CLAUDE.md (from the shadow repo / ~/.claude)
-//  3. User's claude-modifications CLAUDE.md (from ~/.agenc/config/claude-modifications)
+// the user's two CLAUDE.md sources:
+//  1. User's CLAUDE.md (from the shadow repo / ~/.claude)
+//  2. User's claude-modifications CLAUDE.md (from ~/.agenc/config/claude-modifications)
 //
-// The agent instructions provide foundational context about AgenC and missions.
-// User content can override or extend the defaults. Path rewriting is applied
-// only to user-supplied layers (2+3): user content may contain technical
-// `~/.claude/...` references that need to resolve into the per-mission snapshot,
-// but agent instructions deliberately reference `~/.claude/` literally to teach
-// agents the canonical-vs-snapshot distinction — rewriting that reference would
-// invert the lesson.
-func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string, agencDirpath string) error {
+// AgenC operating context is no longer prepended here — it's delivered to the
+// agent via a SessionStart hook that runs `agenc prime` (see overrides.go).
+// Path rewriting resolves `~/.claude/...` references in user content into the
+// per-mission snapshot.
+func buildMergedClaudeMd(shadowDirpath string, agencModsDirpath string, destDirpath string) error {
 	destFilepath := filepath.Join(destDirpath, "CLAUDE.md")
 
-	// Layer 1: hardcoded agent instructions with dynamic values substituted
-	agentInstructions := GetAgentInstructions(agencDirpath)
-
-	// Layer 2: user's ~/.claude/CLAUDE.md
 	userClaudeContent, err := os.ReadFile(filepath.Join(shadowDirpath, "CLAUDE.md"))
 	if err != nil && !os.IsNotExist(err) {
 		return stacktrace.Propagate(err, "failed to read user CLAUDE.md from shadow repo")
 	}
 
-	// Layer 3: user's claude-modifications CLAUDE.md
 	modsClaudeContent, err := os.ReadFile(filepath.Join(agencModsDirpath, "CLAUDE.md"))
 	if err != nil && !os.IsNotExist(err) {
 		return stacktrace.Propagate(err, "failed to read agenc modifications CLAUDE.md")
 	}
 
-	// Merge user content (layers 2+3) and apply path rewriting only to that —
-	// agent instructions stay literal so `~/.claude/` references survive.
 	mergedUserContent := MergeClaudeMd(userClaudeContent, modsClaudeContent)
-	rewrittenUserContent := RewriteClaudePaths(mergedUserContent, destDirpath)
-
-	mergedClaudeMd := MergeClaudeMd([]byte(agentInstructions), rewrittenUserContent)
+	mergedClaudeMd := RewriteClaudePaths(mergedUserContent, destDirpath)
 
 	if mergedClaudeMd == nil {
 		_ = os.Remove(destFilepath)

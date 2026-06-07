@@ -15,7 +15,11 @@ import (
 	"github.com/odyssey/agenc/cmd"
 )
 
-const outputFilepath = "./internal/claudeconfig/prime_content.md"
+const (
+	outputFilepath    = "./internal/claudeconfig/prime_content.md"
+	preambleFilepath  = "./internal/claudeconfig/prime_preamble.md"
+	postambleFilepath = "./internal/claudeconfig/prime_postamble.md"
+)
 
 // commandGroup represents a top-level command and its subcommands for
 // template rendering.
@@ -36,12 +40,28 @@ func main() {
 
 	groups := buildCommandGroups(rootCmd)
 
-	content, err := renderPrimeContent(groups)
+	preamble, err := os.ReadFile(preambleFilepath)
 	if err != nil {
-		log.Fatalf("failed to render prime content: %v", err)
+		log.Fatalf("failed to read %s: %v", preambleFilepath, err)
 	}
 
-	if err := os.WriteFile(outputFilepath, []byte(content), 0644); err != nil {
+	postamble, err := os.ReadFile(postambleFilepath)
+	if err != nil {
+		log.Fatalf("failed to read %s: %v", postambleFilepath, err)
+	}
+
+	commandGroups, err := renderCommandGroups(groups)
+	if err != nil {
+		log.Fatalf("failed to render command groups: %v", err)
+	}
+
+	var sb strings.Builder
+	sb.Write(preamble)
+	sb.WriteString(commandGroups)
+	sb.WriteString("\n")
+	sb.Write(postamble)
+
+	if err := os.WriteFile(outputFilepath, []byte(sb.String()), 0644); err != nil {
 		log.Fatalf("failed to write %s: %v", outputFilepath, err)
 	}
 
@@ -166,8 +186,11 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(s))
 }
 
-// renderPrimeContent renders the prime content from the command groups.
-func renderPrimeContent(groups []commandGroup) (string, error) {
+// renderCommandGroups renders the auto-generated middle section of prime_content.md
+// from the Cobra command tree. The hand-written preamble and postamble live in
+// prime_preamble.md and prime_postamble.md respectively and are concatenated
+// around this rendered middle by main().
+func renderCommandGroups(groups []commandGroup) (string, error) {
 	funcMap := template.FuncMap{
 		"padRight":  padRight,
 		"sectionH2": func(s string) string { return s + "\n" + strings.Repeat("-", len(s)) },
@@ -182,7 +205,7 @@ func renderPrimeContent(groups []commandGroup) (string, error) {
 		},
 	}
 
-	tmpl, err := template.New("prime").Funcs(funcMap).Parse(primeTemplate)
+	tmpl, err := template.New("commandGroups").Funcs(funcMap).Parse(commandGroupsTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
@@ -195,15 +218,10 @@ func renderPrimeContent(groups []commandGroup) (string, error) {
 	return sb.String(), nil
 }
 
-// primeTemplate is the Go text/template for the prime content.
-// The static preamble provides context for agents; the dynamic sections
-// are populated from the Cobra command tree.
-var primeTemplate = `AgenC CLI Quick Reference
-=========================
-
-**Never use interactive commands** that open ` + "`$EDITOR`" + ` or require terminal input without arguments — they will hang. Use non-interactive alternatives with flags instead.
-
-{{ range . }}{{ if ne .Name "other" }}
+// commandGroupsTemplate renders the per-group sections of the CLI command
+// reference. Non-"other" groups render first in topLevelOrder; the catch-all
+// "other" group renders last.
+var commandGroupsTemplate = `{{ range . }}{{ if ne .Name "other" }}
 {{ sectionH2 .Description }}
 
 ` + "```" + `
@@ -215,14 +233,4 @@ var primeTemplate = `AgenC CLI Quick Reference
 ` + "```" + `
 {{ $maxLen := maxUsageLen .Commands }}{{ range .Commands }}{{ padRight .Usage $maxLen }}  # {{ .Description }}
 {{ end }}` + "```" + `
-{{ end }}{{ end }}
-Repo Formats
-------------
-
-All repo arguments accept these formats:
-
-- ` + "`owner/repo`" + ` — shorthand
-- ` + "`github.com/owner/repo`" + ` — canonical
-- ` + "`https://github.com/owner/repo`" + ` — HTTPS URL
-- ` + "`git@github.com:owner/repo.git`" + ` — SSH URL
-`
+{{ end }}{{ end }}`

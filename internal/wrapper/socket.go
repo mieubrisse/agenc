@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/odyssey/agenc/internal/claudeconfig"
 )
 
 // StatusResponse is the JSON response for GET /status.
@@ -77,6 +79,7 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", handleStatus(w))
+	mux.HandleFunc("GET /prime", handlePrime())
 	mux.HandleFunc("POST /claude-update", handleClaudeUpdateHTTP(w, logger))
 	mux.HandleFunc("POST /claude-update/{event}", handleClaudeUpdateWithPathEvent(w, logger))
 	mux.HandleFunc("POST /rebuild", handleRebuild(w, logger))
@@ -96,6 +99,16 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Warn("HTTP server exited with error", "error", err)
+	}
+}
+
+// handlePrime returns the embedded `agenc prime` content as plain text.
+// Used by containerized missions, whose hook scripts cannot invoke the
+// `agenc` CLI directly (the binary isn't mounted into the container).
+func handlePrime() http.HandlerFunc {
+	return func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = rw.Write([]byte(claudeconfig.GetPrimeContent()))
 	}
 }
 
