@@ -260,8 +260,8 @@ func GetClaudeModificationsDirpath(agencDirpath string) string {
 
 // GetGlobalCredentialsExpiryFilepath returns the path to the shared file that
 // broadcasts the current global credential expiry timestamp. Wrappers write
-// this file after propagating fresh credentials to the global Keychain;
-// other wrappers watch it via fsnotify to detect credential changes.
+// this file after propagating fresh credentials to the global Keychain; other
+// wrappers watch it to detect credential changes.
 func GetGlobalCredentialsExpiryFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, GlobalCredentialsExpiryFilename)
 }
