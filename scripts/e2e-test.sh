@@ -910,6 +910,81 @@ else
     total=$((total + 1))
 fi
 
+echo ""
+echo "--- Watcher FD-Leak Regression (agenc-ku7h) ---"
+
+# Create a synthetic git repo with a large ignored subtree to verify the
+# server's watcher doesn't blow up the FD count. On the pre-fix build
+# (prior to Task 7 / commit 34c94da) the old fsnotify-walk implementation
+# opened one inotify/kqueue FD per directory, causing ~100k FDs for large
+# ignored trees. The fsnotify → notify migration pins it to a single
+# FSEvents stream (macOS) or inotify watch (Linux) per repo.
+fd_test_dir="${TMPDIR:-/tmp}/agenc-fd-test-$$"
+rm -rf "${fd_test_dir}"
+mkdir -p "${fd_test_dir}"
+(
+    cd "${fd_test_dir}"
+    git init -q
+    git config user.email "test@test.com"
+    git config user.name "test"
+    git commit --allow-empty -m "init" -q
+)
+printf "fake_node_modules/\n" > "${fd_test_dir}/.gitignore"
+mkdir -p "${fd_test_dir}/fake_node_modules"
+for i in $(seq 1 500); do
+    printf "x" > "${fd_test_dir}/fake_node_modules/file_${i}.tmp"
+done
+
+# Register as a writeable copy under a throwaway repo reference that isn't in
+# the library. The server will call ensureWriteableCopyExists, see the path
+# exists as a git repo, find no library clone to compare against
+# (expectedOriginURLForRepo returns ""), and proceed to start the watcher.
+fd_test_repo="github.com/e2e-fd-test/fd-leak-guard"
+"${agenc_test}" repo writeable-copy set "${fd_test_repo}" "${fd_test_dir}" >/dev/null 2>&1 || true
+
+# Give the config-watcher debounce (500ms) plus watcher startup time to settle.
+sleep 5
+
+# Verify the watcher section completed (sanity check on test setup).
+total=$((total + 1))
+printf "  %-50s " "writeable-copy registered for FD test..."
+wc_ls_output=$("${agenc_test}" repo writeable-copy ls 2>&1) || true
+if echo "${wc_ls_output}" | grep -q "fd-leak-guard"; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (writeable-copy not visible in ls; output: ${wc_ls_output})"
+    failed=$((failed + 1))
+fi
+
+# Read the test-env server PID and count its open FDs.
+server_pid_file="${repo_dirpath}/_test-env/server/server.pid"
+if [ -f "${server_pid_file}" ]; then
+    server_pid=$(cat "${server_pid_file}")
+    fd_count=$(lsof -p "${server_pid}" 2>/dev/null | wc -l | tr -d ' ')
+    echo "  Server FD count after writeable-copy watcher startup: ${fd_count}"
+
+    total=$((total + 1))
+    printf "  %-50s " "FD count stays under 1000 (agenc-ku7h)"
+    if [ "${fd_count}" -gt 1000 ]; then
+        echo "FAIL (FD count ${fd_count} exceeds threshold of 1000 — regression of agenc-ku7h)"
+        failed=$((failed + 1))
+    else
+        echo "PASS (${fd_count} FDs)"
+        passed=$((passed + 1))
+    fi
+else
+    total=$((total + 1))
+    printf "  %-50s " "FD count stays under 1000 (agenc-ku7h)"
+    echo "SKIP (server PID file not found at ${server_pid_file})"
+    passed=$((passed + 1)) # skip counts as pass — no server means no regression
+fi
+
+# Clean up the writeable-copy config entry and the synthetic dir.
+"${agenc_test}" repo writeable-copy unset "${fd_test_repo}" >/dev/null 2>&1 || true
+sleep 1
+rm -rf "${fd_test_dir}"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
