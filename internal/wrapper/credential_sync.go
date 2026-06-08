@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/rjeczalik/notify"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
@@ -146,19 +146,14 @@ func (w *Wrapper) watchCredentialDownwardSync(ctx context.Context) {
 		_ = os.WriteFile(expiryFilepath, []byte("0"), 0644)
 	}
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		w.logger.Warn("Failed to create fsnotify watcher for credentials broadcast file", "error", err)
-		return
-	}
-	defer watcher.Close()
-
+	eventCh := make(chan notify.EventInfo, 256)
 	// Watch the parent directory so we catch file creation/deletion, not just
 	// writes to an existing inode.
-	if err := watcher.Add(w.agencDirpath); err != nil {
+	if err := notify.Watch(w.agencDirpath, eventCh, notify.Create|notify.Write); err != nil {
 		w.logger.Warn("Failed to watch agenc directory for credential changes", "error", err)
 		return
 	}
+	defer notify.Stop(eventCh)
 
 	debounceTimer := time.NewTimer(0)
 	if !debounceTimer.Stop() {
@@ -174,14 +169,11 @@ func (w *Wrapper) watchCredentialDownwardSync(ctx context.Context) {
 			}
 			return
 
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			if event.Name != expiryFilepath {
+		case event := <-eventCh:
+			if event.Path() != expiryFilepath {
 				continue
 			}
-			if !(event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
+			if event.Event()&(notify.Create|notify.Write) == 0 {
 				continue
 			}
 			if !debounceTimer.Stop() && timerActive {
@@ -196,12 +188,6 @@ func (w *Wrapper) watchCredentialDownwardSync(ctx context.Context) {
 				continue
 			}
 			w.handleDownwardSync(expiryFilepath)
-
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			w.logger.Warn("fsnotify error watching credentials broadcast file", "error", err)
 		}
 	}
 }

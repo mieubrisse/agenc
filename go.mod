@@ -11,6 +11,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/mieubrisse/stacktrace v0.0.0-20260130152157-50c8c98aa97d
+	github.com/rjeczalik/notify v0.9.3
 	github.com/rodaine/table v1.3.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
