@@ -159,6 +159,9 @@ func (s *Server) runWriteableCopyRefWatcher(ctx context.Context, repoName, repoD
 	for {
 		select {
 		case <-ctx.Done():
+			if !debounce.Stop() && timerActive {
+				<-debounce.C
+			}
 			return
 		case event := <-eventCh:
 			if filepath.Base(event.Path()) != defaultBranch {
