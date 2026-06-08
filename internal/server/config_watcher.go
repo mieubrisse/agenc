@@ -49,6 +49,11 @@ func (s *Server) runConfigWatcherLoop(ctx context.Context) {
 // watchBothConfigs sets up notify watches for both ~/.claude and agenc config.yml.
 func (s *Server) watchBothConfigs(ctx context.Context, userClaudeDirpath string, shadowDirpath string) {
 	eventCh := make(chan notify.EventInfo, 256)
+	// Defer-undo: if any setup step below adds an early-return path (currently
+	// none do — Watch failures are logged-and-continued), the conditional Stop
+	// here cleans up successful Watches that already registered against eventCh.
+	// On normal completion we flip shouldCleanup and rely on the unconditional
+	// Stop instead. Keep this pattern intact if you add early returns.
 	shouldCleanup := true
 	defer func() {
 		if shouldCleanup {
