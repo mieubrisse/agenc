@@ -32,8 +32,9 @@ type Server struct {
 	repoUpdateCycleCount int
 	cronSyncer           *CronSyncer
 
-	// cachedConfig holds the most recent parsed AgencConfig, updated via fsnotify.
-	// Reads are lock-free via atomic.Pointer; only the config watcher goroutine writes.
+	// cachedConfig holds the most recent parsed AgencConfig, updated by the
+	// config watcher. Reads are lock-free via atomic.Pointer; only the config
+	// watcher goroutine writes.
 	cachedConfig atomic.Pointer[config.AgencConfig]
 
 	// Repo update worker
@@ -46,7 +47,7 @@ type Server struct {
 	// inject a fake; production leaves this nil and falls back to realGit.
 	gitCommander GitCommander
 
-	// writeableCopyWatchers tracks per-repo fsnotify watcher goroutines.
+	// writeableCopyWatchers tracks per-repo watcher goroutines.
 	writeableCopyWatchers *writeableCopyWatchers
 
 	// stashInProgress is set while a stash push or pop is running.
@@ -210,8 +211,8 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("search-indexer", &wg, ctx, s.runSearchIndexerLoop)
 	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
 
-	// Bootstrap writeable copies: clone if missing, install fsnotify watchers,
-	// and enqueue an initial reconcile per copy. Subsequent config changes are
+	// Bootstrap writeable copies: clone if missing, install watchers, and
+	// enqueue an initial reconcile per copy. Subsequent config changes are
 	// handled by the config watcher (config_watcher.go).
 	s.reconcileWriteableCopiesFromConfig(ctx)
 
