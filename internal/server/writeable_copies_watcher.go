@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/rjeczalik/notify"
 )
@@ -25,9 +24,9 @@ const (
 	writeableCopyRefDebounce = 1 * time.Second
 )
 
-// writeableCopyWatchers manages the active fsnotify watchers for each
-// configured writeable copy. Watchers are registered when a writeable copy is
-// added (config watcher integration) and deregistered when removed.
+// writeableCopyWatchers manages the active watchers for each configured
+// writeable copy. Watchers are registered when a writeable copy is added
+// (config watcher integration) and deregistered when removed.
 type writeableCopyWatchers struct {
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // repoName → cancel for the watcher pair
@@ -73,18 +72,26 @@ func (w *writeableCopyWatchers) activeRepos() []string {
 	return out
 }
 
-// runWriteableCopyWorkingTreeWatcher installs an fsnotify watch on the
-// writeable copy's working tree (excluding .git/) and enqueues a reconcile
-// request after a 15-second quiet period following any filesystem event.
+// runWriteableCopyWorkingTreeWatcher installs a recursive notify.Watch on the
+// writeable copy's working tree (excluding .git/ and gitignored paths) and
+// enqueues a reconcile request after a quiet period following any filesystem
+// event. On macOS this opens a single FSEvents stream per repo, avoiding the
+// per-directory FD explosion of the old fsnotify walk.
 func (s *Server) runWriteableCopyWorkingTreeWatcher(ctx context.Context, repoName, repoDirpath string) {
-	watcher, err := fsnotify.NewWatcher()
+	// Load the gitignore matcher BEFORE starting the watcher to avoid the
+	// load-order race surfaced in edge-case discovery (4.1).
+	filter, err := newGitignoreFilter(repoDirpath)
 	if err != nil {
-		s.logger.Printf("Writeable-copy watcher: NewWatcher failed for '%s': %v", repoName, err)
+		s.logger.Printf("Writeable-copy watcher: failed to load gitignore for '%s': %v", repoName, err)
 		return
 	}
-	defer watcher.Close()
 
-	addWatchesRecursiveExcludingGit(watcher, repoDirpath)
+	eventCh := make(chan notify.EventInfo, 256)
+	if err := notify.Watch(repoDirpath+"/...", eventCh, notify.All); err != nil {
+		s.logger.Printf("Writeable-copy watcher: notify.Watch failed for '%s': %v", repoName, err)
+		return
+	}
+	defer notify.Stop(eventCh)
 
 	debounce := time.NewTimer(0)
 	if !debounce.Stop() {
@@ -95,19 +102,19 @@ func (s *Server) runWriteableCopyWorkingTreeWatcher(ctx context.Context, repoNam
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
+			if !debounce.Stop() && timerActive {
+				<-debounce.C
 			}
-			if isInsideGitDir(event.Name, repoDirpath) {
+			return
+		case event := <-eventCh:
+			eventPath := event.Path()
+			// Skip events inside .git/.
+			if isInsideRepoGitDir(eventPath, repoDirpath) {
 				continue
 			}
-			// Auto-add new directories so subsequent events fire.
-			if event.Op&fsnotify.Create == fsnotify.Create {
-				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-					addWatchesRecursiveExcludingGit(watcher, event.Name)
-				}
+			// Skip events matching the repo's gitignore.
+			if filter.shouldIgnore(eventPath, eventIsDir(event)) {
+				continue
 			}
 			if !timerActive {
 				timerActive = true
@@ -118,11 +125,6 @@ func (s *Server) runWriteableCopyWorkingTreeWatcher(ctx context.Context, repoNam
 		case <-debounce.C:
 			timerActive = false
 			s.enqueueReconcileForRepo(repoName)
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			s.logger.Printf("Writeable-copy watcher error for '%s': %v", repoName, err)
 		}
 	}
 }
@@ -188,36 +190,27 @@ func (s *Server) runWriteableCopyRefWatcher(ctx context.Context, repoName, repoD
 	}
 }
 
-// addWatchesRecursiveExcludingGit walks a directory and adds fsnotify watches
-// for it and all subdirectories, skipping any path inside a .git directory.
-func addWatchesRecursiveExcludingGit(watcher *fsnotify.Watcher, dirpath string) {
-	if filepath.Base(dirpath) == ".git" {
-		return
-	}
-	_ = watcher.Add(dirpath)
-
-	entries, err := os.ReadDir(dirpath)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if entry.Name() == ".git" {
-			continue
-		}
-		addWatchesRecursiveExcludingGit(watcher, filepath.Join(dirpath, entry.Name()))
-	}
-}
-
-func isInsideGitDir(eventPath, repoDirpath string) bool {
+// isInsideRepoGitDir replaces the old isInsideGitDir helper. FSEvents will
+// emit paths under .git/ since we now watch recursively without per-dir Add
+// filtering; this check restores the previous "skip .git/" semantic.
+func isInsideRepoGitDir(eventPath, repoDirpath string) bool {
 	gitDir := filepath.Join(repoDirpath, ".git")
 	rel, err := filepath.Rel(gitDir, eventPath)
 	if err != nil {
 		return false
 	}
 	return !strings.HasPrefix(rel, "..")
+}
+
+// eventIsDir returns true if the event path is a directory at evaluation time.
+// Returns false if the path does not exist (event for a deleted item) — that's
+// safe because gitignore directory-only patterns won't match a non-directory.
+func eventIsDir(event notify.EventInfo) bool {
+	info, err := os.Stat(event.Path())
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }
 
 // enqueueReconcileForRepo is a small wrapper that adds to the channel without
