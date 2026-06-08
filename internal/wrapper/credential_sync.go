@@ -71,7 +71,7 @@ func (w *Wrapper) watchCredentialUpwardSync(ctx context.Context) {
 
 // checkUpwardSync reads the per-mission Keychain, compares its hash to the
 // cached value, and merges to global if changed. Only broadcasts when the
-// global Keychain was actually updated, to avoid spurious fsnotify events in
+// global Keychain was actually updated, to avoid spurious watcher events in
 // other missions' downward sync watchers.
 func (w *Wrapper) checkUpwardSync(perMissionServiceName string) {
 	perMissionCred, err := claudeconfig.ReadKeychainCredentials(perMissionServiceName)
@@ -134,14 +134,14 @@ func (w *Wrapper) checkUpwardSync(perMissionServiceName string) {
 	}
 }
 
-// watchCredentialDownwardSync uses fsnotify to watch the global-credentials-expiry
-// file. When another mission's upward sync updates global credentials, this
-// mission pulls the fresh credentials into its per-mission Keychain entry.
+// watchCredentialDownwardSync watches the global-credentials-expiry file.
+// When another mission's upward sync updates global credentials, this mission
+// pulls the fresh credentials into its per-mission Keychain entry.
 // No restart is triggered — Claude reads MCP OAuth tokens from Keychain per-request.
 func (w *Wrapper) watchCredentialDownwardSync(ctx context.Context) {
 	expiryFilepath := config.GetGlobalCredentialsExpiryFilepath(w.agencDirpath)
 
-	// Ensure the file exists so fsnotify has something to watch.
+	// Ensure the file exists so the watcher has a concrete inode to observe.
 	if _, err := os.Stat(expiryFilepath); os.IsNotExist(err) {
 		_ = os.WriteFile(expiryFilepath, []byte("0"), 0644)
 	}
