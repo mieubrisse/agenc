@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/mieubrisse/stacktrace"
+	"github.com/rjeczalik/notify"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
@@ -660,7 +660,7 @@ func (w *Wrapper) resolveRepoDirpath() string {
 	return agentDirpath
 }
 
-// watchWorkspaceRemoteRefs uses fsnotify to watch the mission repo's
+// watchWorkspaceRemoteRefs watches the mission repo's
 // .git/refs/remotes/origin/ directory for changes to the default branch ref.
 // When the ref changes (e.g. after `git push origin main`), force-updates the
 // repo library clone so other missions get fresh copies.
@@ -675,17 +675,12 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 
 	refsDirpath := filepath.Join(repoDirpath, ".git", "refs", "remotes", "origin")
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		w.logger.Warn("Failed to create fsnotify watcher for remote refs", "error", err)
-		return
-	}
-	defer watcher.Close()
-
-	if err := watcher.Add(refsDirpath); err != nil {
+	eventCh := make(chan notify.EventInfo, 256)
+	if err := notify.Watch(refsDirpath, eventCh, notify.Create|notify.Write); err != nil {
 		w.logger.Warn("Failed to watch remote refs directory", "dir", refsDirpath, "error", err)
 		return
 	}
+	defer notify.Stop(eventCh)
 
 	debounceTimer := time.NewTimer(0)
 	if !debounceTimer.Stop() {
@@ -700,14 +695,11 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 				<-debounceTimer.C
 			}
 			return
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			if filepath.Base(event.Name) != defaultBranch {
+		case event := <-eventCh:
+			if filepath.Base(event.Path()) != defaultBranch {
 				continue
 			}
-			if !(event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
+			if event.Event()&(notify.Create|notify.Write) == 0 {
 				continue
 			}
 			// Debounce to avoid rapid successive updates
@@ -720,11 +712,6 @@ func (w *Wrapper) watchWorkspaceRemoteRefs(ctx context.Context) {
 			timerActive = false
 			w.logger.Info("Remote ref changed, updating repo library", "repo", w.gitRepoName)
 			w.triggerRepoPushEvent()
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			w.logger.Warn("fsnotify error watching remote refs", "error", err)
 		}
 	}
 }
