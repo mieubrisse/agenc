@@ -11,6 +11,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/mieubrisse/stacktrace"
+	"github.com/rjeczalik/notify"
 )
 
 const (
@@ -19,7 +20,7 @@ const (
 	// enough to coalesce a multi-file edit burst from an agent or editor.
 	writeableCopyWorkingTreeDebounce = 3 * time.Second
 
-	// writeableCopyRefDebounce is the quiet period between fsnotify events on
+	// writeableCopyRefDebounce is the quiet period between filesystem events on
 	// .git/refs/remotes/origin/<branch> and the library push-event POST.
 	writeableCopyRefDebounce = 1 * time.Second
 )
@@ -126,7 +127,7 @@ func (s *Server) runWriteableCopyWorkingTreeWatcher(ctx context.Context, repoNam
 	}
 }
 
-// runWriteableCopyRefWatcher installs an fsnotify watch on
+// runWriteableCopyRefWatcher installs a notify watch on
 // <repoDirpath>/.git/refs/remotes/origin/<default-branch> and triggers a
 // library push-event update when the ref advances (i.e., after a successful
 // push from this writeable copy).
@@ -141,18 +142,13 @@ func (s *Server) runWriteableCopyRefWatcher(ctx context.Context, repoName, repoD
 		return
 	}
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		s.logger.Printf("Writeable-copy ref watcher: NewWatcher failed for '%s': %v", repoName, err)
-		return
-	}
-	defer watcher.Close()
-
 	refsDirpath := filepath.Join(repoDirpath, ".git", "refs", "remotes", "origin")
-	if err := watcher.Add(refsDirpath); err != nil {
+	eventCh := make(chan notify.EventInfo, 256)
+	if err := notify.Watch(refsDirpath, eventCh, notify.Create|notify.Write); err != nil {
 		s.logger.Printf("Writeable-copy ref watcher: cannot watch '%s': %v", refsDirpath, err)
 		return
 	}
+	defer notify.Stop(eventCh)
 
 	debounce := time.NewTimer(0)
 	if !debounce.Stop() {
@@ -164,14 +160,11 @@ func (s *Server) runWriteableCopyRefWatcher(ctx context.Context, repoName, repoD
 		select {
 		case <-ctx.Done():
 			return
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			if filepath.Base(event.Name) != defaultBranch {
+		case event := <-eventCh:
+			if filepath.Base(event.Path()) != defaultBranch {
 				continue
 			}
-			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+			if event.Event()&(notify.Create|notify.Write) == 0 {
 				continue
 			}
 			if !timerActive {
@@ -188,11 +181,6 @@ func (s *Server) runWriteableCopyRefWatcher(ctx context.Context, repoName, repoD
 			default:
 				s.logger.Printf("Writeable-copy ref watcher: repoUpdateCh full for '%s'", repoName)
 			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			s.logger.Printf("Writeable-copy ref watcher error for '%s': %v", repoName, err)
 		}
 	}
 }
