@@ -9,9 +9,10 @@ import (
 )
 
 // gitignoreFilter answers "should events at this path be ignored?" against the
-// repo's full gitignore rule set (nested .gitignore files, .git/info/exclude,
-// and the global core.excludesFile). Built once at watcher startup and read
-// without synchronization from the event-receive goroutine.
+// repo's full gitignore rule set. Built once at watcher startup from the
+// repo's nested .gitignore files, .git/info/exclude, and the user's global
+// core.excludesFile (in increasing precedence). Read without synchronization
+// from the event-receive goroutine.
 type gitignoreFilter struct {
 	repoRoot string
 	matcher  gitignore.Matcher
@@ -23,9 +24,14 @@ func newGitignoreFilter(repoRoot string) (*gitignoreFilter, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Global gitignore patterns (~/.gitconfig core.excludesFile) have lowest
+	// precedence; local rules override. A missing or unreadable global config
+	// is normal, so the error is intentionally discarded.
+	globalPatterns, _ := gitignore.LoadGlobalPatterns(osfs.New("/"))
+	allPatterns := append(globalPatterns, patterns...)
 	return &gitignoreFilter{
 		repoRoot: repoRoot,
-		matcher:  gitignore.NewMatcher(patterns),
+		matcher:  gitignore.NewMatcher(allPatterns),
 	}, nil
 }
 

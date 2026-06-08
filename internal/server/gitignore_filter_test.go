@@ -15,6 +15,16 @@ func TestGitignoreFilter(t *testing.T) {
 		t.Fatalf("failed to write fixture .gitignore: %v", err)
 	}
 
+	// Add a .git/info/exclude entry — machine-local ignore.
+	gitInfoDir := filepath.Join(tmpDir, ".git", "info")
+	if err := os.MkdirAll(gitInfoDir, 0755); err != nil {
+		t.Fatalf("failed to create .git/info dir: %v", err)
+	}
+	excludeContent := "*.tmp\n"
+	if err := os.WriteFile(filepath.Join(gitInfoDir, "exclude"), []byte(excludeContent), 0644); err != nil {
+		t.Fatalf("failed to write .git/info/exclude: %v", err)
+	}
+
 	filter, err := newGitignoreFilter(tmpDir)
 	if err != nil {
 		t.Fatalf("newGitignoreFilter failed: %v", err)
@@ -32,6 +42,7 @@ func TestGitignoreFilter(t *testing.T) {
 		{"unrelated source file", filepath.Join(tmpDir, "src", "main.go"), false, false},
 		{"ignored directory itself", filepath.Join(tmpDir, "node_modules"), true, true},
 		{"path outside repo root", "/some/other/place/foo", false, false},
+		{"machine-local exclude via .git/info/exclude", filepath.Join(tmpDir, "scratch.tmp"), false, true},
 	}
 
 	for _, tc := range tests {
