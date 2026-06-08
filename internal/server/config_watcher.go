@@ -2,11 +2,10 @@ package server
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/rjeczalik/notify"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
@@ -39,7 +38,7 @@ func (s *Server) runConfigWatcherLoop(ctx context.Context) {
 
 	// Always ingest on startup so the shadow repo is current — EnsureShadowRepo
 	// only ingests when creating a brand-new shadow repo, so restarts would
-	// otherwise serve stale content until an fsnotify event fires.
+	// otherwise serve stale content until a notify event fires.
 	s.ingestClaudeConfig(userClaudeDirpath, shadowDirpath)
 
 	s.logger.Println("Config watcher: shadow repo ready, starting watch")
@@ -47,23 +46,27 @@ func (s *Server) runConfigWatcherLoop(ctx context.Context) {
 	s.watchBothConfigs(ctx, userClaudeDirpath, shadowDirpath)
 }
 
-// watchBothConfigs sets up fsnotify watches for both ~/.claude and agenc config.yml.
+// watchBothConfigs sets up notify watches for both ~/.claude and agenc config.yml.
 func (s *Server) watchBothConfigs(ctx context.Context, userClaudeDirpath string, shadowDirpath string) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		s.logger.Printf("Config watcher: failed to create watcher: %v", err)
-		return
-	}
-	defer watcher.Close()
+	eventCh := make(chan notify.EventInfo, 256)
+	shouldCleanup := true
+	defer func() {
+		if shouldCleanup {
+			notify.Stop(eventCh)
+		}
+	}()
 
-	// Add watches for tracked files and directories in ~/.claude
-	s.addTrackedWatches(watcher, userClaudeDirpath)
-
-	// Add watch for agenc config.yml
+	// Watch the agenc config.yml file directly.
 	agencConfigPath := config.GetConfigFilepath(s.agencDirpath)
-	if err := watcher.Add(agencConfigPath); err != nil {
+	if err := notify.Watch(agencConfigPath, eventCh, notify.Create|notify.Write); err != nil {
 		s.logger.Printf("Config watcher: failed to watch agenc config.yml: %v", err)
 	}
+
+	// Watch the ~/.claude tracked directories (recursive on macOS via FSEvents).
+	s.watchTrackedDirs(eventCh, userClaudeDirpath)
+
+	shouldCleanup = false // transfer ownership to the deferred final Stop below
+	defer notify.Stop(eventCh)
 
 	var claudeDebounceTimer *time.Timer
 	var agencDebounceTimer *time.Timer
@@ -79,14 +82,8 @@ func (s *Server) watchBothConfigs(ctx context.Context, userClaudeDirpath string,
 			}
 			return
 
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-
-			// Check if this is the agenc config.yml file
-			if event.Name == agencConfigPath {
-				// Reset debounce timer for agenc config
+		case event := <-eventCh:
+			if event.Path() == agencConfigPath {
 				if agencDebounceTimer != nil {
 					agencDebounceTimer.Stop()
 				}
@@ -96,103 +93,48 @@ func (s *Server) watchBothConfigs(ctx context.Context, userClaudeDirpath string,
 				continue
 			}
 
-			// Otherwise, process as a ~/.claude change
-			if !isTrackedPath(event.Name, userClaudeDirpath) {
+			if !isTrackedPath(event.Path(), userClaudeDirpath) {
 				continue
 			}
 
-			// Reset debounce timer for ~/.claude changes
 			if claudeDebounceTimer != nil {
 				claudeDebounceTimer.Stop()
 			}
 			claudeDebounceTimer = time.AfterFunc(ingestDebounce, func() {
 				s.ingestClaudeConfig(userClaudeDirpath, shadowDirpath)
-				// Re-add watches in case directories were created/removed
-				s.addTrackedWatches(watcher, userClaudeDirpath)
+				// No need to re-add watches: FSEvents-recursive picks up new dirs automatically on macOS.
 			})
-
-		case watchErr, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			s.logger.Printf("Config watcher: fsnotify error: %v", watchErr)
 		}
 	}
 }
 
-// addTrackedWatches adds fsnotify watches for the ~/.claude directory and
-// all tracked subdirectories. Resolves symlinks so we watch actual targets.
-func (s *Server) addTrackedWatches(watcher *fsnotify.Watcher, userClaudeDirpath string) {
-	// Watch the ~/.claude directory itself (for file creates/deletes)
-	addWatch(watcher, userClaudeDirpath)
+// watchTrackedDirs registers recursive notify.Watch calls for each tracked
+// ~/.claude subdirectory (resolved through symlinks). Each Watch is best-effort
+// — failure to add one directory does not block the rest. All events stream
+// into the shared eventCh.
+func (s *Server) watchTrackedDirs(eventCh chan<- notify.EventInfo, userClaudeDirpath string) {
+	// Watch ~/.claude itself for file creates/deletes at the top level.
+	_ = notify.Watch(userClaudeDirpath, eventCh, notify.All)
 
-	// Watch tracked directories (resolve symlinks)
 	for _, dirName := range claudeconfig.TrackedDirNames {
 		dirpath := filepath.Join(userClaudeDirpath, dirName)
 		resolved, err := filepath.EvalSymlinks(dirpath)
 		if err != nil {
-			continue // Directory doesn't exist
+			continue
 		}
-
-		// Walk and add watches for all subdirectories, following symlinks
-		// to directories so that changes inside symlinked skills/hooks are detected.
-		addWatchesRecursive(watcher, resolved)
+		// Recursive watch using rjeczalik/notify's "/..." syntax.
+		_ = notify.Watch(resolved+"/...", eventCh, notify.All)
 	}
 
-	// Watch symlink targets for tracked files
+	// Watch directories containing tracked individual files (symlink targets).
 	for _, fileName := range claudeconfig.TrackedFileNames {
 		filePath := filepath.Join(userClaudeDirpath, fileName)
 		resolved, err := filepath.EvalSymlinks(filePath)
 		if err != nil {
 			continue
 		}
-		// Watch the directory containing the resolved file
-		addWatch(watcher, filepath.Dir(resolved))
+		_ = notify.Watch(filepath.Dir(resolved), eventCh, notify.All)
 	}
-}
-
-// addWatchesRecursive walks a directory and adds fsnotify watches for it and
-// all subdirectories. Unlike filepath.Walk, this follows symlinks to
-// directories so that symlinked skills/hooks are properly watched.
-func addWatchesRecursive(watcher *fsnotify.Watcher, dirpath string) {
-	addWatch(watcher, dirpath)
-
-	entries, err := os.ReadDir(dirpath)
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		childPath := filepath.Join(dirpath, entry.Name())
-
-		if entry.IsDir() {
-			addWatchesRecursive(watcher, childPath)
-			continue
-		}
-
-		// Check if this is a symlink to a directory
-		if entry.Type()&os.ModeSymlink != 0 {
-			resolved, err := filepath.EvalSymlinks(childPath)
-			if err != nil {
-				continue
-			}
-			info, err := os.Stat(resolved)
-			if err != nil {
-				continue
-			}
-			if info.IsDir() {
-				addWatchesRecursive(watcher, resolved)
-			}
-		}
-	}
-}
-
-// addWatch adds a path to the watcher, ignoring errors (e.g., already watched
-// or path doesn't exist). This is called during recursive directory walks where
-// individual watch failures are non-fatal — the watcher will still function for
-// paths that succeed.
-func addWatch(watcher *fsnotify.Watcher, path string) {
-	_ = watcher.Add(path) // intentionally ignored: path may not exist or may already be watched
 }
 
 // isTrackedPath returns true if the filesystem event path corresponds to a

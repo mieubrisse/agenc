@@ -322,7 +322,7 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 //
 // Before every spawn (containerized or not) the per-mission claude-config is
 // rebuilt from the shadow repo so each reload picks up the latest ~/.claude
-// state. The server's config_watcher keeps the shadow current via fsnotify;
+// state. The server's config_watcher keeps the shadow current via notify;
 // the wrapper just reads from it.
 func (w *Wrapper) spawnClaude(isResume bool) error {
 	isContainerized := w.devcontainer != nil
@@ -341,7 +341,7 @@ func (w *Wrapper) spawnClaude(isResume bool) error {
 // from the shadow repo, updates the mission's config_commit in the DB, and
 // logs the commit hash. Runs before every Claude spawn so each reload picks
 // up the latest ~/.claude state (the server's config_watcher keeps the shadow
-// current via fsnotify).
+// current via notify).
 func (w *Wrapper) rebuildClaudeConfig(isContainerized bool) error {
 	commitHash := claudeconfig.GetShadowRepoCommitHash(w.agencDirpath)
 	if commitHash == "" {
