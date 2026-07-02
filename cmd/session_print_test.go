@@ -72,3 +72,37 @@ func TestPrintSessionWithConversation(t *testing.T) {
 		t.Errorf("expected stderr to be empty for non-empty session, got %q", stderr.String())
 	}
 }
+
+// TestPrintSessionOversizedLine is the CLI-level regression proof for
+// github.com/mieubrisse/agenc/issues/12: a JSONL line larger than 1 MB
+// (an inline base64 screenshot) must not abort the transcript print. The
+// old bufio.Scanner-based readers failed with "bufio.Scanner: token too
+// long"; the ScanJSONLLines-based readers succeed.
+func TestPrintSessionOversizedLine(t *testing.T) {
+	// 2 MB payload — comfortably above the old 1 MB scanner cap.
+	oversizedPayload := strings.Repeat("a", 2*1024*1024)
+	jsonlContent := "" +
+		`{"type":"file-history-snapshot","messageId":"a","snapshot":{},"timestamp":"2026-07-02T00:00:00.000Z"}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":"` + oversizedPayload + `"},"timestamp":"2026-07-02T00:00:01.000Z"}` + "\n" +
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]},"timestamp":"2026-07-02T00:00:02.000Z"}` + "\n"
+
+	jsonlFilepath := filepath.Join(t.TempDir(), "oversized-line.jsonl")
+	if err := os.WriteFile(jsonlFilepath, []byte(jsonlContent), 0644); err != nil {
+		t.Fatalf("failed to write JSONL: %v", err)
+	}
+
+	for _, format := range []string{"text", "jsonl"} {
+		t.Run(format, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if err := printSessionTo(jsonlFilepath, 0, true, format, &stdout, &stderr); err != nil {
+				t.Fatalf("printSessionTo returned error: %v", err)
+			}
+			if stdout.Len() == 0 {
+				t.Fatalf("expected non-empty stdout for format=%s, got empty output", format)
+			}
+			if !strings.Contains(stdout.String(), "ok") {
+				t.Errorf("expected assistant text \"ok\" in stdout for format=%s, missing", format)
+			}
+		})
+	}
+}
