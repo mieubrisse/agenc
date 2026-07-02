@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
+	"github.com/odyssey/agenc/internal/session"
 )
 
 var summaryDateFlag string
@@ -273,31 +273,18 @@ func extractSessionStat(claudeConfigDirpath string, m *database.Mission) (*Sessi
 
 // analyzeJSONL counts messages and estimates token usage from a Claude session JSONL file.
 func analyzeJSONL(jsonlPath string) (int, int, error) {
-	file, err := os.Open(jsonlPath)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB max line size
-
 	messageCount := 0
 	totalTokens := 0
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-
-		// Parse the JSON line to extract type and token information
+	err := session.ScanJSONLLines(jsonlPath, func(line []byte) error {
 		var entry map[string]interface{}
 		if err := json.Unmarshal(line, &entry); err != nil {
-			continue
+			return nil
 		}
 
-		// Count messages by type field (user/assistant)
 		entryType, ok := entry["type"].(string)
 		if !ok {
-			continue
+			return nil
 		}
 
 		if entryType == "user" || entryType == "assistant" {
@@ -321,13 +308,11 @@ func analyzeJSONL(jsonlPath string) (int, int, error) {
 				}
 			}
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		return 0, 0, err
-	}
+		return nil
+	})
 
-	return messageCount, totalTokens, nil
+	return messageCount, totalTokens, err
 }
 
 // CommitStats holds git commit statistics.
