@@ -1,20 +1,9 @@
 package session
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
-	"os"
-	"strings"
-	"sync"
 )
-
-// scannerBufPool is a pool of 1MB buffers for reuse across JSONL scans.
-var scannerBufPool = sync.Pool{
-	New: func() interface{} {
-		buf := make([]byte, 1024*1024)
-		return &buf
-	},
-}
 
 // jsonlUserEntry represents a user message entry in a session JSONL file.
 type jsonlUserEntry struct {
@@ -48,44 +37,28 @@ func ExtractRecentUserMessages(claudeConfigDirpath string, missionID string, max
 // extractUserMessagesFromJSONL reads a JSONL file and returns the last
 // maxMessages user message contents.
 func extractUserMessagesFromJSONL(jsonlFilepath string, maxMessages int) []string {
-	file, err := os.Open(jsonlFilepath)
-	if err != nil {
-		return nil
-	}
-	defer file.Close()
-
-	// Get a buffer from the pool
-	bufPtr := scannerBufPool.Get().(*[]byte)
-	defer scannerBufPool.Put(bufPtr)
-
 	var messages []string
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(*bufPtr, 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, `"type":"user"`) {
-			continue
+	_ = ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+		if !bytes.Contains(line, []byte(`"type":"user"`)) {
+			return nil
 		}
-
 		var entry jsonlUserEntry
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
+		if err := json.Unmarshal(line, &entry); err != nil {
+			return nil
 		}
 		if entry.Type != "user" {
-			continue
+			return nil
 		}
-
 		var msg jsonlUserMessage
 		if err := json.Unmarshal(entry.Message, &msg); err != nil {
-			continue
+			return nil
 		}
 		if msg.Content != "" {
 			messages = append(messages, msg.Content)
 		}
-	}
+		return nil
+	})
 
-	// Return only the last maxMessages
 	if len(messages) > maxMessages {
 		messages = messages[len(messages)-maxMessages:]
 	}
