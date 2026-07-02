@@ -240,6 +240,39 @@ func computeMissionAttached(paneID *string, linkedPanes map[string]bool) bool {
 	return paneID != nil && linkedPanes[*paneID]
 }
 
+// countAttachedToNonPool returns the number of active missions currently
+// attached to a non-pool tmux session. Used by the attached-mission-limit
+// guard. Live-computed via a tmux query; DB errors and tmux failures fall
+// back to zero rather than blocking the caller, matching getLinkedPaneIDs'
+// existing degradation behavior.
+func (s *Server) countAttachedToNonPool() int {
+	missions, err := s.db.ListMissions(database.ListMissionsParams{})
+	if err != nil {
+		s.logger.Printf("Warning: countAttachedToNonPool failed to list missions: %v (treating count as 0)", err)
+		return 0
+	}
+	linkedPanes := getLinkedPaneIDs(s.getPoolSessionName())
+	count := 0
+	for _, m := range missions {
+		if computeMissionAttached(m.TmuxPane, linkedPanes) {
+			count++
+		}
+	}
+	return count
+}
+
+// isMissionAttachedToNonPool reports whether the given mission is currently
+// linked into any non-pool tmux session. Used by the attach handler to skip
+// the guard for the re-attach no-op case (already-attached missions do not
+// consume a new slot).
+func (s *Server) isMissionAttachedToNonPool(m *database.Mission) bool {
+	if m == nil {
+		return false
+	}
+	linkedPanes := getLinkedPaneIDs(s.getPoolSessionName())
+	return computeMissionAttached(m.TmuxPane, linkedPanes)
+}
+
 // getLinkedPaneSessions returns a map of pane IDs to the list of tmux session
 // names they are linked into (excluding the pool session). Pane IDs are
 // returned without the "%" prefix to match the database convention.

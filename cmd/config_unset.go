@@ -16,6 +16,7 @@ var configUnsetCmd = &cobra.Command{
 	Long: `Unset a configuration key in config.yml, reverting it to the default value.
 
 Supported keys:
+  attachedMissionLimit                       Max missions attachable to non-pool tmux sessions concurrently (unset removes the cap)
   defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
@@ -71,6 +72,9 @@ func runConfigUnset(cmd *cobra.Command, args []string) error {
 // unsetConfigValue removes a config value by setting it to the zero value.
 func unsetConfigValue(cfg *config.AgencConfig, key string) error {
 	switch key {
+	case "attachedMissionLimit":
+		cfg.AttachedMissionLimit = nil
+		return nil
 	case "defaultModel":
 		cfg.DefaultModel = ""
 		return nil

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/sleep"
 )
 
@@ -46,6 +47,29 @@ func (s *Server) stashGuard(fn appHandlerFunc) appHandlerFunc {
 		}
 		return fn(w, r)
 	}
+}
+
+// checkAttachedMissionLimit enforces the AttachedMissionLimit config field.
+// Returns a 403 error when the cap is set, the operation would attach a mission
+// to a non-pool session, and the current count of attached-to-non-pool missions
+// is already at or above the cap. A nil config, nil limit, or willAttach=false
+// causes a passthrough. Called inline from handleCreateMission (for the create-
+// with-non-pool-TmuxSession path) and handleAttachMission (for explicit attach).
+func checkAttachedMissionLimit(cfg *config.AgencConfig, currentCount int, willAttach bool) error {
+	if cfg == nil || cfg.AttachedMissionLimit == nil {
+		return nil
+	}
+	if !willAttach {
+		return nil
+	}
+	limit := *cfg.AttachedMissionLimit
+	if currentCount < limit {
+		return nil
+	}
+	return newHTTPError(
+		http.StatusForbidden,
+		fmt.Sprintf("Attached mission limit reached (%d) — detach a mission before attaching another", limit),
+	)
 }
 
 // sleepGuard wraps a handler to reject requests during sleep mode windows.

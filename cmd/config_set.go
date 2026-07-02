@@ -18,6 +18,7 @@ var configSetCmd = &cobra.Command{
 	Long: `Set a configuration key.
 
 Supported keys:
+  attachedMissionLimit                       Max missions attachable to non-pool tmux sessions concurrently (positive integer; unset = no cap)
   claudeArgs                                   Extra CLI flags passed to Claude Code (comma-separated, e.g., "--chrome,--verbose"; empty to clear)
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
   defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
@@ -123,6 +124,18 @@ func isTmuxKeybindingKey(key string) bool {
 // type conversion and validation as needed.
 func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 	switch key {
+	case "attachedMissionLimit":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return stacktrace.NewError(
+				"attachedMissionLimit must be an integer, got %q", value,
+			)
+		}
+		if err := config.ValidateAttachedMissionLimit(n); err != nil {
+			return err
+		}
+		cfg.AttachedMissionLimit = &n
+		return nil
 	case "claudeArgs":
 		if value == "" {
 			cfg.ClaudeArgs = nil

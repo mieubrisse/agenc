@@ -185,6 +185,40 @@ run_test "config set sessionTitleMaxWords reset" \
     "${agenc_test}" config set sessionTitleMaxWords 15
 
 echo ""
+echo "--- Attached mission limit ---"
+run_test_output_contains "config get attachedMissionLimit is unset by default" \
+    "^unset$" \
+    "${agenc_test}" config get attachedMissionLimit
+
+run_test "config set attachedMissionLimit accepts positive integer" \
+    0 \
+    "${agenc_test}" config set attachedMissionLimit 5
+
+run_test_output_contains "config get reflects the new value" \
+    "^5$" \
+    "${agenc_test}" config get attachedMissionLimit
+
+run_test "config set attachedMissionLimit rejects zero" \
+    1 \
+    "${agenc_test}" config set attachedMissionLimit 0
+
+run_test "config set attachedMissionLimit rejects negative" \
+    1 \
+    "${agenc_test}" config set attachedMissionLimit -3
+
+run_test "config set attachedMissionLimit rejects non-integer" \
+    1 \
+    "${agenc_test}" config set attachedMissionLimit abc
+
+run_test "config unset attachedMissionLimit succeeds" \
+    0 \
+    "${agenc_test}" config unset attachedMissionLimit
+
+run_test_output_contains "config get is unset after unset" \
+    "^unset$" \
+    "${agenc_test}" config get attachedMissionLimit
+
+echo ""
 echo "--- Palette command default keybindings ---"
 
 # Ctrl+N is the global hotkey for Notification Center (see internal/config/agenc_config.go).

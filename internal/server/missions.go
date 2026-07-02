@@ -338,6 +338,16 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
+	// Preflight: enforce the attached-mission cap before any state mutation.
+	// A create "will attach" when it is not headless AND resolveLinkSessions
+	// returns a non-pool target set. Headless creates and pool-only creates
+	// (cron, child-mission-of-pool-only-parent, or user with no TmuxSession)
+	// bypass naturally with willAttach=false.
+	willAttach := !req.Headless && len(s.resolveLinkSessions(req)) > 0
+	if err := checkAttachedMissionLimit(s.getConfig(), s.countAttachedToNonPool(), willAttach); err != nil {
+		return err
+	}
+
 	// Build creation params
 	createParams := &database.CreateMissionParams{}
 	if req.Source != "" {
@@ -971,6 +981,14 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 			return newHTTPErrorf(http.StatusInternalServerError, "failed to unarchive mission: %s", err.Error())
 		}
 		s.logger.Printf("Auto-unarchived mission %s during attach", database.ShortID(resolvedID))
+	}
+
+	// Enforce attached-mission cap. Re-attach of an already-attached mission is
+	// a no-op (willAttach=false) and passes regardless of the cap; a fresh
+	// attach (mission currently pool-only) counts against the limit.
+	willAttach := !s.isMissionAttachedToNonPool(missionRecord)
+	if err := checkAttachedMissionLimit(s.getConfig(), s.countAttachedToNonPool(), willAttach); err != nil {
+		return err
 	}
 
 	// Lazy start: ensure wrapper is running in the pool

@@ -432,6 +432,11 @@ type AgencConfig struct {
 	ClaudeArgs            []string                        `yaml:"claudeArgs,omitempty"`
 	SleepMode             *SleepModeConfig                `yaml:"sleepMode,omitempty"`
 	SessionTitleMaxWords  int                             `yaml:"sessionTitleMaxWords,omitempty"`
+	// AttachedMissionLimit caps how many missions may be simultaneously attached
+	// to non-pool tmux sessions. Nil means no cap. Zero means no attachments are
+	// permitted (literal reading — set explicitly via hand-edit; CLI `config set`
+	// rejects zero to prevent accidental full lockout).
+	AttachedMissionLimit *int `yaml:"attachedMissionLimit,omitempty"`
 }
 
 // GetPaletteTmuxKeybinding returns the tmux key for the command palette,
@@ -733,6 +738,20 @@ func validateSleepMode(cfg *AgencConfig) error {
 		if err := sleep.ValidateWindow(w); err != nil {
 			return stacktrace.Propagate(err, "sleepMode.windows[%d]", i)
 		}
+	}
+	return nil
+}
+
+// ValidateAttachedMissionLimit returns an error if v is not a positive integer.
+// Called by CLI `config set attachedMissionLimit <n>` to reject zero and negative
+// values loudly. Hand-edited config values are read literally — a `0` in
+// config.yml means "no attachments permitted" (see AttachedMissionLimit doc).
+func ValidateAttachedMissionLimit(v int) error {
+	if v < 1 {
+		return stacktrace.NewError(
+			"attachedMissionLimit must be a positive integer, got %d; use `agenc config unset attachedMissionLimit` to disable the cap",
+			v,
+		)
 	}
 	return nil
 }

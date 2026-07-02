@@ -178,6 +178,85 @@ func TestSleepGuard_ActiveWindow_AllowsCron(t *testing.T) {
 	}
 }
 
+func intPtr(v int) *int { return &v }
+
+func TestCheckAttachedMissionLimit_NoConfig(t *testing.T) {
+	if err := checkAttachedMissionLimit(nil, 10, true); err != nil {
+		t.Fatalf("nil config should passthrough, got: %v", err)
+	}
+}
+
+func TestCheckAttachedMissionLimit_NilLimit(t *testing.T) {
+	cfg := &config.AgencConfig{}
+	if err := checkAttachedMissionLimit(cfg, 10, true); err != nil {
+		t.Fatalf("nil AttachedMissionLimit should passthrough, got: %v", err)
+	}
+}
+
+func TestCheckAttachedMissionLimit_WillNotAttach(t *testing.T) {
+	cfg := &config.AgencConfig{AttachedMissionLimit: intPtr(5)}
+	// Even at the cap, a request that won't attach passes.
+	if err := checkAttachedMissionLimit(cfg, 5, false); err != nil {
+		t.Fatalf("willAttach=false should passthrough, got: %v", err)
+	}
+}
+
+func TestCheckAttachedMissionLimit_UnderCap(t *testing.T) {
+	cfg := &config.AgencConfig{AttachedMissionLimit: intPtr(5)}
+	if err := checkAttachedMissionLimit(cfg, 4, true); err != nil {
+		t.Fatalf("under-cap should passthrough, got: %v", err)
+	}
+}
+
+func TestCheckAttachedMissionLimit_AtCap(t *testing.T) {
+	cfg := &config.AgencConfig{AttachedMissionLimit: intPtr(5)}
+	err := checkAttachedMissionLimit(cfg, 5, true)
+	if err == nil {
+		t.Fatal("at-cap should error, got nil")
+	}
+	httpErr, ok := err.(*httpError)
+	if !ok {
+		t.Fatalf("expected *httpError, got %T", err)
+	}
+	if httpErr.status != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", httpErr.status)
+	}
+	if !strings.Contains(err.Error(), "Attached mission limit reached (5)") {
+		t.Fatalf("expected message to name the limit, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "detach") {
+		t.Fatalf("expected message to mention detach, got: %s", err.Error())
+	}
+}
+
+func TestCheckAttachedMissionLimit_OverCap(t *testing.T) {
+	cfg := &config.AgencConfig{AttachedMissionLimit: intPtr(5)}
+	err := checkAttachedMissionLimit(cfg, 10, true)
+	if err == nil {
+		t.Fatal("over-cap should error, got nil")
+	}
+}
+
+func TestCheckAttachedMissionLimit_ZeroCap_BlocksAllAttach(t *testing.T) {
+	// Zero in the config file is a literal "no attachments" cap. Hand-edited
+	// only — CLI `config set` rejects zero.
+	cfg := &config.AgencConfig{AttachedMissionLimit: intPtr(0)}
+	err := checkAttachedMissionLimit(cfg, 0, true)
+	if err == nil {
+		t.Fatal("zero cap should block any willAttach, got nil")
+	}
+	if !strings.Contains(err.Error(), "(0)") {
+		t.Fatalf("expected message to name the zero limit, got: %s", err.Error())
+	}
+}
+
+func TestCheckAttachedMissionLimit_ZeroCap_AllowsPoolOnly(t *testing.T) {
+	cfg := &config.AgencConfig{AttachedMissionLimit: intPtr(0)}
+	if err := checkAttachedMissionLimit(cfg, 0, false); err != nil {
+		t.Fatalf("zero cap with willAttach=false should passthrough, got: %v", err)
+	}
+}
+
 func TestSleepGuard_ActiveWindow_MessageContainsEndTime(t *testing.T) {
 	srv := newTestServer()
 	now := time.Now()
