@@ -1,11 +1,9 @@
 package session
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 )
@@ -92,37 +90,31 @@ func FormatConversation(jsonlFilepath string, n int, w io.Writer) error {
 }
 
 // collectJSONLLines reads all lines from a JSONL file, returning the last n
-// lines if n > 0, or all lines if n <= 0. Uses a 1MB scanner buffer and a
-// ring buffer for efficient tail collection.
+// lines if n > 0, or all lines if n <= 0. Uses a ring buffer for efficient
+// tail collection. Delegates line reading to ScanJSONLLines so lines larger
+// than 1 MB (inline base64 screenshots) are handled without aborting.
 func collectJSONLLines(jsonlFilepath string, n int) ([]string, error) {
-	file, err := os.Open(jsonlFilepath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open session file '%s': %w", jsonlFilepath, err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-
 	if n <= 0 {
 		var lines []string
-		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
-		}
-		if err := scanner.Err(); err != nil {
-			return nil, fmt.Errorf("error reading session file: %w", err)
+		err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+			lines = append(lines, string(line))
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
 		return lines, nil
 	}
 
 	ring := make([]string, n)
 	total := 0
-	for scanner.Scan() {
-		ring[total%n] = scanner.Text()
+	err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+		ring[total%n] = string(line)
 		total++
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading session file: %w", err)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	count := total
