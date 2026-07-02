@@ -1,8 +1,9 @@
 package session
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,11 @@ type jsonlMetadataLine struct {
 	Summary     string `json:"summary"`
 	CustomTitle string `json:"customTitle"`
 }
+
+// errStopScanningForConversation is a sentinel returned from hasConversationData's
+// ScanJSONLLines callback to stop iteration as soon as the first user or
+// assistant record is seen. Callers of ScanJSONLLines identify it via errors.Is.
+var errStopScanningForConversation = errors.New("found conversation record")
 
 // FindSessionName returns the Claude Code session name for the given mission.
 // It searches the Claude config projects directory for a project directory whose
@@ -166,29 +172,15 @@ func findMostRecentJSONL(projectDirpath string) string {
 // Returns the last custom-title and the last summary found, either of which
 // may be empty.
 func findNamesInJSONL(jsonlFilepath string) (customTitle string, summary string) {
-	file, err := os.Open(jsonlFilepath)
-	if err != nil {
-		return "", ""
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	// Increase buffer size for potentially large JSONL lines
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Quick check: skip lines that can't contain either entry type
-		hasSummary := strings.Contains(line, `"type":"summary"`)
-		hasCustomTitle := strings.Contains(line, `"type":"custom-title"`)
+	_ = ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+		hasSummary := bytes.Contains(line, []byte(`"type":"summary"`))
+		hasCustomTitle := bytes.Contains(line, []byte(`"type":"custom-title"`))
 		if !hasSummary && !hasCustomTitle {
-			continue
+			return nil
 		}
-
 		var entry jsonlMetadataLine
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
+		if err := json.Unmarshal(line, &entry); err != nil {
+			return nil
 		}
 		switch entry.Type {
 		case "summary":
@@ -200,8 +192,8 @@ func findNamesInJSONL(jsonlFilepath string) (customTitle string, summary string)
 				customTitle = entry.CustomTitle
 			}
 		}
-	}
-
+		return nil
+	})
 	return customTitle, summary
 }
 
@@ -295,59 +287,49 @@ func ListSessionIDs(claudeConfigDirpath string, missionID string) []string {
 // user or assistant message record. Files that only contain metadata records
 // (like file-history-snapshot) are not valid conversations.
 func hasConversationData(jsonlFilepath string) bool {
-	file, err := os.Open(jsonlFilepath)
-	if err != nil {
-		return false
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
-
-	for scanner.Scan() {
+	found := false
+	err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
 		var record struct {
 			Type string `json:"type"`
 		}
-		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
-			continue
+		if err := json.Unmarshal(line, &record); err != nil {
+			return nil
 		}
 		if record.Type == "user" || record.Type == "assistant" {
-			return true
+			found = true
+			return errStopScanningForConversation
 		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errStopScanningForConversation) {
+		return false
 	}
-	return false
+	return found
 }
 
 // TailJSONLFile reads the last N lines from a JSONL file and writes them to
 // the given writer. If n <= 0, writes the entire file. Returns the number
 // of lines written.
 func TailJSONLFile(jsonlFilepath string, n int, w io.Writer) (int, error) {
-	file, err := os.Open(jsonlFilepath)
-	if err != nil {
-		return 0, fmt.Errorf("failed to open session file '%s': %w", jsonlFilepath, err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
-
 	if n <= 0 {
 		count := 0
-		for scanner.Scan() {
-			fmt.Fprintln(w, scanner.Text())
+		err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+			fmt.Fprintln(w, string(line))
 			count++
-		}
-		return count, scanner.Err()
+			return nil
+		})
+		return count, err
 	}
 
 	ring := make([]string, n)
 	total := 0
-	for scanner.Scan() {
-		ring[total%n] = scanner.Text()
+	err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+		ring[total%n] = string(line)
 		total++
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("error reading session file: %w", err)
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	count := total
