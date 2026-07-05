@@ -64,3 +64,7 @@ sync-branch: "beads-sync"
 # - linear.api-key
 # - github.org
 # - github.repo
+
+# Warn at create time when a task/feature/bug lacks acceptance criteria
+# (the brief standard's third leg — see the /beads-system skill)
+validation.on-create: "warn"
