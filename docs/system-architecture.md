@@ -565,7 +565,7 @@ The resolution flow:
 
 1. A tmux keybinding calls `agenc tmux resolve-mission "$(tmux display-message -p "#{pane_id}")"` to look up the focused pane's mission UUID
 2. The UUID is exported as `AGENC_CALLING_MISSION_UUID`
-3. For direct keybindings: mission-scoped keybindings include a preamble that resolves the UUID and a guard that skips execution when empty
+3. For direct keybindings: mission-scoped keybindings include a preamble that resolves the UUID, then an `if`/`else` — running the command when a mission resolves, otherwise showing a `tmux display-message` status-line notice. (The empty case must not fall through as a bare `&& cmd`: that leaves the compound statement's exit code non-zero, which `run-shell` surfaces as a spurious error overlay — the failure mode a tmux-resurrect-restored pane hits, since its wrapper is gone and reconciliation left its `tmux_pane` NULL.)
 4. For the palette: the env var is passed into the popup so `buildPaletteEntries` can filter out mission-scoped commands when no mission is focused. On selection, the palette prepends `export AGENC_CALLING_MISSION_UUID=<uuid>; export AGENC_DIRPATH=<path>;` to the command before handing off via `tmux run-shell -b`, since the tmux server's shell environment does not inherit the palette process's env vars. Output is redirected to `$AGENC_DIRPATH/logs/palette.log` to prevent `run-shell` from echoing into the active pane
 
 Commands reference `$AGENC_CALLING_MISSION_UUID` as a plain shell variable — no special placeholder syntax. The palette detects mission-scoped commands by checking whether the command string contains the env var name (`ResolvedPaletteCommand.IsMissionScoped()`).

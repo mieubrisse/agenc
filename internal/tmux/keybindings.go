@@ -39,6 +39,14 @@ func escapeSingleQuotes(s string) string {
 // agencBinary is the binary name used in generated tmux keybindings.
 const agencBinary = "agenc"
 
+// noMissionInPaneMessage is shown on the tmux status line when a mission-scoped
+// keybinding is invoked from a pane with no resolvable AgenC mission — a plain
+// shell pane, or a pane restored by tmux-resurrect whose wrapper process is gone
+// (so pane reconciliation left its mission's tmux_pane NULL). Showing a message
+// rather than letting the empty-UUID guard exit non-zero prevents tmux run-shell
+// from surfacing a spurious "returned 1" error overlay.
+const noMissionInPaneMessage = "No AgenC mission in this pane"
+
 // CustomKeybinding represents a user/builtin keybinding to emit in the
 // generated tmux keybindings file.
 type CustomKeybinding struct {
@@ -137,10 +145,18 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		}
 
 		if kb.IsMissionScoped {
+			// Run the command only when a mission resolves for the pane. The
+			// empty case must NOT fall through as a bare `&& cmd` — that leaves
+			// the compound statement's exit code at 1 (from the failed test),
+			// which tmux run-shell renders as a spurious error overlay. Instead,
+			// show a status-line message and exit 0. Only the command branch is
+			// redirected to the log; the message stays visible on the status line.
 			fmt.Fprintf(&sb, "bind-key %s run-shell '"+
 				"AGENC_CALLING_MISSION_UUID=$(%s tmux resolve-mission \"#{pane_id}\"); "+
-				"[ -n \"$AGENC_CALLING_MISSION_UUID\" ] && AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} %s%s"+
-				"'\n", bindKeyArgs, agencBinary, popupEscapedCommand, redirectSuffix)
+				"if [ -n \"$AGENC_CALLING_MISSION_UUID\" ]; then "+
+				"AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} %s%s; "+
+				"else tmux display-message \"%s\"; fi"+
+				"'\n", bindKeyArgs, agencBinary, popupEscapedCommand, redirectSuffix, noMissionInPaneMessage)
 		} else {
 			fmt.Fprintf(&sb, "bind-key %s run-shell 'AGENC_CALLING_PANE_ID=#{pane_id} AGENC_CALLING_SESSION_NAME=#{session_name} %s%s'\n", bindKeyArgs, popupEscapedCommand, redirectSuffix)
 		}

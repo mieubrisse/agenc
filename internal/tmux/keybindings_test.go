@@ -30,6 +30,34 @@ func TestGenerateKeybindingsContent_MissionScopedKeybinding(t *testing.T) {
 	}
 }
 
+func TestGenerateKeybindingsContent_MissionScopedFallsBackGracefully(t *testing.T) {
+	// When no mission resolves for the pane (a plain shell pane, or a pane
+	// restored by tmux-resurrect whose wrapper is gone), the keybinding must not
+	// exit non-zero — tmux run-shell surfaces that as a "returned 1" error
+	// overlay. It should instead show a status-line message and exit 0.
+	keybindings := []CustomKeybinding{
+		{
+			Key:             "x",
+			Command:         "agenc mission detach $AGENC_CALLING_MISSION_UUID",
+			Comment:         "detachMission — Detach Mission (prefix + a, x)",
+			IsMissionScoped: true,
+		},
+	}
+
+	content := GenerateKeybindingsContent(3, 4, "-T agenc k", keybindings, "")
+
+	// Empty-UUID case falls back to a display-message rather than exiting 1.
+	if !strings.Contains(content, "else tmux display-message") {
+		t.Errorf("expected mission-scoped keybinding to fall back to display-message when no mission resolves\ngot:\n%s", content)
+	}
+
+	// The old `] && AGENC_CALLING_PANE_ID` guard form exits 1 on empty UUID;
+	// ensure it is gone so the regression does not reappear.
+	if strings.Contains(content, "] && AGENC_CALLING_PANE_ID") {
+		t.Errorf("expected mission-scoped keybinding NOT to use the `&&` guard that exits non-zero on empty UUID\ngot:\n%s", content)
+	}
+}
+
 func TestGenerateKeybindingsContent_NonMissionScopedKeybinding(t *testing.T) {
 	keybindings := []CustomKeybinding{
 		{
