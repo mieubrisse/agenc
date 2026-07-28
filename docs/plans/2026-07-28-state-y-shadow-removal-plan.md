@@ -2,7 +2,7 @@
 
 **Status:** planning only — no code changed by the investigation that produced this doc.
 **Bead:** agenc-tcoh (decision), agenc-lm3d (auth half), agenc-pz0v (plugin propagation, fixed by this), agenc-c4ko (cleanup loop → becomes trust-entry pruning), agenc-ok7h (devcontainer teardown — separate, but coupled; see §7).
-**Origin:** investigation mission 98e5b6ba-5955-…; this doc written in mission cc8e4c39-e2ca-45d5-8818-907de7cfbece. GitHub issue #13.
+**Origin:** investigation mission 98e5b6ba-59d5-4857-9555-3e0ce89dd060; this doc written in mission cc8e4c39-e2ca-45d5-8818-907de7cfbece. GitHub issue #13.
 
 > **The decision is locked and is NOT the executor's to relitigate.** Move AgenC to a native passthrough ("State Y"): a mission runs plain `claude` against the user's real `~/.claude` with `CLAUDE_CONFIG_DIR` **unset** and no `CLAUDE_CODE_OAUTH_TOKEN` injection. Read `bd show agenc-tcoh` (NOTES in full) and `bd show agenc-lm3d` before executing. This doc is the *how*, grounded in the current tree.
 
