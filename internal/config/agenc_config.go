@@ -155,11 +155,6 @@ var BuiltinPaletteCommands = map[string]PaletteCommandConfig{
 		Description: StringPtr("Stop the mission in the focused pane"),
 		Command:     StringPtr("agenc mission stop $AGENC_CALLING_MISSION_UUID"),
 	},
-	"rebuildContainer": {
-		Title:       StringPtr("🐳  Rebuild Container"),
-		Description: StringPtr("Rebuild the devcontainer and restart Claude"),
-		Command:     StringPtr("agenc mission rebuild $AGENC_CALLING_MISSION_UUID"),
-	},
 	"reloadMission": {
 		Title:       StringPtr("🔄  Reload Mission"),
 		Description: StringPtr("Stop and restart the mission in the focused pane"),
@@ -222,7 +217,6 @@ var builtinPaletteCommandOrder = []string{
 	"copyMissionUuid",
 	"renameSession",
 	"stopMission",
-	"rebuildContainer",
 	"reloadMission",
 	"removeMission",
 	"nukeMissions",

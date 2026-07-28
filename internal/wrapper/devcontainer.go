@@ -101,18 +101,3 @@ func devcontainerStop(state *devcontainerState) error {
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
-
-// devcontainerRebuild stops, removes, and rebuilds the container.
-func devcontainerRebuild(state *devcontainerState) error {
-	// Stop first (ignore error — container might not be running)
-	_ = devcontainerStop(state)
-
-	cmd := exec.Command("devcontainer", "up",
-		"--workspace-folder", state.agentDirpath,
-		"--config", state.mergedConfigPath,
-		"--build-no-cache",
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}

@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -73,11 +72,6 @@ type Wrapper struct {
 
 	// commandCh receives commands from the HTTP server goroutine.
 	commandCh chan commandWithResponse
-
-	// rebuilding is set while a devcontainer rebuild is in progress.
-	// Credential sync goroutines skip work while this is true to avoid racing
-	// with claude-config regeneration during the rebuild.
-	rebuilding atomic.Bool
 
 	// perMissionCredentialHash caches the SHA-256 hash of the per-mission
 	// Keychain credential JSON. The upward sync goroutine compares the current
@@ -523,56 +517,9 @@ func (w *Wrapper) handleCommand(cmd Command) CommandResponse {
 	switch cmd.Command {
 	case "claude_update":
 		return w.handleClaudeUpdate(cmd)
-	case "rebuild":
-		return w.handleRebuildCommand()
 	default:
 		return CommandResponse{Status: "error", Error: "unknown command: " + cmd.Command}
 	}
-}
-
-// handleRebuildCommand tears down and rebuilds the devcontainer, then respawns
-// Claude in the rebuilt container. Only valid for containerized missions.
-func (w *Wrapper) handleRebuildCommand() CommandResponse {
-	if w.devcontainer == nil {
-		return CommandResponse{Status: "error", Error: "mission is not containerized"}
-	}
-
-	w.logger.Info("Rebuild requested, stopping Claude and rebuilding container")
-
-	w.rebuilding.Store(true)
-	defer w.rebuilding.Store(false)
-
-	w.stateMu.Lock()
-	w.hasConversation = false
-	w.stateMu.Unlock()
-
-	if w.claudeCmd != nil && w.claudeCmd.Process != nil {
-		_ = w.claudeCmd.Process.Signal(syscall.SIGINT)
-		// Wait for Claude to exit before rebuilding. Consuming the channel here
-		// prevents the main loop's handleClaudeExit from running, since rebuild
-		// manages the respawn directly below.
-		<-w.claudeExited
-	}
-
-	// Rebuild the container
-	if err := devcontainerRebuild(w.devcontainer); err != nil {
-		w.logger.Error("Devcontainer rebuild failed", "error", err)
-		return CommandResponse{Status: "error", Error: "rebuild failed: " + err.Error()}
-	}
-
-	// Respawn Claude in the rebuilt container
-	if err := w.spawnClaude(false); err != nil {
-		w.logger.Error("Failed to respawn Claude after rebuild", "error", err)
-		return CommandResponse{Status: "error", Error: "respawn failed: " + err.Error()}
-	}
-
-	// Wait on the new Claude process
-	go func() {
-		w.claudeExited <- w.claudeCmd.Wait()
-	}()
-
-	w.logger.Info("Devcontainer rebuild complete, Claude respawned", "pid", w.claudeCmd.Process.Pid)
-	return CommandResponse{Status: "ok"}
 }
 
 // handleClaudeUpdate processes a claude_update command sent by hooks. It

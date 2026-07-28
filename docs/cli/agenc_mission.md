@@ -19,7 +19,6 @@ Manage agent missions
 * [agenc mission new](agenc_mission_new.md)	 - Create a new mission and launch claude
 * [agenc mission nuke](agenc_mission_nuke.md)	 - Stop and permanently remove ALL missions
 * [agenc mission print](agenc_mission_print.md)	 - Print a mission's current session transcript (human-readable text by default)
-* [agenc mission rebuild](agenc_mission_rebuild.md)	 - Rebuild the devcontainer for a containerized mission
 * [agenc mission reload](agenc_mission_reload.md)	 - Reload a mission in-place (preserves tmux pane)
 * [agenc mission rename](agenc_mission_rename.md)	 - Rename the active session's window title for a mission
 * [agenc mission rm](agenc_mission_rm.md)	 - Stop and permanently remove one or more missions

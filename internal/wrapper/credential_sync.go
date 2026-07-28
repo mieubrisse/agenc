@@ -61,9 +61,6 @@ func (w *Wrapper) watchCredentialUpwardSync(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if w.rebuilding.Load() {
-				continue
-			}
 			w.checkUpwardSync(perMissionServiceName)
 		}
 	}
@@ -184,9 +181,6 @@ func (w *Wrapper) watchCredentialDownwardSync(ctx context.Context) {
 
 		case <-debounceTimer.C:
 			timerActive = false
-			if w.rebuilding.Load() {
-				continue
-			}
 			w.handleDownwardSync(expiryFilepath)
 		}
 	}
