@@ -86,10 +86,6 @@ type Wrapper struct {
 	// the same global credential update twice.
 	lastDownwardSyncTimestamp float64
 
-	// devcontainer holds the state for containerized missions. Nil when the
-	// mission's repo does not have a devcontainer.json.
-	devcontainer *devcontainerState
-
 	// Window coloring configuration for tmux state feedback. Read from config.yml at startup.
 	// Empty strings mean that specific color setting is disabled.
 	windowBusyBackgroundColor      string
@@ -231,29 +227,6 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 	go w.watchCredentialUpwardSync(ctx)
 	go w.watchCredentialDownwardSync(ctx)
 
-	// Detect and setup devcontainer (after socket server is started so wrapper.sock exists)
-	dcState, dcErr := w.detectAndSetupDevcontainer()
-	if dcErr != nil {
-		cancel()
-		signal.Stop(sigCh)
-		logFile.Close()
-		_ = os.Remove(pidFilepath)
-		return nil, nil, stacktrace.Propagate(dcErr, "devcontainer setup failed")
-	}
-	w.devcontainer = dcState
-
-	if dcState != nil {
-		w.logger.Info("Starting devcontainer", "config", dcState.mergedConfigPath)
-		if upErr := devcontainerUp(dcState); upErr != nil {
-			cancel()
-			signal.Stop(sigCh)
-			logFile.Close()
-			_ = os.Remove(pidFilepath)
-			return nil, nil, stacktrace.Propagate(upErr, "devcontainer up failed")
-		}
-		w.logger.Info("Devcontainer started successfully")
-	}
-
 	// Track whether a resumable conversation exists. For resumes, one already
 	// exists. For new missions, we start with false and flip to true when the
 	// first UserPromptSubmit hook fires.
@@ -294,12 +267,6 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 	cleanup := func() {
 		w.resetWindowTabStyle()
 		w.writeBackCredentials()
-		if w.devcontainer != nil {
-			w.logger.Info("Stopping devcontainer")
-			if stopErr := devcontainerStop(w.devcontainer); stopErr != nil {
-				w.logger.Error("Failed to stop devcontainer", "error", stopErr)
-			}
-		}
 		signal.Stop(sigCh)
 		cancel()
 		_ = os.Remove(pidFilepath)
@@ -314,19 +281,13 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 // resumes that session; otherwise it starts a new conversation. For non-resume
 // spawns, the wrapper's initialPrompt is passed to Claude.
 //
-// Before every spawn (containerized or not) the per-mission claude-config is
-// rebuilt from the shadow repo so each reload picks up the latest ~/.claude
-// state. The server's config_watcher keeps the shadow current via notify;
-// the wrapper just reads from it.
+// Before every spawn the per-mission claude-config is rebuilt from the shadow
+// repo so each reload picks up the latest ~/.claude state. The server's
+// config_watcher keeps the shadow current via notify; the wrapper just reads
+// from it.
 func (w *Wrapper) spawnClaude(isResume bool) error {
-	isContainerized := w.devcontainer != nil
-
-	if err := w.rebuildClaudeConfig(isContainerized); err != nil {
+	if err := w.rebuildClaudeConfig(false); err != nil {
 		return stacktrace.Propagate(err, "failed to rebuild claude-config before spawn")
-	}
-
-	if isContainerized {
-		return w.spawnClaudeInContainer(isResume)
 	}
 	return w.spawnClaudeDirectly(isResume)
 }
@@ -385,37 +346,6 @@ func (w *Wrapper) spawnClaudeDirectly(isResume bool) error {
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to spawn claude process")
 	}
-	w.claudeCmd = cmd
-	return nil
-}
-
-// spawnClaudeInContainer spawns Claude inside the devcontainer via
-// `devcontainer exec`. Env vars and config are set via bind mounts and
-// containerEnv in the devcontainer.json, not on the local exec.Cmd.
-func (w *Wrapper) spawnClaudeInContainer(isResume bool) error {
-	// Build the claude args the same way the direct spawn does
-	var claudeArgs []string
-	if w.defaultModel != "" {
-		claudeArgs = append(claudeArgs, "--model", w.defaultModel)
-	}
-	claudeArgs = append(claudeArgs, w.claudeArgs...)
-
-	if isResume {
-		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
-		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
-			claudeArgs = append(claudeArgs, "-r", sessionID)
-		}
-		// If no session to resume, start fresh (no extra args)
-	}
-	if w.initialPrompt != "" {
-		claudeArgs = append(claudeArgs, w.initialPrompt)
-	}
-
-	cmd := devcontainerExecClaude(w.devcontainer, claudeArgs)
-	if err := cmd.Start(); err != nil {
-		return stacktrace.Propagate(err, "failed to start claude in devcontainer")
-	}
-
 	w.claudeCmd = cmd
 	return nil
 }

@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/odyssey/agenc/internal/claudeconfig"
 )
 
 // StatusResponse is the JSON response for GET /status.
@@ -51,9 +49,8 @@ const (
 )
 
 // startHTTPServer creates an HTTP server listening on a unix socket at
-// socketFilepath. It serves endpoints: GET /status, GET /prime,
-// POST /claude-update, and POST /claude-update/{event}. The server shuts down
-// when ctx is cancelled.
+// socketFilepath. It serves endpoints: GET /status and POST /claude-update.
+// The server shuts down when ctx is cancelled.
 func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, logger *slog.Logger) {
 	// Remove stale socket file from a previous run
 	if err := os.Remove(socketFilepath); err != nil && !os.IsNotExist(err) {
@@ -80,9 +77,7 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", handleStatus(w))
-	mux.HandleFunc("GET /prime", handlePrime())
 	mux.HandleFunc("POST /claude-update", handleClaudeUpdateHTTP(w, logger))
-	mux.HandleFunc("POST /claude-update/{event}", handleClaudeUpdateWithPathEvent(w, logger))
 
 	server := &http.Server{
 		Handler:      mux,
@@ -99,16 +94,6 @@ func startHTTPServer(ctx context.Context, socketFilepath string, w *Wrapper, log
 
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		logger.Warn("HTTP server exited with error", "error", err)
-	}
-}
-
-// handlePrime returns the embedded `agenc prime` content as plain text.
-// Used by containerized missions, whose hook scripts cannot invoke the
-// `agenc` CLI directly (the binary isn't mounted into the container).
-func handlePrime() http.HandlerFunc {
-	return func(rw http.ResponseWriter, r *http.Request) {
-		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = rw.Write([]byte(claudeconfig.GetPrimeContent()))
 	}
 }
 
@@ -147,42 +132,6 @@ func handleClaudeUpdateHTTP(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
 		cmd := Command{
 			Command:          "claude_update",
 			Event:            req.Event,
-			NotificationType: req.NotificationType,
-		}
-
-		resp := sendCommandAndWait(w.commandCh, cmd)
-		writeCommandResponse(rw, http.StatusOK, resp)
-	}
-}
-
-// handleClaudeUpdateWithPathEvent handles POST /claude-update/{event} used by
-// containerized missions. The event type is in the URL path instead of the JSON
-// body, since container hooks use curl with the event in the URL.
-func handleClaudeUpdateWithPathEvent(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
-	return func(rw http.ResponseWriter, r *http.Request) {
-		event := r.PathValue("event")
-		if event == "" {
-			writeCommandResponse(rw, http.StatusBadRequest, CommandResponse{
-				Status: "error",
-				Error:  "missing event in path",
-			})
-			return
-		}
-
-		// Read optional body (Claude hook stdin forwarded as-is)
-		var req ClaudeUpdateRequest
-		if r.ContentLength > 0 {
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				// Body might not be valid JSON — that's okay for some hooks
-				logger.Debug("Could not parse hook body", "event", event, "error", err)
-			}
-		}
-
-		logger.Info("Received claude_update request (path)", "event", event, "notification_type", req.NotificationType)
-
-		cmd := Command{
-			Command:          "claude_update",
-			Event:            event,
 			NotificationType: req.NotificationType,
 		}
 

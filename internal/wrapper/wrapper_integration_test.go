@@ -606,8 +606,7 @@ func startStubServer(t *testing.T, socketFilepath string) (*[]patchCall, *sync.M
 // per-spawn preamble (1) regenerates the per-mission claude-config from the
 // shadow repo, (2) updates the mission's config_commit on the server via
 // PATCH, and (3) logs the shadow commit hash. This locks in the behavior that
-// every Claude spawn — not just containerized ones — picks up the latest
-// shadow state.
+// every Claude spawn picks up the latest shadow state.
 func TestSpawnClaude_RebuildsConfigAndLogsCommit(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
@@ -670,12 +669,6 @@ func TestSpawnClaude_RebuildsConfigAndLogsCommit(t *testing.T) {
 	// Re-point the client at the stub socket. NewWrapper already constructed one
 	// pointed at the same path, but we re-initialize for clarity.
 	w.client = server.NewClient(stubSocketFilepath)
-
-	// Sanity: confirm devcontainer is nil so we exercise the non-containerized
-	// path — that's the gap this test closes.
-	if w.devcontainer != nil {
-		t.Fatal("test requires non-containerized wrapper")
-	}
 
 	if err := w.rebuildClaudeConfig(false); err != nil {
 		t.Fatalf("rebuildClaudeConfig returned error: %v", err)

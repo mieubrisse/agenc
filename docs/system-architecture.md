@@ -218,7 +218,7 @@ The wrapper:
 2. Records the tmux pane ID via the server (cleared on exit) for pane→mission resolution
 3. Reads the OAuth token from the token file and sets `CLAUDE_CODE_OAUTH_TOKEN` in the child environment
 4. Resolves the Claude model: checks the repo's `defaultModel` in `config.yml`, falls back to the top-level `defaultModel`, or omits `--model` entirely (letting Claude choose its default)
-5. Rebuilds the mission's `claude-config/` from the shadow repo at `$AGENC_DIRPATH/claude-config-shadow/` (see "Shadow repo" under Key Architectural Patterns), then writes the shadow's HEAD commit to the mission's `config_commit` DB column via the server. This runs at the top of every Claude spawn — initial start, in-place tmux respawn-pane reload, and devcontainer rebuild — so each spawn picks up the latest user `~/.claude` config without a manual reconfig step.
+5. Rebuilds the mission's `claude-config/` from the shadow repo at `$AGENC_DIRPATH/claude-config-shadow/` (see "Shadow repo" under Key Architectural Patterns), then writes the shadow's HEAD commit to the mission's `config_commit` DB column via the server. This runs at the top of every Claude spawn — initial start, in-place tmux respawn-pane reload — so each spawn picks up the latest user `~/.claude` config without a manual reconfig step.
 6. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--model <value>` if a model was resolved
 7. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
 8. Sets `AGENC_MISSION_UUID` for the child process
@@ -254,7 +254,6 @@ The wrapper:
 
 **Wrapper HTTP API**: standard HTTP-over-unix-socket (using Go's `net/http`). Socket path: `missions/<uuid>/wrapper.sock`. Endpoints:
 - `GET /status` — returns JSON with `claude_state` (`"idle"`, `"busy"`, or `"needs_attention"`), `wrapper_state` (`"running"`, `"restart_pending"`, or `"restarting"`), and `has_conversation` (bool). Read directly under `stateMu` — does not go through the command channel.
-- `GET /prime` — returns the embedded `agenc prime` routing-index content as plain text. Called by containerized missions' SessionStart hook (containers can't invoke the `agenc` CLI directly because the binary isn't bind-mounted in).
 - `POST /restart` — accepts `{"mode": "graceful"|"hard", "reason": "..."}`. Graceful waits for idle then SIGINTs Claude and resumes with `claude -c`; hard SIGKILLs immediately and starts a fresh session. Processed through the main event loop command channel.
 - `POST /claude_update` — accepts `{"event": "...", "notification_type": "..."}`. Sent by Claude hooks to report state changes (event types: `Stop`, `UserPromptSubmit`, `Notification`, `PostToolUse`, `PostToolUseFailure`). The wrapper uses these to track idle state, conversation existence, needs-attention status, trigger deferred restarts, and set tmux pane colors for visual feedback. Processed through the main event loop command channel.
 
@@ -400,7 +399,7 @@ Per-mission Claude configuration building, merging, and shadow repo management.
 
 - `build.go` — `BuildMissionConfigDir` (copies trackable items from shadow repo with path rewriting, merges CLAUDE.md and settings.json, copies and patches .claude.json with trust entry, symlinks plugins and projects), `GetMissionClaudeConfigDirpath` (falls back to global config if per-mission doesn't exist), `GetLastSessionID` (reads the mission's per-project `.claude.json` to resolve the current session UUID), `ResolveConfigCommitHash`, `EnsureShadowRepo`. Keychain credential functions (`CloneKeychainCredentials`, `WriteBackKeychainCredentials`, `DeleteKeychainCredentials`) handle MCP OAuth token propagation: `CloneKeychainCredentials` is called at mission spawn to seed the per-mission entry from global; `WriteBackKeychainCredentials` is called at mission exit to merge tokens back to global; `DeleteKeychainCredentials` is called by `agenc mission rm` to clean up the per-mission Keychain entry. Claude's own authentication uses the token file approach (see `internal/config/`).
 - `merge.go` — `DeepMergeJSON` (objects merge recursively, arrays concatenate, scalars overlay), `MergeClaudeMd` (concatenation), `MergeSettings` (deep-merge user + modifications, then apply operational overrides), `RewriteSettingsPaths` (selective path rewriting preserving permissions block)
-- `overrides.go` — `BuildAgencHookEntries`/`BuildContainerHookEntries` build the per-mission hook entry map: state-tracking hooks (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure for idle detection and tmux pane color updates via socket), a SessionStart hook that injects the `agenc prime` routing index on every fresh spawn (host invokes the CLI; container curls the wrapper's `GET /prime` endpoint), and (host only) a PreToolUse repo-library guard. Also `AgencRepoLibraryWriteTools`, `BuildRepoLibraryDenyEntries`, and `buildRepoLibraryGuardHookEntry`.
+- `overrides.go` — `BuildAgencHookEntries`/`BuildContainerHookEntries` build the per-mission hook entry map: state-tracking hooks (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure for idle detection and tmux pane color updates via socket), a SessionStart hook that injects the `agenc prime` routing index on every fresh spawn via the `agenc` CLI, and a PreToolUse repo-library guard. Also `AgencRepoLibraryWriteTools`, `BuildRepoLibraryDenyEntries`, and `buildRepoLibraryGuardHookEntry`.
 - `repo_library_guard.sh` — embedded bash script run as a PreToolUse hook. When an agent attempts Write/Edit/NotebookEdit on a path under `<agencDirpath>/repos`, replaces Claude Code's bare permission denial with explicit guidance directing the agent to spawn a new mission scoped to the target repo. Fails open if `jq` is missing — the permission-deny layer in settings.json still blocks the write.
 - `prime_content.go` — embeds the routing-index content generated at build time by `cmd/genprime/` from `prime_preamble.md` + the Cobra command tree + `prime_postamble.md`. Printed by `agenc prime`; injected into every mission via the SessionStart hook wired in `overrides.go`. Replaces the old `agent_instructions.md` CLAUDE.md-prepend layer.
 - `prime_preamble.md` — hand-written operating context that opens `agenc prime`: AgenC concept, mission filesystem semantics, configuration source-of-truth, the self-reload `--async` constraint, the cross-repo-write constraint, and the briefing-a-spawned-mission principle. Path-scoped `.claude/rules/prompt-files-discipline.md` directs editors to invoke `/prompt-writing` before modifying.
@@ -435,14 +434,6 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
 - `notifications_handlers.go` — notifications CRUD endpoints (`POST /notifications`, `GET /notifications`, `GET /notifications/{id}`, `POST /notifications/{id}/read`, `GET /notifications/unread-count`); body-size cap. Cron-source missions auto-create a `cron.triggered` notification linked to the new mission via `MissionID`; failure to insert is logged and never fails the mission request
 - `notifications_helpers.go` — `sanitizeNotificationTitle` strips ANSI sequences and control characters from titles before persistence (defense-in-depth for cron names sourced from user-edited config)
-
-### `internal/devcontainer/`
-
-Devcontainer detection, configuration overlay, and project path encoding for containerized missions.
-
-- `detection.go` — `DetectDevcontainer` checks repo for devcontainer.json in two spec-defined locations (`.devcontainer/devcontainer.json` preferred, `.devcontainer.json` fallback)
-- `project_path_encoding.go` — `EncodeProjectPath` replicates Claude Code's path encoding (replace `/` and `.` with `-`), `ComputeSessionBindMount` computes host↔container project directory name mapping for session bind mounts
-- `overlay.go` — `GenerateOverlay` reads repo's devcontainer.json, merges AgenC operational plumbing (mounts, env vars), absolutizes relative paths, writes merged config
 
 ### `internal/database/`
 
@@ -490,7 +481,7 @@ Key Architectural Patterns
 
 ### Per-mission config merging
 
-Each mission gets its own `claude-config/` directory, rebuilt by the wrapper (`internal/wrapper/wrapper.go`) on every Claude spawn — initial start, in-place tmux respawn-pane reload, and devcontainer rebuild — from four sources. There is no separate manual reconfig step; the previous `agenc mission reconfig` command has been removed. After each rebuild the wrapper writes the shadow repo's HEAD commit to the mission's `config_commit` DB column and logs the short hash. The four sources are:
+Each mission gets its own `claude-config/` directory, rebuilt by the wrapper (`internal/wrapper/wrapper.go`) on every Claude spawn — initial start, in-place tmux respawn-pane reload — from four sources. There is no separate manual reconfig step; the previous `agenc mission reconfig` command has been removed. After each rebuild the wrapper writes the shadow repo's HEAD commit to the mission's `config_commit` DB column and logs the short hash. The four sources are:
 
 1. **Shadow repo** — a verbatim copy of the user's `~/.claude` config (CLAUDE.md, settings.json, skills, hooks, commands, agents), with `~/.claude` paths rewritten at build time to point to the mission's concrete config path. See "Shadow repo" below.
 2. **AgenC modifications** — files in `$AGENC_DIRPATH/config/claude-modifications/` that overlay the user's config
@@ -531,7 +522,7 @@ Credentials are handled in two layers. Claude's own authentication uses a token 
 
 The wrapper needs to know whether Claude is idle and whether a resumable conversation exists. This is accomplished via Claude Code hooks that send state updates to the wrapper's HTTP API (unix socket).
 
-The config merge injects seven hooks into each non-containerized mission's `settings.json` (`internal/claudeconfig/overrides.go`). Five are fire-and-forget state-tracking hooks that report Claude's lifecycle to the wrapper; the sixth is a PreToolUse repo-library guard (omitted in containerized missions where the repo library isn't mounted); the seventh is a SessionStart hook that injects the `agenc prime` routing index — host missions invoke the `agenc` CLI, containerized missions curl the wrapper's `GET /prime` endpoint since the binary isn't mounted into the container.
+The config merge injects seven hooks into each mission's `settings.json` (`internal/claudeconfig/overrides.go`). Five are fire-and-forget state-tracking hooks that report Claude's lifecycle to the wrapper; the sixth is a PreToolUse repo-library guard; the seventh is a SessionStart hook that injects the `agenc prime` routing index via the `agenc` CLI.
 
 State-tracking hooks (sent to the wrapper socket):
 
@@ -543,7 +534,7 @@ State-tracking hooks (sent to the wrapper socket):
 
 Guidance hook:
 
-- **PreToolUse repo-library guard** — runs `bash <claudeConfigDirpath>/agenc-hooks/repo-library-guard.sh` against Write, Edit, and NotebookEdit calls (matched via the hook entry's `matcher` field). When the target path lies under `<agencDirpath>/repos/`, the script emits a `permissionDecision: deny` JSON response whose reason directs the agent to spawn a new mission scoped to the target repo (`agenc mission new <repo>`). Without the guard, the bare permission-deny message that Claude sees ("denied by your permission settings") gives the agent no actionable next step and it tends to fall back to Bash + an interpreter (e.g. python writing files) as a workaround. Containerized missions skip this hook because the repo library is host-only state and isn't bind-mounted into containers.
+- **PreToolUse repo-library guard** — runs `bash <claudeConfigDirpath>/agenc-hooks/repo-library-guard.sh` against Write, Edit, and NotebookEdit calls (matched via the hook entry's `matcher` field). When the target path lies under `<agencDirpath>/repos/`, the script emits a `permissionDecision: deny` JSON response whose reason directs the agent to spawn a new mission scoped to the target repo (`agenc mission new <repo>`). Without the guard, the bare permission-deny message that Claude sees ("denied by your permission settings") gives the agent no actionable next step and it tends to fall back to Bash + an interpreter (e.g. python writing files) as a workaround.
 
 The `agenc mission send claude-update` command only reads stdin for Notification events (to extract `notification_type` from the hook JSON payload, with a short timeout). All other events skip stdin entirely in the Go handler — Claude Code may not close stdin for some event types (notably UserPromptSubmit), which would cause `io.ReadAll` to block indefinitely. Shell-level redirects (`< /dev/null`) cannot be used in hook commands because Claude Code may tokenize the command string rather than passing it through `sh -c`, causing redirect tokens to be interpreted as extra positional arguments. The command sends an HTTP POST to the wrapper's `/claude-update` endpoint (unix socket) with a short timeout. It always exits 0 to avoid blocking Claude.
 
