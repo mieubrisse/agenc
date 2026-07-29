@@ -191,43 +191,18 @@ func TestBuildAgencHookEntries_IncludesPreToolUseGuard(t *testing.T) {
 	}
 }
 
-func TestBuildContainerHookEntries_OmitsPreToolUseGuard(t *testing.T) {
-	// Repo library is host-only state — not bind-mounted into containers — so
-	// the PreToolUse repo-library guard is not installed for containerized
-	// missions. Verifies that BuildContainerHookEntries does not include it.
-	entries := BuildContainerHookEntries()
-	if _, ok := entries["PreToolUse"]; ok {
-		t.Error("BuildContainerHookEntries must not include PreToolUse — repo library is host-only")
-	}
-}
-
 // TestSessionStartHookEntry_WiresPrimeInjection verifies that the SessionStart
-// hook entries fire `agenc prime` (host) or curl the wrapper /prime endpoint
-// (container) on every fresh Claude spawn. This is what replaced the old
-// hardcoded Layer 1 CLAUDE.md prepend (see bead agenc-88kh).
+// hook entry fires `agenc prime` on every fresh Claude spawn. This is what
+// replaced the old hardcoded Layer 1 CLAUDE.md prepend (see bead agenc-88kh).
 func TestSessionStartHookEntry_WiresPrimeInjection(t *testing.T) {
-	t.Run("host missions invoke agenc prime", func(t *testing.T) {
-		entries := BuildAgencHookEntries("/tmp/test-mission/claude-config")
-		raw, ok := entries["SessionStart"]
-		if !ok {
-			t.Fatal("expected SessionStart entry in BuildAgencHookEntries result")
-		}
-		if !strings.Contains(string(raw), `"agenc prime"`) {
-			t.Errorf("expected SessionStart command to be \"agenc prime\", got: %s", string(raw))
-		}
-	})
-
-	t.Run("container missions curl the wrapper /prime endpoint", func(t *testing.T) {
-		entries := BuildContainerHookEntries()
-		raw, ok := entries["SessionStart"]
-		if !ok {
-			t.Fatal("expected SessionStart entry in BuildContainerHookEntries result")
-		}
-		s := string(raw)
-		if !strings.Contains(s, "$AGENC_WRAPPER_SOCKET") || !strings.Contains(s, "/prime") {
-			t.Errorf("expected container SessionStart command to curl $AGENC_WRAPPER_SOCKET .../prime, got: %s", s)
-		}
-	})
+	entries := BuildAgencHookEntries("/tmp/test-mission/claude-config")
+	raw, ok := entries["SessionStart"]
+	if !ok {
+		t.Fatal("expected SessionStart entry in BuildAgencHookEntries result")
+	}
+	if !strings.Contains(string(raw), `"agenc prime"`) {
+		t.Errorf("expected SessionStart command to be \"agenc prime\", got: %s", string(raw))
+	}
 }
 
 func TestClaudeConfigProtectedItems_IncludesAgencHooks(t *testing.T) {

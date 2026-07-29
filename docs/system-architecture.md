@@ -495,7 +495,7 @@ AgenC operating context is delivered to every mission via the SessionStart hook,
 - **CLAUDE.md** — the adjutant-specific instructions (`internal/claudeconfig/adjutant_claude.md`) are appended after the user + modifications merge
 - **settings.json** — adjutant permissions are injected: allow entries for Read/Write/Edit/Glob/Grep on `$AGENC_DIRPATH/**` and `Bash(agenc:*)`, plus deny entries for Write/Edit on other missions' agent directories
 
-Two directories are symlinked rather than copied: `plugins/` → `~/.claude/plugins/` (so plugin installations are shared), and `projects/` → `~/.claude/projects/` (so conversation transcripts and auto-memory persist beyond the mission lifecycle).
+Several directories are symlinked to `~/.claude/` rather than copied, so all missions share centralized state: `plugins/` (plugin installations), `projects/` (conversation transcripts and auto-memory), `shell-snapshots/`, `statsig/`, `telemetry/`, `usage-data/`, `todos/`, `tasks/`, `debug/`, `session-env/`, `file-history/`, `cache/`, `backups/`, and `paste-cache/`.
 
 Merging logic (`internal/claudeconfig/merge.go`):
 - CLAUDE.md: two-layer concatenation (user content + modifications content), with the adjutant overlay appended for adjutant missions

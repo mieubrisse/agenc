@@ -670,7 +670,7 @@ func TestSpawnClaude_RebuildsConfigAndLogsCommit(t *testing.T) {
 	// pointed at the same path, but we re-initialize for clarity.
 	w.client = server.NewClient(stubSocketFilepath)
 
-	if err := w.rebuildClaudeConfig(false); err != nil {
+	if err := w.rebuildClaudeConfig(); err != nil {
 		t.Fatalf("rebuildClaudeConfig returned error: %v", err)
 	}
 

@@ -286,7 +286,7 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 // config_watcher keeps the shadow current via notify; the wrapper just reads
 // from it.
 func (w *Wrapper) spawnClaude(isResume bool) error {
-	if err := w.rebuildClaudeConfig(false); err != nil {
+	if err := w.rebuildClaudeConfig(); err != nil {
 		return stacktrace.Propagate(err, "failed to rebuild claude-config before spawn")
 	}
 	return w.spawnClaudeDirectly(isResume)
@@ -297,7 +297,7 @@ func (w *Wrapper) spawnClaude(isResume bool) error {
 // logs the commit hash. Runs before every Claude spawn so each reload picks
 // up the latest ~/.claude state (the server's config_watcher keeps the shadow
 // current via notify).
-func (w *Wrapper) rebuildClaudeConfig(isContainerized bool) error {
+func (w *Wrapper) rebuildClaudeConfig() error {
 	commitHash := claudeconfig.GetShadowRepoCommitHash(w.agencDirpath)
 	if commitHash == "" {
 		return stacktrace.NewError("shadow repo missing or empty at '%s' — restart the agenc server",
@@ -306,7 +306,7 @@ func (w *Wrapper) rebuildClaudeConfig(isContainerized bool) error {
 
 	trustedMcpServers := w.loadTrustedMcpServers()
 	if err := claudeconfig.BuildMissionConfigDir(
-		w.agencDirpath, w.missionID, trustedMcpServers, isContainerized,
+		w.agencDirpath, w.missionID, trustedMcpServers,
 	); err != nil {
 		return stacktrace.Propagate(err, "failed to build per-mission claude-config")
 	}

@@ -131,8 +131,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isContainerized := false
-			result, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath, testAgentDirpath, testClaudeConfigDirpath, isContainerized)
+			result, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(tt.inputJSON), testAgencDirpath, testAgentDirpath, testClaudeConfigDirpath)
 			if err != nil {
 				t.Fatalf("claudeconfig.MergeSettingsWithAgencOverrides returned error: %v", err)
 			}
@@ -148,8 +147,7 @@ func TestMergeSettingsWithAgencOverrides(t *testing.T) {
 }
 
 func TestMergeSettingsWithAgencOverrides_InvalidJSON(t *testing.T) {
-	isContainerized := false
-	_, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath, testAgentDirpath, testClaudeConfigDirpath, isContainerized)
+	_, err := claudeconfig.MergeSettingsWithAgencOverrides([]byte(`not json`), testAgencDirpath, testAgentDirpath, testClaudeConfigDirpath)
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}

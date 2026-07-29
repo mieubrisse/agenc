@@ -224,7 +224,7 @@ func MergeClaudeMd(userContent []byte, modsContent []byte) []byte {
 // Returns the final merged JSON bytes. agentDirpath is the mission's working
 // directory to allow access to. claudeConfigDirpath is the per-mission config
 // directory that should be denied from agent access.
-func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string, containerized bool) ([]byte, error) {
+func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string) ([]byte, error) {
 	// Default to empty objects if nil
 	if userSettingsData == nil {
 		userSettingsData = []byte("{}")
@@ -257,7 +257,7 @@ func MergeSettings(userSettingsData []byte, modsSettingsData []byte, agencDirpat
 	}
 
 	// Append agenc operational overrides (hooks + allow/deny permissions)
-	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath, agentDirpath, claudeConfigDirpath, containerized)
+	mergedData, err := MergeSettingsWithAgencOverrides(mergedBase, agencDirpath, agentDirpath, claudeConfigDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to merge settings with agenc overrides")
 	}
@@ -424,18 +424,13 @@ func mergeAgencSandbox(settings map[string]json.RawMessage, agencDirpath string)
 // bytes. The existing hooks and permissions are preserved; agenc entries are
 // appended. agentDirpath is the mission's working directory to allow access to.
 // claudeConfigDirpath is the per-mission config directory to deny agent access to.
-func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string, containerized bool) ([]byte, error) {
+func MergeSettingsWithAgencOverrides(settingsData []byte, agencDirpath string, agentDirpath string, claudeConfigDirpath string) ([]byte, error) {
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal(settingsData, &settings); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse settings JSON")
 	}
 
-	var hookEntries map[string]json.RawMessage
-	if containerized {
-		hookEntries = BuildContainerHookEntries()
-	} else {
-		hookEntries = BuildAgencHookEntries(claudeConfigDirpath)
-	}
+	hookEntries := BuildAgencHookEntries(claudeConfigDirpath)
 
 	mergedHooks, err := mergeAgencHooks(settings, hookEntries)
 	if err != nil {
