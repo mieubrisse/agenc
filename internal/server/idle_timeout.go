@@ -132,8 +132,11 @@ func (s *Server) isWrapperRunning(missionID string) bool {
 // Falls back to created_at if the JSONL file cannot be located (mission has no
 // session yet, or the project directory doesn't exist).
 func (s *Server) missionIdleDuration(m *database.Mission, now time.Time) time.Duration {
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, m.ID)
-	jsonlFilepath := session.FindActiveJSONLPath(claudeConfigDirpath, m.ID)
+	projectDirpath, err := claudeconfig.GetMissionProjectDirpath(s.agencDirpath, m.ID)
+	if err != nil {
+		return now.Sub(m.CreatedAt)
+	}
+	jsonlFilepath := session.FindActiveJSONLPath(projectDirpath)
 	if jsonlFilepath != "" {
 		if info, err := os.Stat(jsonlFilepath); err == nil {
 			return now.Sub(info.ModTime())

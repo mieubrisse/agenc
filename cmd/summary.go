@@ -194,8 +194,11 @@ func gatherSessionStats(missions []*database.Mission, dayStart, dayEnd time.Time
 			continue
 		}
 
-		claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, m.ID)
-		sessionStat, err := extractSessionStat(claudeConfigDirpath, m)
+		projectDirpath, err := claudeconfig.GetMissionProjectDirpath(agencDirpath, m.ID)
+		if err != nil {
+			continue
+		}
+		sessionStat, err := extractSessionStat(projectDirpath, m)
 		if err != nil {
 			// Silently skip sessions we can't read
 			continue
@@ -210,27 +213,9 @@ func gatherSessionStats(missions []*database.Mission, dayStart, dayEnd time.Time
 }
 
 // extractSessionStat extracts statistics from a single mission's Claude session.
-func extractSessionStat(claudeConfigDirpath string, m *database.Mission) (*SessionStat, error) {
-	projectsDir := filepath.Join(claudeConfigDirpath, "projects")
-	entries, err := os.ReadDir(projectsDir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Find the project directory for this mission
-	var projectDir string
-	for _, entry := range entries {
-		if entry.IsDir() && strings.Contains(entry.Name(), m.ID) {
-			projectDir = filepath.Join(projectsDir, entry.Name())
-			break
-		}
-	}
-	if projectDir == "" {
-		return nil, nil
-	}
-
+func extractSessionStat(projectDirpath string, m *database.Mission) (*SessionStat, error) {
 	// Find and read JSONL files
-	jsonlFiles, err := filepath.Glob(filepath.Join(projectDir, "*.jsonl"))
+	jsonlFiles, err := filepath.Glob(filepath.Join(projectDirpath, "*.jsonl"))
 	if err != nil || len(jsonlFiles) == 0 {
 		return nil, nil
 	}

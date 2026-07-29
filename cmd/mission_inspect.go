@@ -138,8 +138,11 @@ func inspectMission(agencDirpath string, missionID string) error {
 	fmt.Printf("Updated:     %s\n", mission.UpdatedAt.Format("2006-01-02 15:04:05"))
 
 	// List session UUIDs
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
-	sessionIDs := session.ListSessionIDs(claudeConfigDirpath, missionID)
+	projectDirpath, err := claudeconfig.GetMissionProjectDirpath(agencDirpath, missionID)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get project directory for mission %s", missionID)
+	}
+	sessionIDs := session.ListSessionIDs(projectDirpath)
 	currentSessionID := claudeconfig.GetLastSessionID(agencDirpath, missionID)
 
 	if len(sessionIDs) == 0 {

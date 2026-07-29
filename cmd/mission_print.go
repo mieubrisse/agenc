@@ -108,8 +108,11 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get agenc directory path")
 	}
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
-	jsonlFilepath := session.FindActiveJSONLPath(claudeConfigDirpath, missionID)
+	projectDirpath, err := claudeconfig.GetMissionProjectDirpath(agencDirpath, missionID)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to get project directory for mission %s", missionID)
+	}
+	jsonlFilepath := session.FindActiveJSONLPath(projectDirpath)
 	if jsonlFilepath == "" {
 		return stacktrace.NewError("no current session found for mission %s", missionID)
 	}

@@ -662,17 +662,24 @@ func GetCredentialExpiresAt() float64 {
 // populated at session close.
 // Returns empty string if no session is found.
 func GetLastSessionID(agencDirpath string, missionID string) string {
-	claudeConfigDirpath := filepath.Join(
-		config.GetMissionDirpath(agencDirpath, missionID),
-		MissionClaudeConfigDirname,
-	)
+	projectDirpath, err := GetMissionProjectDirpath(agencDirpath, missionID)
+	if err != nil {
+		return ""
+	}
 
-	sessionIDs := session.ListSessionIDs(claudeConfigDirpath, missionID)
+	sessionIDs := session.ListSessionIDs(projectDirpath)
 	if len(sessionIDs) > 0 {
 		return sessionIDs[0]
 	}
 
 	return ""
+}
+
+// GetMissionProjectDirpath returns the Claude Code project directory where the
+// mission's transcripts live: ~/.claude/projects/<encoded-agent-dir>.
+func GetMissionProjectDirpath(agencDirpath string, missionID string) (string, error) {
+	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
+	return ComputeProjectDirpath(agentDirpath)
 }
 
 // ComputeProjectDirpath returns the absolute path to the Claude Code project
