@@ -327,7 +327,7 @@ func (w *Wrapper) rebuildClaudeConfig() error {
 	return nil
 }
 
-// spawnClaudeDirectly spawns Claude as a local process (non-containerized path).
+// spawnClaudeDirectly spawns Claude as a local process.
 func (w *Wrapper) spawnClaudeDirectly(isResume bool) error {
 	var cmd *exec.Cmd
 	var err error
