@@ -164,7 +164,7 @@ It is the smallest independently-shippable, independently-verifiable step that d
 - **Q1 — op-settings file lifecycle:** per-mission file written at create + regenerated on reload (recommended), vs a per-invocation temp file. Reversible; recommend per-mission-at-create. *Executor's call.*
 - **Q2 — `claude-modifications` fate: RESOLVED (Kevin, 2026-07-28).** Content is not AgenC-specific ("all stuff that could go into my global Claude"). Retire the mechanism: migrate content into `~/.claude`, delete the merge layer (§5). No re-home needed.
 - **Q3 — devcontainer fate / sequencing (C5): RESOLVED (Kevin, 2026-07-28).** No devcontainer missions he cares about. Do agenc-ok7h first/early and remove the container spawn path outright — no need to preserve it or strand it on legacy machinery.
-- **Q4 — keep vs remove `claudeCodeOAuthToken` key.** Recommend keep dormant for the one-line fallback. *Executor's call; config-key checklist if removed.*
+- **Q4 — keep vs remove `claudeCodeOAuthToken` key: RESOLVED (Kevin, 2026-07-28).** Keep the `claudeCodeOAuthToken` key + token-file plumbing **dormant** so re-injecting the machine token (fallback to State X: auth stable, connectors broken) stays a one-line change. Do not remove it.
 - **Q5 — trust-write hardening depth:** retry count / backoff, plus whether the reconcile sweep runs periodically or startup-only. Recommend bounded retries + startup reconcile (doubles as migration). *Executor's call.*
 
 **Risks:**
