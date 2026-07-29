@@ -140,6 +140,8 @@ New `claudeconfig` function, e.g. `BuildOperationalSettings(agencDirpath, agentD
 
 ## 8. §6 — Recommended FIRST increment
 
+**SHIPPED 2026-07-28 (commit e748641).** Increment 0 landed: session readers now resolve the project dir via `claudeconfig.GetMissionProjectDirpath` → `ComputeProjectDirpath`; the symlink-scan `findProjectDirpath` and 3 dead readers (`FindSessionName`, `FindCustomTitle`, `ExtractRecentUserMessages`) + helpers were removed (deadcode 29→22). Behavior-preserving (empirically confirmed: new path resolves to the same real `~/.claude/projects/<encoded>` transcripts); `make check` + `make e2e` (136/136) green. Also done first: devcontainer teardown (agenc-ok7h, closed). Next: Increments 1–2 (op-settings generator, trust-writer) are reversible dead-until-flip prep; the flip (Increment 3) gates on Kevin (write to real `~/.claude.json` + refresh-race confirmation, and an active native `claude auth login`).
+
 **Increment 0: repoint session-transcript readers to `ComputeProjectDirpath`.**
 
 Why this one first:
