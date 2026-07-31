@@ -52,6 +52,24 @@ Tasks 1–3 are inert additions that leave `make check`/`make e2e` green because
 
 ---
 
+## Review fixes (independent Fable review, 2026-07-31) — apply these; they override the task text where they conflict
+
+The plan was independently reviewed against the tree (verdict: READY WITH FIXES; no Critical, no `~/.claude.json`-corruption path). Apply these corrections during execution:
+
+- **BASELINE CHECK (was finding I-3, a false alarm — but do the check):** run `make check` as the very first action. `BuildOperationalSettings` is **exported**, so `golangci-lint unused` does NOT flag it (it only flags unexported unused symbols); Increment 1 landed green with no nolint, confirming the baseline. No annotation needed on it. This same exported-vs-unexported rule drives fix I-1 below.
+
+- **FIX I-1 (Task 4 / Task 6 boundary — credential subsystem):** Delete the **credential-sync subsystem in Task 4**, not Task 6. When Task 4 removes the `go w.watchCredential*Sync(ctx)` starts + `initCredentialHash()`, the methods in `credential_sync.go` and the wrapper struct fields (`perMissionCredentialHash`, `credentialHashMu`, `lastDownwardSyncTimestamp`) are **unexported** → `golangci-lint unused` (HARD gate) fails `make check` unless they're deleted in the same task. So Task 4 deletes: `credential_sync.go` (+ its test), the `cloneCredentials`/`writeBackCredentials`/`initCredentialHash` methods, and those three struct fields. **Task 6 is rescoped** to only the EXPORTED, `unused`-immune credential functions in `build.go`/`merge.go`/`config.go` (`CloneKeychainCredentials`, `WriteBackKeychainCredentials`, `DeleteKeychainCredentials`, `ReadKeychainCredentials`, `WriteKeychainCredentials`, `ComputeCredentialServiceName`, `GlobalCredentialServiceName`, `MergeCredentialJSON`, `ExtractExpiresAtFromJSON`, `GetCredentialExpiresAt`, `GetGlobalCredentialsExpiryFilepath`, and the unexported `mergeMcpOAuth`/`extractExpiresAt`/`ComputeCredentialHash` helpers they keep referenced) — those stay green after Task 4 (exported-dead is not `unused`-flagged) and get deleted in Task 6. Keep `GetCredentialExpiresAt`/`ExtractExpiresAtFromJSON` if Task 5's `EnsureClaudeAuth` uses them as the native-auth probe.
+
+- **FIX I-2 (Task 9 — claude-modifications is a whole feature, not just merge functions):** Retiring `claude-modifications` also removes its live edit surface. Task 9 must additionally delete: `internal/server/claude_modifications.go` (whole file: `handleGetClaudeMd`/`handleUpdateClaudeMd`/`handleGetSettingsJson`/`handleUpdateSettingsJson` + helpers); the four route registrations in `server.go:311-314` (`GET/PUT /config/claude-md`, `GET/PUT /config/settings-json`); the claude-modifications client methods in `internal/server/client.go` (~:444); `EnsureClaudeModificationsFiles` (`config.go:332`) and its call in `EnsureDirStructure` (`config.go:97`). **Grep `ClaudeModificationsDirname` / `claude-md` / `settings-json` across `cmd/` for any CLI command** that calls those client methods and delete/repoint it too. (This is consistent with Kevin's decision to retire the layer — the edit feature retires with it. If any of these are shared with the writeable-copy/config-sync path, verify before deleting.)
+
+- **FIX M-2 (Task 5):** add `internal/server/session_summarizer.go` to Task 5's Files — drop its `CLAUDE_CODE_OAUTH_TOKEN` injection (`:71-78`). It's already conditional (`if oauthToken != ""`), so this is cleanup, not a behavior change.
+
+- **FIX M-1 (Task 3):** when Task 3 converts `homeClaudeJSONFilepath` → `Server.claudeJSONFilepath()`, remember `reconcileMissionTrust` (added in Task 2) is a caller too, not just `seedMissionTrust`/`pruneMissionTrust`.
+
+- **FIX M-3 (Task 10):** before deleting `GetGlobalClaudeDirpath`, the grep must cover its intermediate caller `GetHistoryFilepath` (`config.go:241`) — delete both together only if `GetHistoryFilepath` is itself dead.
+
+---
+
 ### Task 1: Add the per-mission op-settings file lifecycle helper (net-new, inert)
 
 The flip passes `claude --settings <file>`; something must write `BuildOperationalSettings(...)` output to a per-mission file and write the repo-library-guard script somewhere the hook's absolute path resolves. This task adds those writers as an unreferenced function so the flip (Task 4) just calls it. Under State Y the natural home is the mission directory (not a snapshot): `missions/<uuid>/agenc-settings.json` for the settings file and `missions/<uuid>/agenc-hooks/repo-library-guard.sh` for the guard script.
