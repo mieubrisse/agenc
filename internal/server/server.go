@@ -58,6 +58,12 @@ type Server struct {
 	// Values are "running", "stopped", or "crashed".
 	loopHealth sync.Map
 
+	// claudeJSONMu serializes AgenC's own writes to the shared ~/.claude.json.
+	// Concurrent POST /missions handlers run in separate goroutines; this mutex
+	// prevents interleaved read-modify-write cycles within AgenC itself
+	// (independent of Claude's own lock-free writes to the same file).
+	claudeJSONMu sync.Mutex //nolint:unused // intentionally unwired; wired at the State Y flip
+
 	// reloadsInProgress holds missionIDs currently being reloaded.
 	// Acquired via tryAcquireReloadLock to prevent concurrent reloads of the
 	// same mission from interleaving (which would race on stopWrapper and
