@@ -145,7 +145,14 @@ New `claudeconfig` function, e.g. `BuildOperationalSettings(agencDirpath, agentD
 
 ## 8. §6 — Recommended FIRST increment
 
-**SHIPPED 2026-07-28 (commit e748641).** Increment 0 landed: session readers now resolve the project dir via `claudeconfig.GetMissionProjectDirpath` → `ComputeProjectDirpath`; the symlink-scan `findProjectDirpath` and 3 dead readers (`FindSessionName`, `FindCustomTitle`, `ExtractRecentUserMessages`) + helpers were removed (deadcode 29→22). Behavior-preserving (empirically confirmed: new path resolves to the same real `~/.claude/projects/<encoded>` transcripts); `make check` + `make e2e` (136/136) green. Also done first: devcontainer teardown (agenc-ok7h, closed). Next: Increments 1–2 (op-settings generator, trust-writer) are reversible dead-until-flip prep; the flip (Increment 3) gates on Kevin (write to real `~/.claude.json` + refresh-race confirmation, and an active native `claude auth login`).
+**PROGRESS (as of 2026-07-31):**
+- **Prereq — devcontainer teardown** (agenc-ok7h): DONE, closed.
+- **Increment 0** — repoint session readers (commit e748641): DONE. Readers resolve via `claudeconfig.GetMissionProjectDirpath` → `ComputeProjectDirpath`; symlink-scan `findProjectDirpath` + 3 dead readers + helpers removed (deadcode 29→22). Behavior-preserving (empirically confirmed); `make check` + `make e2e` 136/136 green.
+- **Increment 1** — standalone op-settings generator `claudeconfig.BuildOperationalSettings` (commit 1f9050c): DONE. Additive, unit-tested, unwired (dead until flip); assembles hooks + agent-dir allow + repo-library deny + server-socket sandbox, EXCLUDES claude-config deny + user merge + path rewriting.
+- **Increment 2** — server-side `~/.claude.json` trust-writer + prune `writeTrustEntry`/`pruneTrustEntry` + `Server.claudeJSONMu` + `seedMissionTrust`/`pruneMissionTrust` (commit b181b26): DONE. Additive, unit-tested (preservation of other keys/projects proven; temp-file only), unwired (`//nolint:unused` on the dead members — the flip removes these annotations when wiring). Atomic temp+rename, verify + bounded retry.
+- **Increments 1 & 2 gotcha for the flip:** `golangci-lint unused` (not just deadcode) flags unwired unexported members; they carry `//nolint:unused` today — the flip must remove those when it wires `BuildOperationalSettings`, `seedMissionTrust`, `pruneMissionTrust`.
+
+**NEXT — the flip (Increment 3) + deletions (Increment 4) + migration.** This is the go-live step: unset `CLAUDE_CONFIG_DIR`, make token injection conditional (§6, Kevin's 2026-07-31 refinement — default native auth, `agenc token set/clear` toggle), wire the op-settings file via `claude --settings`, wire `seedMissionTrust`/`pruneMissionTrust` into the create/delete handlers, then delete the shadow/snapshot/credential-sync machinery. Flip gates largely resolved by Kevin's refinement (he's OK with the atomic `~/.claude.json` write + will self-test the refresh race); it remains a deliberate, Kevin-in-the-loop go-live rather than a fire-and-forget subagent run.
 
 **Increment 0: repoint session-transcript readers to `ComputeProjectDirpath`.**
 
