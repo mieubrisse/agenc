@@ -56,6 +56,15 @@ const (
 	CacheDirname                    = "cache"
 	OAuthTokenFilename              = "oauth-token"
 	StashDirname                    = "stash"
+
+	// MissionOpSettingsFilename is the per-mission operational settings file
+	// delivered to Claude via `claude --settings <file>` under State Y.
+	MissionOpSettingsFilename = "agenc-settings.json"
+
+	// MissionAgencHooksDirname is the per-mission directory that holds AgenC-
+	// managed hook scripts (e.g. repo-library-guard.sh) under State Y. It lives
+	// directly inside the mission directory, not inside a claude-config snapshot.
+	MissionAgencHooksDirname = "agenc-hooks"
 )
 
 // GetAgencDirpath returns the agenc config directory path, reading from
@@ -361,6 +370,18 @@ func GetCacheDirpath(agencDirpath string) string {
 // GetOAuthTokenFilepath returns the path to the cached OAuth token file.
 func GetOAuthTokenFilepath(agencDirpath string) string {
 	return filepath.Join(GetCacheDirpath(agencDirpath), OAuthTokenFilename)
+}
+
+// GetMissionOpSettingsFilepath returns the path to the per-mission operational
+// settings file delivered to Claude via `claude --settings <file>` under State Y.
+func GetMissionOpSettingsFilepath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), MissionOpSettingsFilename)
+}
+
+// GetMissionAgencHooksDirpath returns the path to the per-mission AgenC hook
+// scripts directory under State Y (missions/<uuid>/agenc-hooks/).
+func GetMissionAgencHooksDirpath(agencDirpath string, missionID string) string {
+	return filepath.Join(GetMissionDirpath(agencDirpath, missionID), MissionAgencHooksDirname)
 }
 
 // GetPaletteLogFilepath returns the path to the palette command output log.
