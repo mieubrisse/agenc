@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 // maxTrustWriteAttempts caps the verify-retry loop in writeTrustEntry.
@@ -299,4 +301,132 @@ func homeClaudeJSONFilepath() (string, error) {
 		return "", stacktrace.Propagate(err, "failed to determine home directory")
 	}
 	return filepath.Join(homeDir, ".claude.json"), nil
+}
+
+// reconcileTrustEntries is the pure, unit-testable core of the boot-time trust
+// migration pass. It performs a single read-modify-write of claudeJSONFilepath:
+//
+//   - Seeds projects[agentDir] with a bare hasTrustDialogAccepted=true entry
+//     for every path in existingAgentDirs. Bare entries (no MCP-server lists)
+//     are sufficient for the migration: the trust dialog is suppressed, and
+//     per-server MCP consent is re-established on the next real mission create.
+//
+//   - Prunes any projects key whose path starts with missionsDirPrefix+"/" that
+//     is NOT in existingAgentDirs. These are stale entries from archived or
+//     deleted missions.
+//
+//   - Leaves all other projects keys byte-for-byte untouched. The user's own
+//     repos outside the missions directory are never touched.
+//
+// If claudeJSONFilepath does not exist, it is created with only the seeded
+// entries (and no other keys). If existingAgentDirs is empty the function is
+// still correct: it only prunes stale missions-prefix keys and writes the
+// result if the file changed.
+func reconcileTrustEntries(claudeJSONFilepath string, existingAgentDirs []string, missionsDirPrefix string) error {
+	// Build a set of the expected agent dirs for O(1) lookup.
+	expected := make(map[string]struct{}, len(existingAgentDirs))
+	for _, dir := range existingAgentDirs {
+		expected[dir] = struct{}{}
+	}
+
+	// Read existing file; treat a missing file as an empty JSON object.
+	data, err := os.ReadFile(claudeJSONFilepath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return stacktrace.Propagate(err, "failed to read '%s'", claudeJSONFilepath)
+		}
+		data = []byte("{}")
+	}
+
+	// Parse into a top-level map, preserving all other keys byte-for-byte.
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return stacktrace.Propagate(err, "failed to parse JSON in '%s'", claudeJSONFilepath)
+	}
+
+	// Get or create the "projects" sub-map.
+	var projects map[string]json.RawMessage
+	if existingProjects, ok := root["projects"]; ok {
+		if err := json.Unmarshal(existingProjects, &projects); err != nil {
+			return stacktrace.Propagate(err, "failed to parse projects map in '%s'", claudeJSONFilepath)
+		}
+	} else {
+		projects = make(map[string]json.RawMessage)
+	}
+
+	// Prune stale missions entries: any key under missionsDirPrefix that is not
+	// in the expected set. Use a prefix + separator check so we don't
+	// accidentally match a directory that merely starts with the missions dir
+	// name (e.g. ~/.agenc/missions-backup/).
+	missionsPrefix := missionsDirPrefix + string(filepath.Separator)
+	for key := range projects {
+		if strings.HasPrefix(key, missionsPrefix) {
+			if _, keep := expected[key]; !keep {
+				delete(projects, key)
+			}
+		}
+	}
+
+	// Seed a bare trust entry for every expected agent dir.
+	// Bare entry choice: hasTrustDialogAccepted=true with no MCP-server lists.
+	// The migration only needs to suppress the trust dialog; per-server MCP
+	// consent is re-established on the next real mission create via spawnClaude.
+	bareEntry := buildTrustEntry(nil)
+	bareEntryData, err := json.Marshal(bareEntry)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal bare trust entry")
+	}
+	for _, dir := range existingAgentDirs {
+		projects[dir] = json.RawMessage(bareEntryData)
+	}
+
+	// Write projects back into the root map.
+	projectsData, err := json.Marshal(projects)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal projects map")
+	}
+	root["projects"] = json.RawMessage(projectsData)
+
+	// Serialize the full file with indentation + trailing newline.
+	result, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to marshal root JSON")
+	}
+	result = append(result, '\n')
+
+	return atomicWriteFile(claudeJSONFilepath, result)
+}
+
+// reconcileMissionTrust performs the boot-time trust migration + reconcile pass
+// for all non-archived missions. It seeds a trust entry in the real
+// ~/.claude.json for every existing mission's agent directory (so in-flight
+// missions can respawn without a trust dialog after the State Y flip) and prunes
+// stale entries left by archived or deleted missions.
+//
+// The entire pass is a single read-modify-write under s.claudeJSONMu to avoid
+// N atomic renames on boot. Inert until Task 4 wires it into server startup.
+//
+//nolint:unused // wired at the State Y flip (Task 4)
+func (s *Server) reconcileMissionTrust() error {
+	claudeJSONPath, err := homeClaudeJSONFilepath()
+	if err != nil {
+		return err
+	}
+
+	missions, err := s.db.ListMissions(database.ListMissionsParams{IncludeArchived: false})
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to list missions for trust reconcile")
+	}
+
+	agentDirs := make([]string, 0, len(missions))
+	for _, m := range missions {
+		agentDirs = append(agentDirs, config.GetMissionAgentDirpath(s.agencDirpath, m.ID))
+	}
+
+	missionsDirPrefix := config.GetMissionsDirpath(s.agencDirpath)
+
+	s.claudeJSONMu.Lock()
+	defer s.claudeJSONMu.Unlock()
+
+	return reconcileTrustEntries(claudeJSONPath, agentDirs, missionsDirPrefix)
 }

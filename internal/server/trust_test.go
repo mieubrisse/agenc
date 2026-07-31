@@ -454,3 +454,145 @@ func TestWriteThenPrune(t *testing.T) {
 // production (or by Kevin's manual self-test) — deterministically simulating
 // a racing writer in a unit test would require injecting a hook between the
 // rename and the verify read, which is more complexity than the value warrants.
+
+// --- reconcileTrustEntries tests ---
+
+// TestReconcileTrustEntries_SeedPrunePreserve verifies the three core invariants:
+//  1. Existing mission agent dirs get a bare trust entry seeded into projects.
+//  2. A stale projects key under the missions prefix that has no corresponding
+//     mission is pruned.
+//  3. Unrelated projects keys (user repos outside the missions prefix) are preserved.
+func TestReconcileTrustEntries_SeedPrunePreserve(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudeJSONPath := filepath.Join(tmpDir, ".claude.json")
+	missionsPrefix := filepath.Join(tmpDir, "missions")
+
+	activeMissionDir := filepath.Join(missionsPrefix, "aaaaaaaa-0000-0000-0000-000000000001", "agent")
+	staleMissionDir := filepath.Join(missionsPrefix, "bbbbbbbb-0000-0000-0000-000000000002", "agent")
+	userRepoDir := "/home/user/myproject" // outside missionsPrefix — must survive
+
+	// Seed an initial file with a stale mission entry and a user repo entry.
+	initial := map[string]interface{}{
+		"numStartups": 42,
+		"projects": map[string]interface{}{
+			staleMissionDir: map[string]interface{}{
+				"hasTrustDialogAccepted": true,
+			},
+			userRepoDir: map[string]interface{}{
+				"hasTrustDialogAccepted": true,
+				"enabledMcpjsonServers":  []string{"todoist"},
+			},
+		},
+	}
+	initialData, err := json.MarshalIndent(initial, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal initial content: %v", err)
+	}
+	if err := os.WriteFile(claudeJSONPath, append(initialData, '\n'), 0644); err != nil {
+		t.Fatalf("failed to write initial claude.json: %v", err)
+	}
+
+	// Reconcile with only activeMissionDir as the live mission.
+	if err := reconcileTrustEntries(claudeJSONPath, []string{activeMissionDir}, missionsPrefix); err != nil {
+		t.Fatalf("reconcileTrustEntries returned error: %v", err)
+	}
+
+	// 1. Active mission dir must have hasTrustDialogAccepted=true.
+	activeEntry := trustEntryFromFile(t, claudeJSONPath, activeMissionDir)
+	if activeEntry == nil {
+		t.Errorf("expected projects[%q] to be seeded, but it was absent", activeMissionDir)
+	} else if trusted, _ := activeEntry["hasTrustDialogAccepted"].(bool); !trusted {
+		t.Errorf("expected hasTrustDialogAccepted=true for active mission, got %v", activeEntry["hasTrustDialogAccepted"])
+	}
+
+	// 2. Stale mission dir must be pruned.
+	projectKeys := projectKeysFromFile(t, claudeJSONPath)
+	if _, present := projectKeys[staleMissionDir]; present {
+		t.Errorf("expected stale mission entry %q to be pruned", staleMissionDir)
+	}
+
+	// 3. User repo outside missions prefix must be preserved with original content.
+	userEntry := trustEntryFromFile(t, claudeJSONPath, userRepoDir)
+	if userEntry == nil {
+		t.Errorf("expected user repo entry %q to be preserved", userRepoDir)
+	} else {
+		mcpServers, ok := userEntry["enabledMcpjsonServers"]
+		if !ok {
+			t.Errorf("expected enabledMcpjsonServers to survive on user repo entry")
+		} else {
+			servers, _ := mcpServers.([]interface{})
+			if len(servers) != 1 || servers[0] != "todoist" {
+				t.Errorf("expected enabledMcpjsonServers=[todoist], got %v", mcpServers)
+			}
+		}
+	}
+
+	// 4. Unrelated top-level keys must also be preserved.
+	rootKeys := rootKeysFromFile(t, claudeJSONPath)
+	if _, ok := rootKeys["numStartups"]; !ok {
+		t.Errorf("expected top-level key 'numStartups' to be preserved")
+	}
+
+	assertNoTempFiles(t, tmpDir)
+}
+
+// TestReconcileTrustEntries_MissingFile verifies that a missing claude.json is
+// created with the seeded entries and no other keys.
+func TestReconcileTrustEntries_MissingFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudeJSONPath := filepath.Join(tmpDir, ".claude.json")
+	missionsPrefix := filepath.Join(tmpDir, "missions")
+	activeMissionDir := filepath.Join(missionsPrefix, "cccccccc-0000-0000-0000-000000000003", "agent")
+
+	if err := reconcileTrustEntries(claudeJSONPath, []string{activeMissionDir}, missionsPrefix); err != nil {
+		t.Fatalf("reconcileTrustEntries on missing file returned error: %v", err)
+	}
+
+	entry := trustEntryFromFile(t, claudeJSONPath, activeMissionDir)
+	if entry == nil {
+		t.Fatalf("expected %q to be seeded in new file", activeMissionDir)
+	}
+	if trusted, _ := entry["hasTrustDialogAccepted"].(bool); !trusted {
+		t.Errorf("expected hasTrustDialogAccepted=true in seeded entry")
+	}
+
+	assertNoTempFiles(t, tmpDir)
+}
+
+// TestReconcileTrustEntries_EmptyMissions verifies that when there are no live
+// missions, all missions-prefix entries are pruned while unrelated entries survive.
+func TestReconcileTrustEntries_EmptyMissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudeJSONPath := filepath.Join(tmpDir, ".claude.json")
+	missionsPrefix := filepath.Join(tmpDir, "missions")
+	staleMissionDir := filepath.Join(missionsPrefix, "dddddddd-0000-0000-0000-000000000004", "agent")
+	userRepoDir := "/home/user/another-project"
+
+	initial := map[string]interface{}{
+		"projects": map[string]interface{}{
+			staleMissionDir: map[string]interface{}{"hasTrustDialogAccepted": true},
+			userRepoDir:     map[string]interface{}{"hasTrustDialogAccepted": true},
+		},
+	}
+	data, err := json.MarshalIndent(initial, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal initial content: %v", err)
+	}
+	if err := os.WriteFile(claudeJSONPath, append(data, '\n'), 0644); err != nil {
+		t.Fatalf("failed to write initial file: %v", err)
+	}
+
+	if err := reconcileTrustEntries(claudeJSONPath, []string{}, missionsPrefix); err != nil {
+		t.Fatalf("reconcileTrustEntries with empty missions returned error: %v", err)
+	}
+
+	projectKeys := projectKeysFromFile(t, claudeJSONPath)
+	if _, present := projectKeys[staleMissionDir]; present {
+		t.Errorf("expected stale mission %q to be pruned when no missions exist", staleMissionDir)
+	}
+	if _, present := projectKeys[userRepoDir]; !present {
+		t.Errorf("expected user repo %q to be preserved", userRepoDir)
+	}
+
+	assertNoTempFiles(t, tmpDir)
+}
