@@ -25,6 +25,12 @@ func WriteMissionOpSettings(agencDirpath string, missionID string) error {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
+	// Ensure the mission dir exists so the settings-file write below is self-
+	// contained rather than depending on WriteAgencHookScripts' MkdirAll side effect.
+	if err := os.MkdirAll(missionDirpath, 0755); err != nil {
+		return stacktrace.Propagate(err, "failed to create mission directory '%s'", missionDirpath)
+	}
+
 	// Write the guard script into <missionDir>/agenc-hooks/
 	if err := WriteAgencHookScripts(missionDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to write AgenC hook scripts for mission '%s'", missionID)

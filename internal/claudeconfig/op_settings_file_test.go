@@ -86,20 +86,15 @@ func TestWriteMissionOpSettings_GuardScriptExists(t *testing.T) {
 	}
 }
 
-// setupWriteMissionOpSettingsTest creates a minimal agenc dir structure under a
-// temp directory and returns (agencDirpath, missionID) ready for WriteMissionOpSettings.
+// setupWriteMissionOpSettingsTest returns a fresh temp agenc dir root and a
+// mission ID. It deliberately does NOT pre-create the mission directory — this
+// exercises the realistic spawn path where WriteMissionOpSettings must create
+// its own mission dir before writing into it.
 func setupWriteMissionOpSettingsTest(t *testing.T) (string, string) {
 	t.Helper()
 
 	agencDirpath := t.TempDir()
 	missionID := "test-mission-uuid"
-
-	// Create the mission directory — WriteMissionOpSettings writes files into it
-	// but does not create the mission dir itself.
-	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
-	if err := os.MkdirAll(missionDirpath, 0755); err != nil {
-		t.Fatalf("failed to create mission dir %s: %v", missionDirpath, err)
-	}
 
 	return agencDirpath, missionID
 }
