@@ -450,6 +450,41 @@ func TestWriteThenPrune(t *testing.T) {
 	assertNoTempFiles(t, dir)
 }
 
+// --- resolveClaudeJSONFilepath tests ---
+
+// TestResolveClaudeJSONFilepath_UsesEnvWhenSet verifies that when
+// CLAUDE_CONFIG_DIR is set, the resolver returns <CLAUDE_CONFIG_DIR>/.claude.json
+// without consulting $HOME.
+func TestResolveClaudeJSONFilepath_UsesEnvWhenSet(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config-dir")
+	got, err := resolveClaudeJSONFilepath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "/tmp/test-claude-config-dir/.claude.json"
+	if got != want {
+		t.Errorf("resolveClaudeJSONFilepath() = %q, want %q", got, want)
+	}
+}
+
+// TestResolveClaudeJSONFilepath_FallsBackToHome verifies that when
+// CLAUDE_CONFIG_DIR is unset, the resolver returns $HOME/.claude.json.
+func TestResolveClaudeJSONFilepath_FallsBackToHome(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("cannot determine home dir: %v", err)
+	}
+	got, err := resolveClaudeJSONFilepath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := homeDir + "/.claude.json"
+	if got != want {
+		t.Errorf("resolveClaudeJSONFilepath() = %q, want %q", got, want)
+	}
+}
+
 // Note: the concurrent-clobber retry in writeTrustEntry is exercised in
 // production (or by Kevin's manual self-test) — deterministically simulating
 // a racing writer in a unit test would require injecting a hook between the

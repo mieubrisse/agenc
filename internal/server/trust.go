@@ -258,13 +258,13 @@ func atomicWriteFile(targetFilepath string, data []byte) error {
 }
 
 // seedMissionTrust writes the trust entry for a mission's agent dir into the
-// real ~/.claude.json under s.claudeJSONMu. This targets the home-level
-// ~/.claude.json because that is the file Claude reads when CLAUDE_CONFIG_DIR
-// is unset (State Y). (Unwired until the State Y flip.)
+// Claude-config .claude.json under s.claudeJSONMu. This targets the file
+// Claude reads — $CLAUDE_CONFIG_DIR/.claude.json when CLAUDE_CONFIG_DIR is
+// set, else ~/.claude.json (State Y). (Unwired until the State Y flip.)
 //
 //nolint:unused // intentionally unwired; wired at the State Y flip
 func (s *Server) seedMissionTrust(agentDirpath string, trustedMcpServers *config.TrustedMcpServers) error {
-	claudeJSONFilepath, err := homeClaudeJSONFilepath()
+	claudeJSONPath, err := resolveClaudeJSONFilepath()
 	if err != nil {
 		return err
 	}
@@ -272,15 +272,15 @@ func (s *Server) seedMissionTrust(agentDirpath string, trustedMcpServers *config
 	s.claudeJSONMu.Lock()
 	defer s.claudeJSONMu.Unlock()
 
-	return writeTrustEntry(claudeJSONFilepath, agentDirpath, trustedMcpServers)
+	return writeTrustEntry(claudeJSONPath, agentDirpath, trustedMcpServers)
 }
 
-// pruneMissionTrust removes a mission's trust entry from the real ~/.claude.json
-// under s.claudeJSONMu. (Unwired until the State Y flip.)
+// pruneMissionTrust removes a mission's trust entry from the Claude-config
+// .claude.json under s.claudeJSONMu. (Unwired until the State Y flip.)
 //
 //nolint:unused // intentionally unwired; wired at the State Y flip
 func (s *Server) pruneMissionTrust(agentDirpath string) error {
-	claudeJSONFilepath, err := homeClaudeJSONFilepath()
+	claudeJSONPath, err := resolveClaudeJSONFilepath()
 	if err != nil {
 		return err
 	}
@@ -288,14 +288,20 @@ func (s *Server) pruneMissionTrust(agentDirpath string) error {
 	s.claudeJSONMu.Lock()
 	defer s.claudeJSONMu.Unlock()
 
-	return pruneTrustEntry(claudeJSONFilepath, agentDirpath)
+	return pruneTrustEntry(claudeJSONPath, agentDirpath)
 }
 
-// homeClaudeJSONFilepath returns the path to the home-level ~/.claude.json,
-// which is the file Claude reads when CLAUDE_CONFIG_DIR is unset.
+// resolveClaudeJSONFilepath returns the path to the .claude.json file that
+// Claude reads and writes — $CLAUDE_CONFIG_DIR/.claude.json when
+// CLAUDE_CONFIG_DIR is set, else ~/.claude.json. This mirrors Claude Code's
+// own config resolution, so AgenC writes trust to the file Claude actually
+// reads regardless of whether CLAUDE_CONFIG_DIR is set (e.g. in e2e tests).
 //
 //nolint:unused // intentionally unwired; wired at the State Y flip
-func homeClaudeJSONFilepath() (string, error) {
+func resolveClaudeJSONFilepath() (string, error) {
+	if configDir := os.Getenv("CLAUDE_CONFIG_DIR"); configDir != "" {
+		return filepath.Join(configDir, ".claude.json"), nil
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", stacktrace.Propagate(err, "failed to determine home directory")
@@ -398,17 +404,18 @@ func reconcileTrustEntries(claudeJSONFilepath string, existingAgentDirs []string
 }
 
 // reconcileMissionTrust performs the boot-time trust migration + reconcile pass
-// for all non-archived missions. It seeds a trust entry in the real
-// ~/.claude.json for every existing mission's agent directory (so in-flight
-// missions can respawn without a trust dialog after the State Y flip) and prunes
-// stale entries left by archived or deleted missions.
+// for all non-archived missions. It seeds a trust entry in the Claude-config
+// .claude.json ($CLAUDE_CONFIG_DIR/.claude.json when set, else ~/.claude.json)
+// for every existing mission's agent directory (so in-flight missions can
+// respawn without a trust dialog after the State Y flip) and prunes stale
+// entries left by archived or deleted missions.
 //
 // The entire pass is a single read-modify-write under s.claudeJSONMu to avoid
 // N atomic renames on boot. Inert until Task 4 wires it into server startup.
 //
 //nolint:unused // wired at the State Y flip (Task 4)
 func (s *Server) reconcileMissionTrust() error {
-	claudeJSONPath, err := homeClaudeJSONFilepath()
+	claudeJSONPath, err := resolveClaudeJSONFilepath()
 	if err != nil {
 		return err
 	}

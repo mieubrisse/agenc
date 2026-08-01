@@ -1382,6 +1382,8 @@ func (s *Server) reloadMissionInTmux(missionRecord *database.Mission, paneID str
 // panes. When running with a non-default AGENC_DIRPATH (e.g. test environments),
 // tmux panes don't inherit the server's environment, so we must explicitly
 // export AGENC_DIRPATH (and AGENC_TEST_ENV when applicable) into the pane's shell.
+// If CLAUDE_CONFIG_DIR is set in the server's environment, it is also forwarded
+// so that the wrapper and any spawned Claude process see the same config dir.
 // Returns "" for the default installation (no prefix needed).
 func (s *Server) tmuxEnvPrefix() string {
 	if config.GetNamespaceSuffix(s.agencDirpath) == "" {
@@ -1390,6 +1392,9 @@ func (s *Server) tmuxEnvPrefix() string {
 	prefix := fmt.Sprintf("export AGENC_DIRPATH='%s'", s.agencDirpath)
 	if config.IsTestEnv() {
 		prefix += " AGENC_TEST_ENV=1"
+	}
+	if cd := os.Getenv("CLAUDE_CONFIG_DIR"); cd != "" {
+		prefix += fmt.Sprintf(" CLAUDE_CONFIG_DIR='%s'", cd)
 	}
 	return prefix + "; "
 }

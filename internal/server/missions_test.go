@@ -1,6 +1,7 @@
 package server
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -184,5 +185,58 @@ func TestBuildCronTriggeredNotification_TruncatesLongPrompt(t *testing.T) {
 
 	if !strings.Contains(n.BodyMarkdown, "…") {
 		t.Errorf("expected truncation marker, got: %v", n.BodyMarkdown)
+	}
+}
+
+// --- tmuxEnvPrefix tests ---
+
+// TestTmuxEnvPrefix_DefaultPath verifies that the default agenc installation
+// (the real ~/.agenc path) produces an empty prefix (no export needed).
+func TestTmuxEnvPrefix_DefaultPath(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("cannot determine home dir: %v", err)
+	}
+	s := &Server{agencDirpath: homeDir + "/.agenc"}
+	prefix := s.tmuxEnvPrefix()
+	if prefix != "" {
+		t.Errorf("expected empty prefix for default path, got %q", prefix)
+	}
+}
+
+// TestTmuxEnvPrefix_NonDefaultPath verifies that a non-default agencDirpath
+// produces a prefix that exports AGENC_DIRPATH.
+func TestTmuxEnvPrefix_NonDefaultPath(t *testing.T) {
+	s := &Server{agencDirpath: "/tmp/agenc-test-nondefault"}
+	prefix := s.tmuxEnvPrefix()
+	if prefix == "" {
+		t.Fatal("expected non-empty prefix for non-default path")
+	}
+	if !strings.Contains(prefix, "AGENC_DIRPATH='/tmp/agenc-test-nondefault'") {
+		t.Errorf("expected AGENC_DIRPATH in prefix, got %q", prefix)
+	}
+}
+
+// TestTmuxEnvPrefix_ClaudeConfigDirForwarded verifies that when CLAUDE_CONFIG_DIR
+// is set, it is included in the tmux env prefix so that the spawned wrapper
+// process inherits the same config directory.
+func TestTmuxEnvPrefix_ClaudeConfigDirForwarded(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/tmp/test-claude-config")
+	s := &Server{agencDirpath: "/tmp/agenc-test-nondefault"}
+	prefix := s.tmuxEnvPrefix()
+	if !strings.Contains(prefix, "CLAUDE_CONFIG_DIR='/tmp/test-claude-config'") {
+		t.Errorf("expected CLAUDE_CONFIG_DIR in prefix, got %q", prefix)
+	}
+}
+
+// TestTmuxEnvPrefix_ClaudeConfigDirAbsentWhenUnset verifies that when
+// CLAUDE_CONFIG_DIR is not set, it is NOT included in the prefix (production
+// default: unset env produces no extra export).
+func TestTmuxEnvPrefix_ClaudeConfigDirAbsentWhenUnset(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	s := &Server{agencDirpath: "/tmp/agenc-test-nondefault"}
+	prefix := s.tmuxEnvPrefix()
+	if strings.Contains(prefix, "CLAUDE_CONFIG_DIR") {
+		t.Errorf("expected no CLAUDE_CONFIG_DIR in prefix when env is unset, got %q", prefix)
 	}
 }

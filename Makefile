@@ -133,7 +133,7 @@ compile:
 	@mkdir -p $(BUILD_DIR)
 	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/agenc .
 	@# Create wrapper script that sets test-env variables
-	@printf '#!/usr/bin/env bash\nset -euo pipefail\nscript_dirpath="$$(cd "$$(dirname "$${0}")" && pwd)"\nexport AGENC_DIRPATH="$$(cd "$${script_dirpath}/../$(TEST_ENV_DIR)" 2>/dev/null && pwd || echo "$${script_dirpath}/../$(TEST_ENV_DIR)")"\nexport AGENC_TEST_ENV=1\nexec "$${script_dirpath}/agenc" "$$@"\n' > $(BUILD_DIR)/agenc-test
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nscript_dirpath="$$(cd "$$(dirname "$${0}")" && pwd)"\nexport AGENC_DIRPATH="$$(cd "$${script_dirpath}/../$(TEST_ENV_DIR)" 2>/dev/null && pwd || echo "$${script_dirpath}/../$(TEST_ENV_DIR)")"\nexport AGENC_TEST_ENV=1\nexport CLAUDE_CONFIG_DIR="$${AGENC_DIRPATH}/claude-config"\nexec "$${script_dirpath}/agenc" "$$@"\n' > $(BUILD_DIR)/agenc-test
 	@chmod +x $(BUILD_DIR)/agenc-test
 	@echo "✓ Build complete ($(BUILD_DIR)/agenc, $(BUILD_DIR)/agenc-test)"
 
@@ -161,6 +161,7 @@ test-env:
 	@echo "Creating test environment at $(TEST_ENV_DIR)/..."
 	@mkdir -p $(TEST_ENV_DIR)/config
 	@cd $(TEST_ENV_DIR)/config && git init --quiet 2>/dev/null || true
+	@mkdir -p $(TEST_ENV_DIR)/claude-config
 	@# Copy OAuth token from the real installation so missions can authenticate
 	@real_token="$${HOME}/.agenc/cache/oauth-token"; \
 	if [ -f "$${real_token}" ]; then \
