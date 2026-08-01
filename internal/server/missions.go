@@ -326,6 +326,34 @@ type CreateMissionRequest struct {
 	NoFocus        bool   `json:"no_focus"`
 }
 
+// resolveTrustedMcpServers reads the MCP trust configuration for a repo from
+// cached config, mirroring the wrapper's loadTrustedMcpServers. Returns nil for
+// adjutant/blank missions (empty repo name) or when no repo config exists — a
+// nil result yields a bare trust entry (hasTrustDialogAccepted=true) whose
+// per-server MCP consent re-establishes on the next real create.
+func (s *Server) resolveTrustedMcpServers(gitRepoName string) *config.TrustedMcpServers {
+	if gitRepoName == "" {
+		return nil
+	}
+	rc, ok := s.getConfig().GetRepoConfig(gitRepoName)
+	if !ok {
+		return nil
+	}
+	return rc.TrustedMcpServers
+}
+
+// seedMissionTrustBestEffort seeds the agent-dir trust entry for a mission into
+// the real ~/.claude.json (or $CLAUDE_CONFIG_DIR/.claude.json) so the first
+// Claude in the mission does not hit a blocking trust dialog (State Y). It logs
+// loudly and continues on failure (P-4): the mission is created; a missing trust
+// entry only surfaces as a one-time dialog, not data loss. Call after the
+// mission dir is built and before the wrapper spawns.
+func (s *Server) seedMissionTrustBestEffort(agentDirpath, gitRepoName, shortID string) {
+	if err := s.seedMissionTrust(agentDirpath, s.resolveTrustedMcpServers(gitRepoName)); err != nil {
+		s.logger.Printf("ERROR: failed to seed trust entry for mission %s: %v (mission created; expect a one-time trust dialog)", shortID, err)
+	}
+}
+
 // handleCreateMission handles POST /missions.
 // Creates a mission record, sets up the mission directory, and spawns the
 // wrapper process in the caller's tmux session (or headless).
@@ -406,6 +434,10 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission directory: %s", err.Error())
 	}
+
+	// Seed the mission's agent-dir trust entry BEFORE spawning (State Y).
+	agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, missionRecord.ID)
+	s.seedMissionTrustBestEffort(agentDirpath, gitRepoName, missionRecord.ShortID)
 
 	// Spawn wrapper process
 	if err := s.spawnWrapper(missionRecord, req); err != nil {
@@ -549,6 +581,10 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	if err := mission.CopyAgentDir(srcAgentDirpath, dstAgentDirpath); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to copy agent directory: %s", err.Error())
 	}
+
+	// Seed the cloned mission's agent-dir trust entry before spawn (State Y),
+	// using the source mission's repo trust config.
+	s.seedMissionTrustBestEffort(dstAgentDirpath, sourceMission.GitRepo, missionRecord.ShortID)
 
 	// Spawn wrapper (may fail for interactive missions without tmux_session — that's OK)
 	if err := s.spawnWrapper(missionRecord, req); err != nil {
@@ -739,10 +775,13 @@ func (s *Server) handleDeleteMission(w http.ResponseWriter, r *http.Request) err
 		s.destroyPoolWindow(*missionRecord.TmuxPane)
 	}
 
-	// Clean up per-mission Keychain credentials from the old auth system
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(s.agencDirpath, resolvedID)
-	if err := claudeconfig.DeleteKeychainCredentials(claudeConfigDirpath); err != nil {
-		s.logger.Printf("Warning: failed to delete Keychain credentials for mission %s: %v", id, err)
+	// Prune the mission's agent-dir trust entry from the real ~/.claude.json (or
+	// $CLAUDE_CONFIG_DIR/.claude.json) so stale entries do not accumulate (State
+	// Y). Log loudly and continue on failure (P-4) — a lingering trust entry is
+	// harmless and gets swept by the boot-time reconcile pass.
+	agentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, resolvedID)
+	if err := s.pruneMissionTrust(agentDirpath); err != nil {
+		s.logger.Printf("ERROR: failed to prune trust entry for mission %s: %v", missionRecord.ShortID, err)
 	}
 
 	// Remove the mission directory

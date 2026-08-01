@@ -216,19 +216,15 @@ The wrapper:
 
 1. Writes the wrapper PID to `$AGENC_DIRPATH/missions/<uuid>/pid`
 2. Records the tmux pane ID via the server (cleared on exit) for pane→mission resolution
-3. Reads the OAuth token from the token file and sets `CLAUDE_CODE_OAUTH_TOKEN` in the child environment
-4. Resolves the Claude model: checks the repo's `defaultModel` in `config.yml`, falls back to the top-level `defaultModel`, or omits `--model` entirely (letting Claude choose its default)
-5. Rebuilds the mission's `claude-config/` from the shadow repo at `$AGENC_DIRPATH/claude-config-shadow/` (see "Shadow repo" under Key Architectural Patterns), then writes the shadow's HEAD commit to the mission's `config_commit` DB column via the server. This runs at the top of every Claude spawn — initial start, in-place tmux respawn-pane reload — so each spawn picks up the latest user `~/.claude` config without a manual reconfig step.
-6. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--model <value>` if a model was resolved
-7. Sets `CLAUDE_CONFIG_DIR` to the per-mission config directory
-8. Sets `AGENC_MISSION_UUID` for the child process
-9. Starts background goroutines:
+3. Resolves the Claude model: checks the repo's `defaultModel` in `config.yml`, falls back to the top-level `defaultModel`, or omits `--model` entirely (letting Claude choose its default)
+4. Writes the mission's operational-settings file (`agenc-settings.json`) and its `agenc-hooks/` guard script into the mission dir (via `claudeconfig.WriteMissionOpSettings`). This runs at the top of every Claude spawn — initial start, in-place tmux respawn-pane reload — so each spawn regenerates the operational overlay with the latest config. Under State Y (native passthrough) there is **no** per-mission `claude-config/` snapshot: Claude reads the user's real `~/.claude` directly, and AgenC's operational layer is delivered per-invocation via `claude --settings <op-settings file>` (which unions with `~/.claude/settings.json`).
+5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--settings <op-settings file>`, `--model <value>` if a model was resolved, and the initial prompt if any
+6. Sets `AGENC_MISSION_UUID` for the child process. Does **not** set `CLAUDE_CONFIG_DIR` (State Y — Claude reads the real `~/.claude`). Injects `CLAUDE_CODE_OAUTH_TOKEN` **only** when a token file is present (the machine-token fallback toggle); absent, Claude uses its native `~/.claude` login.
+7. Starts background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` via the server on a fixed interval; also piggybacks `last_user_prompt_at` for crash recovery
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced)
    - **HTTP server** (interactive mode only) — serves an HTTP API on `wrapper.sock` (unix socket) with endpoints for status queries, restart commands, and claude_update events
-   - **`watchCredentialUpwardSync`** — polls per-mission Keychain periodically; when hash changes, merges to global and broadcasts via `global-credentials-expiry`
-   - **`watchCredentialDownwardSync`** — fsnotify on `global-credentials-expiry`; when another mission broadcasts, pulls global credentials into per-mission Keychain
-10. Main event loop implements a three-state machine (see below)
+8. Main event loop implements a three-state machine (see below)
 
 **Interactive mode** (`Run`): pipes stdin/stdout/stderr directly to the terminal. On signal, forwards it to Claude and waits for exit. Exposes an HTTP API on a unix socket for restart commands and state queries.
 
@@ -502,7 +498,19 @@ Merging logic (`internal/claudeconfig/merge.go`):
 - settings.json: recursive deep merge (user as base, modifications as overlay), then append operational overrides (hooks and deny entries)
 - Deep merge rules: objects merge recursively, arrays concatenate, scalars from the overlay win
 
-Credentials are handled in two layers. Claude's own authentication uses a token file at `$AGENC_DIRPATH/cache/oauth-token` — the wrapper reads this at spawn time and passes it as `CLAUDE_CODE_OAUTH_TOKEN` in the child environment. MCP server OAuth tokens (`mcpOAuth`) use the macOS Keychain: at spawn time the wrapper clones the global `"Claude Code-credentials"` entry into a per-mission entry (`"Claude Code-credentials-<8hexchars>"`). Two goroutines keep these in sync: upward sync detects hash changes in the per-mission entry and merges them to global; downward sync watches a broadcast file (`global-credentials-expiry`) for changes made by other missions and pulls the updated global entry into the per-mission entry.
+Credentials are handled in two layers. Claude's own authentication uses a token file at `$AGENC_DIRPATH/cache/oauth-token` — under State Y (native passthrough) the wrapper injects `CLAUDE_CODE_OAUTH_TOKEN` only when this file is present (a machine-token fallback toggle); absent, Claude uses its native `~/.claude` login. MCP server OAuth tokens (`mcpOAuth`) use the macOS Keychain: at spawn time the wrapper clones the global `"Claude Code-credentials"` entry into a per-mission entry (`"Claude Code-credentials-<8hexchars>"`). Two goroutines keep these in sync: upward sync detects hash changes in the per-mission entry and merges them to global; downward sync watches a broadcast file (`global-credentials-expiry`) for changes made by other missions and pulls the updated global entry into the per-mission entry. (The Keychain-cloning credential-sync subsystem is dead under State Y and slated for removal.)
+
+### Trust seeding
+
+Under State Y, `CLAUDE_CONFIG_DIR` is unset, so Claude reads and writes the real `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json` when the surrounding environment sets it, e.g. the e2e harness). Claude Code gates each git-repo root behind a one-time trust dialog keyed to `projects["<repoRoot>"].hasTrustDialogAccepted`. Since there is no global trust bypass, AgenC seeds this entry itself so a mission spawns without a blocking dialog.
+
+The trust write is server-side (`internal/server/trust.go`), keyed on the mission's agent directory:
+
+- **Seed at create** — both create handlers (`handleCreateMission`, `handleCreateClonedMission`) call `seedMissionTrust(agentDir, trustedMcpServers)` after the mission dir is built and before the wrapper spawns. It writes `hasTrustDialogAccepted=true` plus the repo's `enabledMcpjsonServers`/`disabledMcpjsonServers`.
+- **Prune at delete** — `handleDeleteMission` calls `pruneMissionTrust(agentDir)` to remove the entry.
+- **Boot-time reconcile** — on server startup, `reconcileMissionTrust` seeds an entry for every existing mission's agent dir (migrating in-flight missions created before the flip) and prunes stale entries under the missions directory whose mission no longer exists. This is both the migration pass and the trust-drift check-loop.
+
+All three paths serialize on a single `Server.claudeJSONMu` mutex and write atomically (temp file + rename in the same directory), with a bounded verify-retry loop to survive Claude's own lock-free writes to the same file. AgenC only ever touches the specific `projects[...]` keys for its missions; all other content is preserved byte-for-byte.
 
 ### Shadow repo
 
@@ -696,14 +704,15 @@ Data Flow: Mission Lifecycle
 1. CLI ensures the server is running and a config source repo is registered
 2. Resolves the git repo reference (URL, shorthand, or fzf picker) and ensures it is cloned into the repo library
 3. Creates a database record — generates UUID + 8-char short ID, records the git repo name, config source commit hash, and optional cron association
-4. Creates the mission directory structure: copies the repo from the library via rsync, then builds the per-mission Claude config directory (see "Per-mission config merging")
-5. Creates a `Wrapper` and calls `Run` or `RunHeadless` depending on flags
+4. Creates the mission directory structure: copies the repo from the library via rsync
+5. Server-side, seeds the mission's agent-dir trust entry (`projects["<agentDir>"].hasTrustDialogAccepted=true`, plus the repo's `trustedMcpServers`) into the real `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json` when set) under a mutex, via atomic temp-file+rename with verify-retry — so the first Claude in the mission does not hit a blocking trust dialog (State Y; see "Trust seeding" under Key Architectural Patterns)
+6. Creates a `Wrapper` and calls `Run` or `RunHeadless` depending on flags
 
 ### Running
 
 1. Wrapper writes PID file, starts socket listener
-2. Wrapper reads OAuth token from token file, spawns Claude (with 1Password wrapping if `secrets.env` exists), setting `CLAUDE_CONFIG_DIR`, `AGENC_MISSION_UUID`, `CLAUDE_CODE_OAUTH_TOKEN`, and `--model` if a `defaultModel` is configured (repo-level overrides top-level)
-3. Background goroutines start: heartbeat writer (sends heartbeats to server), remote refs watcher, credential upward sync, credential downward sync
+2. Wrapper writes the operational-settings file, then spawns Claude (with 1Password wrapping if `secrets.env` exists), passing `--settings <op-settings file>` and `--model` if a `defaultModel` is configured (repo-level overrides top-level). Sets `AGENC_MISSION_UUID`; does **not** set `CLAUDE_CONFIG_DIR` (State Y); injects `CLAUDE_CODE_OAUTH_TOKEN` only when a token file is present
+3. Background goroutines start: heartbeat writer (sends heartbeats to server), remote refs watcher
 4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, tmux pane coloring, and recording prompts via the server
 5. Main event loop blocks until Claude exits or a signal arrives
 6. Server concurrently syncs the mission's repo while the heartbeat is fresh

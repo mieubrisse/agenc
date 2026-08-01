@@ -73,19 +73,6 @@ type Wrapper struct {
 	// commandCh receives commands from the HTTP server goroutine.
 	commandCh chan commandWithResponse
 
-	// perMissionCredentialHash caches the SHA-256 hash of the per-mission
-	// Keychain credential JSON. The upward sync goroutine compares the current
-	// Keychain contents against this hash to detect when Claude updates MCP
-	// OAuth tokens. Protected by credentialHashMu since both the upward and
-	// downward sync goroutines access it.
-	perMissionCredentialHash string
-	credentialHashMu         sync.Mutex
-
-	// lastDownwardSyncTimestamp is the broadcast file timestamp from the most
-	// recent downward sync. Used to skip stale broadcasts and avoid re-applying
-	// the same global credential update twice.
-	lastDownwardSyncTimestamp float64
-
 	// Window coloring configuration for tmux state feedback. Read from config.yml at startup.
 	// Empty strings mean that specific color setting is disabled.
 	windowBusyBackgroundColor      string
@@ -131,26 +118,6 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 	}
 }
 
-// cloneCredentials copies fresh credentials from the global Keychain into the
-// per-mission entry so Claude has access to current MCP OAuth tokens at spawn.
-func (w *Wrapper) cloneCredentials() {
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
-	if err := claudeconfig.CloneKeychainCredentials(claudeConfigDirpath); err != nil {
-		w.logger.Warn("Failed to clone Keychain credentials", "error", err)
-	}
-}
-
-// writeBackCredentials merges per-mission Keychain credentials back into the
-// global entry so MCP OAuth tokens acquired in this mission persist.
-func (w *Wrapper) writeBackCredentials() {
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(w.agencDirpath, w.missionID)
-	if err := claudeconfig.WriteBackKeychainCredentials(claudeConfigDirpath); err != nil {
-		if w.logger != nil {
-			w.logger.Warn("Failed to write back Keychain credentials", "error", err)
-		}
-	}
-}
-
 // runResources bundles resources created during setup that the caller must
 // clean up (via deferred calls) and that the event loop needs.
 type runResources struct {
@@ -160,17 +127,10 @@ type runResources struct {
 }
 
 // setupRun performs all one-time initialization for the wrapper lifecycle:
-// OAuth check, logging, PID file, signal handling, background goroutines,
-// credential cloning, and initial Claude spawn. It returns the resources
-// needed by the event loop and registers deferred cleanup on the caller's
-// behalf via the returned cleanup function.
+// logging, PID file, signal handling, background goroutines, and initial Claude
+// spawn. It returns the resources needed by the event loop and registers
+// deferred cleanup on the caller's behalf via the returned cleanup function.
 func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
-	// Ensure OAuth token exists before installing signal handlers. This must
-	// happen first so Ctrl-C works naturally during the interactive setup flow.
-	if err := config.SetupOAuthToken(w.agencDirpath); err != nil {
-		return nil, nil, err
-	}
-
 	// Set up logger that writes to the log file
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -221,12 +181,6 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 	socketFilepath := config.GetMissionSocketFilepath(w.agencDirpath, w.missionID)
 	go startHTTPServer(ctx, socketFilepath, w, w.logger)
 
-	// Clone global MCP credentials into per-mission Keychain and start sync goroutines.
-	w.cloneCredentials()
-	w.initCredentialHash()
-	go w.watchCredentialUpwardSync(ctx)
-	go w.watchCredentialDownwardSync(ctx)
-
 	// Track whether a resumable conversation exists. For resumes, one already
 	// exists. For new missions, we start with false and flip to true when the
 	// first UserPromptSubmit hook fires.
@@ -266,7 +220,6 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 
 	cleanup := func() {
 		w.resetWindowTabStyle()
-		w.writeBackCredentials()
 		signal.Stop(sigCh)
 		cancel()
 		_ = os.Remove(pidFilepath)
@@ -281,50 +234,16 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 // resumes that session; otherwise it starts a new conversation. For non-resume
 // spawns, the wrapper's initialPrompt is passed to Claude.
 //
-// Before every spawn the per-mission claude-config is rebuilt from the shadow
-// repo so each reload picks up the latest ~/.claude state. The server's
-// config_watcher keeps the shadow current via notify; the wrapper just reads
-// from it.
+// Before every spawn the per-mission operational-settings file (delivered to
+// Claude via `claude --settings`) is (re)written so each reload regenerates it
+// with the latest AgenC operational overlay after a config change. Under State
+// Y there is no per-mission claude-config snapshot to rebuild — Claude reads the
+// user's real ~/.claude directly.
 func (w *Wrapper) spawnClaude(isResume bool) error {
-	if err := w.rebuildClaudeConfig(); err != nil {
-		return stacktrace.Propagate(err, "failed to rebuild claude-config before spawn")
+	if err := claudeconfig.WriteMissionOpSettings(w.agencDirpath, w.missionID); err != nil {
+		return stacktrace.Propagate(err, "failed to write operational settings before spawn")
 	}
 	return w.spawnClaudeDirectly(isResume)
-}
-
-// rebuildClaudeConfig regenerates the per-mission claude-config/ directory
-// from the shadow repo, updates the mission's config_commit in the DB, and
-// logs the commit hash. Runs before every Claude spawn so each reload picks
-// up the latest ~/.claude state (the server's config_watcher keeps the shadow
-// current via notify).
-func (w *Wrapper) rebuildClaudeConfig() error {
-	commitHash := claudeconfig.GetShadowRepoCommitHash(w.agencDirpath)
-	if commitHash == "" {
-		return stacktrace.NewError("shadow repo missing or empty at '%s' — restart the agenc server",
-			claudeconfig.GetShadowRepoDirpath(w.agencDirpath))
-	}
-
-	trustedMcpServers := w.loadTrustedMcpServers()
-	if err := claudeconfig.BuildMissionConfigDir(
-		w.agencDirpath, w.missionID, trustedMcpServers,
-	); err != nil {
-		return stacktrace.Propagate(err, "failed to build per-mission claude-config")
-	}
-
-	if err := w.client.UpdateMission(w.missionID, server.UpdateMissionRequest{
-		ConfigCommit: &commitHash,
-	}); err != nil {
-		// Log and continue — on-disk config is correct; only the DB column drifts stale.
-		w.logger.Warn("failed to update config_commit in DB; on-disk config is correct",
-			"mission_id", w.missionID, "error", err)
-	}
-
-	shortHash := commitHash
-	if len(shortHash) > 12 {
-		shortHash = shortHash[:12]
-	}
-	w.logger.Info("claude-config rebuilt", "shadow_commit", shortHash)
-	return nil
 }
 
 // spawnClaudeDirectly spawns Claude as a local process.
@@ -348,22 +267,6 @@ func (w *Wrapper) spawnClaudeDirectly(isResume bool) error {
 	}
 	w.claudeCmd = cmd
 	return nil
-}
-
-// loadTrustedMcpServers reads the MCP trust configuration for this mission's repo.
-func (w *Wrapper) loadTrustedMcpServers() *config.TrustedMcpServers {
-	if w.gitRepoName == "" {
-		return nil
-	}
-	cfg, _, err := config.ReadAgencConfig(w.agencDirpath)
-	if err != nil {
-		return nil
-	}
-	rc, ok := cfg.GetRepoConfig(w.gitRepoName)
-	if !ok {
-		return nil
-	}
-	return rc.TrustedMcpServers
 }
 
 // Run executes the wrapper lifecycle. For a new mission, pass isResume=false.
@@ -653,11 +556,6 @@ const (
 // If a previous conversation exists (isResume=true), it uses claude -c -p <prompt>
 // to continue the conversation.
 func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
-	// Ensure OAuth token exists before installing signal handlers.
-	if err := config.SetupOAuthToken(w.agencDirpath); err != nil {
-		return err
-	}
-
 	// Set up logger
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -708,13 +606,6 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 		w.logger.Warn("Failed to write initial heartbeat", "error", err)
 	}
 	go w.writeHeartbeat(ctx)
-
-	// Clone global MCP credentials into per-mission Keychain and start sync goroutines.
-	w.cloneCredentials()
-	defer w.writeBackCredentials()
-	w.initCredentialHash()
-	go w.watchCredentialUpwardSync(ctx)
-	go w.watchCredentialDownwardSync(ctx)
 
 	// Rotate log file if needed
 	claudeOutputLogFilepath := config.GetMissionClaudeOutputLogFilepath(w.agencDirpath, w.missionID)
@@ -780,6 +671,14 @@ func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
 // Uses claude --print -p <prompt> for new missions, or claude -c -p <prompt>
 // for resuming existing conversations.
 func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
+	// Write the operational-settings file before building the command, since
+	// BuildClaudeCmd unconditionally passes `--settings <op-settings file>`
+	// under State Y — the file must exist for every spawn shape, headless
+	// included, or Claude errors on an absent settings path.
+	if err := claudeconfig.WriteMissionOpSettings(w.agencDirpath, w.missionID); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to write operational settings for headless spawn")
+	}
+
 	var args []string
 	if isResume {
 		// Resume with continuation flag and print mode

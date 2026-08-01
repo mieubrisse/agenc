@@ -260,9 +260,7 @@ func atomicWriteFile(targetFilepath string, data []byte) error {
 // seedMissionTrust writes the trust entry for a mission's agent dir into the
 // Claude-config .claude.json under s.claudeJSONMu. This targets the file
 // Claude reads — $CLAUDE_CONFIG_DIR/.claude.json when CLAUDE_CONFIG_DIR is
-// set, else ~/.claude.json (State Y). (Unwired until the State Y flip.)
-//
-//nolint:unused // intentionally unwired; wired at the State Y flip
+// set, else ~/.claude.json (State Y).
 func (s *Server) seedMissionTrust(agentDirpath string, trustedMcpServers *config.TrustedMcpServers) error {
 	claudeJSONPath, err := resolveClaudeJSONFilepath()
 	if err != nil {
@@ -276,9 +274,8 @@ func (s *Server) seedMissionTrust(agentDirpath string, trustedMcpServers *config
 }
 
 // pruneMissionTrust removes a mission's trust entry from the Claude-config
-// .claude.json under s.claudeJSONMu. (Unwired until the State Y flip.)
-//
-//nolint:unused // intentionally unwired; wired at the State Y flip
+// .claude.json under s.claudeJSONMu. This targets the file Claude reads —
+// $CLAUDE_CONFIG_DIR/.claude.json when set, else ~/.claude.json.
 func (s *Server) pruneMissionTrust(agentDirpath string) error {
 	claudeJSONPath, err := resolveClaudeJSONFilepath()
 	if err != nil {
@@ -296,8 +293,6 @@ func (s *Server) pruneMissionTrust(agentDirpath string) error {
 // CLAUDE_CONFIG_DIR is set, else ~/.claude.json. This mirrors Claude Code's
 // own config resolution, so AgenC writes trust to the file Claude actually
 // reads regardless of whether CLAUDE_CONFIG_DIR is set (e.g. in e2e tests).
-//
-//nolint:unused // intentionally unwired; wired at the State Y flip
 func resolveClaudeJSONFilepath() (string, error) {
 	if configDir := os.Getenv("CLAUDE_CONFIG_DIR"); configDir != "" {
 		return filepath.Join(configDir, ".claude.json"), nil
@@ -411,9 +406,7 @@ func reconcileTrustEntries(claudeJSONFilepath string, existingAgentDirs []string
 // entries left by archived or deleted missions.
 //
 // The entire pass is a single read-modify-write under s.claudeJSONMu to avoid
-// N atomic renames on boot. Inert until Task 4 wires it into server startup.
-//
-//nolint:unused // wired at the State Y flip (Task 4)
+// N atomic renames on boot.
 func (s *Server) reconcileMissionTrust() error {
 	claudeJSONPath, err := resolveClaudeJSONFilepath()
 	if err != nil {

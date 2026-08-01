@@ -62,7 +62,7 @@ type Server struct {
 	// Concurrent POST /missions handlers run in separate goroutines; this mutex
 	// prevents interleaved read-modify-write cycles within AgenC itself
 	// (independent of Claude's own lock-free writes to the same file).
-	claudeJSONMu sync.Mutex //nolint:unused // intentionally unwired; wired at the State Y flip
+	claudeJSONMu sync.Mutex
 
 	// reloadsInProgress holds missionIDs currently being reloaded.
 	// Acquired via tryAcquireReloadLock to prevent concurrent reloads of the
@@ -192,6 +192,17 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Load config and perform initial cron sync on startup
 	s.loadConfigOnStartup()
+
+	// One-shot boot-time trust migration + reconcile (State Y). Seeds a trust
+	// entry into the real ~/.claude.json for every existing mission's agent dir
+	// (so in-flight missions respawn without a trust dialog after the flip) and
+	// prunes stale entries left by deleted/archived missions. This is both the
+	// existing-mission migration and the trust-drift check-loop. Log loudly and
+	// continue on error (P-4) — a failed reconcile only means a possible one-time
+	// trust dialog on respawn, not data loss.
+	if err := s.reconcileMissionTrust(); err != nil {
+		s.logger.Printf("ERROR: boot-time trust reconcile failed: %v (in-flight missions may hit a one-time trust dialog on respawn)", err)
+	}
 
 	var wg sync.WaitGroup
 

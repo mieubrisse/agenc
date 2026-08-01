@@ -18,9 +18,7 @@ import (
 // guard-hook absolute path embedded in the settings file resolves to the script
 // that was actually written.
 //
-// Called by Task 4 (State Y flip) at mission-create and on reload.
-//
-//nolint:unused // wired at the State Y flip (Task 4)
+// Called at mission-create and on reload (via the wrapper's spawnClaude).
 func WriteMissionOpSettings(agencDirpath string, missionID string) error {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)

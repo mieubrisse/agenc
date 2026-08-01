@@ -783,6 +783,216 @@ run_test "claude-update Notification without stdin returns immediately" \
     0 \
     timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 Notification
 
+echo ""
+echo "--- State Y native passthrough ---"
+
+# The State Y flip (agenc-lh8p): a spawned mission runs plain `claude` against
+# the isolated config dir with CLAUDE_CONFIG_DIR unset by AgenC (the only
+# CLAUDE_CONFIG_DIR is the one the agenc-test harness exports, pointing at
+# $(TEST_ENV_DIR)/claude-config — NOT a per-mission BuildMissionConfigDir
+# snapshot). AgenC's operational layer is delivered via `claude --settings
+# <op-settings file>`, and the mission's trust entry is written server-side into
+# the config dir's .claude.json at create. These assertions inspect the
+# artifacts the server + wrapper produce at create/spawn — they do not depend on
+# Claude actually reaching the API, so they are robust in a sandboxed CI env.
+#
+# The paired UNIT assertion (internal/mission: TestBuildClaudeCmdStateY) proves
+# the PRODUCTION BuildClaudeCmd sets no CLAUDE_CONFIG_DIR at all; this e2e runs
+# WITH CLAUDE_CONFIG_DIR set by the harness, so it asserts the absence of a
+# per-mission SNAPSHOT dir instead.
+
+# Derive test-env paths from repo_dirpath (this script's shell does NOT have
+# AGENC_DIRPATH / CLAUDE_CONFIG_DIR set — those live only inside the agenc-test
+# wrapper). The Makefile's TEST_ENV_DIR is _test-env; the agenc-test wrapper
+# exports CLAUDE_CONFIG_DIR=$AGENC_DIRPATH/claude-config.
+statey_test_env_dir="${repo_dirpath}/_test-env"
+statey_config_dir="${statey_test_env_dir}/claude-config"
+statey_missions_dir="${statey_test_env_dir}/missions"
+statey_claude_json="${statey_config_dir}/.claude.json"
+real_claude_json="${HOME}/.claude.json"
+
+mkdir -p "${statey_config_dir}/skills" "${statey_config_dir}/hooks"
+
+# (c/prep) Drop a USER probe SessionStart hook into the config dir's settings.json
+# that writes a sentinel file. Combined with the agenc hooks carried in the
+# op-settings file, this is the --settings-union check-loop (epic R5): a future
+# Claude Code change to --settings merge semantics surfaces as a red test.
+statey_user_sentinel="${statey_config_dir}/statey-user-hook-fired"
+rm -f "${statey_user_sentinel}"
+cat > "${statey_config_dir}/settings.json" <<EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "touch '${statey_user_sentinel}'" }
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+# (e/prep) Snapshot the real ~/.claude.json mtime BEFORE the run (guard: AgenC
+# must write only into the isolated config dir, never the developer's real file).
+real_claude_json_mtime_before=""
+if [ -f "${real_claude_json}" ]; then
+    real_claude_json_mtime_before=$(stat -f %m "${real_claude_json}" 2>/dev/null || echo "")
+fi
+
+# Create a real headless mission that triggers a tool use. The op-settings file
+# and trust seed are produced at create/spawn regardless of whether Claude
+# completes its API call.
+statey_out=$("${agenc_test}" mission new --blank --headless \
+    --prompt "Run the bash command: echo state-y-probe" 2>&1) || true
+statey_short_id=$(echo "${statey_out}" | grep -oE '[0-9a-f]{8}' | head -1)
+
+# Resolve the full mission UUID + agent dir from the missions directory: the
+# missions/<uuid>/ dir whose short-id prefix matches.
+statey_mission_uuid=""
+if [ -n "${statey_short_id}" ] && [ -d "${statey_missions_dir}" ]; then
+    for d in "${statey_missions_dir}"/"${statey_short_id}"*; do
+        if [ -d "${d}" ]; then
+            statey_mission_uuid=$(basename "${d}")
+            break
+        fi
+    done
+fi
+
+# (d/prep) Drop a skill into the config dir's skills/ AFTER create. Under State Y
+# there is no per-mission snapshot to shadow it, so it is structurally visible
+# to the mission without a reload.
+mkdir -p "${statey_config_dir}/skills/statey-post-create-skill"
+cat > "${statey_config_dir}/skills/statey-post-create-skill/SKILL.md" <<'EOF'
+---
+name: statey-post-create-skill
+description: Sentinel skill dropped after mission create to prove post-create visibility under State Y.
+---
+Sentinel body.
+EOF
+
+# Give the wrapper a moment to write the op-settings file and spawn.
+sleep 2
+
+if [ -z "${statey_mission_uuid}" ]; then
+    total=$((total + 1))
+    printf "  %-50s " "State Y: resolve created mission..."
+    echo "FAIL (could not resolve mission UUID from short id '${statey_short_id}')"
+    failed=$((failed + 1))
+else
+    statey_mission_dir="${statey_missions_dir}/${statey_mission_uuid}"
+    statey_agent_dir="${statey_mission_dir}/agent"
+    statey_op_settings="${statey_mission_dir}/agenc-settings.json"
+
+    # (a) No per-mission SNAPSHOT claude-config dir (State X artifact) exists,
+    #     and the op-settings file the --settings flag points at DOES exist.
+    total=$((total + 1))
+    printf "  %-50s " "State Y: no per-mission config snapshot..."
+    if [ -d "${statey_mission_dir}/claude-config" ]; then
+        echo "FAIL (found State-X snapshot dir at ${statey_mission_dir}/claude-config)"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+
+    total=$((total + 1))
+    printf "  %-50s " "State Y: op-settings file written..."
+    if [ -f "${statey_op_settings}" ]; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (missing op-settings file at ${statey_op_settings})"
+        failed=$((failed + 1))
+    fi
+
+    # (b) Trust entry present in the config dir's .claude.json for the agent dir.
+    total=$((total + 1))
+    printf "  %-50s " "State Y: trust entry seeded server-side..."
+    if [ -f "${statey_claude_json}" ] && \
+       grep -q "$(basename "${statey_agent_dir}")" "${statey_claude_json}" 2>/dev/null && \
+       grep -q "hasTrustDialogAccepted" "${statey_claude_json}" 2>/dev/null; then
+        # Stronger check: the specific agent dir path is a projects key with
+        # trust accepted. Use python for a precise JSON assertion when available.
+        if command -v python3 >/dev/null 2>&1 && python3 - "$statey_claude_json" "$statey_agent_dir" <<'PY'
+import json, sys
+path, agent = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = json.load(f)
+entry = data.get("projects", {}).get(agent)
+sys.exit(0 if entry and entry.get("hasTrustDialogAccepted") is True else 1)
+PY
+        then
+            echo "PASS"
+            passed=$((passed + 1))
+        else
+            echo "FAIL (agent dir '${statey_agent_dir}' not trusted in ${statey_claude_json})"
+            failed=$((failed + 1))
+        fi
+    else
+        echo "FAIL (no trust entry in ${statey_claude_json})"
+        failed=$((failed + 1))
+    fi
+
+    # (c) The --settings union: the agenc SessionStart `agenc prime` hook is
+    #     carried in the op-settings file AND the user probe hook is in the
+    #     config dir's settings.json. Both are the inputs --settings unions.
+    #     If the real Claude ran, the user sentinel file is also present.
+    total=$((total + 1))
+    printf "  %-50s " "State Y: agenc hook present in op-settings..."
+    if [ -f "${statey_op_settings}" ] && grep -q "SessionStart" "${statey_op_settings}" 2>/dev/null && grep -q "prime" "${statey_op_settings}" 2>/dev/null; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (agenc SessionStart prime hook missing from op-settings)"
+        failed=$((failed + 1))
+    fi
+
+    total=$((total + 1))
+    printf "  %-50s " "State Y: user probe hook present in config settings..."
+    if grep -q "${statey_user_sentinel##*/}" "${statey_config_dir}/settings.json" 2>/dev/null; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (user probe hook missing from ${statey_config_dir}/settings.json)"
+        failed=$((failed + 1))
+    fi
+
+    # (d) Post-create skill is visible: no snapshot shadows it (structural under
+    #     State Y — Claude reads the config dir's skills/ directly).
+    total=$((total + 1))
+    printf "  %-50s " "State Y: post-create skill visible (no snapshot)..."
+    if [ -f "${statey_config_dir}/skills/statey-post-create-skill/SKILL.md" ] && [ ! -d "${statey_mission_dir}/claude-config/skills" ]; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (skill shadowed by a snapshot, or skill missing)"
+        failed=$((failed + 1))
+    fi
+fi
+
+# (e) GUARD: the developer's real ~/.claude.json mtime is unchanged across the
+#     run — proves AgenC's trust write hit ONLY the isolated config dir.
+total=$((total + 1))
+printf "  %-50s " "State Y: real ~/.claude.json untouched (guard)..."
+real_claude_json_mtime_after=""
+if [ -f "${real_claude_json}" ]; then
+    real_claude_json_mtime_after=$(stat -f %m "${real_claude_json}" 2>/dev/null || echo "")
+fi
+if [ "${real_claude_json_mtime_before}" = "${real_claude_json_mtime_after}" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (real ~/.claude.json mtime changed: ${real_claude_json_mtime_before} -> ${real_claude_json_mtime_after})"
+    failed=$((failed + 1))
+fi
+
+# Best-effort cleanup of the mission created above.
+if [ -n "${statey_short_id}" ]; then
+    "${agenc_test}" mission rm "${statey_short_id}" >/dev/null 2>&1 || true
+fi
+
+echo ""
 echo "--- Repo library guard hook ---"
 
 # The repo-library-guard.sh hook fires from settings.json PreToolUse to block

@@ -7,7 +7,6 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 
-	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 )
 
@@ -47,15 +46,29 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 // agent directory, the command is wrapped with `op run` to inject 1Password
 // secrets. Otherwise, Claude is invoked directly.
 //
-// The returned command has its working directory, environment variables
-// (CLAUDE_CONFIG_DIR, AGENC_MISSION_UUID, CLAUDE_CODE_OAUTH_TOKEN), set but
-// does NOT set stdin/stdout/stderr — callers should wire those as needed
-// (e.g. interactive mode connects to the terminal, headless mode uses pipes).
+// Under State Y (native passthrough) the command does NOT set CLAUDE_CONFIG_DIR
+// — Claude reads the user's real ~/.claude (or whatever CLAUDE_CONFIG_DIR the
+// surrounding environment already sets, e.g. the e2e harness). AgenC's
+// operational layer (hooks, prime, repo-library guard, agent-dir allow, server
+// socket) is delivered per-invocation via `claude --settings <op-settings file>`.
+// The OAuth token is injected only when a token file is present (machine-token
+// fallback); absent, Claude uses its native ~/.claude auth.
+//
+// The returned command has its working directory and environment variables
+// (AGENC_MISSION_UUID, conditionally CLAUDE_CODE_OAUTH_TOKEN) set but does NOT
+// set stdin/stdout/stderr — callers should wire those as needed (e.g.
+// interactive mode connects to the terminal, headless mode uses pipes).
 func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string, claudeArgs []string) (*exec.Cmd, error) {
 	var fullArgs []string
 	if model != "" {
 		fullArgs = append(fullArgs, "--model", model)
 	}
+	// Deliver AgenC's operational overlay (hooks, prime, guard, allow/deny,
+	// server socket) via --settings so it applies to every spawn shape
+	// (interactive, resume, headless). --settings unions with the user's own
+	// ~/.claude/settings.json rather than replacing it.
+	opSettingsFilepath := config.GetMissionOpSettingsFilepath(agencDirpath, missionID)
+	fullArgs = append(fullArgs, "--settings", opSettingsFilepath)
 	fullArgs = append(fullArgs, extraClaudeArgs...)
 	fullArgs = append(fullArgs, claudeArgs...)
 	claudeArgs = fullArgs
@@ -64,8 +77,6 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "'claude' binary not found in PATH")
 	}
-
-	claudeConfigDirpath := claudeconfig.GetMissionClaudeConfigDirpath(agencDirpath, missionID)
 
 	secretsEnvFilepath := filepath.Join(agentDirpath, config.UserClaudeDirname, config.SecretsEnvFilename)
 
@@ -93,26 +104,19 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 
 	cmd.Dir = agentDirpath
 	cmd.Env = append(os.Environ(),
-		"CLAUDE_CONFIG_DIR="+claudeConfigDirpath,
 		config.MissionUUIDEnvVar+"="+missionID,
 	)
 
-	// Read the OAuth token — callers must ensure it exists (via
-	// config.SetupOAuthToken) before entering the wrapper.
+	// Inject the machine OAuth token only when one is configured (the State-X
+	// fallback toggle). When absent, Claude uses its native ~/.claude auth —
+	// the default under State Y. An absent token is no longer an error.
 	oauthToken, err := config.ReadOAuthToken(agencDirpath)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to read OAuth token")
 	}
-	if oauthToken == "" {
-		return nil, stacktrace.NewError(
-			"no OAuth token configured\n\n" +
-				"To set up authentication:\n" +
-				"  1. Run: claude setup-token\n" +
-				"  2. Copy the token (starts with sk-ant-)\n" +
-				"  3. Run: agenc config set claudeCodeOAuthToken <token>",
-		)
+	if oauthToken != "" {
+		cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 	}
-	cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
 
 	return cmd, nil
 }

@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -20,7 +19,6 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
-	"github.com/odyssey/agenc/internal/server"
 )
 
 // testSetup creates a temporary agenc directory structure and database for testing.
@@ -553,167 +551,74 @@ func TestGetStatus(t *testing.T) {
 	}
 }
 
-// patchCall captures a recorded PATCH /missions/{id} request body.
-type patchCall struct {
-	id   string
-	body server.UpdateMissionRequest
-}
-
-// startStubServer launches a minimal HTTP server on a unix socket that records
-// PATCH /missions/{id} requests into the returned slice. Returns a cleanup
-// function the test must call.
-func startStubServer(t *testing.T, socketFilepath string) (*[]patchCall, *sync.Mutex, func()) {
-	t.Helper()
-
-	if err := os.MkdirAll(filepath.Dir(socketFilepath), 0755); err != nil {
-		t.Fatalf("failed to create server dir: %v", err)
-	}
-
-	calls := &[]patchCall{}
-	mu := &sync.Mutex{}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("PATCH /missions/{id}", func(w http.ResponseWriter, r *http.Request) {
-		var body server.UpdateMissionRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		mu.Lock()
-		*calls = append(*calls, patchCall{id: r.PathValue("id"), body: body})
-		mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"updated"}`))
-	})
-
-	listener, err := net.Listen("unix", socketFilepath)
-	if err != nil {
-		t.Fatalf("failed to listen on stub socket: %v", err)
-	}
-	srv := &http.Server{Handler: mux}
-	go func() { _ = srv.Serve(listener) }()
-
-	cleanup := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
-		_ = listener.Close()
-	}
-	return calls, mu, cleanup
-}
-
-// TestSpawnClaude_RebuildsConfigAndLogsCommit verifies that the wrapper's
-// per-spawn preamble (1) regenerates the per-mission claude-config from the
-// shadow repo, (2) updates the mission's config_commit on the server via
-// PATCH, and (3) logs the shadow commit hash. This locks in the behavior that
-// every Claude spawn picks up the latest shadow state.
-func TestSpawnClaude_RebuildsConfigAndLogsCommit(t *testing.T) {
+// TestSpawnClaude_WritesOpSettings verifies the wrapper's per-spawn preamble
+// under State Y (native passthrough): every spawn (re)writes the mission's
+// operational-settings file (`agenc-settings.json`) and its `agenc-hooks/`
+// guard script into the mission dir, so a reload regenerates the operational
+// overlay after a config change. It also confirms the preamble no longer builds
+// a per-mission claude-config snapshot (State X) — Claude reads the real
+// ~/.claude directly, and the operational layer is delivered via
+// `claude --settings <op-settings file>`.
+func TestSpawnClaude_WritesOpSettings(t *testing.T) {
 	setup := setupTest(t)
 	defer setup.cleanup()
 
-	// Override HOME so claudeconfig.* helpers (UserHomeDir, ~/.claude lookups)
-	// resolve to a controlled fake home, not the real user's $HOME.
-	fakeHome := filepath.Join(setup.agencDirpath, "fake-home")
-	if err := os.MkdirAll(fakeHome, 0755); err != nil {
-		t.Fatalf("failed to create fake home: %v", err)
+	// Put a fake `claude` on PATH so spawnClaudeDirectly can Start() a child
+	// without needing the real binary or hanging (the fake exits immediately;
+	// the wrapper only Start()s it here, it does not Wait()).
+	binDir := t.TempDir()
+	fakeClaude := filepath.Join(binDir, "claude")
+	if err := os.WriteFile(fakeClaude, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("failed to write fake claude binary: %v", err)
 	}
-	t.Setenv("HOME", fakeHome)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// Seed ~/.claude with a CLAUDE.md whose contents we can later assert on,
-	// plus a minimal .claude.json (required by copyAndPatchClaudeJSON).
-	userClaudeDir := filepath.Join(fakeHome, ".claude")
-	if err := os.MkdirAll(userClaudeDir, 0755); err != nil {
-		t.Fatalf("failed to create fake ~/.claude: %v", err)
-	}
-	const userClaudeMdContent = "# User CLAUDE.md\n\nSentinel-content-for-rebuild-test\n"
-	if err := os.WriteFile(filepath.Join(userClaudeDir, "CLAUDE.md"), []byte(userClaudeMdContent), 0644); err != nil {
-		t.Fatalf("failed to write fake ~/.claude/CLAUDE.md: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(userClaudeDir, ".claude.json"), []byte(`{"projects":{}}`), 0644); err != nil {
-		t.Fatalf("failed to write fake ~/.claude/.claude.json: %v", err)
-	}
-
-	// Bootstrap the shadow repo so it has the commit our wrapper preamble
-	// will read via GetShadowRepoCommitHash.
-	if err := claudeconfig.EnsureShadowRepo(setup.agencDirpath); err != nil {
-		t.Fatalf("failed to bootstrap shadow repo: %v", err)
-	}
-	expectedCommit := claudeconfig.GetShadowRepoCommitHash(setup.agencDirpath)
-	if expectedCommit == "" {
-		t.Fatal("shadow repo has no commit after EnsureShadowRepo — test setup is wrong")
-	}
-
-	// The mission directory was created by setupTest under <agenc>/m/<short-id>/agent,
-	// but BuildMissionConfigDir resolves the mission dir via GetMissionDirpath
-	// (<agenc>/missions/<full-id>). Create that directory tree so BuildMissionConfigDir
-	// can write claude-config into it.
-	missionDirpath := config.GetMissionDirpath(setup.agencDirpath, setup.missionID)
+	// The mission agent dir must exist for the op-settings write and the child
+	// spawn (which sets cmd.Dir to the agent dir).
 	missionAgentDirpath := config.GetMissionAgentDirpath(setup.agencDirpath, setup.missionID)
 	if err := os.MkdirAll(missionAgentDirpath, 0755); err != nil {
 		t.Fatalf("failed to create mission agent dir: %v", err)
 	}
 
-	// Stand up a stub server on the unix socket that the wrapper's client
-	// connects to. The stub records PATCH /missions/{id} so we can verify
-	// rebuildClaudeConfig calls UpdateMission with the right commit hash.
-	stubSocketFilepath := config.GetServerSocketFilepath(setup.agencDirpath)
-	calls, callsMu, stopStub := startStubServer(t, stubSocketFilepath)
-	defer stopStub()
-
-	// Build the wrapper. Use a buffered slog handler so we can assert on
-	// the structured log line emitted after a successful rebuild.
-	var logBuf bytes.Buffer
-	logHandler := slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})
 	w := NewWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", "")
-	w.logger = slog.New(logHandler)
-	// Re-point the client at the stub socket. NewWrapper already constructed one
-	// pointed at the same path, but we re-initialize for clarity.
-	w.client = server.NewClient(stubSocketFilepath)
+	w.logger = slog.Default()
 
-	if err := w.rebuildClaudeConfig(); err != nil {
-		t.Fatalf("rebuildClaudeConfig returned error: %v", err)
+	if err := w.spawnClaude(false); err != nil {
+		t.Fatalf("spawnClaude returned error: %v", err)
+	}
+	// Reap the fake child so it does not linger as a zombie.
+	if w.claudeCmd != nil {
+		_ = w.claudeCmd.Wait()
 	}
 
-	// Assertion 1: claude-config/CLAUDE.md exists and contains the user content.
-	builtClaudeMdPath := filepath.Join(missionDirpath, claudeconfig.MissionClaudeConfigDirname, "CLAUDE.md")
-	builtData, err := os.ReadFile(builtClaudeMdPath)
+	// Assertion 1: the operational-settings file was written into the mission dir.
+	opSettingsPath := config.GetMissionOpSettingsFilepath(setup.agencDirpath, setup.missionID)
+	opData, err := os.ReadFile(opSettingsPath)
 	if err != nil {
-		t.Fatalf("expected claude-config/CLAUDE.md to exist at %s: %v", builtClaudeMdPath, err)
+		t.Fatalf("expected op-settings file at %s: %v", opSettingsPath, err)
 	}
-	if !strings.Contains(string(builtData), "Sentinel-content-for-rebuild-test") {
-		t.Errorf("expected built CLAUDE.md to contain user sentinel content, got:\n%s", string(builtData))
-	}
-
-	// Assertion 2: stub server saw exactly one PATCH for our mission with the
-	// shadow commit hash in ConfigCommit.
-	callsMu.Lock()
-	recorded := append([]patchCall(nil), (*calls)...)
-	callsMu.Unlock()
-	if len(recorded) != 1 {
-		t.Fatalf("expected exactly 1 PATCH /missions/{id} call, got %d: %+v", len(recorded), recorded)
-	}
-	if recorded[0].id != setup.missionID {
-		t.Errorf("expected PATCH for mission %q, got %q", setup.missionID, recorded[0].id)
-	}
-	if recorded[0].body.ConfigCommit == nil {
-		t.Fatal("expected ConfigCommit pointer to be non-nil")
-	}
-	if *recorded[0].body.ConfigCommit != expectedCommit {
-		t.Errorf("expected ConfigCommit=%q, got %q", expectedCommit, *recorded[0].body.ConfigCommit)
+	// It must carry AgenC's operational overlay: hooks + permissions.
+	for _, key := range []string{`"hooks"`, `"permissions"`} {
+		if !strings.Contains(string(opData), key) {
+			t.Errorf("expected op-settings to contain %s, got:\n%s", key, string(opData))
+		}
 	}
 
-	// Assertion 3: an Info-level log entry was emitted carrying the shadow
-	// commit. We assert on the JSON structure to avoid coupling to format.
-	logOut := logBuf.String()
-	if !strings.Contains(logOut, `"shadow_commit"`) {
-		t.Errorf("expected log output to contain shadow_commit key, got:\n%s", logOut)
+	// Assertion 2: the AgenC hook-scripts dir was written under the mission dir.
+	hooksDirpath := config.GetMissionAgencHooksDirpath(setup.agencDirpath, setup.missionID)
+	if _, statErr := os.Stat(hooksDirpath); statErr != nil {
+		t.Errorf("expected agenc-hooks dir at %s: %v", hooksDirpath, statErr)
 	}
-	// The hash is logged short (first 12 chars) — verify by prefix.
-	shortHash := expectedCommit
-	if len(shortHash) > 12 {
-		shortHash = shortHash[:12]
+
+	// Assertion 3: NO per-mission claude-config snapshot was built (State X gone).
+	missionDirpath := config.GetMissionDirpath(setup.agencDirpath, setup.missionID)
+	snapshotDirpath := filepath.Join(missionDirpath, claudeconfig.MissionClaudeConfigDirname)
+	if _, statErr := os.Stat(snapshotDirpath); statErr == nil {
+		t.Errorf("expected NO per-mission claude-config snapshot under State Y, but %s exists", snapshotDirpath)
 	}
-	if !strings.Contains(logOut, shortHash) {
-		t.Errorf("expected log output to contain shadow commit prefix %q, got:\n%s", shortHash, logOut)
+
+	// Assertion 4: the child command was constructed.
+	if w.claudeCmd == nil {
+		t.Error("expected spawnClaude to set w.claudeCmd, got nil")
 	}
 }
