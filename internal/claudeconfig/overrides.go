@@ -38,8 +38,8 @@ var agencHookEventNames = []string{
 // staticAgencHookEntries holds the host-mission state-tracking hook entries
 // (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure) that
 // don't depend on any per-mission path. The PreToolUse repo-library guard,
-// which does depend on the per-mission claude-config path, is added by
-// BuildAgencHookEntries.
+// which does depend on the per-mission mission-dir path (for the agenc-hooks/
+// guard script location), is added by BuildAgencHookEntries.
 var staticAgencHookEntries map[string]json.RawMessage
 
 func init() {

@@ -177,7 +177,7 @@ agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=github,s
 agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=""
 ```
 
-**How it works:** When a mission is created, AgenC checks the repo's `trustedMcpServers` config and writes the appropriate consent entries into the mission's `.claude.json`. The trust setting applies to all **new** missions immediately. Existing running missions pick up the new trust setting on their next reload — the wrapper rebuilds the per-mission config directory from an internal staging copy on every Claude spawn, so no separate reconfig step is required.
+**How it works:** When a mission is created, AgenC writes the appropriate consent entries directly into the real `~/.claude.json` (server-side, under a mutex). The trust setting applies to all **new** missions immediately. Existing running missions pick up the new trust setting on their next reload — on server startup, AgenC runs a boot-time reconcile pass that seeds trust entries for all existing missions, so no manual reconfig step is required.
 
 **Repo name format:** Always use the canonical form `github.com/owner/repo`. You can check existing repos with `agenc repo ls`.
 

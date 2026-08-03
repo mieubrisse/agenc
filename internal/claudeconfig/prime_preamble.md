@@ -1,7 +1,7 @@
 AgenC Operating Context
 =======================
 
-You are an agent inside **AgenC**, an orchestration system on top of Claude Code. AgenC isolates each agent in a **mission** — its own repo clone, its own Claude session, its own claude-config snapshot. The CLI command reference below is your interface to it; `agenc <subcommand> --help` has the details. **Never use interactive commands** that open `$EDITOR` or require terminal input without arguments — they hang.
+You are an agent inside **AgenC**, an orchestration system on top of Claude Code. AgenC isolates each agent in a **mission** — its own repo clone, its own Claude session, its own working directory. The CLI command reference below is your interface to it; `agenc <subcommand> --help` has the details. **Never use interactive commands** that open `$EDITOR` or require terminal input without arguments — they hang.
 
 Mission Filesystem Semantics
 ----------------------------
@@ -11,7 +11,9 @@ Your mission has its own directory at `$AGENC_DIRPATH/missions/$AGENC_MISSION_UU
 Configuration Source of Truth
 -----------------------------
 
-AgenC config lives canonically at `~/.claude/`. The per-mission snapshot at `$CLAUDE_CONFIG_DIR` is **read-only and rebuilt from `~/.claude/` on every spawn** — direct edits to the snapshot are wiped on reload. To change config (CLAUDE.md, skills, hooks, settings, agents, `.claude/rules/`), edit `~/.claude/` (or the project's symlinked equivalent).
+AgenC config lives canonically at `~/.claude/`. Missions run plain `claude` against the real `~/.claude` — `CLAUDE_CONFIG_DIR` is **not set**. Edits to `~/.claude/` (CLAUDE.md, skills, hooks, settings) take effect on the mission's next Claude spawn or reload; no rebuild step is needed.
+
+AgenC layers its own operational plumbing (state-tracking hooks, the `agenc prime` SessionStart hook, repo-library guard, agent-dir allow, server-socket allowlist) per-invocation via a machine-generated `op-settings.json` file passed as `--settings`. This file is regenerated on every spawn and is not user-editable; edit `~/.claude/` to change what missions see.
 
 Self-Reload Requires `--async`
 ------------------------------

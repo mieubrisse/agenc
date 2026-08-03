@@ -19,23 +19,6 @@ const (
 	MissionClaudeConfigDirname = "claude-config"
 )
 
-// GetMissionClaudeConfigDirpath returns the per-mission claude config directory
-// if it exists, otherwise falls back to the global claude config directory.
-// This provides backward compatibility for missions created before per-mission
-// config was implemented.
-func GetMissionClaudeConfigDirpath(agencDirpath string, missionID string) string {
-	missionConfigDirpath := filepath.Join(
-		config.GetMissionDirpath(agencDirpath, missionID),
-		MissionClaudeConfigDirname,
-	)
-
-	if _, err := os.Stat(missionConfigDirpath); err == nil {
-		return missionConfigDirpath
-	}
-
-	return config.GetGlobalClaudeDirpath(agencDirpath)
-}
-
 // WriteAgencHookScripts writes the AgenC-managed hook scripts into the
 // given directory. Under State Y, the base directory is the mission dir
 // (not a per-mission claude-config snapshot).

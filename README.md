@@ -422,7 +422,7 @@ The **server** is a background process that keeps the factory running smoothly. 
 1. **Repo sync** (every 60 seconds) — Fetches and fast-forwards repos in the shared library so new missions clone from fresh code without needing to run a slow `git clone`
 2. **Config auto-commit** (every 10 minutes) — If your `$AGENC_DIRPATH/config/` is a Git repo, the server auto-commits and pushes changes to Github so your config stays version-controlled
 <!-- 3. **Cron scheduler** (every 60 seconds) — Spawns headless missions on schedule for recurring tasks -->
-4. **Config watcher** (on file change) — Watches `~/.claude` and mirrors changes to a shadow repo so missions can inherit your latest config
+4. **Config watcher** (on file change) — Watches `config.yml` for changes and applies them without a server restart (e.g., enabling or disabling cron jobs)
 5. **Keybindings writer** (every 5 minutes) — Regenerates tmux keybindings to pick up any palette command changes
 
 The server starts automatically when you run most `agenc` commands. If it crashes, just restart it with `agenc server stop` then `agenc server start` - running missions are unaffected.

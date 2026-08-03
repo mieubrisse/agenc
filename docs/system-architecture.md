@@ -363,14 +363,14 @@ Repo library operations and resolution logic. Used by the server for repo API en
 
 Mission lifecycle: directory creation, repo copying, and Claude process spawning.
 
-- `mission.go` — `CreateMissionDir` (sets up mission directory, copies git repo, builds per-mission config), `SpawnClaude`/`SpawnClaudeWithPrompt`/`SpawnClaudeResume` (construct and start Claude `exec.Cmd` with 1Password integration, environment variables, and `--model` flag when a `defaultModel` is configured)
+- `mission.go` — `CreateMissionDir` (sets up mission directory, copies git repo), `SpawnClaude`/`SpawnClaudeWithPrompt`/`SpawnClaudeResume` (construct and start Claude `exec.Cmd` with 1Password integration, environment variables, and `--model` flag when a `defaultModel` is configured)
 - `repo.go` — git repository operations: `CopyRepo`/`CopyAgentDir` (rsync-based), `ForceUpdateRepo` (fetch + reset to remote default branch), `ParseRepoReference`/`ParseGitHubRemoteURL` (handle shorthand, canonical, SSH, and HTTPS URL formats), `EnsureRepoClone`, `DetectPreferredProtocol` (infers SSH vs HTTPS from existing repos)
 
 ### `internal/claudeconfig/`
 
 Claude configuration building.
 
-- `build.go` — `WriteAgencHookScripts` (writes the embedded repo-library guard hook script to disk), `GetMissionClaudeConfigDirpath` (backward-compatibility: falls back to global config when no per-mission snapshot exists), `GetLastSessionID` (scans the mission's project directory for the most-recently-modified JSONL session file), `GetMissionProjectDirpath`, `ComputeProjectDirpath`, `ProjectDirectoryExists`.
+- `build.go` — `WriteAgencHookScripts` (writes the embedded repo-library guard hook script to disk), `GetLastSessionID` (scans the mission's project directory for the most-recently-modified JSONL session file), `GetMissionProjectDirpath`, `ComputeProjectDirpath`, `ProjectDirectoryExists`.
 - `merge.go` — `mergeAgencSandbox` (adds the AgenC server socket to `allowUnixSockets` in the settings sandbox block; used by `BuildOperationalSettings`).
 - `overrides.go` — `BuildAgencHookEntries` builds the hook entry map: state-tracking hooks (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure for idle detection and tmux pane color updates via socket), a SessionStart hook that injects the `agenc prime` routing index on every fresh spawn via the `agenc` CLI, and a PreToolUse repo-library guard. Also `BuildAgentDirAllowEntries`, `AgencRepoLibraryWriteTools`, `BuildRepoLibraryDenyEntries`, and `buildRepoLibraryGuardHookEntry`.
 - `operational_settings.go` — `BuildOperationalSettings` assembles a standalone `settings.json` carrying only AgenC operational plumbing (hooks, allow/deny permissions, sandbox socket allowlist) for delivery to Claude via `--settings`. Does not merge user settings and does not rewrite paths — `--settings` unions with the user's `~/.claude/settings.json`.
