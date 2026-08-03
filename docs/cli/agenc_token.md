@@ -1,6 +1,6 @@
 ## agenc token
 
-Manage the AgenC OAuth token (State-X fallback for headless/multi-session use)
+Manage the long-lived OAuth token (opt-in fallback for headless or multi-session use)
 
 ### Synopsis
 

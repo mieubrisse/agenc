@@ -23,5 +23,5 @@ agenc token clear [flags]
 
 ### SEE ALSO
 
-* [agenc token](agenc_token.md)	 - Manage the AgenC OAuth token (State-X fallback for headless/multi-session use)
+* [agenc token](agenc_token.md)	 - Manage the long-lived OAuth token (opt-in fallback for headless or multi-session use)
 

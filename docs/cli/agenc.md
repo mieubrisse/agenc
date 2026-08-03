@@ -28,6 +28,6 @@ The AgenC — agent mission management CLI
 * [agenc stash](agenc_stash.md)	 - Snapshot and restore running missions
 * [agenc summary](agenc_summary.md)	 - Show a daily summary of AgenC activity
 * [agenc tmux](agenc_tmux.md)	 - Manage the AgenC tmux session
-* [agenc token](agenc_token.md)	 - Manage the AgenC OAuth token (State-X fallback for headless/multi-session use)
+* [agenc token](agenc_token.md)	 - Manage the long-lived OAuth token (opt-in fallback for headless or multi-session use)
 * [agenc version](agenc_version.md)	 - Print the agenc version
 

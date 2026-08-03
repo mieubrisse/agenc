@@ -15,9 +15,27 @@ import (
 // next to the user-facing command that needs it.
 const tokenCmdOAuthPrefix = "sk-ant-"
 
+// validateOAuthToken is the single source of truth for token-shape validation.
+// It rejects empty tokens and tokens without the expected prefix. Both
+// runTokenSet and its tests call this function so the tests exercise the real
+// production validation rather than a reimplementation.
+func validateOAuthToken(token string) error {
+	if token == "" {
+		return stacktrace.NewError("token cannot be empty; use 'agenc token clear' to remove the token")
+	}
+	if !strings.HasPrefix(token, tokenCmdOAuthPrefix) {
+		return stacktrace.NewError(
+			"token does not look valid — expected a value starting with %q\n"+
+				"Run 'agenc token setup' for an interactive setup wizard, or 'claude auth login' for native auth",
+			tokenCmdOAuthPrefix,
+		)
+	}
+	return nil
+}
+
 var tokenCmd = &cobra.Command{
 	Use:   tokenCmdStr,
-	Short: "Manage the AgenC OAuth token (State-X fallback for headless/multi-session use)",
+	Short: "Manage the long-lived OAuth token (opt-in fallback for headless or multi-session use)",
 	Long: `Manage the AgenC OAuth token.
 
 AgenC missions default to using your native Claude Code authentication
@@ -98,15 +116,8 @@ func runTokenSet(cmd *cobra.Command, args []string) error {
 	}
 
 	token := strings.TrimSpace(args[0])
-	if token == "" {
-		return stacktrace.NewError("token cannot be empty; use 'agenc token clear' to remove the token")
-	}
-	if !strings.HasPrefix(token, tokenCmdOAuthPrefix) {
-		return stacktrace.NewError(
-			"token does not look valid — expected a value starting with %q\n"+
-				"Run 'agenc token setup' for an interactive setup wizard, or 'claude auth login' for native auth",
-			tokenCmdOAuthPrefix,
-		)
+	if err := validateOAuthToken(token); err != nil {
+		return err
 	}
 
 	if err := config.WriteOAuthToken(agencDirpath, token); err != nil {
