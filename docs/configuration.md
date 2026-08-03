@@ -251,7 +251,7 @@ The `$AGENC_DIRPATH/config/` directory can be a Git repository. When it is, the 
 2026-02-04T15:30:00Z agenc auto-commit
 ```
 
-This keeps your agenc configuration version-controlled without manual effort. Changes to `config.yml`, `claude-modifications/`, or any other files in the config directory are captured automatically.
+This keeps your agenc configuration version-controlled without manual effort. Changes to `config.yml` or any other files in the config directory are captured automatically.
 
 The push step is skipped if the repository has no `origin` remote — so a purely local Git repo (e.g. `git init` with no remote) will still get periodic commits for local history without push errors.
 

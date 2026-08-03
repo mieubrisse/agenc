@@ -181,35 +181,12 @@ agenc config repoConfig set github.com/owner/repo --trusted-mcp-servers=""
 
 **Repo name format:** Always use the canonical form `github.com/owner/repo`. You can check existing repos with `agenc repo ls`.
 
-AgenC-Specific Claude Instructions and Settings
-------------------------------------------------
+Claude Instructions and Settings
+--------------------------------
 
-AgenC maintains its own CLAUDE.md and settings.json that get merged into every mission's Claude config. These are separate from the user's `~/.claude/` config — they apply only within AgenC missions.
+Missions read the user's real `~/.claude/CLAUDE.md` and `~/.claude/settings.json` natively — there is no separate AgenC override layer. To change the Claude config that missions see, edit those files under `~/.claude/` directly.
 
-- **CLAUDE.md** — instructions appended after the user's `~/.claude/CLAUDE.md`
-- **settings.json** — settings deep-merged over the user's `~/.claude/settings.json` (objects merge recursively, arrays concatenate, scalars from this file win)
-
-**Reading and writing these files:**
-
-```bash
-# Read the current CLAUDE.md (prints content hash + content)
-agenc config claude-md get
-
-# Update CLAUDE.md (reads new content from stdin, requires content hash)
-echo "New instructions here" | agenc config claude-md set --content-hash=<hash-from-get>
-
-# Read the current settings.json
-agenc config settings-json get
-
-# Update settings.json (must be valid JSON)
-echo '{"permissions":{"allow":["Bash(npm:*)"]}}' | agenc config settings-json set --content-hash=<hash-from-get>
-```
-
-**Content hash flow:** The `get` command returns a `Content-Hash` header. The `set` command requires `--content-hash` matching the version you last read. If the file was modified by another agent since your read, the update is rejected and you must re-read before retrying.
-
-**When changes take effect:** New missions pick up changes automatically. Running missions pick up changes on their next reload — the wrapper rebuilds the per-mission `claude-config/` directory from an internal staging copy on every Claude spawn. To apply a change to a running mission immediately, ask the user to reload it (or, if the agent is reloading itself in response to a config change, run `agenc mission reload --async --prompt "<continuation>"`).
-
-**Do NOT edit the underlying files directly** — always use the `agenc config claude-md` and `agenc config settings-json` commands.
+AgenC still layers its own operational plumbing (hooks, permissions, sandbox socket allowlist) on top per-invocation via a generated operational-settings file passed as `--settings` on each Claude spawn — but that file is machine-generated and not user-editable.
 
 Sandbox Rules
 -------------
@@ -231,7 +208,6 @@ What You Help With
 - Creating, listing, inspecting, resuming, stopping, and removing missions
 - Managing the repo library (add, list, remove)
 - Configuring AgenC (`config.yml` settings, palette commands, cron jobs, per-repo config)
-- Managing AgenC-specific Claude instructions and settings (`agenc config claude-md`, `agenc config settings-json`)
 - Troubleshooting server issues (status, start, stop)
 - Managing tmux session and keybindings
 - Explaining how AgenC works and suggesting workflows
