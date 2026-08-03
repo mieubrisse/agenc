@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// AgencHooksDirname is the per-mission claude-config subdirectory that holds
-// AgenC-managed hook scripts (separate from the user's `hooks/` dir, which is
-// copied verbatim from the shadow repo).
+// AgencHooksDirname is the per-mission directory that holds AgenC-managed hook
+// scripts (separate from the user's `hooks/` directory in ~/.claude, which
+// reaches the mission natively via passthrough).
 const AgencHooksDirname = "agenc-hooks"
 
 // RepoLibraryGuardScriptName is the filename of the PreToolUse hook script
