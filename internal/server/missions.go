@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
@@ -384,10 +383,6 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 	if req.SourceMetadata != "" {
 		createParams.SourceMetadata = &req.SourceMetadata
 	}
-	if commitHash := claudeconfig.GetShadowRepoCommitHash(s.agencDirpath); commitHash != "" {
-		createParams.ConfigCommit = &commitHash
-	}
-
 	// Handle clone-from request
 	if req.CloneFrom != "" {
 		return s.handleCreateClonedMission(w, req, createParams)

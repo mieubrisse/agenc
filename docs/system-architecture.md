@@ -124,10 +124,8 @@ The server runs eleven concurrent background goroutines:
 - If `$AGENC_DIRPATH/config/` is a Git repo with uncommitted changes: stages all, commits with timestamp message, pushes (if `origin` remote exists)
 
 **3. Config watcher loop** (`internal/server/config_watcher.go`)
-- Initializes the shadow repo on first run, then watches both `~/.claude` and `config.yml` for changes via fsnotify
-- On `~/.claude` changes (debounced), ingests tracked files into the shadow repo (see "Shadow repo" under Key Architectural Patterns)
-- On `config.yml` changes (debounced), triggers cron sync to launchd plists
-- Watches both the `~/.claude` directory and all tracked subdirectories, resolving symlinks to watch actual targets
+- Watches `config.yml` for changes via fsnotify
+- On `config.yml` changes (debounced), re-reads the config, updates the cached `AgencConfig` via `atomic.Pointer`, triggers cron sync to launchd plists, and reconciles writeable-copy watchers
 
 **4. Keybindings writer loop** (`internal/server/keybindings_writer.go`)
 - Writes the tmux keybindings file on startup and on a fixed interval
@@ -282,7 +280,7 @@ Directory Structure
 │   ├── config/                   # Path management, YAML config
 │   ├── database/                 # SQLite CRUD
 │   ├── mission/                  # Mission lifecycle, Claude spawning
-│   ├── claudeconfig/             # Claude configuration building, shadow repo
+│   ├── claudeconfig/             # Claude configuration building
 │   ├── server/                   # HTTP API server (unix socket)
 │   ├── tmux/                     # Tmux keybindings generation
 │   ├── wrapper/                  # Claude child process management
@@ -313,15 +311,7 @@ $AGENC_DIRPATH/
 │       ├── CLAUDE.md                      # Appended to user's CLAUDE.md during merge
 │       └── settings.json                  # Deep-merged with user's settings.json
 │
-├── claude-config-shadow/                  # Shadow repo tracking ~/.claude config
-│   ├── .git/                              # Local-only Git repo (auto-committed)
-│   ├── CLAUDE.md                          # Normalized copy of ~/.claude/CLAUDE.md
-│   ├── settings.json                      # Normalized copy of ~/.claude/settings.json
-│   ├── skills/                            # Normalized copy of ~/.claude/skills/
-│   ├── hooks/                             # Normalized copy of ~/.claude/hooks/
-│   ├── commands/                          # Normalized copy of ~/.claude/commands/
-│   └── agents/                            # Normalized copy of ~/.claude/agents/
-│
+
 ├── repos/                                 # Shared repo library (server syncs these)
 │   └── github.com/owner/repo/            # One clone per repo
 │
@@ -382,9 +372,9 @@ Mission lifecycle: directory creation, repo copying, and Claude process spawning
 
 ### `internal/claudeconfig/`
 
-Claude configuration building and shadow repo management.
+Claude configuration building.
 
-- `build.go` — `WriteAgencHookScripts` (writes the embedded repo-library guard hook script to disk), `GetMissionClaudeConfigDirpath` (backward-compatibility: falls back to global config when no per-mission snapshot exists), `GetLastSessionID` (scans the mission's project directory for the most-recently-modified JSONL session file), `ResolveConfigCommitHash`, `CountCommitsBehind`, `EnsureShadowRepo`, `GetShadowRepoCommitHash`, `GetMissionProjectDirpath`, `ComputeProjectDirpath`, `ProjectDirectoryExists`.
+- `build.go` — `WriteAgencHookScripts` (writes the embedded repo-library guard hook script to disk), `GetMissionClaudeConfigDirpath` (backward-compatibility: falls back to global config when no per-mission snapshot exists), `GetLastSessionID` (scans the mission's project directory for the most-recently-modified JSONL session file), `GetMissionProjectDirpath`, `ComputeProjectDirpath`, `ProjectDirectoryExists`.
 - `merge.go` — `mergeAgencSandbox` (adds the AgenC server socket to `allowUnixSockets` in the settings sandbox block; used by `BuildOperationalSettings`).
 - `overrides.go` — `BuildAgencHookEntries` builds the hook entry map: state-tracking hooks (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure for idle detection and tmux pane color updates via socket), a SessionStart hook that injects the `agenc prime` routing index on every fresh spawn via the `agenc` CLI, and a PreToolUse repo-library guard. Also `BuildAgentDirAllowEntries`, `AgencRepoLibraryWriteTools`, `BuildRepoLibraryDenyEntries`, and `buildRepoLibraryGuardHookEntry`.
 - `operational_settings.go` — `BuildOperationalSettings` assembles a standalone `settings.json` carrying only AgenC operational plumbing (hooks, allow/deny permissions, sandbox socket allowlist) for delivery to Claude via `--settings`. Does not merge user settings and does not rewrite paths — `--settings` unions with the user's `~/.claude/settings.json`.
@@ -394,8 +384,6 @@ Claude configuration building and shadow repo management.
 - `prime_postamble.md` — hand-written Repo Formats reference appended after the Cobra-generated middle. Same prompt-discipline rule applies.
 - `adjutant.go` — adjutant mission config builders: `buildAdjutantClaudeMd` (appends adjutant instructions), `buildAdjutantSettings` (injects adjutant permissions), `BuildAdjutantAllowEntries`/`BuildAdjutantDenyEntries` (permission entry generators)
 - `adjutant_claude.md` — embedded CLAUDE.md instructions for adjutant missions (tells the agent it is the Adjutant, directs CLI usage, establishes filesystem access boundaries)
-- `shadow.go` — shadow repo for tracking the user's `~/.claude` config (see "Shadow repo" under Key Architectural Patterns)
-
 ### `internal/server/`
 
 HTTP API server that listens on a unix socket. Serves mission lifecycle endpoints and runs background maintenance loops.
@@ -412,7 +400,7 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `handle_crons.go` — cron CRUD endpoints (`GET /crons` list, `POST /crons` create with sleepGuard, `PATCH /crons/{name}` update, `DELETE /crons/{name}` remove). All mutations acquire the config lock, read-modify-write config.yml, update cachedConfig, and trigger cron sync to launchd
 - `handle_cron_logs.go` — cron log endpoint (`GET /crons/{id}/logs`)
 - `cron_syncer.go` — cron syncer: synchronizes `config.yml` cron jobs to macOS launchd plists in `~/Library/LaunchAgents/`, reconciles orphaned plists on startup, skips writes and reloads when plist content is unchanged
-- `config_watcher.go` — config watcher loop (fsnotify on `~/.claude` and `config.yml`, debounced, ingests into shadow repo, updates cached `AgencConfig` via `atomic.Pointer`, and triggers cron sync)
+- `config_watcher.go` — config watcher loop (fsnotify on `config.yml`, debounced, updates cached `AgencConfig` via `atomic.Pointer`, triggers cron sync to launchd plists, and reconciles writeable-copy watchers)
 - `keybindings_writer.go` — keybindings writer loop (writes and sources tmux keybindings file on a fixed interval)
 - `session_scanner.go` — file watcher loop (3-second interval, discovers JSONL files via tmux pool + backfills NULL file sizes, updates `known_file_size`) plus shared scan helpers used by the custom-title and auto-summary loops: `scanJSONLForCustomTitle` (reads new bytes for `custom-title` metadata) and `scanJSONLForFirstUserMessage` (early-returns on the first user-role string-content line, skipping array-content tool-result / multimodal lines)
 - `custom_title_loop.go` — custom-title loop (3-second interval; atomically writes `custom_title` and advances `last_custom_title_scan_offset` together; triggers tmux title reconciliation when the title changes)
@@ -487,18 +475,6 @@ The trust write is server-side (`internal/server/trust.go`), keyed on the missio
 - **Boot-time reconcile** — on server startup, `reconcileMissionTrust` seeds an entry for every existing mission's agent dir (migrating in-flight missions created before the flip) and prunes stale entries under the missions directory whose mission no longer exists. This is both the migration pass and the trust-drift check-loop.
 
 All three paths serialize on a single `Server.claudeJSONMu` mutex and write atomically (temp file + rename in the same directory), with a bounded verify-retry loop to survive Claude's own lock-free writes to the same file. AgenC only ever touches the specific `projects[...]` keys for its missions; all other content is preserved byte-for-byte.
-
-### Shadow repo
-
-`~/.claude/` is the canonical home of global Claude config. The shadow repo (`internal/claudeconfig/shadow.go`) is a server-owned snapshot of that config at `$AGENC_DIRPATH/claude-config-shadow/`, kept in lockstep with `~/.claude/` by the server's config watcher. It provides version history for Claude config changes without modifying the user's `~/.claude` directory.
-
-**Tracked items:**
-- Files: `CLAUDE.md`, `settings.json`
-- Directories: `skills/`, `hooks/`, `commands/`, `agents/`
-
-**Storage:** Files are stored verbatim — no path transformation on ingest. The shadow repo is a faithful copy of `~/.claude` tracked items.
-
-**Workflow:** The server's config watcher loop (`internal/server/config_watcher.go`) owns shadow-repo ingestion. It initializes the shadow repo on server startup and runs an fsnotify watcher on `~/.claude/`; on every change (debounced) it ingests tracked items into the shadow repo as-is and auto-commits if anything changed. Commits are authored as `AgenC <agenc@local>`.
 
 ### Idle detection via socket
 

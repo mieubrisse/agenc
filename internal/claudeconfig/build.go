@@ -1,10 +1,8 @@
 package claudeconfig
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -20,42 +18,6 @@ const (
 	// the const is retained for tests that assert its absence.
 	MissionClaudeConfigDirname = "claude-config"
 )
-
-// EnsureShadowRepo ensures the shadow repo is initialized. If it doesn't
-// exist, creates it and ingests tracked files from ~/.claude.
-func EnsureShadowRepo(agencDirpath string) error {
-	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
-
-	// Check if already initialized
-	gitDirpath := filepath.Join(shadowDirpath, ".git")
-	if _, err := os.Stat(gitDirpath); err == nil {
-		return nil
-	}
-
-	// Initialize shadow repo
-	if _, err := InitShadowRepo(agencDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to initialize shadow repo")
-	}
-
-	// Ingest from ~/.claude
-	userClaudeDirpath, err := config.GetUserClaudeDirpath()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to determine ~/.claude path")
-	}
-
-	if err := IngestFromClaudeDir(userClaudeDirpath, shadowDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to ingest from ~/.claude into shadow repo")
-	}
-
-	return nil
-}
-
-// GetShadowRepoCommitHash returns the HEAD commit hash from the shadow repo.
-// Returns empty string if the shadow repo doesn't exist or has no commits.
-func GetShadowRepoCommitHash(agencDirpath string) string {
-	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
-	return ResolveConfigCommitHash(shadowDirpath)
-}
 
 // GetMissionClaudeConfigDirpath returns the per-mission claude config directory
 // if it exists, otherwise falls back to the global claude config directory.
@@ -89,58 +51,6 @@ func WriteAgencHookScripts(claudeConfigDirpath string) error {
 	}
 
 	return nil
-}
-
-// CountCommitsBehind returns the number of commits between missionCommitHash
-// and HEAD in the shadow repo. Returns 0 if the hashes are equal or if the
-// shadow repo has no commits. Returns -1 if the mission commit is not found
-// in the shadow repo (e.g., after repo recreation).
-func CountCommitsBehind(agencDirpath string, missionCommitHash string, headCommitHash string) int {
-	if missionCommitHash == headCommitHash {
-		return 0
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
-	defer cancel()
-
-	shadowDirpath := GetShadowRepoDirpath(agencDirpath)
-	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", missionCommitHash+".."+headCommitHash)
-	cmd.Dir = shadowDirpath
-	output, err := cmd.Output()
-	if err != nil {
-		return -1
-	}
-
-	countStr := strings.TrimSpace(string(output))
-	count := 0
-	for _, ch := range countStr {
-		if ch < '0' || ch > '9' {
-			return -1
-		}
-		count = count*10 + int(ch-'0')
-	}
-	return count
-}
-
-// ResolveConfigCommitHash returns the HEAD commit hash from the git repo
-// containing the config source directory. Returns empty string if not a git repo.
-func ResolveConfigCommitHash(configSourceDirpath string) string {
-	repoRootDirpath := findGitRoot(configSourceDirpath)
-	if repoRootDirpath == "" {
-		return ""
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
-	cmd.Dir = repoRootDirpath
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-
-	return strings.TrimSpace(string(output))
 }
 
 // GetLastSessionID returns the most recent session ID for a mission by
@@ -206,21 +116,4 @@ func ProjectDirectoryExists(agentDirpath string) bool {
 
 	_, err = os.Stat(projectDirpath)
 	return err == nil
-}
-
-// findGitRoot walks up from the given path looking for a .git directory.
-// Returns the repo root path, or empty string if not found.
-func findGitRoot(startPath string) string {
-	path := startPath
-	for {
-		gitDirpath := filepath.Join(path, ".git")
-		if _, err := os.Stat(gitDirpath); err == nil {
-			return path
-		}
-		parent := filepath.Dir(path)
-		if parent == path {
-			return ""
-		}
-		path = parent
-	}
 }
