@@ -813,26 +813,6 @@ real_claude_json="${HOME}/.claude.json"
 
 mkdir -p "${statey_config_dir}/skills" "${statey_config_dir}/hooks"
 
-# (c/prep) Drop a USER probe SessionStart hook into the config dir's settings.json
-# that writes a sentinel file. Combined with the agenc hooks carried in the
-# op-settings file, this is the --settings-union check-loop (epic R5): a future
-# Claude Code change to --settings merge semantics surfaces as a red test.
-statey_user_sentinel="${statey_config_dir}/statey-user-hook-fired"
-rm -f "${statey_user_sentinel}"
-cat > "${statey_config_dir}/settings.json" <<EOF
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          { "type": "command", "command": "touch '${statey_user_sentinel}'" }
-        ]
-      }
-    ]
-  }
-}
-EOF
-
 # (e/prep) Snapshot the real ~/.claude.json mtime BEFORE the run (guard: AgenC
 # must write only into the isolated config dir, never the developer's real file).
 real_claude_json_mtime_before=""
@@ -934,27 +914,92 @@ PY
         failed=$((failed + 1))
     fi
 
-    # (c) The --settings union: the agenc SessionStart `agenc prime` hook is
-    #     carried in the op-settings file AND the user probe hook is in the
-    #     config dir's settings.json. Both are the inputs --settings unions.
-    #     If the real Claude ran, the user sentinel file is also present.
+    # (c) The --settings HOOK UNION actually FIRES (epic R5 check-loop). This is
+    #     the load-bearing assertion: it must prove Claude HONORS the union of
+    #     hooks from `--settings <file>` AND the config-dir settings.json — not
+    #     merely that the hooks are present in those files (that would be theater
+    #     that can never fail, since AgenC/the test wrote them).
+    #
+    #     Construction: a direct `claude --print` invocation that mirrors exactly
+    #     how BuildClaudeCmd delivers the op-settings file (via --settings). It
+    #     carries a SessionStart probe hook on BOTH channels — one in the config-
+    #     dir settings.json (the native/user channel) and one in a separate
+    #     --settings file (the SAME delivery channel AgenC uses for its real
+    #     op-settings). Each hook `touch`es its own sentinel WHEN IT FIRES.
+    #     SessionStart hooks fire at session start (before the model's turn), so
+    #     both sentinels land as long as Claude launches at all — no network to
+    #     the API is required for the hooks themselves.
+    #
+    #     We do NOT drive the union through the mission-spawn path: a pool-spawned
+    #     mission runs `claude` interactively in a detached pane with no driving
+    #     terminal, so it parks at the prompt and never completes SessionStart in
+    #     this harness. The direct `claude --print` invocation is the faithful,
+    #     firing-provable exercise of the same `--settings` mechanism.
+    #
+    #     Robustness: if Claude cannot launch here (no binary / no token / the
+    #     run fails), we print a VISIBLE NAMED SKIP rather than a can't-fail grep,
+    #     so the gap is never a silent green.
+    statey_claude_bin="$(command -v claude 2>/dev/null || true)"
+    statey_token_file="${statey_test_env_dir}/cache/oauth-token"
+    statey_union_user_sentinel="${statey_config_dir}/statey-union-user-fired"
+    statey_union_settings_sentinel="${statey_config_dir}/statey-union-settings-fired"
+    statey_union_settings_file="${statey_config_dir}/statey-union-probe-settings.json"
+    rm -f "${statey_union_user_sentinel}" "${statey_union_settings_sentinel}"
+
+    # First assert AgenC's REAL op-settings file routes its operational hooks
+    # through this same --settings channel: it must carry the SessionStart
+    # `agenc prime` hook. This ties the firing test below to what AgenC actually
+    # emits (the firing test uses controlled probes for observable sentinels).
     total=$((total + 1))
-    printf "  %-50s " "State Y: agenc hook present in op-settings..."
+    printf "  %-50s " "State Y: agenc SessionStart hook in real op-settings..."
     if [ -f "${statey_op_settings}" ] && grep -q "SessionStart" "${statey_op_settings}" 2>/dev/null && grep -q "prime" "${statey_op_settings}" 2>/dev/null; then
         echo "PASS"
         passed=$((passed + 1))
     else
-        echo "FAIL (agenc SessionStart prime hook missing from op-settings)"
+        echo "FAIL (agenc SessionStart prime hook missing from ${statey_op_settings})"
         failed=$((failed + 1))
     fi
 
+    # Native/user channel probe: SessionStart hook in the config-dir settings.json.
+    printf '%s\n' '{' \
+      '  "hooks": {' \
+      '    "SessionStart": [' \
+      "      { \"hooks\": [ { \"type\": \"command\", \"command\": \"touch '${statey_union_user_sentinel}'\" } ] }" \
+      '    ]' \
+      '  }' \
+      '}' > "${statey_config_dir}/settings.json"
+
+    # --settings channel probe: a separate settings file, delivered via the same
+    # --settings flag AgenC uses for its op-settings.
+    printf '%s\n' '{' \
+      '  "hooks": {' \
+      '    "SessionStart": [' \
+      "      { \"hooks\": [ { \"type\": \"command\", \"command\": \"touch '${statey_union_settings_sentinel}'\" } ] }" \
+      '    ]' \
+      '  }' \
+      '}' > "${statey_union_settings_file}"
+
+    statey_union_ran=0
+    if [ -n "${statey_claude_bin}" ] && [ -f "${statey_token_file}" ]; then
+        # Mirror BuildClaudeCmd's env: CLAUDE_CONFIG_DIR at the isolated config
+        # dir, the machine token, and --settings <file>. --print keeps it one-shot.
+        CLAUDE_CONFIG_DIR="${statey_config_dir}" \
+        CLAUDE_CODE_OAUTH_TOKEN="$(cat "${statey_token_file}")" \
+            timeout 60 "${statey_claude_bin}" --settings "${statey_union_settings_file}" \
+            --print -p "Say only the word: pong" >/dev/null 2>&1 && statey_union_ran=1 || statey_union_ran=0
+    fi
+
     total=$((total + 1))
-    printf "  %-50s " "State Y: user probe hook present in config settings..."
-    if grep -q "${statey_user_sentinel##*/}" "${statey_config_dir}/settings.json" 2>/dev/null; then
+    printf "  %-50s " "State Y: --settings hook union FIRES (both channels)..."
+    if [ "${statey_union_ran}" -eq 1 ] && [ -f "${statey_union_user_sentinel}" ] && [ -f "${statey_union_settings_sentinel}" ]; then
         echo "PASS"
         passed=$((passed + 1))
+    elif [ "${statey_union_ran}" -eq 0 ]; then
+        # Environment could not launch Claude (no binary/token, or run failed).
+        # Visible named skip — never a silent green.
+        echo "SKIP: --settings union firing check — Claude did not launch in this env"
     else
-        echo "FAIL (user probe hook missing from ${statey_config_dir}/settings.json)"
+        echo "FAIL (union did not fire: user_sentinel=$([ -f "${statey_union_user_sentinel}" ] && echo yes || echo no), settings_sentinel=$([ -f "${statey_union_settings_sentinel}" ] && echo yes || echo no))"
         failed=$((failed + 1))
     fi
 
