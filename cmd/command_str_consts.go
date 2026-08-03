@@ -78,8 +78,6 @@ const (
 	editCmdStr           = "edit"
 	paletteCommandCmdStr = "paletteCommand"
 	repoConfigCmdStr     = "repoConfig"
-	claudeMdCmdStr       = "claude-md"
-	settingsJsonCmdStr   = "settings-json"
 
 	// Server subcommands
 	startCmdStr   = "start"
@@ -151,9 +149,6 @@ const (
 	followFlagName   = "follow"
 	cronFlagName     = "cron"
 	dateFlagName     = "date"
-
-	// config claude-md/settings-json flags
-	contentHashFlagName = "content-hash"
 
 	// config cron flags
 	cronConfigScheduleFlagName             = "schedule"

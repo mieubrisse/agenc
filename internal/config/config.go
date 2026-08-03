@@ -16,12 +16,11 @@ const (
 	agencDirpathEnvVar  = "AGENC_DIRPATH"
 	defaultAgencDirname = ".agenc"
 
-	ClaudeDirname              = "claude"
-	ClaudeModificationsDirname = "claude-modifications"
-	ConfigDirname              = "config"
-	UserClaudeDirname          = ".claude"
-	MissionsDirname            = "missions"
-	ReposDirname               = "repos"
+	ClaudeDirname     = "claude"
+	ConfigDirname     = "config"
+	UserClaudeDirname = ".claude"
+	MissionsDirname   = "missions"
+	ReposDirname      = "repos"
 	// Deprecated: daemon has been replaced by the server. These constants are
 	// kept only for cleanup of existing installations.
 	DaemonDirname         = "daemon"
@@ -102,10 +101,6 @@ func EnsureDirStructure(agencDirpath string) error {
 	// (i.e., a config repo was previously cloned).
 	configDirpath := filepath.Join(agencDirpath, ConfigDirname)
 	if _, err := os.Stat(configDirpath); err == nil {
-		if err := EnsureClaudeModificationsFiles(agencDirpath); err != nil {
-			return stacktrace.Propagate(err, "failed to seed claude-modifications files")
-		}
-
 		if err := EnsureConfigFile(agencDirpath); err != nil {
 			return stacktrace.Propagate(err, "failed to seed config file")
 		}
@@ -260,12 +255,6 @@ func GetTmuxKeybindingsFilepath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, TmuxKeybindingsFilename)
 }
 
-// GetClaudeModificationsDirpath returns the path to the claude-modifications
-// directory where agenc-specific CLAUDE.md and settings.json overrides live.
-func GetClaudeModificationsDirpath(agencDirpath string) string {
-	return filepath.Join(GetConfigDirpath(agencDirpath), ClaudeModificationsDirname)
-}
-
 // GetMissionAdjutantMarkerFilepath returns the path to the adjutant marker
 // file for a mission. The presence of this file indicates the mission is an
 // adjutant mission (not a regular code mission).
@@ -320,34 +309,6 @@ func MigrateAssistantMarkerIfNeeded(agencDirpath string, missionID string) error
 	// Remove old marker
 	if err := os.Remove(oldMarker); err != nil {
 		return stacktrace.Propagate(err, "failed to remove old assistant marker file")
-	}
-
-	return nil
-}
-
-// EnsureClaudeModificationsFiles creates seed files inside the
-// claude-modifications directory if they don't already exist:
-//   - CLAUDE.md (empty, 0 bytes)
-//   - settings.json (contains "{}\n")
-func EnsureClaudeModificationsFiles(agencDirpath string) error {
-	modsDirpath := GetClaudeModificationsDirpath(agencDirpath)
-
-	if err := os.MkdirAll(modsDirpath, 0755); err != nil {
-		return stacktrace.Propagate(err, "failed to create directory '%s'", modsDirpath)
-	}
-
-	claudeMdFilepath := filepath.Join(modsDirpath, "CLAUDE.md")
-	if _, err := os.Stat(claudeMdFilepath); os.IsNotExist(err) {
-		if err := os.WriteFile(claudeMdFilepath, []byte{}, 0644); err != nil {
-			return stacktrace.Propagate(err, "failed to create '%s'", claudeMdFilepath)
-		}
-	}
-
-	settingsFilepath := filepath.Join(modsDirpath, "settings.json")
-	if _, err := os.Stat(settingsFilepath); os.IsNotExist(err) {
-		if err := os.WriteFile(settingsFilepath, []byte("{}\n"), 0644); err != nil {
-			return stacktrace.Propagate(err, "failed to create '%s'", settingsFilepath)
-		}
 	}
 
 	return nil

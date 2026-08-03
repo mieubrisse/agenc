@@ -287,12 +287,9 @@ func cloneIntoConfigDir(configDirpath string, repoRef string) error {
 		_ = os.RemoveAll(backupDirpath)
 	}
 
-	// Re-seed any files the clone might not have (config.yml, claude-modifications/)
+	// Re-seed any files the clone might not have (config.yml)
 	if err := config.EnsureConfigFile(agencDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to seed config file after clone")
-	}
-	if err := config.EnsureClaudeModificationsFiles(agencDirpath); err != nil {
-		return stacktrace.Propagate(err, "failed to seed claude-modifications after clone")
 	}
 
 	fmt.Println("Config repo cloned successfully.")

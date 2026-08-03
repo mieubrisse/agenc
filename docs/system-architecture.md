@@ -306,12 +306,8 @@ $AGENC_DIRPATH/
 │   └── oauth-token                        # Claude Code OAuth token (mode 600)
 │
 ├── config/                                # User configuration (optionally a git repo)
-│   ├── config.yml                         # Synced repos, Claude config source, cron jobs
-│   └── claude-modifications/              # AgenC-specific Claude config overrides
-│       ├── CLAUDE.md                      # Appended to user's CLAUDE.md during merge
-│       └── settings.json                  # Deep-merged with user's settings.json
+│   └── config.yml                         # Synced repos, Claude config source, cron jobs
 │
-
 ├── repos/                                 # Shared repo library (server syncs these)
 │   └── github.com/owner/repo/            # One clone per repo
 │

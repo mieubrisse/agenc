@@ -318,12 +318,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /config/sleep/windows", appHandler(s.requestLogger, s.handleAddSleepWindow))
 	mux.Handle("DELETE /config/sleep/windows/{index}", appHandler(s.requestLogger, s.handleRemoveSleepWindow))
 
-	// Claude-modifications config file endpoints
-	mux.Handle("GET /config/claude-md", appHandler(s.requestLogger, s.handleGetClaudeMd))
-	mux.Handle("PUT /config/claude-md", appHandler(s.requestLogger, s.handleUpdateClaudeMd))
-	mux.Handle("GET /config/settings-json", appHandler(s.requestLogger, s.handleGetSettingsJson))
-	mux.Handle("PUT /config/settings-json", appHandler(s.requestLogger, s.handleUpdateSettingsJson))
-
 	// Notifications
 	mux.Handle("GET /notifications", appHandler(s.requestLogger, s.handleListNotifications))
 	mux.Handle("POST /notifications", appHandler(s.requestLogger, s.handleCreateNotification))
