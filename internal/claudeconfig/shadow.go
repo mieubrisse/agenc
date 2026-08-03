@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
@@ -17,9 +16,6 @@ const (
 	// This prevents indefinite hangs on network failures.
 	gitOperationTimeout = 30 * time.Second
 )
-
-// userClaudeDirname is the standard name for the user's Claude config directory.
-const userClaudeDirname = ".claude"
 
 const (
 	// ShadowRepoDirname is the directory name for the internal shadow repo
@@ -122,86 +118,6 @@ func IngestFromClaudeDir(userClaudeDirpath string, shadowDirpath string) error {
 	}
 
 	return nil
-}
-
-// RewriteClaudePaths replaces all forms of ~/.claude paths with the given
-// target path. This is a one-way rewrite used at build time to redirect
-// ~/.claude references to the per-mission config directory.
-//
-// Handles three path forms (most specific first to avoid partial matches):
-//   - Absolute: /Users/name/.claude → targetDirpath
-//   - ${HOME}/.claude → targetDirpath
-//   - ~/.claude → targetDirpath
-func RewriteClaudePaths(content []byte, targetDirpath string) []byte {
-	homeDirpath, err := os.UserHomeDir()
-	if err != nil {
-		// If we can't determine home, only rewrite tilde form
-		homeDirpath = ""
-	}
-
-	if homeDirpath != "" {
-		claudeDirpath := filepath.Join(homeDirpath, userClaudeDirname)
-
-		// 1. Absolute path with trailing slash
-		content = bytes.ReplaceAll(content,
-			[]byte(claudeDirpath+"/"),
-			[]byte(targetDirpath+"/"))
-
-		// 2. Absolute path without trailing slash
-		content = bytes.ReplaceAll(content,
-			[]byte(claudeDirpath),
-			[]byte(targetDirpath))
-	}
-
-	// 3. ${HOME}/.claude/ with trailing slash
-	content = bytes.ReplaceAll(content,
-		[]byte("${HOME}/.claude/"),
-		[]byte(targetDirpath+"/"))
-
-	// 4. ${HOME}/.claude without trailing slash
-	content = bytes.ReplaceAll(content,
-		[]byte("${HOME}/.claude"),
-		[]byte(targetDirpath))
-
-	// 5. ~/.claude/ with trailing slash
-	content = bytes.ReplaceAll(content,
-		[]byte("~/.claude/"),
-		[]byte(targetDirpath+"/"))
-
-	// 6. ~/.claude without trailing slash
-	content = bytes.ReplaceAll(content,
-		[]byte("~/.claude"),
-		[]byte(targetDirpath))
-
-	return content
-}
-
-// isTextFile returns true if the file extension suggests a text file that
-// should have path normalization applied.
-func isTextFile(filepath string) bool {
-	textExtensions := map[string]bool{
-		".json": true,
-		".md":   true,
-		".sh":   true,
-		".bash": true,
-		".py":   true,
-		".yml":  true,
-		".yaml": true,
-		".toml": true,
-		".txt":  true,
-	}
-	ext := strings.ToLower(strings.TrimSpace(getFileExtension(filepath)))
-	return textExtensions[ext]
-}
-
-// getFileExtension returns the file extension including the dot.
-func getFileExtension(path string) string {
-	base := strings.TrimSuffix(path, "/")
-	idx := strings.LastIndex(base, ".")
-	if idx < 0 {
-		return ""
-	}
-	return base[idx:]
 }
 
 // ingestFile copies a single file from src to dst as-is (no path

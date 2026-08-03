@@ -25,16 +25,6 @@ const RepoLibraryGuardScriptName = "repo-library-guard.sh"
 //go:embed repo_library_guard.sh
 var RepoLibraryGuardScript string
 
-// claudeConfigProtectedItems lists the files and directories inside
-// claude-config that agents must not read or modify. These are the
-// AgenC-injected configuration files; everything else (symlinked
-// runtime dirs like shell-snapshots, plugins, projects, etc.) is left
-// accessible so Claude Code can operate normally.
-var claudeConfigProtectedItems = append(
-	[]string{AgencHooksDirname},
-	TrackableItemNames...,
-)
-
 // agencHookEventNames lists the Claude hook events that agenc intercepts to
 // track Claude state and update tmux pane colors.
 var agencHookEventNames = []string{
@@ -182,49 +172,6 @@ func BuildRepoLibraryDenyEntries(agencDirpath string) []string {
 		}
 	}
 	return entries
-}
-
-// BuildClaudeConfigDenyEntries constructs permission deny entries that prevent
-// agents from reading or modifying the AgenC-injected configuration files
-// inside their mission's claude-config directory (CLAUDE.md, settings.json,
-// skills/, hooks/, commands/, agents/).
-//
-// Only the protected items are denied — symlinked runtime directories like
-// shell-snapshots, plugins, and projects are left accessible so Claude Code
-// can operate normally.
-//
-// Generates deny rules for both path formats (// absolute, tilde) to ensure
-// agents cannot bypass the deny rules by using different path representations.
-func BuildClaudeConfigDenyEntries(claudeConfigDirpath string) []string {
-	baseVariants := buildPathVariants(claudeConfigDirpath)
-
-	// Build the list of per-item path suffixes. Files get an exact match;
-	// directories get both /* and /** globs to cover single-level and recursive access.
-	var itemSuffixes []string
-	for _, item := range claudeConfigProtectedItems {
-		if isFileName(item) {
-			itemSuffixes = append(itemSuffixes, "/"+item)
-		} else {
-			itemSuffixes = append(itemSuffixes, "/"+item+"/**")
-			itemSuffixes = append(itemSuffixes, "/"+item+"/*")
-		}
-	}
-
-	entries := make([]string, 0, len(AgencDenyPermissionTools)*len(baseVariants)*len(itemSuffixes))
-	for _, tool := range AgencDenyPermissionTools {
-		for _, base := range baseVariants {
-			for _, suffix := range itemSuffixes {
-				entries = append(entries, tool+"("+base+suffix+")")
-			}
-		}
-	}
-	return entries
-}
-
-// isFileName returns true if the name looks like a file (contains a dot
-// indicating an extension) rather than a directory.
-func isFileName(name string) bool {
-	return strings.Contains(name, ".")
 }
 
 // buildPathVariants converts an absolute path to the Claude Code permission path

@@ -1,114 +1,11 @@
 package claudeconfig
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/odyssey/agenc/internal/config"
 )
-
-func TestCopyAndPatchClaudeJSON_NoTrust(t *testing.T) {
-	homeDir := setupFakeHome(t)
-	claudeJSONPath := filepath.Join(homeDir, ".claude", ".claude.json")
-	if err := os.MkdirAll(filepath.Dir(claudeJSONPath), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(claudeJSONPath, []byte(`{"projects":{}}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	destDir := t.TempDir()
-	agentDir := "/fake/agent/dir"
-
-	if err := copyAndPatchClaudeJSON(destDir, agentDir, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	result := readClaudeJSONProjectEntry(t, destDir, agentDir)
-	if _, ok := result["enabledMcpjsonServers"]; ok {
-		t.Error("expected enabledMcpjsonServers to be absent when trust is nil")
-	}
-	if _, ok := result["disabledMcpjsonServers"]; ok {
-		t.Error("expected disabledMcpjsonServers to be absent when trust is nil")
-	}
-	if result["hasTrustDialogAccepted"] != true {
-		t.Error("expected hasTrustDialogAccepted=true")
-	}
-}
-
-func TestCopyAndPatchClaudeJSON_TrustAll(t *testing.T) {
-	homeDir := setupFakeHome(t)
-	claudeJSONPath := filepath.Join(homeDir, ".claude", ".claude.json")
-	if err := os.MkdirAll(filepath.Dir(claudeJSONPath), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(claudeJSONPath, []byte(`{"projects":{}}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	destDir := t.TempDir()
-	agentDir := "/fake/agent/dir"
-	trust := &config.TrustedMcpServers{All: true}
-
-	if err := copyAndPatchClaudeJSON(destDir, agentDir, trust); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	result := readClaudeJSONProjectEntry(t, destDir, agentDir)
-	enabled, ok := result["enabledMcpjsonServers"]
-	if !ok {
-		t.Fatal("expected enabledMcpjsonServers to be present")
-	}
-	if arr, ok := enabled.([]interface{}); !ok || len(arr) != 0 {
-		t.Errorf("expected enabledMcpjsonServers=[], got %v", enabled)
-	}
-	disabled, ok := result["disabledMcpjsonServers"]
-	if !ok {
-		t.Fatal("expected disabledMcpjsonServers to be present")
-	}
-	if arr, ok := disabled.([]interface{}); !ok || len(arr) != 0 {
-		t.Errorf("expected disabledMcpjsonServers=[], got %v", disabled)
-	}
-}
-
-func TestCopyAndPatchClaudeJSON_TrustList(t *testing.T) {
-	homeDir := setupFakeHome(t)
-	claudeJSONPath := filepath.Join(homeDir, ".claude", ".claude.json")
-	if err := os.MkdirAll(filepath.Dir(claudeJSONPath), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(claudeJSONPath, []byte(`{"projects":{}}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	destDir := t.TempDir()
-	agentDir := "/fake/agent/dir"
-	trust := &config.TrustedMcpServers{List: []string{"github", "sentry"}}
-
-	if err := copyAndPatchClaudeJSON(destDir, agentDir, trust); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	result := readClaudeJSONProjectEntry(t, destDir, agentDir)
-	enabled, ok := result["enabledMcpjsonServers"]
-	if !ok {
-		t.Fatal("expected enabledMcpjsonServers to be present")
-	}
-	arr, ok := enabled.([]interface{})
-	if !ok || len(arr) != 2 || arr[0] != "github" || arr[1] != "sentry" {
-		t.Errorf("expected [github sentry], got %v", enabled)
-	}
-	disabled, ok := result["disabledMcpjsonServers"]
-	if !ok {
-		t.Fatal("expected disabledMcpjsonServers to be present")
-	}
-	if disabledArr, ok := disabled.([]interface{}); !ok || len(disabledArr) != 0 {
-		t.Errorf("expected disabledMcpjsonServers=[], got %v", disabled)
-	}
-}
 
 func TestComputeProjectDirpath(t *testing.T) {
 	result, err := ComputeProjectDirpath("/Users/odyssey/.agenc/missions/abc-123/agent")
@@ -120,58 +17,6 @@ func TestComputeProjectDirpath(t *testing.T) {
 	expected := filepath.Join(homeDir, ".claude", "projects", "-Users-odyssey--agenc-missions-abc-123-agent")
 	if result != expected {
 		t.Errorf("got %q, want %q", result, expected)
-	}
-}
-
-// TestBuildMergedClaudeMd verifies that user CLAUDE.md content gets path
-// rewriting applied, and that no AgenC operating-context layer is prepended.
-// AgenC context is delivered via the SessionStart `agenc prime` hook now;
-// any reintroduction of a hardcoded Layer 1 prepend would break the design
-// in agenc-88kh.
-func TestBuildMergedClaudeMd(t *testing.T) {
-	homeDir := setupFakeHome(t)
-	agencDirpath := filepath.Join(homeDir, ".agenc")
-	shadowDir := filepath.Join(agencDirpath, ShadowRepoDirname)
-	agencModsDir := filepath.Join(agencDirpath, "config", "claude-modifications")
-	destDir := filepath.Join(agencDirpath, "missions", "test-mission", "claude-config")
-	for _, d := range []string{shadowDir, agencModsDir, destDir} {
-		if err := os.MkdirAll(d, 0755); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	userClaudeMd := "# user header\nLoad data from ~/.claude/userdata.json\n"
-	if err := os.WriteFile(filepath.Join(shadowDir, "CLAUDE.md"), []byte(userClaudeMd), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := buildMergedClaudeMd(shadowDir, agencModsDir, destDir); err != nil {
-		t.Fatalf("buildMergedClaudeMd failed: %v", err)
-	}
-
-	out, err := os.ReadFile(filepath.Join(destDir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatalf("failed to read merged CLAUDE.md: %v", err)
-	}
-	text := string(out)
-
-	expectedRewrittenUser := "Load data from " + destDir + "/userdata.json"
-	if !strings.Contains(text, expectedRewrittenUser) {
-		t.Errorf("expected user content `~/.claude/userdata.json` to be rewritten to %q, but it wasn't. Output:\n%s", expectedRewrittenUser, text)
-	}
-
-	// Regression guard: no AgenC operating-context layer should be prepended.
-	// Sentinels are stable phrases from the old agent_instructions.md that
-	// would only appear if a Layer 1 prepend was reintroduced.
-	forbiddenPhrases := []string{
-		"AgenC Agent Operating Instructions",
-		"What You Are Running In",
-		"Configuration Boundaries",
-	}
-	for _, phrase := range forbiddenPhrases {
-		if strings.Contains(text, phrase) {
-			t.Errorf("merged CLAUDE.md unexpectedly contains old agent-instructions phrase %q — Layer 1 prepend may have been reintroduced. Output:\n%s", phrase, text)
-		}
 	}
 }
 
@@ -205,34 +50,4 @@ func TestWriteAgencHookScripts(t *testing.T) {
 	if !strings.Contains(string(contents), "AgenC PreToolUse hook") {
 		t.Errorf("hook script body does not look like the embedded guard script")
 	}
-}
-
-// setupFakeHome creates a temp dir and overrides HOME so os.UserHomeDir() returns it.
-func setupFakeHome(t *testing.T) string {
-	t.Helper()
-	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
-	return homeDir
-}
-
-// readClaudeJSONProjectEntry reads the project entry map from the output .claude.json.
-func readClaudeJSONProjectEntry(t *testing.T, destDir string, agentDir string) map[string]interface{} {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(destDir, ".claude.json"))
-	if err != nil {
-		t.Fatalf("failed to read .claude.json: %v", err)
-	}
-	var claudeJSON map[string]interface{}
-	if err := json.Unmarshal(data, &claudeJSON); err != nil {
-		t.Fatalf("failed to parse .claude.json: %v", err)
-	}
-	projects, ok := claudeJSON["projects"].(map[string]interface{})
-	if !ok {
-		t.Fatal("projects key missing or wrong type")
-	}
-	entry, ok := projects[agentDir].(map[string]interface{})
-	if !ok {
-		t.Fatalf("agent dir entry missing in projects for %q", agentDir)
-	}
-	return entry
 }
