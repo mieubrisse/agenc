@@ -649,7 +649,7 @@ Data Flow: Mission Lifecycle
 
 1. CLI ensures the server is running and a config source repo is registered
 2. Resolves the git repo reference (URL, shorthand, or fzf picker) and ensures it is cloned into the repo library
-3. Creates a database record — generates UUID + 8-char short ID, records the git repo name, config source commit hash, and optional cron association
+3. Creates a database record — generates UUID + 8-char short ID, records the git repo name and optional cron association
 4. Creates the mission directory structure: copies the repo from the library via rsync
 5. Server-side, seeds the mission's agent-dir trust entry (`projects["<agentDir>"].hasTrustDialogAccepted=true`, plus the repo's `trustedMcpServers`) into the real `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json` when set) under a mutex, via atomic temp-file+rename with verify-retry — so the first Claude in the mission does not hit a blocking trust dialog (State Y; see "Trust seeding" under Key Architectural Patterns)
 6. Creates a `Wrapper` and calls `Run` or `RunHeadless` depending on flags
