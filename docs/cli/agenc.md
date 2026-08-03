@@ -17,7 +17,7 @@ The AgenC — agent mission management CLI
 * [agenc discord](agenc_discord.md)	 - Open the AgenC Discord community in your browser
 * [agenc doctor](agenc_doctor.md)	 - Check for common configuration issues
 * [agenc feedback](agenc_feedback.md)	 - Launch a feedback mission with Adjutant
-* [agenc login](agenc_login.md)	 - Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
+* [agenc login](agenc_login.md)	 - Deprecated: use 'claude auth login' or 'agenc token set <token>'
 * [agenc mission](agenc_mission.md)	 - Manage agent missions
 * [agenc notification](agenc_notification.md)	 - List, read, and post AgenC notifications
 * [agenc prime](agenc_prime.md)	 - Print AgenC CLI quick reference for AI agent context
@@ -28,5 +28,6 @@ The AgenC — agent mission management CLI
 * [agenc stash](agenc_stash.md)	 - Snapshot and restore running missions
 * [agenc summary](agenc_summary.md)	 - Show a daily summary of AgenC activity
 * [agenc tmux](agenc_tmux.md)	 - Manage the AgenC tmux session
+* [agenc token](agenc_token.md)	 - Manage the AgenC OAuth token (State-X fallback for headless/multi-session use)
 * [agenc version](agenc_version.md)	 - Print the agenc version
 

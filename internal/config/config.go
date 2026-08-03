@@ -456,6 +456,41 @@ func cleanupOldAuthFiles(_ string) {
 	// Old entries from before this cleanup was added are harmless and left in place.
 }
 
+// EnsureClaudeAuth checks that some form of authentication is available before
+// spawning a Claude mission. It is a conditional check — it does NOT force token
+// setup. The precedence is:
+//
+//  1. Token file present and non-empty → OK (State-X fallback in use).
+//  2. No token file → return nil unconditionally and let Claude surface its own
+//     auth error. This is deliberate: Claude Code stores native credentials
+//     exclusively in the macOS Keychain (there is no ~/.claude/.credentials.json
+//     or equivalent on-disk file that can be stat-checked without triggering a
+//     Keychain access). Reading the Keychain from the spawn path causes macOS
+//     authorization popups in headless/daemon contexts, which is why this check
+//     explicitly avoids it. A false-negative that blocks a validly-authenticated
+//     headless mission is worse than letting Claude's own auth error surface.
+//
+// NOTE: headless-fail-loud is NOT implemented here for the same reason — we
+// cannot reliably distinguish "not logged in" from "logged in via Keychain"
+// without a Keychain read. Claude itself will emit a clear authentication error
+// if no credentials are available.
+func EnsureClaudeAuth(agencDirpath string) error {
+	token, err := ReadOAuthToken(agencDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to check OAuth token")
+	}
+	if token != "" {
+		// State-X fallback: explicit token configured — all good.
+		return nil
+	}
+
+	// No explicit token. Native auth (Claude's own Keychain-based credentials)
+	// may or may not be present, but we cannot check without a Keychain access
+	// (which causes popup storms in headless contexts). Allow the spawn; Claude
+	// will surface a clear auth error if no credentials are available.
+	return nil
+}
+
 // SetupOAuthToken walks the user through obtaining a long-lived Claude Code
 // OAuth token via `claude setup-token`. If a token file already exists, it
 // returns nil without overwriting. Requires a TTY on stdin — returns an error

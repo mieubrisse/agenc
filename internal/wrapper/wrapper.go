@@ -131,6 +131,14 @@ type runResources struct {
 // spawn. It returns the resources needed by the event loop and registers
 // deferred cleanup on the caller's behalf via the returned cleanup function.
 func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
+	// Verify authentication before spawning Claude. EnsureClaudeAuth is
+	// conditional: it returns nil if a token is configured (State-X fallback) or
+	// if no token is configured (native auth — Claude will surface its own error
+	// if credentials are missing). See config.EnsureClaudeAuth for rationale.
+	if err := config.EnsureClaudeAuth(w.agencDirpath); err != nil {
+		return nil, nil, stacktrace.Propagate(err, "authentication check failed before spawn")
+	}
+
 	// Set up logger that writes to the log file
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -556,6 +564,14 @@ const (
 // If a previous conversation exists (isResume=true), it uses claude -c -p <prompt>
 // to continue the conversation.
 func (w *Wrapper) RunHeadless(isResume bool, cfg HeadlessConfig) error {
+	// Verify authentication before spawning Claude. EnsureClaudeAuth is
+	// conditional: it returns nil if a token is configured (State-X fallback) or
+	// if no token is configured (native auth — Claude will surface its own error
+	// if credentials are missing). See config.EnsureClaudeAuth for rationale.
+	if err := config.EnsureClaudeAuth(w.agencDirpath); err != nil {
+		return stacktrace.Propagate(err, "authentication check failed before headless spawn")
+	}
+
 	// Set up logger
 	logFilepath := config.GetMissionWrapperLogFilepath(w.agencDirpath, w.missionID)
 	logFile, err := os.OpenFile(logFilepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)

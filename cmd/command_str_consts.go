@@ -18,6 +18,7 @@ const (
 	tmuxCmdStr     = "tmux"
 	versionCmdStr  = "version"
 	loginCmdStr    = "login"
+	tokenCmdStr    = "token"
 	cronCmdStr     = "cron"
 	doctorCmdStr   = "doctor"
 	primeCmdStr    = "prime"
@@ -84,6 +85,10 @@ const (
 	startCmdStr   = "start"
 	restartCmdStr = "restart"
 	statusCmdStr  = "status"
+
+	// Token subcommands
+	setupCmdStr = "setup"
+	clearCmdStr = "clear"
 
 	// Cron subcommands
 	enableCmdStr  = "enable"

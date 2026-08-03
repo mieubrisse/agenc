@@ -1,6 +1,6 @@
 ## agenc login
 
-Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
+Deprecated: use 'claude auth login' or 'agenc token set <token>'
 
 ```
 agenc login [flags]

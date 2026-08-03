@@ -13,7 +13,7 @@ Available Commands:
   doctor       Check for common configuration issues
   feedback     Launch a feedback mission with Adjutant
   help         Help about any command
-  login        Deprecated: use 'agenc config set claudeCodeOAuthToken <token>' instead
+  login        Deprecated: use 'claude auth login' or 'agenc token set <token>'
   mission      Manage agent missions
   notification List, read, and post AgenC notifications
   prime        Print AgenC CLI quick reference for AI agent context
@@ -24,6 +24,7 @@ Available Commands:
   stash        Snapshot and restore running missions
   summary      Show a daily summary of AgenC activity
   tmux         Manage the AgenC tmux session
+  token        Manage the AgenC OAuth token (State-X fallback for headless/multi-session use)
   version      Print the agenc version
 
 Flags:

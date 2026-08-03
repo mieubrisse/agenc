@@ -95,9 +95,19 @@ func ensureConfigured() (string, error) {
 	if err != nil {
 		return "", stacktrace.Propagate(err, "config repo setup failed")
 	}
-	// Set up OAuth token if not already configured
-	if err := config.SetupOAuthToken(dirpath); err != nil {
-		return "", stacktrace.Propagate(err, "OAuth token setup failed")
+	// Check authentication. Under State Y, native Claude auth (claude auth login)
+	// is the default — EnsureClaudeAuth only validates a pre-configured token if
+	// one exists, and otherwise allows the spawn so Claude can surface its own
+	// auth error. To store a long-lived token, run: agenc token set <token>
+	if err := config.EnsureClaudeAuth(dirpath); err != nil {
+		fmt.Println()
+		fmt.Println("Authentication check failed:", err)
+		fmt.Println()
+		fmt.Println("To authenticate:")
+		fmt.Println("  claude auth login            (native Claude authentication)")
+		fmt.Println("  agenc token set <token>      (store a long-lived OAuth token)")
+		fmt.Println("  agenc token setup            (interactive token wizard)")
+		return "", stacktrace.Propagate(err, "authentication check failed")
 	}
 
 	return dirpath, nil

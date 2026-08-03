@@ -223,6 +223,48 @@ func TestReadWriteOAuthTokenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEnsureClaudeAuth(t *testing.T) {
+	t.Run("returns nil when token is present", func(t *testing.T) {
+		agencDirpath := t.TempDir()
+
+		// Write a valid token
+		if err := WriteOAuthToken(agencDirpath, "sk-ant-test-token"); err != nil {
+			t.Fatalf("failed to write token: %v", err)
+		}
+
+		// EnsureClaudeAuth should return nil (State-X fallback in use)
+		if err := EnsureClaudeAuth(agencDirpath); err != nil {
+			t.Errorf("expected nil when token present, got %v", err)
+		}
+	})
+
+	t.Run("returns nil when no token file exists", func(t *testing.T) {
+		agencDirpath := t.TempDir()
+
+		// No token file — EnsureClaudeAuth should return nil (native auth allowed)
+		if err := EnsureClaudeAuth(agencDirpath); err != nil {
+			t.Errorf("expected nil when no token file, got %v", err)
+		}
+	})
+
+	t.Run("returns nil after token is cleared", func(t *testing.T) {
+		agencDirpath := t.TempDir()
+
+		// Write then clear
+		if err := WriteOAuthToken(agencDirpath, "sk-ant-some-token"); err != nil {
+			t.Fatalf("failed to write token: %v", err)
+		}
+		if err := WriteOAuthToken(agencDirpath, ""); err != nil {
+			t.Fatalf("failed to clear token: %v", err)
+		}
+
+		// EnsureClaudeAuth should still return nil (native auth fallback)
+		if err := EnsureClaudeAuth(agencDirpath); err != nil {
+			t.Errorf("expected nil after token clear, got %v", err)
+		}
+	})
+}
+
 func TestGetMissionAdjutantMarkerFilepath(t *testing.T) {
 	agencDirpath := "/home/user/.agenc"
 	missionID := "abc-123"

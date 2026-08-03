@@ -20,7 +20,7 @@ var configSetCmd = &cobra.Command{
 Supported keys:
   attachedMissionLimit                       Max missions attachable to non-pool tmux sessions concurrently (positive integer; unset = no cap)
   claudeArgs                                   Extra CLI flags passed to Claude Code (comma-separated, e.g., "--chrome,--verbose"; empty to clear)
-  claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml)
+  claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml); prefer 'agenc token set/clear'
   defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   sessionTitleMaxWords                       Max words in auto-generated session titles (default: 15; range: 3-50)

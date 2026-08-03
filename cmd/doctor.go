@@ -98,6 +98,11 @@ func checkTmuxKeybindingsInjected() checkResult {
 
 // checkOAuthTokenPermissions verifies that the OAuth token file has
 // restrictive permissions (mode 0600) to prevent leakage.
+//
+// Under State Y, an absent token file is normal and expected: AgenC missions
+// default to native Claude authentication (set up via 'claude auth login').
+// The token file is only present when the user has explicitly stored a
+// long-lived token via 'agenc token set' as a State-X fallback.
 func checkOAuthTokenPermissions() checkResult {
 	name := "OAuth token file permissions"
 
@@ -114,7 +119,8 @@ func checkOAuthTokenPermissions() checkResult {
 	info, err := os.Stat(tokenFilepath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// No token file is not a security issue — just means auth not set up
+			// No token file is fine under State Y — native Claude auth is the default.
+			// Users who need an explicit token can run: agenc token set <token>
 			return checkResult{name: name, passed: true}
 		}
 		return checkResult{

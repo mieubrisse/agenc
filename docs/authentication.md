@@ -1,27 +1,57 @@
 Authentication
 ==============
 
-AgenC authenticates Claude Code missions using an OAuth token stored in a secure local file. You provide the token once, and every mission receives it automatically via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable.
+AgenC missions authenticate with Claude Code using one of two mechanisms:
 
-Setting your token
-------------------
+1. **Native authentication (default)** — Claude's own credentials, set up once
+   with `claude auth login`. AgenC passes these through automatically; no token
+   file is needed.
 
-AgenC automatically obtains a token when needed. If no token is configured, AgenC runs `claude setup-token` to walk you through the authentication flow interactively. This happens during first-time setup (`agenc config init`) and whenever you create or resume a mission without a token.
+2. **Explicit OAuth token (opt-in fallback)** — a long-lived token you store via
+   `agenc token set`. AgenC passes it as `CLAUDE_CODE_OAUTH_TOKEN`. Useful for
+   headless or multi-session workflows where native auth refresh thrashing is a
+   problem ([GitHub issue](https://github.com/anthropics/claude-code/issues/24317)).
 
-You can also manage the token manually:
+Most users only need to run `claude auth login` once and never think about tokens.
+
+Setting up native authentication
+---------------------------------
 
 ```
-agenc config set claudeCodeOAuthToken <your-token>
+claude auth login
+```
+
+This stores credentials in your macOS Keychain. All AgenC missions pick them up
+automatically — no extra configuration required.
+
+Managing the explicit OAuth token (optional)
+---------------------------------------------
+
+The `agenc token` command manages the State-X fallback token:
+
+```
+agenc token set <token>   Store a long-lived token (must start with sk-ant-)
+agenc token clear         Remove the token (revert to native auth)
+agenc token setup         Interactive wizard: runs 'claude setup-token' for you
+```
+
+The token is stored at `$AGENC_DIRPATH/cache/oauth-token` with mode 600 (never
+committed to Git). When set, it overrides native auth for all missions. When
+cleared, missions fall back to native Claude authentication.
+
+The legacy config alias still works:
+
+```
+agenc config set claudeCodeOAuthToken <token>
 agenc config get claudeCodeOAuthToken
 agenc config set claudeCodeOAuthToken ""
 ```
 
-How it works
-------------
+How token passthrough works
+----------------------------
 
-The token is stored at `$AGENC_DIRPATH/cache/oauth-token` with restrictive file permissions (owner-only read/write, mode 600). This file lives outside the config directory and is never committed to Git.
-
-When AgenC spawns a Claude process (interactive or headless), it reads the token file and passes the value as the `CLAUDE_CODE_OAUTH_TOKEN` environment variable. Claude Code uses this token directly for authentication without any Keychain interaction.
+When a token file is present and non-empty, the wrapper reads it and passes it
+to Claude via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable:
 
 ```
 Token file (cache/oauth-token)
@@ -36,17 +66,30 @@ Token file (cache/oauth-token)
    Claude Code authenticates
 ```
 
+When no token file exists, the wrapper omits the environment variable and Claude
+uses its native Keychain credentials.
+
+Headless missions
+-----------------
+
+Headless missions (spawned by cron or `--headless` flags) work the same way:
+if a token is configured it is injected; otherwise native auth is used. If no
+credentials are available at all, Claude itself will surface a clear auth error.
+
 Token expiry
 ------------
 
-OAuth tokens expire. When your token expires, Claude sessions will fail to authenticate. To fix this:
+Explicit OAuth tokens expire. When yours expires, Claude sessions will fail to
+authenticate. To fix this:
 
-1. Obtain a fresh token (see "Where to get your token" above)
-2. Run `agenc config set claudeCodeOAuthToken <new-token>`
+1. Obtain a fresh token: `agenc token setup`
+2. Or set it directly: `agenc token set <new-token>`
 
-New missions will use the updated token immediately. Running missions will pick up the new token when they next restart.
+Running missions pick up the new token on their next restart.
 
 MCP OAuth tokens
 ----------------
 
-MCP servers that use OAuth (like Todoist) store their tokens in Claude's Keychain independently of the main authentication token. These tokens are managed by Claude Code itself and are not affected by the `CLAUDE_CODE_OAUTH_TOKEN` setting.
+MCP servers that use OAuth (like Todoist) store their tokens in Claude's Keychain
+independently of the main authentication token. These are managed by Claude Code
+itself and are not affected by `agenc token` or `CLAUDE_CODE_OAUTH_TOKEN`.

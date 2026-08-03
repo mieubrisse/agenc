@@ -437,13 +437,25 @@ Missions cannot read or modify the repo library directly (enforced via permissio
 
 ### Authentication
 
-Standard Claude Code authentication doesn't work well with multiple concurrent sessions because the tokens refresh and invalidate each other in a loop ([GitHub issue](https://github.com/anthropics/claude-code/issues/24317)).
+AgenC missions default to **native Claude authentication** — the same credentials
+you set up with `claude auth login`. No extra configuration is needed for most users.
 
-AgenC solves this by using a **long-lived OAuth token** that you provide once during setup. The token is stored at `$AGENC_DIRPATH/cache/oauth-token` (mode 600, never committed to Git). When the wrapper spawns Claude, it reads this file and passes the token via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable.
+For headless or high-concurrency workflows, standard OAuth tokens can cause
+refresh thrashing ([GitHub issue](https://github.com/anthropics/claude-code/issues/24317)).
+In those cases, you can store a long-lived token as a fallback:
 
-All missions share the same token, so there's no refresh thrashing. When the token expires, update it once with `agenc config set claudeCodeOAuthToken <new-token>`, and all new missions (plus running missions after restart) pick it up automatically.
+```
+agenc token set <token>   Store a long-lived token (starts with sk-ant-)
+agenc token setup         Interactive wizard to obtain and store a token
+agenc token clear         Remove the token; revert to native auth
+```
 
-The only downside I haven't yet figured out is these Claude tokens can't query usage, so the `/usage` command won't work in AgenC Claudes. You'll need to drop down to vanilla Claude to check your usage.
+When a token is set, it is stored at `$AGENC_DIRPATH/cache/oauth-token` (mode 600,
+never committed to Git) and passed to Claude via `CLAUDE_CODE_OAUTH_TOKEN`. When no
+token is set, Claude uses its own native Keychain credentials.
+
+To update a stored token: `agenc token set <new-token>`. New missions pick it up
+immediately; running missions pick it up on their next restart.
 
 Configuration
 -------------
