@@ -90,11 +90,11 @@ func buildAdjutantProjectSettings(agencDirpath string) ([]byte, error) {
 // permission to run agenc commands.
 func BuildAdjutantAllowEntries(agencDirpath string) []string {
 	agencPattern := agencDirpath + "/**"
-	readWriteTools := []string{"Read", "Write", "Edit", "Glob", "Grep"}
 
-	entries := make([]string, 0, len(readWriteTools)+1)
-	for _, tool := range readWriteTools {
-		entries = append(entries, tool+"("+agencPattern+")")
+	const bashEntryCount = 2
+	entries := make([]string, 0, len(readWriteFilePermissionVerbs)+bashEntryCount)
+	for _, verb := range readWriteFilePermissionVerbs {
+		entries = append(entries, verb+"("+agencPattern+")")
 	}
 	entries = append(entries, "Bash(agenc *)")
 	entries = append(entries, "Bash(gh:*)")
@@ -107,11 +107,10 @@ func BuildAdjutantAllowEntries(agencDirpath string) []string {
 // while allowing read access.
 func BuildAdjutantDenyEntries(agencDirpath string) []string {
 	agentPattern := agencDirpath + "/" + config.MissionsDirname + "/*/" + config.AgentDirname + "/**"
-	writeTools := []string{"Write", "Edit"}
 
-	entries := make([]string, 0, len(writeTools))
-	for _, tool := range writeTools {
-		entries = append(entries, tool+"("+agentPattern+")")
+	entries := make([]string, 0, len(writeFilePermissionVerbs))
+	for _, verb := range writeFilePermissionVerbs {
+		entries = append(entries, verb+"("+agentPattern+")")
 	}
 
 	return entries

@@ -14,7 +14,7 @@ func TestBuildAdjutantAllowEntries(t *testing.T) {
 	agencDirpath := "/home/user/.agenc"
 	entries := BuildAdjutantAllowEntries(agencDirpath)
 
-	expectedTools := []string{"Read", "Write", "Edit", "Glob", "Grep"}
+	expectedTools := []string{"Read", "Edit"}
 	expectedPattern := agencDirpath + "/**"
 
 	// One entry per tool + Bash(agenc *) + Bash(gh:*)
@@ -47,12 +47,11 @@ func TestBuildAdjutantDenyEntries(t *testing.T) {
 
 	expectedPattern := agencDirpath + "/" + config.MissionsDirname + "/*/" + config.AgentDirname + "/**"
 
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 deny entries, got %d: %v", len(entries), entries)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 deny entry, got %d: %v", len(entries), entries)
 	}
 
 	expectedEntries := []string{
-		"Write(" + expectedPattern + ")",
 		"Edit(" + expectedPattern + ")",
 	}
 

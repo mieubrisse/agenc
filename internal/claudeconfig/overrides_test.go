@@ -50,6 +50,44 @@ func TestBuildPathVariantsNonHomePath(t *testing.T) {
 	}
 }
 
+// extractPermissionVerb returns the tool-name verb of a file-path permission
+// entry, e.g. "Read(./**)" -> "Read".
+func extractPermissionVerb(entry string) string {
+	if idx := strings.Index(entry, "("); idx != -1 {
+		return entry[:idx]
+	}
+	return entry
+}
+
+// TestFilePermissionEntriesUseOnlyCanonicalVerbs guards against regressing to
+// tool-specific verbs (Glob/Grep/Write/NotebookEdit) that Claude Code's
+// file-permission matcher ignores. Those emit "not matched by file permission
+// checks" warnings on every mission startup, which is exactly what this fix
+// removed (bead agenc-wym9, GH #21). Every file-path permission AgenC generates
+// for the op-settings must use only the canonical Read/Edit verbs.
+func TestFilePermissionEntriesUseOnlyCanonicalVerbs(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("failed to get home dir: %v", err)
+	}
+	agentDirpath := filepath.Join(homeDir, ".agenc", "missions", "test-uuid", "agent")
+	agencDirpath := filepath.Join(homeDir, ".agenc")
+
+	allowEntries := BuildAgentDirAllowEntries(agentDirpath)
+	denyEntries := BuildRepoLibraryDenyEntries(agencDirpath)
+	generatedEntries := append(allowEntries, denyEntries...)
+	if len(generatedEntries) == 0 {
+		t.Fatal("expected BuildAgentDirAllowEntries + BuildRepoLibraryDenyEntries to produce entries")
+	}
+
+	for _, entry := range generatedEntries {
+		verb := extractPermissionVerb(entry)
+		if verb != "Read" && verb != "Edit" {
+			t.Errorf("file-path permission entry %q uses non-canonical verb %q; Claude Code matches only Read(path)/Edit(path) rules, so anything else emits a startup warning", entry, verb)
+		}
+	}
+}
+
 func TestBuildAgencHookEntries_IncludesPreToolUseGuard(t *testing.T) {
 	claudeConfigDirpath := "/tmp/test-mission/claude-config"
 	entries := BuildAgencHookEntries(claudeConfigDirpath)

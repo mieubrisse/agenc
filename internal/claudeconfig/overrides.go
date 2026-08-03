@@ -101,21 +101,22 @@ func buildRepoLibraryGuardHookEntry(claudeConfigDirpath string) json.RawMessage 
 	return json.RawMessage(entry)
 }
 
-// AgencFilePermissionTools lists the Claude Code file-access tools used to
-// construct both allow and deny permission entries.
-var AgencFilePermissionTools = []string{
-	"Read",
-	"Glob",
-	"Search",
-	"Grep",
-	"Write",
-	"Edit",
-	"NotebookEdit",
-}
+// Claude Code's file-permission matcher recognizes only two canonical path-rule
+// verbs: Read(path) — which covers every file-reading tool (Read, Glob, Grep) —
+// and Edit(path) — which covers every file-editing tool (Edit, Write,
+// NotebookEdit). A path rule written with a tool-specific verb is accepted but
+// never consulted, and Claude Code emits a "not matched by file permission
+// checks" warning at startup for each one. Every file-path permission AgenC
+// generates must therefore use these canonical verbs.
+// See https://code.claude.com/docs/en/permissions.
+const (
+	canonicalFileReadVerb  = "Read"
+	canonicalFileWriteVerb = "Edit"
+)
 
-// AgencDenyPermissionTools is an alias preserved for readability in deny-specific
-// contexts. It references the same tool list as AgencFilePermissionTools.
-var AgencDenyPermissionTools = AgencFilePermissionTools
+// readWriteFilePermissionVerbs grants both read and write file access; used for
+// allow entries that give an agent full control of a directory.
+var readWriteFilePermissionVerbs = []string{canonicalFileReadVerb, canonicalFileWriteVerb}
 
 // BuildAgentDirAllowEntries returns permission allow entries that grant agents
 // full read/write access to their own working directory. Generates entries
@@ -139,23 +140,21 @@ func BuildAgentDirAllowEntries(agentDirpath string) []string {
 		allPatterns = append(allPatterns, p+"/*")
 	}
 
-	entries := make([]string, 0, len(AgencFilePermissionTools)*len(allPatterns))
-	for _, tool := range AgencFilePermissionTools {
+	entries := make([]string, 0, len(readWriteFilePermissionVerbs)*len(allPatterns))
+	for _, verb := range readWriteFilePermissionVerbs {
 		for _, pattern := range allPatterns {
-			entries = append(entries, tool+"("+pattern+")")
+			entries = append(entries, verb+"("+pattern+")")
 		}
 	}
 	return entries
 }
 
-// AgencRepoLibraryWriteTools lists the tools denied write access to the shared
-// repo library. Read-only tools (Read, Glob, Grep) are intentionally omitted
-// so agents can explore code in the repo library without spawning a new mission.
-var AgencRepoLibraryWriteTools = []string{
-	"Write",
-	"Edit",
-	"NotebookEdit",
-}
+// writeFilePermissionVerbs grants (in an allow rule) or blocks (in a deny rule)
+// write access only, leaving read access untouched. The single canonical Edit
+// verb covers all file-editing tools (Edit, Write, NotebookEdit), so denying it
+// on the repo library still lets agents Read/Glob/Grep there to explore code
+// without spawning a new mission.
+var writeFilePermissionVerbs = []string{canonicalFileWriteVerb}
 
 // BuildRepoLibraryDenyEntries constructs permission deny entries that prevent
 // agents from modifying the shared repo library under the given agenc dir.
@@ -165,10 +164,10 @@ func BuildRepoLibraryDenyEntries(agencDirpath string) []string {
 	reposDirpath := filepath.Join(agencDirpath, "repos")
 	baseVariants := buildPathVariants(reposDirpath)
 
-	entries := make([]string, 0, len(AgencRepoLibraryWriteTools)*len(baseVariants))
-	for _, tool := range AgencRepoLibraryWriteTools {
+	entries := make([]string, 0, len(writeFilePermissionVerbs)*len(baseVariants))
+	for _, verb := range writeFilePermissionVerbs {
 		for _, base := range baseVariants {
-			entries = append(entries, tool+"("+base+"/**)")
+			entries = append(entries, verb+"("+base+"/**)")
 		}
 	}
 	return entries
