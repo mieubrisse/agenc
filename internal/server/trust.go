@@ -99,7 +99,7 @@ func writeTrustEntryOnce(claudeJSONFilepath string, agentDirpath string, trusted
 	root["projects"] = json.RawMessage(projectsData)
 
 	// Serialize the full file with indentation + trailing newline,
-	// matching copyAndPatchClaudeJSON's output format.
+	// matching the standard .claude.json output format.
 	result, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to marshal root JSON")
@@ -109,8 +109,8 @@ func writeTrustEntryOnce(claudeJSONFilepath string, agentDirpath string, trusted
 	return atomicWriteFile(claudeJSONFilepath, result)
 }
 
-// buildTrustEntry constructs the trust entry map for a project, mirroring the
-// logic in claudeconfig.copyAndPatchClaudeJSON.
+// buildTrustEntry constructs the trust entry map for a project, using the
+// standard .claude.json trust-entry format.
 func buildTrustEntry(trustedMcpServers *config.TrustedMcpServers) map[string]interface{} {
 	entry := map[string]interface{}{
 		"hasTrustDialogAccepted": true,

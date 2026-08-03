@@ -282,7 +282,7 @@ Directory Structure
 │   ├── config/                   # Path management, YAML config
 │   ├── database/                 # SQLite CRUD
 │   ├── mission/                  # Mission lifecycle, Claude spawning
-│   ├── claudeconfig/             # Per-mission config merging, shadow repo
+│   ├── claudeconfig/             # Claude configuration building, shadow repo
 │   ├── server/                   # HTTP API server (unix socket)
 │   ├── tmux/                     # Tmux keybindings generation
 │   ├── wrapper/                  # Claude child process management
@@ -728,7 +728,7 @@ Database Schema
 | `id` | TEXT (PK) | Full UUID |
 | `short_id` | TEXT (UNIQUE) | First 8 characters of UUID, for user-friendly display |
 | `git_repo` | TEXT | Canonical repo name (`github.com/owner/repo`), empty for blank missions |
-| `config_commit` | TEXT | Shadow repo HEAD hash at the most recent claude-config rebuild — written by the wrapper on every Claude spawn (nullable) |
+| `config_commit` | TEXT | Legacy: shadow-repo HEAD hash from the old snapshot-rebuild path (State X). Vestigial under State Y — pending removal in a later cleanup (nullable) |
 | `status` | TEXT | `active` or `archived` |
 | `prompt` | TEXT | First user prompt, cached for listing display |
 | `last_heartbeat` | TEXT | Last wrapper heartbeat timestamp (RFC3339, nullable) |
