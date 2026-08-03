@@ -41,7 +41,6 @@ const (
 	GlobalClaudeMdFilename      = "CLAUDE.md"
 	WrapperLogFilename          = "wrapper.log"
 	SettingsLocalFilename       = "settings.local.json"
-	HistoryFilename             = "history.jsonl"
 	SecretsEnvFilename          = "secrets.env"
 	ClaudeOutputLogFilename     = "claude-output.log"
 	TmuxKeybindingsFilename     = "tmux-keybindings.conf"
@@ -117,11 +116,6 @@ func GetMissionsDirpath(agencDirpath string) string {
 // GetReposDirpath returns the path to the repos directory.
 func GetReposDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ReposDirname)
-}
-
-// GetGlobalClaudeDirpath returns the path to the global claude config directory.
-func GetGlobalClaudeDirpath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, ClaudeDirname)
 }
 
 // Deprecated: GetDaemonDirpath returns the path to the daemon directory.
@@ -236,12 +230,6 @@ func GetMissionClaudeOutputLogFilepath(agencDirpath string, missionID string) st
 // ($AGENC/config/), intended to be Git-controlled.
 func GetConfigDirpath(agencDirpath string) string {
 	return filepath.Join(agencDirpath, ConfigDirname)
-}
-
-// GetHistoryFilepath returns the path to Claude's history.jsonl file, which
-// records every user prompt submission.
-func GetHistoryFilepath(agencDirpath string) string {
-	return filepath.Join(GetGlobalClaudeDirpath(agencDirpath), HistoryFilename)
 }
 
 // GetMissionSocketFilepath returns the path to the wrapper unix socket for a mission.
