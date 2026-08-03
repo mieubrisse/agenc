@@ -2,8 +2,6 @@ package claudeconfig
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -426,140 +424,6 @@ func copyAndPatchClaudeJSON(claudeConfigDirpath string, missionAgentDirpath stri
 	return nil
 }
 
-// ComputeCredentialServiceName returns the macOS Keychain service name for a
-// per-mission credential entry. The name is "Claude Code-credentials-<hash>"
-// where <hash> is the first 8 hex characters of the SHA-256 of the
-// claudeConfigDirpath. Claude Code uses this naming convention when
-// CLAUDE_CONFIG_DIR is set to a non-default path.
-func ComputeCredentialServiceName(claudeConfigDirpath string) string {
-	hash := sha256.Sum256([]byte(claudeConfigDirpath))
-	hashPrefix := hex.EncodeToString(hash[:])[:8]
-	return "Claude Code-credentials-" + hashPrefix
-}
-
-// GlobalCredentialServiceName is the macOS Keychain service name for the
-// global Claude Code credential entry (used when CLAUDE_CONFIG_DIR is unset).
-const GlobalCredentialServiceName = "Claude Code-credentials"
-
-// ReadKeychainCredentials reads the credential blob from the macOS Keychain
-// entry with the given service name. Returns the raw credential string (trimmed)
-// or an error if the entry does not exist or cannot be read.
-func ReadKeychainCredentials(serviceName string) (string, error) {
-	user := os.Getenv("USER")
-	if user == "" {
-		return "", stacktrace.NewError("USER environment variable not set")
-	}
-
-	readCmd := exec.Command("security", "find-generic-password", "-a", user, "-w", "-s", serviceName)
-	credentialData, err := readCmd.Output()
-	if err != nil {
-		return "", stacktrace.Propagate(err, "failed to read Keychain entry for service '%s'", serviceName)
-	}
-
-	return strings.TrimSpace(string(credentialData)), nil
-}
-
-// WriteKeychainCredentials writes (or replaces) a credential blob in the macOS
-// Keychain entry with the given service name. Any existing entry is deleted
-// first to allow an idempotent overwrite.
-func WriteKeychainCredentials(serviceName string, credential string) error {
-	user := os.Getenv("USER")
-	if user == "" {
-		return stacktrace.NewError("USER environment variable not set")
-	}
-
-	// Delete any existing entry (ignore errors — may not exist)
-	deleteCmd := exec.Command("security", "delete-generic-password", "-a", user, "-s", serviceName)
-	_ = deleteCmd.Run()
-
-	addCmd := exec.Command("security", "add-generic-password", "-a", user, "-s", serviceName, "-w", credential)
-	if err := addCmd.Run(); err != nil {
-		return stacktrace.Propagate(err, "failed to write credentials to Keychain service '%s'", serviceName)
-	}
-
-	return nil
-}
-
-// CloneKeychainCredentials reads the user's credentials from the default macOS
-// Keychain entry ("Claude Code-credentials") and clones them into a per-mission
-// entry keyed by claudeConfigDirpath. This avoids writing credential files to disk.
-func CloneKeychainCredentials(claudeConfigDirpath string) error {
-	credential, err := ReadKeychainCredentials(GlobalCredentialServiceName)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read credentials from Keychain; run 'claude login' first")
-	}
-
-	targetService := ComputeCredentialServiceName(claudeConfigDirpath)
-	if err := WriteKeychainCredentials(targetService, credential); err != nil {
-		return stacktrace.Propagate(err, "failed to clone credentials to per-mission Keychain entry")
-	}
-
-	return nil
-}
-
-// WriteBackKeychainCredentials merges per-mission Keychain credentials back
-// into the global entry. This propagates MCP OAuth tokens acquired during a
-// mission so that subsequent missions inherit them without re-authentication.
-//
-// The merge uses MergeCredentialJSON: top-level keys are replaced by the
-// per-mission overlay, and mcpOAuth entries are merged per-server using
-// expiresAt to keep the newest token. If either side fails to parse or read,
-// the function returns nil (non-fatal) to avoid blocking wrapper exit.
-func WriteBackKeychainCredentials(claudeConfigDirpath string) error {
-	missionService := ComputeCredentialServiceName(claudeConfigDirpath)
-
-	missionCred, err := ReadKeychainCredentials(missionService)
-	if err != nil {
-		// Per-mission entry may not exist (e.g. mission never ran Claude)
-		return nil
-	}
-
-	globalCred, err := ReadKeychainCredentials(GlobalCredentialServiceName)
-	if err != nil {
-		// Global entry missing — nothing to merge into
-		return nil
-	}
-
-	merged, changed, err := MergeCredentialJSON([]byte(globalCred), []byte(missionCred))
-	if err != nil {
-		// JSON parse failure — skip silently
-		return nil
-	}
-
-	if !changed {
-		return nil
-	}
-
-	if err := WriteKeychainCredentials(GlobalCredentialServiceName, string(merged)); err != nil {
-		return stacktrace.Propagate(err, "failed to write merged credentials back to global Keychain entry")
-	}
-
-	return nil
-}
-
-// DeleteKeychainCredentials removes the per-mission Keychain credential entry.
-// Errors are silently ignored if the entry does not exist (idempotent cleanup).
-func DeleteKeychainCredentials(claudeConfigDirpath string) error {
-	user := os.Getenv("USER")
-	if user == "" {
-		return stacktrace.NewError("USER environment variable not set")
-	}
-
-	targetService := ComputeCredentialServiceName(claudeConfigDirpath)
-
-	deleteCmd := exec.Command("security", "delete-generic-password", "-a", user, "-s", targetService)
-	output, err := deleteCmd.CombinedOutput()
-	if err != nil {
-		// Ignore "item not found" errors — the entry may not exist
-		if strings.Contains(string(output), "SecKeychainSearchCopyNext") {
-			return nil
-		}
-		return stacktrace.Propagate(err, "failed to delete Keychain credentials for service '%s'", targetService)
-	}
-
-	return nil
-}
-
 // CountCommitsBehind returns the number of commits between missionCommitHash
 // and HEAD in the shadow repo. Returns 0 if the hashes are equal or if the
 // shadow repo has no commits. Returns -1 if the mission commit is not found
@@ -610,49 +474,6 @@ func ResolveConfigCommitHash(configSourceDirpath string) string {
 	}
 
 	return strings.TrimSpace(string(output))
-}
-
-// ExtractExpiresAtFromJSON extracts the claudeAiOauth.expiresAt timestamp
-// from a credential JSON blob and returns it as Unix seconds. Returns 0 if
-// the field is missing or unparseable.
-//
-// Claude Code stores expiresAt as epoch milliseconds; this function normalizes
-// to seconds so callers can compare directly against time.Now().Unix().
-func ExtractExpiresAtFromJSON(credentialJSON []byte) float64 {
-	var credMap map[string]json.RawMessage
-	if err := json.Unmarshal(credentialJSON, &credMap); err != nil {
-		return 0
-	}
-
-	oauthRaw, ok := credMap["claudeAiOauth"]
-	if !ok {
-		return 0
-	}
-
-	expiresAt := extractExpiresAt(oauthRaw)
-	if expiresAt == 0 {
-		return 0
-	}
-
-	// Claude Code stores expiresAt in milliseconds. Normalize to seconds
-	// by checking magnitude: any value above 1e12 is clearly milliseconds
-	// (year ~33658 in seconds vs year ~2001 in milliseconds).
-	if expiresAt > 1e12 {
-		expiresAt /= 1000
-	}
-
-	return expiresAt
-}
-
-// GetCredentialExpiresAt reads the global Keychain credentials and returns
-// the expiresAt timestamp (in Unix seconds) for the claudeAiOauth token.
-// Returns 0 if the credential cannot be read or the expiresAt field is missing.
-func GetCredentialExpiresAt() float64 {
-	credential, err := ReadKeychainCredentials(GlobalCredentialServiceName)
-	if err != nil {
-		return 0
-	}
-	return ExtractExpiresAtFromJSON([]byte(credential))
 }
 
 // GetLastSessionID returns the most recent session ID for a mission by

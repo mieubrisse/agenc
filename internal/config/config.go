@@ -36,26 +36,25 @@ const (
 	ServerLockFilename    = "server.lock"
 	ConfigFilename        = "config.yml"
 
-	AgentDirname                    = "agent"
-	PIDFilename                     = "pid"
-	GlobalSettingsFilename          = "settings.json"
-	GlobalClaudeMdFilename          = "CLAUDE.md"
-	WrapperLogFilename              = "wrapper.log"
-	SettingsLocalFilename           = "settings.local.json"
-	HistoryFilename                 = "history.jsonl"
-	SecretsEnvFilename              = "secrets.env"
-	ClaudeOutputLogFilename         = "claude-output.log"
-	TmuxKeybindingsFilename         = "tmux-keybindings.conf"
-	WrapperSocketFilename           = "wrapper.sock"
-	CLIName                         = "agenc"
-	MissionUUIDEnvVar               = "AGENC_MISSION_UUID"
-	MissionSourceEnvVar             = "AGENC_MISSION_SOURCE"
-	MissionSourceMetadataEnvVar     = "AGENC_MISSION_SOURCE_METADATA"
-	AdjutantMarkerFilename          = ".adjutant"
-	GlobalCredentialsExpiryFilename = "global-credentials-expiry"
-	CacheDirname                    = "cache"
-	OAuthTokenFilename              = "oauth-token"
-	StashDirname                    = "stash"
+	AgentDirname                = "agent"
+	PIDFilename                 = "pid"
+	GlobalSettingsFilename      = "settings.json"
+	GlobalClaudeMdFilename      = "CLAUDE.md"
+	WrapperLogFilename          = "wrapper.log"
+	SettingsLocalFilename       = "settings.local.json"
+	HistoryFilename             = "history.jsonl"
+	SecretsEnvFilename          = "secrets.env"
+	ClaudeOutputLogFilename     = "claude-output.log"
+	TmuxKeybindingsFilename     = "tmux-keybindings.conf"
+	WrapperSocketFilename       = "wrapper.sock"
+	CLIName                     = "agenc"
+	MissionUUIDEnvVar           = "AGENC_MISSION_UUID"
+	MissionSourceEnvVar         = "AGENC_MISSION_SOURCE"
+	MissionSourceMetadataEnvVar = "AGENC_MISSION_SOURCE_METADATA"
+	AdjutantMarkerFilename      = ".adjutant"
+	CacheDirname                = "cache"
+	OAuthTokenFilename          = "oauth-token"
+	StashDirname                = "stash"
 
 	// MissionOpSettingsFilename is the per-mission operational settings file
 	// delivered to Claude via `claude --settings <file>` under State Y.
@@ -265,14 +264,6 @@ func GetTmuxKeybindingsFilepath(agencDirpath string) string {
 // directory where agenc-specific CLAUDE.md and settings.json overrides live.
 func GetClaudeModificationsDirpath(agencDirpath string) string {
 	return filepath.Join(GetConfigDirpath(agencDirpath), ClaudeModificationsDirname)
-}
-
-// GetGlobalCredentialsExpiryFilepath returns the path to the shared file that
-// broadcasts the current global credential expiry timestamp. Wrappers write
-// this file after propagating fresh credentials to the global Keychain; other
-// wrappers watch it to detect credential changes.
-func GetGlobalCredentialsExpiryFilepath(agencDirpath string) string {
-	return filepath.Join(agencDirpath, GlobalCredentialsExpiryFilename)
 }
 
 // GetMissionAdjutantMarkerFilepath returns the path to the adjutant marker
