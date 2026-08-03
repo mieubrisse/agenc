@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -34,6 +35,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		checkTmuxKeybindingsInjected(),
 		checkOAuthTokenPermissions(),
 		checkWrapperSocketPermissions(),
+		checkNoClaudeModificationsOverlay(),
 	}
 
 	allPassed := true
@@ -213,4 +215,51 @@ func checkWrapperSocketPermissions() checkResult {
 	}
 
 	return checkResult{name: name, passed: true}
+}
+
+// claudeModificationsDirname is the name of the retired config overlay
+// directory removed in the State-Y flip. Missions now read ~/.claude natively;
+// this directory is inert but may confuse users who keep editing it.
+const claudeModificationsDirname = "claude-modifications"
+
+// checkNoClaudeModificationsOverlay warns when a leftover claude-modifications
+// overlay directory is found in the user's config repo. The overlay was retired
+// in the State-Y flip; any content remaining there has no effect on missions.
+func checkNoClaudeModificationsOverlay() checkResult {
+	name := "no retired claude-modifications overlay"
+
+	agencDirpath, err := config.GetAgencDirpath()
+	if err != nil {
+		return checkResult{
+			name:    name,
+			passed:  false,
+			message: fmt.Sprintf("could not determine agenc directory: %v", err),
+		}
+	}
+
+	overlayDirpath := filepath.Join(config.GetConfigDirpath(agencDirpath), claudeModificationsDirname)
+	_, err = os.Stat(overlayDirpath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return checkResult{name: name, passed: true}
+		}
+		return checkResult{
+			name:    name,
+			passed:  false,
+			message: fmt.Sprintf("could not stat %s: %v", overlayDirpath, err),
+		}
+	}
+
+	return checkResult{
+		name:   name,
+		passed: false,
+		message: fmt.Sprintf(
+			"%s exists but is no longer used.\n"+
+				"      Missions now read ~/.claude natively (State Y). "+
+				"Any content here has no effect.\n"+
+				"      Move content you still want into ~/.claude, then remove the directory:\n"+
+				"        rm -rf %s",
+			overlayDirpath, overlayDirpath,
+		),
+	}
 }
