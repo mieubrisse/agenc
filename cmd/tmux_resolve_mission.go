@@ -33,6 +33,15 @@ func runTmuxResolveMission(cmd *cobra.Command, args []string) error {
 	// but tmux format variables like #{pane_id} omit it (42). The database
 	// stores just the number.
 	paneID := strings.TrimPrefix(args[0], "%")
+	if paneID == "" {
+		// An empty pane ID isn't a lookup miss — it's not a lookup at all.
+		// Without this guard it falls through to the /missions?tmux_pane=
+		// server handler's `if tmuxPane != ""` check, which treats an empty
+		// value as "no pane filter" and returns the general mission list
+		// instead of an empty one; this command would then print
+		// responses[0].ID — some unrelated mission — instead of nothing.
+		return nil
+	}
 
 	dirpath, err := config.GetAgencDirpath()
 	if err != nil {
