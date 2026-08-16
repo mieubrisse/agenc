@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -48,11 +49,17 @@ func runTmuxResolveMission(cmd *cobra.Command, args []string) error {
 		return nil // silently exit — no mission
 	}
 
-	// Try the server first
+	// Try the server first. The pane ID must be URL-escaped, not
+	// concatenated raw: a caller that accidentally passes an unexpanded
+	// tmux format placeholder (e.g. the literal string "#{pane_id}") would
+	// otherwise have everything from "#" onward parsed as a URL fragment
+	// and silently dropped before the request is even sent — the server
+	// would then see an empty tmux_pane, hit the same empty-value fallback
+	// as above, and this command would print an unrelated mission's ID.
 	socketFilepath := config.GetServerSocketFilepath(dirpath)
 	client := server.NewClient(socketFilepath)
 	var responses []server.MissionResponse
-	if err := client.Get("/missions?tmux_pane="+paneID, &responses); err == nil {
+	if err := client.Get("/missions?tmux_pane="+url.QueryEscape(paneID), &responses); err == nil {
 		if len(responses) > 0 {
 			fmt.Print(responses[0].ID)
 		}
