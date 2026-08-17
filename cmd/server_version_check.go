@@ -3,16 +3,25 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/version"
 )
 
+// serverVersionWarnMu guards serverVersionWarned so the stale-server warning is
+// printed at most once per CLI invocation, even though checkServerVersion runs
+// on every server-touching command (via serverClient) and every config read.
+var (
+	serverVersionWarnMu sync.Mutex
+	serverVersionWarned bool
+)
+
 // checkServerVersion compares the running server's version against the CLI
-// version. If the versions differ, it prints a warning. Also stops any stale
-// daemon process from a pre-server version. All errors are silently ignored —
-// this check must never block CLI commands.
+// version and, when they differ, prints a warning (at most once per process).
+// Also stops any stale daemon process from a pre-server version. All errors are
+// silently ignored — this check must never block CLI commands.
 func checkServerVersion(agencDirpath string) {
 	// Clean up any leftover daemon directory from a pre-server version of agenc.
 	cleanupDaemonDir(agencDirpath)
@@ -35,13 +44,33 @@ func checkServerVersion(agencDirpath string) {
 		return
 	}
 
-	serverVersion := healthResp.Version
-	cliVersion := version.Version
-	if serverVersion == cliVersion || serverVersion == "" {
+	warning := serverVersionWarning(healthResp.Version, version.Version)
+	if warning == "" {
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "⚠ Server is running %s but CLI is %s. Run 'agenc server restart' to upgrade.\n", serverVersion, cliVersion)
+	serverVersionWarnMu.Lock()
+	defer serverVersionWarnMu.Unlock()
+	if serverVersionWarned {
+		return
+	}
+	serverVersionWarned = true
+	fmt.Fprintln(os.Stderr, warning)
+}
+
+// serverVersionWarning returns the stale-server warning to show the user, or an
+// empty string when the running server matches the CLI and no warning is needed.
+// An empty serverVersion means the server is too old to report one at all (it
+// predates the /health version field) — itself a stale signal worth warning on,
+// and exactly the case a naive equality check silently skips.
+func serverVersionWarning(serverVersion, cliVersion string) string {
+	if serverVersion == cliVersion {
+		return ""
+	}
+	if serverVersion == "" {
+		return fmt.Sprintf("⚠ A stale agenc server is running (it predates version reporting; CLI is %s). Run 'agenc server restart' to upgrade.", cliVersion)
+	}
+	return fmt.Sprintf("⚠ Server is running %s but CLI is %s. Run 'agenc server restart' to upgrade.", serverVersion, cliVersion)
 }
 
 // stopStaleDaemon stops any leftover daemon process from a pre-server version

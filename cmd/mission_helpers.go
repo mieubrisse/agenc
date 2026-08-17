@@ -132,16 +132,22 @@ func filterRunningMissions(missions []*database.Mission) []*database.Mission {
 // ============================================================================
 
 // serverClient returns an HTTP client connected to the AgenC server. All CLI
-// commands that delegate work to the server use this. It only resolves the
-// agenc directory (read-only) and ensures the server is running — it does NOT
-// call ensureConfigured() or EnsureDirStructure(), so it is safe to call from
-// sandboxed environments that cannot write to ~/.agenc.
+// commands that delegate work to the server use this. It resolves the agenc
+// directory, ensures the server is running, and warns if the running server is
+// a stale binary — it does NOT call ensureConfigured() or EnsureDirStructure().
+// Its side effects (server fork, daemon cleanup, version check) all swallow
+// their errors, so it stays safe to call from sandboxed environments that
+// cannot write to ~/.agenc.
 func serverClient() (*server.Client, error) {
 	dirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to get agenc directory path")
 	}
 	ensureServerRunning()
+	// Warn (once per invocation) if the running server is a stale binary from
+	// before a Homebrew upgrade — this is the path mission creation flows
+	// through, and a stale server silently breaks per-mission trust seeding.
+	checkServerVersion(dirpath)
 	socketFilepath := config.GetServerSocketFilepath(dirpath)
 	return server.NewClient(socketFilepath), nil
 }
