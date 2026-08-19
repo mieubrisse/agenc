@@ -130,6 +130,7 @@ func runMissionNewWithClone() error {
 		Prompt:      promptFlag,
 		CloneFrom:   sourceMission.ID,
 		TmuxSession: tmuxSession,
+		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
 	})
 	if err != nil {
@@ -141,11 +142,7 @@ func runMissionNewWithClone() error {
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
 	}
 
-	if tmuxSession != "" || sourceFlag == "mission" {
-		fmt.Println("Launched in tmux pool")
-	} else {
-		fmt.Println("Running in background (pool window)")
-	}
+	printLaunchDestination(tmuxSession)
 
 	return nil
 }
@@ -240,6 +237,7 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		Adjutant:    true,
 		Prompt:      initialPrompt,
 		TmuxSession: tmuxSession,
+		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
 	})
 	if err != nil {
@@ -248,11 +246,7 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 
 	fmt.Printf("Created Adjutant mission: %s\n", missionRecord.ShortID)
 
-	if tmuxSession != "" || sourceFlag == "mission" {
-		fmt.Println("Launched in tmux pool")
-	} else {
-		fmt.Println("Running in background (pool window)")
-	}
+	printLaunchDestination(tmuxSession)
 
 	return nil
 }
@@ -377,6 +371,7 @@ func createAndLaunchMission(
 		Repo:           gitRepoName,
 		Prompt:         initialPrompt,
 		TmuxSession:    tmuxSession,
+		Headless:       headlessFlag,
 		Source:         sourceFlag,
 		SourceID:       sourceIDFlag,
 		SourceMetadata: sourceMetadataFlag,
@@ -388,13 +383,25 @@ func createAndLaunchMission(
 
 	fmt.Printf("Created mission: %s\n", missionRecord.ShortID)
 
-	if tmuxSession != "" || sourceFlag == "mission" {
-		fmt.Println("Launched in tmux pool")
-	} else {
-		fmt.Println("Running in background (pool window)")
-	}
+	printLaunchDestination(tmuxSession)
 
 	return nil
+}
+
+// printLaunchDestination reports where the new mission ended up. The headless
+// check must come first: headless missions are never linked into a user tmux
+// session, whatever the source, so the source/session-based messages would
+// misreport them (agenc-vupc).
+func printLaunchDestination(tmuxSession string) {
+	if headlessFlag {
+		fmt.Println("Running headless (pool window; not linked to any tmux session)")
+		return
+	}
+	if tmuxSession != "" || sourceFlag == "mission" {
+		fmt.Println("Launched in tmux pool")
+		return
+	}
+	fmt.Println("Running in background (pool window)")
 }
 
 // promptForRepoLocator interactively prompts the user for a repo locator,

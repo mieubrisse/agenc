@@ -1170,6 +1170,25 @@ run_test_output_contains \
     "cron" \
     sqlite3 "${db_filepath}" "SELECT source FROM missions WHERE source_id='${fake_cron_id}' ORDER BY created_at DESC LIMIT 1;"
 
+# 6. Headless from inside a mission reports the headless path (agenc-vupc:
+#    the CLI dropped Headless on the wire and printed the attached-launch
+#    message 'Launched in tmux pool' for source=mission spawns).
+AGENC_MISSION_UUID="${fake_parent_uuid}" run_test_output_contains \
+    "mission new --headless from mission reports headless" \
+    "Running headless" \
+    "${agenc_test}" mission new --blank --headless --no-focus
+
+headless_from_mission_output=$(AGENC_MISSION_UUID="${fake_parent_uuid}" "${agenc_test}" mission new --blank --headless --no-focus 2>&1) || true
+total=$((total + 1))
+printf "  %-50s " "headless from mission not reported as attached..."
+if echo "${headless_from_mission_output}" | grep -q "Launched in tmux pool"; then
+    echo "FAIL (headless spawn printed 'Launched in tmux pool')"
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
 echo ""
 echo "--- agenc prime routing-index content (agenc-88kh trim) ---"
 
