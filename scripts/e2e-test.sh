@@ -1298,6 +1298,119 @@ fi
 sleep 1
 rm -rf "${fd_test_dir}"
 
+echo ""
+echo "--- Mission detach across tmux sessions (requires server + tmux) ---"
+
+# Regression (agenc-vurk): detach must find the mission's window wherever it is
+# linked, not only in the session the command was typed in. With several tmux
+# sessions open at once, a mission's window routinely lives outside the caller's
+# session, and detach used to fail with "pane N not found in session X".
+detach_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
+detach_namespace_filepath="${repo_dirpath}/_test-env/namespace"
+detach_namespace=""
+if [ -f "${detach_namespace_filepath}" ]; then
+    detach_namespace=$(cat "${detach_namespace_filepath}")
+fi
+
+detach_mission_pane=""
+detach_mission_short_id=""
+if [ -n "${detach_namespace}" ]; then
+    detach_mission_output=$("${agenc_test}" mission new --blank --headless 2>&1) || true
+    detach_mission_short_id=$(echo "${detach_mission_output}" | grep -oE '[0-9a-f]{8}' | head -1)
+    if [ -n "${detach_mission_short_id}" ]; then
+        detach_mission_pane=$(sqlite3 "${detach_db_filepath}" \
+            "SELECT tmux_pane FROM missions WHERE id LIKE '${detach_mission_short_id}%';" 2>/dev/null || echo "")
+    fi
+fi
+
+if [ -z "${detach_mission_pane}" ]; then
+    total=$((total + 1))
+    printf "  %-50s " "detach unlinks a window in another session..."
+    echo "SKIP (could not create a mission with a tmux pane)"
+    passed=$((passed + 1))
+else
+    detach_pool_session="agenc-${detach_namespace}-pool"
+    detach_host_session="agenc-${detach_namespace}-e2e-host"
+    detach_caller_session="agenc-${detach_namespace}-e2e-caller"
+    tmux kill-session -t "=${detach_host_session}" >/dev/null 2>&1 || true
+    tmux kill-session -t "=${detach_caller_session}" >/dev/null 2>&1 || true
+    tmux new-session -d -s "${detach_host_session}" -x 80 -y 24
+    tmux new-session -d -s "${detach_caller_session}" -x 80 -y 24
+
+    # is_pane_in_session <session-name> — exit 0 when the mission's pane is
+    # visible in that tmux session.
+    is_pane_in_session() {
+        tmux list-panes -s -t "=${1}" -F "#{pane_id}" 2>/dev/null \
+            | grep -qx "%${detach_mission_pane}"
+    }
+
+    # The mission's window lives in a session the caller is not sitting in.
+    tmux link-window -d -a -s "%${detach_mission_pane}" -t "=${detach_host_session}:"
+
+    total=$((total + 1))
+    printf "  %-50s " "mission window links into the host session"
+    if is_pane_in_session "${detach_host_session}"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (pane %${detach_mission_pane} not visible in ${detach_host_session})"
+        failed=$((failed + 1))
+    fi
+
+    run_test "detach from a session that does not hold the window succeeds" \
+        0 \
+        env AGENC_CALLING_SESSION_NAME="${detach_caller_session}" \
+        "${agenc_test}" mission detach "${detach_mission_short_id}"
+
+    total=$((total + 1))
+    printf "  %-50s " "detach unlinked the window from the host session"
+    if is_pane_in_session "${detach_host_session}"; then
+        echo "FAIL (pane %${detach_mission_pane} still in ${detach_host_session})"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+
+    total=$((total + 1))
+    printf "  %-50s " "detach left the window running in the pool"
+    if is_pane_in_session "${detach_pool_session}"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (pane %${detach_mission_pane} gone from ${detach_pool_session})"
+        failed=$((failed + 1))
+    fi
+
+    # Detaching an already-pool-only mission is a no-op, not an error: nothing
+    # is linked, so detach's postcondition already holds.
+    run_test "detach of an already-detached mission succeeds" \
+        0 \
+        env AGENC_CALLING_SESSION_NAME="${detach_caller_session}" \
+        "${agenc_test}" mission detach "${detach_mission_short_id}"
+
+    # Unchanged behavior: when the caller's own session holds the window, that
+    # is the session detach unlinks from.
+    tmux link-window -d -a -s "%${detach_mission_pane}" -t "=${detach_caller_session}:"
+    run_test "detach from the session holding the window succeeds" \
+        0 \
+        env AGENC_CALLING_SESSION_NAME="${detach_caller_session}" \
+        "${agenc_test}" mission detach "${detach_mission_short_id}"
+
+    total=$((total + 1))
+    printf "  %-50s " "detach unlinked the window from the caller session"
+    if is_pane_in_session "${detach_caller_session}"; then
+        echo "FAIL (pane %${detach_mission_pane} still in ${detach_caller_session})"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+
+    tmux kill-session -t "=${detach_host_session}" >/dev/null 2>&1 || true
+    tmux kill-session -t "=${detach_caller_session}" >/dev/null 2>&1 || true
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

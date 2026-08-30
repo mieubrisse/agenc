@@ -1042,18 +1042,20 @@ func (s *Server) handleAttachMission(w http.ResponseWriter, r *http.Request) err
 
 // DetachRequest is the JSON body for POST /missions/{id}/detach.
 type DetachRequest struct {
-	// TmuxSession is the name of the user's currently-attached tmux session —
-	// the session the mission window should be unlinked from. The CLI sends
-	// this directly (rather than a pane ID) because a mission's pane can be
-	// linked into multiple sessions, making pane-ID-based resolution
-	// ambiguous (it would unlink from whichever session tmux happens to list
-	// first, not necessarily the user's current one).
+	// TmuxSession is the name of the user's currently-attached tmux session.
+	// The CLI sends this directly (rather than a pane ID) because a mission's
+	// window can be linked into multiple sessions at once: when the caller's
+	// own session holds the window, that is the session to unlink from, rather
+	// than whichever one tmux happens to list first. When the caller's session
+	// does not hold the window, the handler falls back to unlinking it from
+	// every session it does live in — see resolveUnlinkTargets.
 	TmuxSession string `json:"tmux_session"`
 }
 
 // handleDetachMission handles POST /missions/{id}/detach.
-// Unlinks the mission's window from the caller's tmux session. The wrapper
-// keeps running in the pool.
+// Unlinks the mission's window from the caller's tmux session, or — when the
+// window is not in the caller's session — from every session it is linked
+// into. The wrapper keeps running in the pool.
 func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 
@@ -1078,19 +1080,40 @@ func (s *Server) handleDetachMission(w http.ResponseWriter, r *http.Request) err
 	if missionRecord == nil {
 		return newHTTPError(http.StatusNotFound, "mission not found: "+id)
 	}
+	// Detach is idempotent: a mission with no pane (headless spawn, or a window
+	// that is already gone) is by definition not linked into any user session,
+	// so the postcondition already holds and there is nothing to unlink.
 	if missionRecord.TmuxPane == nil || *missionRecord.TmuxPane == "" {
-		return newHTTPError(http.StatusBadRequest, "mission has no tmux pane")
+		s.logger.Printf("Mission %s has no tmux pane; detach is a no-op", database.ShortID(resolvedID))
+		writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
+		return nil
+	}
+	paneID := *missionRecord.TmuxPane
+
+	poolSessionName := s.getPoolSessionName()
+	linkedSessions := getLinkedPaneSessions(poolSessionName)[paneID]
+	unlinkTargets := resolveUnlinkTargets(tmuxSession, linkedSessions)
+	if len(unlinkTargets) == 0 {
+		s.logger.Printf("Mission %s is linked into no session outside the pool; detach is a no-op", database.ShortID(resolvedID))
+		writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
+		return nil
 	}
 
-	if err := unlinkPoolWindowByPane(*missionRecord.TmuxPane, tmuxSession); err != nil {
-		return newHTTPErrorf(http.StatusInternalServerError, "failed to unlink window: %s", err.Error())
+	var unlinkFailures []string
+	for _, unlinkTarget := range unlinkTargets {
+		if err := unlinkPoolWindowByPane(paneID, unlinkTarget); err != nil {
+			unlinkFailures = append(unlinkFailures, fmt.Sprintf("'%s': %s", unlinkTarget, err.Error()))
+		}
+	}
+	if len(unlinkFailures) > 0 {
+		return newHTTPErrorf(http.StatusInternalServerError, "failed to unlink window from tmux session(s) %s", strings.Join(unlinkFailures, "; "))
 	}
 
 	// Clean up any side shell panes the user created (via tmux split-window)
 	// so they don't linger in the pool after detach.
-	killExtraPanesInWindow(*missionRecord.TmuxPane, s.getPoolSessionName(), s.logger)
+	killExtraPanesInWindow(paneID, poolSessionName, s.logger)
 
-	s.logger.Printf("Detached mission %s from session %s", database.ShortID(resolvedID), tmuxSession)
+	s.logger.Printf("Detached mission %s from tmux session(s) %s", database.ShortID(resolvedID), strings.Join(unlinkTargets, ", "))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "detached"})
 	return nil
 }

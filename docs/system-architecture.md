@@ -92,7 +92,7 @@ Current endpoints:
 - `POST /missions` — create a new mission (DB record, directory, wrapper spawn in pool)
 - `PATCH /missions/{id}` — update mission fields (config_commit, session_name, prompt, tmux_pane)
 - `POST /missions/{id}/attach` — ensure wrapper running (lazy start), resolve caller's tmux session from `calling_pane_id`, link pool window into it
-- `POST /missions/{id}/detach` — resolve caller's session from `calling_pane_id`, unlink pool window (wrapper keeps running)
+- `POST /missions/{id}/detach` — unlink the mission's pool window from the caller's `tmux_session`, falling back to every session the window is linked into when the caller's session does not hold it (wrapper keeps running)
 - `POST /missions/{id}/stop` — stop a mission's wrapper process and clean up pool window
 - `DELETE /missions/{id}` — stop wrapper, clean up pool window and directory, delete from DB
 - `POST /missions/{id}/reload` — in-place reload via tmux respawn-pane

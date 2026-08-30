@@ -80,6 +80,32 @@ func (s *Server) createPoolWindow(missionID string, command string) (string, str
 	return windowTarget, paneID, nil
 }
 
+// resolveUnlinkTargets returns the tmux sessions a mission's window should be
+// unlinked from on detach, given every non-pool session the window is currently
+// linked into.
+//
+// When the caller's own session holds the window, that session alone is the
+// target: a window can be linked into several sessions at once, and detaching
+// from the terminal you are sitting in must not yank the mission out of another
+// session that is still using it.
+//
+// When the caller's session does NOT hold the window, the user is detaching a
+// mission that lives in some other session (a common case when several tmux
+// sessions are open at once). Unlinking everywhere it lives is the only outcome
+// that satisfies detach's postcondition, because a mission counts as attached
+// while its pane is linked into any non-pool session.
+//
+// An empty result means the window is already pool-only — there is nothing to
+// unlink.
+func resolveUnlinkTargets(callerSession string, linkedSessions []string) []string {
+	for _, linkedSession := range linkedSessions {
+		if linkedSession == callerSession {
+			return []string{callerSession}
+		}
+	}
+	return linkedSessions
+}
+
 // unlinkPoolWindowByPane unlinks the window containing the given pane from the
 // target session. Uses the pane ID (immutable) rather than the window name
 // (which may have been changed by title reconciliation).
