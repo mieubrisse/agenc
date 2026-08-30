@@ -11,6 +11,7 @@ Available Commands:
   ls          List active missions
   new         Create a new mission and launch claude
   nuke        Stop and permanently remove ALL missions
+  peers       List missions reachable by Claude Code's SendMessage tool
   print       Print a mission's current session transcript (human-readable text by default)
   reload      Reload a mission in-place (preserves tmux pane)
   rename      Rename the active session's window title for a mission

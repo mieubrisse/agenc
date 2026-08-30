@@ -70,6 +70,7 @@ const (
 	renameCmdStr       = "rename"
 	sendKeysCmdStr     = "send-keys"
 	draftCmdStr        = "draft"
+	peersCmdStr        = "peers"
 
 	// Config subcommands
 	initCmdStr           = "init"

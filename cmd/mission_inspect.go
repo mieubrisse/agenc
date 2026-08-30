@@ -9,6 +9,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/session"
 )
@@ -92,6 +93,19 @@ func runMissionInspect(cmd *cobra.Command, args []string) error {
 	return inspectMission(agencDirpath, result.Items[0].MissionID)
 }
 
+// formatPeerAddress describes how Claude Code's SendMessage tool can reach the
+// mission, distinguishing a mission with no live Claude session from one whose
+// peer identity could not be determined.
+func formatPeerAddress(mission *database.Mission) string {
+	if mission.PeerName != "" {
+		return fmt.Sprintf("%s  (tmux %s)", mission.PeerName, mission.PeerTmuxTarget)
+	}
+	if isMissionRunning(getMissionStatus(mission.ID, mission.Status, mission.ClaudeState)) {
+		return "--  (running, but Claude Code reports no peer for it)"
+	}
+	return "--  (no live Claude session)"
+}
+
 func inspectMission(agencDirpath string, missionID string) error {
 	client, err := serverClient()
 	if err != nil {
@@ -128,6 +142,7 @@ func inspectMission(agencDirpath string, missionID string) error {
 		sessionName = "--"
 	}
 	fmt.Printf("Session:     %s\n", sessionName)
+	fmt.Printf("Peer:        %s\n", formatPeerAddress(mission))
 	prompt := mission.Prompt
 	if prompt == "" {
 		prompt = "--"

@@ -49,6 +49,19 @@ type Mission struct {
 	// the database. True if the mission's tmux pane is currently linked into a
 	// session outside the pool (i.e. the mission is "attached").
 	IsAttached bool
+
+	// PeerName is a transient field populated by the server API, not stored in
+	// the database. It is the name Claude Code's ListAgents tool prints for
+	// this mission's live session, and the name its SendMessage tool addresses.
+	// Empty when the mission has no live Claude session.
+	PeerName string
+
+	// PeerTmuxTarget is a transient field populated by the server API, not
+	// stored in the database. It is the full "session:@window.%pane" location
+	// Claude Code reports for this mission's live session — the form ListAgents
+	// prints, not the bare pane ID held in TmuxPane. Empty when the mission has
+	// no live Claude session.
+	PeerTmuxTarget string
 }
 
 // CreateMissionParams holds optional parameters for creating a mission.

@@ -401,6 +401,22 @@ This lets a parent mission read what the child Claude did — check its output, 
 3. Parent reads the result: `agenc mission print <id>`
 4. Parent incorporates the child's output into its own work
 
+**Messaging a running mission:**
+
+Claude Code can send a message straight into another running Claude session with its `SendMessage` tool, which is often better than waiting for a child mission to finish. It addresses sessions by a short peer name like `agent-da` that says nothing about which mission it is. To match those names to missions:
+
+```bash
+agenc mission peers
+```
+
+```
+PEER      PANE                  MISSION   STATUS  REPO              TASK
+agent-2b  hyperspace:@75.%79    591187e7  BUSY    mieubrisse/agenc  Fixing the mission detach path
+agent-da  hyperspace:@126.%134  dd09fd51  IDLE    mieubrisse/agenc  Reviewing the cron scheduler
+```
+
+The `PEER` and `PANE` columns are the same strings Claude Code's `ListAgents` tool prints, so an agent can join the two listings and learn what each peer is working on before messaging it. A peer that appears in `ListAgents` with no row here is not an active mission. `agenc mission inspect <mission-id>` prints the same peer name for a single mission.
+
 ### Wrapper
 
 The **wrapper** is a supervisor process — one per active mission — that tends the Claude child process.
