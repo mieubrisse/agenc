@@ -1190,6 +1190,50 @@ else
 fi
 
 echo ""
+echo "--- Mission peer identity (agenc-padz) ---"
+
+# `mission peers` translates Claude Code's ListAgents peer names into missions.
+# The test environment never launches an interactive Claude, so no mission here
+# is ever addressable — the empty-state message is the deterministic assertion.
+run_test_output_contains "mission peers reports no messageable missions" \
+    "No missions are running a Claude session that can be messaged" \
+    "${agenc_test}" mission peers
+
+run_test "mission peers rejects arguments" \
+    1 \
+    "${agenc_test}" mission peers deadbeef
+
+run_test_output_contains "mission peers --help explains the ListAgents join" \
+    "ListAgents" \
+    "${agenc_test}" mission peers --help
+
+# `mission inspect` must distinguish a mission with no live Claude session from
+# one that is running but has no peer identity — a silent "--" would leave an
+# agent unable to tell "not running" from "cannot be addressed".
+peer_test_mission_id=$(sqlite3 "${db_filepath}" "SELECT id FROM missions ORDER BY created_at DESC LIMIT 1;")
+"${agenc_test}" mission stop "${peer_test_mission_id}" >/dev/null 2>&1 || true
+
+peer_inspect_output=""
+for _ in $(seq 1 15); do
+    peer_inspect_output=$("${agenc_test}" mission inspect "${peer_test_mission_id}" 2>&1 || true)
+    if echo "${peer_inspect_output}" | grep -q "no live Claude session"; then
+        break
+    fi
+    sleep 1
+done
+
+total=$((total + 1))
+printf "  %-50s " "mission inspect names the missing-peer reason..."
+if echo "${peer_inspect_output}" | grep -q "^Peer:.*no live Claude session"; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (Peer line did not report a stopped mission as having no live session)"
+    echo "    Output: ${peer_inspect_output}" | head -5
+    failed=$((failed + 1))
+fi
+
+echo ""
 echo "--- agenc prime routing-index content (agenc-88kh trim) ---"
 
 # The corrected ephemerality framing is the load-bearing bug-fix from this trim.

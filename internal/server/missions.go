@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/mission"
@@ -54,6 +55,16 @@ type MissionResponse struct {
 	// IsAttached is true if the mission's tmux pane is currently linked into a
 	// session outside the pool. Computed live per request; never persisted.
 	IsAttached bool `json:"is_attached"`
+
+	// PeerName is the name Claude Code's ListAgents tool prints for this
+	// mission's live session, and the name its SendMessage tool addresses.
+	// Empty when the mission has no live Claude session.
+	PeerName string `json:"peer_name"`
+
+	// PeerTmuxTarget is the full "session:@window.%pane" location Claude Code
+	// reports for this mission's live session — the form ListAgents prints,
+	// not the bare pane ID in TmuxPane. Empty when there is no live session.
+	PeerTmuxTarget string `json:"peer_tmux_target"`
 }
 
 // ToMission converts a MissionResponse to a database.Mission.
@@ -80,6 +91,8 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		IsAdjutant:           mr.IsAdjutant,
 		ClaudeState:          mr.ClaudeState,
 		IsAttached:           mr.IsAttached,
+		PeerName:             mr.PeerName,
+		PeerTmuxTarget:       mr.PeerTmuxTarget,
 	}
 }
 
@@ -105,6 +118,8 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		ResolvedSessionTitle: m.ResolvedSessionTitle,
 		IsAdjutant:           m.IsAdjutant,
 		IsAttached:           m.IsAttached,
+		PeerName:             m.PeerName,
+		PeerTmuxTarget:       m.PeerTmuxTarget,
 		// ClaudeState intentionally omitted — it is set post-conversion by
 		// enrichMissionResponse; database.Mission.ClaudeState is always nil here.
 	}
@@ -151,6 +166,40 @@ func (s *Server) markMissionsAttached(missions []*database.Mission) {
 	linkedPanes := getLinkedPaneIDs(s.getPoolSessionName())
 	for _, m := range missions {
 		m.IsAttached = computeMissionAttached(m.TmuxPane, linkedPanes)
+	}
+}
+
+// markMissionsPeers sets PeerName and PeerTmuxTarget on each mission from a
+// single read of Claude Code's session registry — the same registry backing
+// Claude Code's ListAgents tool, which is what makes the values joinable
+// against what an agent sees there.
+//
+// Records whose process is gone are ignored: Claude Code can leave a record
+// behind after a session dies, and a stale peer name addresses whichever
+// session inherited it. A registry AgenC cannot read leaves every mission
+// without a peer, which callers render as "unknown" rather than "not running".
+func (s *Server) markMissionsPeers(missions []*database.Mission) {
+	missionSessions, err := claudeconfig.ListMissionSessions(s.agencDirpath)
+	if err != nil {
+		s.logger.Printf("Warning: failed to read Claude Code's session registry, so mission peer names are unavailable: %v", err)
+		return
+	}
+
+	sessionsByMission := make(map[string]claudeconfig.MissionSession, len(missionSessions))
+	for _, missionSession := range missionSessions {
+		if !IsProcessRunning(missionSession.PID) {
+			continue
+		}
+		sessionsByMission[missionSession.MissionID] = missionSession
+	}
+
+	for _, m := range missions {
+		missionSession, found := sessionsByMission[m.ID]
+		if !found {
+			continue
+		}
+		m.PeerName = missionSession.PeerName
+		m.PeerTmuxTarget = missionSession.TmuxTarget
 	}
 }
 
@@ -219,6 +268,7 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 		}
 		s.enrichMissionWithSessionTitle(mission)
 		s.markMissionsAttached([]*database.Mission{mission})
+		s.markMissionsPeers([]*database.Mission{mission})
 		resp := toMissionResponse(mission)
 		s.enrichMissionResponse(&resp)
 		writeJSON(w, http.StatusOK, []MissionResponse{resp})
@@ -258,6 +308,7 @@ func (s *Server) handleListMissions(w http.ResponseWriter, r *http.Request) erro
 		s.enrichMissionWithSessionTitle(m)
 	}
 	s.markMissionsAttached(missions)
+	s.markMissionsPeers(missions)
 
 	responses := toMissionResponses(missions)
 
@@ -294,6 +345,7 @@ func (s *Server) handleGetMission(w http.ResponseWriter, r *http.Request) error 
 
 	s.enrichMissionWithSessionTitle(mission)
 	s.markMissionsAttached([]*database.Mission{mission})
+	s.markMissionsPeers([]*database.Mission{mission})
 	resp := toMissionResponse(mission)
 	s.enrichMissionResponse(&resp)
 	writeJSON(w, http.StatusOK, resp)
