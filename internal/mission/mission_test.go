@@ -49,7 +49,7 @@ func TestBuildClaudeCmdStateY(t *testing.T) {
 	agentDirpath := t.TempDir()
 	missionID := "test-mission-uuid"
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, "", nil, nil)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestBuildClaudeCmdInjectsTokenWhenPresent(t *testing.T) {
 		t.Fatalf("failed to write token: %v", err)
 	}
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, "", nil, nil)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
 	}
@@ -179,5 +179,37 @@ func TestBuildResumeArgs(t *testing.T) {
 				t.Errorf("buildResumeArgs(%q, %q) = %v, want %v", tt.sessionID, tt.initialPrompt, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestBuildClaudeCmdArgOrder pins the argv layout BuildClaudeCmd produces:
+// AgenC's operational overlay first, then the merged model/config/per-mission
+// args, then the call-site args that choose the conversation shape. The order
+// is behaviour, not incidental — a per-mission override that landed before the
+// resolved model would be silently outranked by Claude's last-wins parsing.
+func TestBuildClaudeCmdArgOrder(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	mergedClaudeArgs := MergeClaudeArgs("sonnet", []string{"--chrome"}, map[string]string{"model": "opus"})
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, []string{"-c"})
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd returned error: %v", err)
+	}
+
+	// cmd.Args[0] is the claude binary path itself.
+	gotArgs := cmd.Args[1:]
+	opSettingsFilepath := config.GetMissionOpSettingsFilepath(agencDirpath, missionID)
+	expectedArgs := []string{
+		"--settings", opSettingsFilepath,
+		"--chrome",
+		"--model", "opus",
+		"-c",
+	}
+	if !reflect.DeepEqual(gotArgs, expectedArgs) {
+		t.Fatalf("expected args %v, got %v", expectedArgs, gotArgs)
 	}
 }

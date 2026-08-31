@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/mission"
 	"github.com/odyssey/agenc/internal/repo"
 	"github.com/odyssey/agenc/internal/server"
 )
@@ -25,6 +26,12 @@ var headlessFlag bool
 var sourceFlag string
 var sourceIDFlag string
 var sourceMetadataFlag string
+
+// missionClaudeArgFlagValues holds the value of every forwarded Claude flag as
+// the user set it on the command line, keyed by
+// mission.ForwardedClaudeFlag.Key. Registered from the forwarded-flag table so
+// that supporting a new Claude flag stays a single table entry.
+var missionClaudeArgFlagValues = map[string]*string{}
 
 var missionNewCmd = &cobra.Command{
 	Use:   newCmdStr + " [repo]",
@@ -52,10 +59,32 @@ func init() {
 	missionNewCmd.Flags().StringVar(&sourceFlag, "source", "", "mission source type (internal use)")
 	missionNewCmd.Flags().StringVar(&sourceIDFlag, "source-id", "", "mission source identifier (internal use)")
 	missionNewCmd.Flags().StringVar(&sourceMetadataFlag, "source-metadata", "", "mission source metadata JSON (internal use)")
+	for _, forwardedFlag := range mission.ForwardedClaudeFlags {
+		missionClaudeArgFlagValues[forwardedFlag.Key] = missionNewCmd.Flags().String(forwardedFlag.Key, "", forwardedFlag.Usage)
+	}
 	missionNewCmd.Flags().MarkHidden("source")
 	missionNewCmd.Flags().MarkHidden("source-id")
 	missionNewCmd.Flags().MarkHidden("source-metadata")
 	missionCmd.AddCommand(missionNewCmd)
+}
+
+// collectMissionClaudeArgs returns the forwarded Claude flags the user actually
+// set on this command. Unset flags are omitted rather than sent as empty
+// strings, so the mission falls through to the defaultModel/claudeArgs config
+// chain for everything it did not explicitly override. Returns nil when the
+// user set none.
+func collectMissionClaudeArgs() map[string]string {
+	claudeArgs := map[string]string{}
+	for key, value := range missionClaudeArgFlagValues {
+		if value == nil || *value == "" {
+			continue
+		}
+		claudeArgs[key] = *value
+	}
+	if len(claudeArgs) == 0 {
+		return nil
+	}
+	return claudeArgs
 }
 
 // repoLibraryEntry represents a single repo discovered in the
@@ -132,12 +161,20 @@ func runMissionNewWithClone() error {
 		TmuxSession: tmuxSession,
 		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
+		ClaudeArgs:  collectMissionClaudeArgs(),
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
 	}
 
 	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
+	// Report Claude args only when they were inherited rather than typed —
+	// echoing back flags the user just passed is noise, but silently carrying
+	// a stronger (and more expensive) model over from the source mission is a
+	// surprise worth naming.
+	if collectMissionClaudeArgs() == nil && len(missionRecord.ClaudeArgs) > 0 {
+		fmt.Printf("Inherited Claude args: %s\n", mission.FormatMissionClaudeArgs(missionRecord.ClaudeArgs))
+	}
 	if agencDirpath, err := config.GetAgencDirpath(); err == nil {
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
 	}
@@ -239,6 +276,7 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		TmuxSession: tmuxSession,
 		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
+		ClaudeArgs:  collectMissionClaudeArgs(),
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create adjutant mission")
@@ -376,6 +414,7 @@ func createAndLaunchMission(
 		SourceID:       sourceIDFlag,
 		SourceMetadata: sourceMetadataFlag,
 		NoFocus:        noFocusFlag,
+		ClaudeArgs:     collectMissionClaudeArgs(),
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")

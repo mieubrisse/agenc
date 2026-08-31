@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,10 +28,17 @@ type Mission struct {
 	SourceID             *string
 	SourceMetadata       *string
 	ConfigCommit         *string
-	TmuxPane             *string
-	PromptCount          int
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+
+	// ClaudeArgs holds the per-mission Claude CLI overrides set at
+	// `agenc mission new` time, keyed by mission.ForwardedClaudeFlag.Key
+	// (e.g. {"model": "opus"}). Nil when the mission set none, in which
+	// case the mission falls back to the defaultModel/claudeArgs config
+	// chain at spawn time. Stored as a JSON object in the claude_args column.
+	ClaudeArgs  map[string]string
+	TmuxPane    *string
+	PromptCount int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 
 	// ResolvedSessionTitle is a transient field (not stored in the database).
 	// It is populated by the server from the active session's title chain:
@@ -70,6 +78,7 @@ type CreateMissionParams struct {
 	SourceID       *string
 	SourceMetadata *string
 	ConfigCommit   *string
+	ClaudeArgs     map[string]string
 }
 
 // ListMissionsParams holds optional parameters for filtering missions.
@@ -88,16 +97,23 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	var configCommit, source, sourceID, sourceMetadata *string
+	var claudeArgs map[string]string
 	if params != nil {
 		configCommit = params.ConfigCommit
 		source = params.Source
 		sourceID = params.SourceID
 		sourceMetadata = params.SourceMetadata
+		claudeArgs = params.ClaudeArgs
 	}
 
-	_, err := db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, now, now,
+	claudeArgsJSON, err := marshalClaudeArgs(claudeArgs)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to serialize Claude args '%v' for mission '%s'", claudeArgs, id)
+	}
+
+	_, err = db.conn.Exec(
+		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, claude_args, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, claudeArgsJSON, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -112,6 +128,7 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		SourceID:       sourceID,
 		SourceMetadata: sourceMetadata,
 		ConfigCommit:   configCommit,
+		ClaudeArgs:     claudeArgs,
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	}, nil
@@ -137,7 +154,7 @@ func (db *DB) ListMissions(params ListMissionsParams) ([]*Mission, error) {
 // Returns (nil, error) only for actual database failures.
 func (db *DB) GetMission(id string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions WHERE id = ?",
+		"SELECT "+missionColumnsSQL+" FROM missions WHERE id = ?",
 		id,
 	)
 
@@ -155,7 +172,7 @@ func (db *DB) GetMission(id string) (*Mission, error) {
 // tmux pane ID, or nil if no active mission is running in that pane.
 func (db *DB) GetMissionByTmuxPane(paneID string) (*Mission, error) {
 	row := db.conn.QueryRow(
-		"SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
+		"SELECT "+missionColumnsSQL+" FROM missions WHERE tmux_pane = ? AND status = 'active' LIMIT 1",
 		paneID,
 	)
 
@@ -427,4 +444,32 @@ func (db *DB) ResolveMissionID(userInput string) (string, error) {
 			userInput, len(matches), strings.Join(lines, "\n"),
 		)
 	}
+}
+
+// marshalClaudeArgs renders per-mission Claude args for storage in the
+// claude_args column. An empty map yields nil so the column stays NULL rather
+// than holding a meaningless "{}".
+func marshalClaudeArgs(claudeArgs map[string]string) (*string, error) {
+	if len(claudeArgs) == 0 {
+		return nil, nil
+	}
+	serialized, err := json.Marshal(claudeArgs)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal Claude args '%v'", claudeArgs)
+	}
+	asString := string(serialized)
+	return &asString, nil
+}
+
+// unmarshalClaudeArgs parses a stored claude_args column. A NULL or empty
+// column yields a nil map, meaning the mission set no per-mission overrides.
+func unmarshalClaudeArgs(stored sql.NullString) (map[string]string, error) {
+	if !stored.Valid || stored.String == "" {
+		return nil, nil
+	}
+	var claudeArgs map[string]string
+	if err := json.Unmarshal([]byte(stored.String), &claudeArgs); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to unmarshal stored Claude args '%v'", stored.String)
+	}
+	return claudeArgs, nil
 }

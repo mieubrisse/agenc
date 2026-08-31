@@ -214,9 +214,9 @@ The wrapper:
 
 1. Writes the wrapper PID to `$AGENC_DIRPATH/missions/<uuid>/pid`
 2. Records the tmux pane ID via the server (cleared on exit) for pane→mission resolution
-3. Resolves the Claude model: checks the repo's `defaultModel` in `config.yml`, falls back to the top-level `defaultModel`, or omits `--model` entirely (letting Claude choose its default)
+3. Resolves the mission's Claude CLI args: merges the mission's own `claude_args` (from `agenc mission new --model`/`--effort`) over the `claudeArgs` config chain and the resolved `defaultModel`, per-mission values winning (see "Claude arg resolution at spawn time" below)
 4. Writes the mission's operational-settings file (`agenc-settings.json`) and its `agenc-hooks/` guard script into the mission dir (via `claudeconfig.WriteMissionOpSettings`). This runs at the top of every Claude spawn — initial start, in-place tmux respawn-pane reload — so each spawn regenerates the operational overlay with the latest config. Under State Y (native passthrough) there is **no** per-mission `claude-config/` snapshot: Claude reads the user's real `~/.claude` directly, and AgenC's operational layer is delivered per-invocation via `claude --settings <op-settings file>` (which unions with `~/.claude/settings.json`).
-5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--settings <op-settings file>`, `--model <value>` if a model was resolved, and the initial prompt if any
+5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--settings <op-settings file>`, then the merged Claude args, then the call-site args (the conversation shape and the initial prompt if any)
 6. Sets `AGENC_MISSION_UUID` for the child process. Does **not** set `CLAUDE_CONFIG_DIR` (State Y — Claude reads the real `~/.claude`). Injects `CLAUDE_CODE_OAUTH_TOKEN` **only** when a token file is present (the machine-token fallback toggle); absent, Claude uses its native `~/.claude` login.
 7. Starts background goroutines:
    - **Heartbeat writer** — updates `last_heartbeat` via the server on a fixed interval; also piggybacks `last_user_prompt_at` for crash recovery
@@ -253,7 +253,21 @@ The wrapper:
 
 **Conditional auth at spawn time**: missions default to native Claude authentication (set up via `claude auth login`). If an explicit token is stored at `$AGENC_DIRPATH/cache/oauth-token` (written via `agenc token set`), the wrapper reads it and passes it to Claude via `CLAUDE_CODE_OAUTH_TOKEN`. When no token file exists, `CLAUDE_CODE_OAUTH_TOKEN` is omitted and Claude uses its own native credentials. This "conditional passthrough" model avoids forcing token setup while still supporting the State-X fallback for headless/high-concurrency workflows. All missions share the same token file; when the token is updated (`agenc token set <new-token>`), new missions pick it up immediately and running missions pick it up on their next restart.
 
-**Model resolution at spawn time**: the wrapper resolves the Claude model from `config.yml` using a precedence chain: the repo's `repoConfig` `defaultModel` (if set) takes priority over the top-level `defaultModel` (if set). When a model is resolved, the wrapper passes `--model <value>` to the Claude CLI. If neither level specifies a model, `--model` is omitted and Claude uses its own default.
+**Claude arg resolution at spawn time**: the wrapper assembles the Claude CLI args once at construction, from three sources, lowest precedence first:
+
+1. The resolved `defaultModel` — the repo's `repoConfig` `defaultModel` if set, else the top-level `defaultModel`, else nothing.
+2. The `claudeArgs` config chain — global `claudeArgs` then the repo's, appended.
+3. The mission's own `claude_args` — the per-mission overrides set at `agenc mission new` time.
+
+A per-mission override removes every occurrence of the same flag from the two lower-precedence sources, so each forwarded flag reaches Claude exactly once. Claude's parser does resolve duplicate flags last-wins, but AgenC does not lean on that: emitting each flag once makes the precedence AgenC's own, and therefore testable. `mission.MergeClaudeArgs` owns this and is unit-tested.
+
+The resulting argv is `--settings <op-settings file>`, then the merged args, then the call-site args (`-c`, `-r <session>`, `--print`, the initial prompt). If nothing specifies a model, `--model` is omitted and Claude uses its own default.
+
+**Forwarded Claude flags**: `agenc mission new` exposes an allowlist of Claude CLI flags (`internal/mission/claude_args.go`, `ForwardedClaudeFlags` — currently `--model` and `--effort`), registered as real Cobra flags so `--help` lists them and unknown flags are rejected at parse time. It is an allowlist rather than an open passthrough because Claude exposes flags that would break AgenC's invariants: `--settings` carries the operational overlay, `-c`/`-r` are the wrapper's to choose, `--bare` skips the hooks AgenC tracks mission state with. The server re-validates against the same table, since the HTTP API is reachable by clients that never went through Cobra.
+
+Values are persisted per-mission as a JSON object keyed by flag name in `missions.claude_args` (e.g. `{"model":"opus"}`) rather than one column per flag, so supporting a new Claude flag is a single table entry with no migration. Persisting on the mission row — rather than passing the flag along the tmux resume command string — is what makes the override survive stash-restore, reload, and server restart, all of which rebuild that command from scratch.
+
+**Clone inheritance**: `agenc mission new --clone <mission>` carries the source mission's `claude_args` over, so a mission deliberately put on a stronger model does not silently drop back to the config default when cloned. Any forwarded flag given explicitly on the clone command replaces the inherited set wholesale, and the CLI prints what it inherited so the choice is never silent.
 
 
 Directory Structure
@@ -363,7 +377,7 @@ Repo library operations and resolution logic. Used by the server for repo API en
 
 Mission lifecycle: directory creation, repo copying, and Claude process spawning.
 
-- `mission.go` — `CreateMissionDir` (sets up mission directory, copies git repo), `SpawnClaude`/`SpawnClaudeWithPrompt`/`SpawnClaudeResume` (construct and start Claude `exec.Cmd` with 1Password integration, environment variables, and `--model` flag when a `defaultModel` is configured)
+- `mission.go` — `CreateMissionDir` (sets up mission directory, copies git repo), `BuildClaudeCmd`/`SpawnClaudeWithPrompt`/`SpawnClaudeResumeWithSession` (construct and start Claude `exec.Cmd` with 1Password integration and environment variables)
 - `repo.go` — git repository operations: `CopyRepo`/`CopyAgentDir` (rsync-based), `ForceUpdateRepo` (fetch + reset to remote default branch), `ParseRepoReference`/`ParseGitHubRemoteURL` (handle shorthand, canonical, SSH, and HTTPS URL formats), `EnsureRepoClone`, `DetectPreferredProtocol` (infers SSH vs HTTPS from existing repos)
 
 ### `internal/claudeconfig/`
@@ -412,7 +426,7 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 
 SQLite mission tracking with auto-migration.
 
-- `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, generic source tracking (`source`, `source_id`, `source_metadata` columns). Idempotent migrations handle schema evolution.
+- `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, generic source tracking (`source`, `source_id`, `source_metadata` columns), per-mission Claude CLI overrides (`claude_args`, a JSON object keyed by flag name). Idempotent migrations handle schema evolution.
 - `sessions.go` — `Session` struct and CRUD operations: `CreateSession`, `GetSession`, `ListSessions`, `ListSessionsByMission`, `GetActiveSession`, `UpdateSessionAgencCustomTitle`, `UpdateKnownFileSize`, `SessionsWithNullFileSize`, plus the split-loop query and atomic-update helpers — `SessionsNeedingCustomTitleUpdate` / `UpdateCustomTitleAndOffset` / `UpdateCustomTitleScanOffset` for the custom-title loop, and `SessionsNeedingAutoSummary` / `UpdateAutoSummaryAndOffset` / `UpdateAutoSummaryScanOffset` for the auto-summary loop. Each `*AndOffset` helper writes the output column and advances its scan offset in a single UPDATE so failure rolls back both. `GetActiveSession` returns the most recently updated session for a mission, used by tmux title reconciliation to determine the current display title.
 - `notifications.go` — `Notification` struct (with optional `MissionID` attach target) and CRUD operations (`CreateNotification`, `GetNotification`, `ListNotifications`, `MarkNotificationRead`, `CountUnreadNotifications`). Notifications are append-only — `read_at` is the only mutation. The `mission_id` column links a notification to a mission so the Notification Center picker can attach on `ENTER`.
 
@@ -434,7 +448,7 @@ Tmux keybindings generation and version detection, shared by the CLI (`tmux inje
 
 Per-mission Claude child process management.
 
-- `wrapper.go` — `Wrapper` struct (uses `server.Client` for all database operations, `stateMu` protects state for concurrent HTTP reads), `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, HTTP server), `handleClaudeUpdate` (processes hook events for idle tracking, needs-attention tracking, and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable, model resolution from `defaultModel` config (repo-level then top-level) passed as `--model` to the Claude CLI
+- `wrapper.go` — `Wrapper` struct (uses `server.Client` for all database operations, `stateMu` protects state for concurrent HTTP reads), `Run` (interactive mode with three-state restart machine), `RunHeadless` (headless mode with timeout and log rotation), background goroutines (heartbeat, remote refs watcher, HTTP server), `handleClaudeUpdate` (processes hook events for idle tracking, needs-attention tracking, and pane coloring), signal handling, OAuth token passthrough via `CLAUDE_CODE_OAUTH_TOKEN` environment variable, Claude arg resolution at construction (per-mission `claude_args` merged over the `claudeArgs` and `defaultModel` config chains via `mission.MergeClaudeArgs`)
 - `socket.go` — HTTP server on unix socket (`startHTTPServer`), request/response types (`StatusResponse`, `RestartRequest`, `ClaudeUpdateRequest`, `CommandResponse`), internal `Command`/`commandWithResponse` types for the event loop channel, HTTP handlers for each endpoint
 - `client.go` — `WrapperClient` HTTP client using unix socket transport, typed methods (`GetStatus`, `Restart`, `SendClaudeUpdate`), `ErrWrapperNotRunning` sentinel error
 - `tmux.go` — pane color management (`setWindowBusy`, `setWindowNeedsAttention`, `resetWindowTabStyle`) for visual mission status feedback, pane registration/clearing via server client (triggers initial tmux window title reconciliation on the server side)
@@ -638,6 +652,7 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 **Key behaviors:**
 - **Cron missions are normal missions** — no special lifecycle, timeout, or cleanup. Users can attach/detach them like any other mission.
 - **Generic source tracking** — missions have `source`, `source_id`, and `source_metadata` columns instead of cron-specific columns. `source=cron`, `source_id=<UUID>`, `source_metadata={"cron_name":"<name>"}`.
+- **Per-mission Claude args** — missions carry a `claude_args` JSON object (`{"model":"opus"}`) holding the Claude CLI flags set for that mission alone, outranking the `defaultModel`/`claudeArgs` config chains. Keyed JSON rather than a column per flag so a new forwarded flag needs no migration. See "Claude arg resolution at spawn time".
 - **Scheduling reliability** — launchd handles scheduling, survives server restarts
 - **Cron expression support** — basic expressions only (`minute hour day month weekday`), no `*/N` syntax
 - **Plist logs** — single appending log file per cron at `$AGENC_DIRPATH/logs/crons/<cronID>.log` (captures `agenc mission new` stdout/stderr for diagnosing launch failures)
@@ -658,7 +673,7 @@ Data Flow: Mission Lifecycle
 ### Running
 
 1. Wrapper writes PID file, starts socket listener
-2. Wrapper writes the operational-settings file, then spawns Claude (with 1Password wrapping if `secrets.env` exists), passing `--settings <op-settings file>` and `--model` if a `defaultModel` is configured (repo-level overrides top-level). Sets `AGENC_MISSION_UUID`; does **not** set `CLAUDE_CONFIG_DIR` (State Y); injects `CLAUDE_CODE_OAUTH_TOKEN` only when a token file is present
+2. Wrapper writes the operational-settings file, then spawns Claude (with 1Password wrapping if `secrets.env` exists), passing `--settings <op-settings file>` followed by the merged Claude args (per-mission `claude_args` over the `claudeArgs` and `defaultModel` config chains). Sets `AGENC_MISSION_UUID`; does **not** set `CLAUDE_CONFIG_DIR` (State Y); injects `CLAUDE_CODE_OAUTH_TOKEN` only when a token file is present
 3. Background goroutines start: heartbeat writer (sends heartbeats to server), remote refs watcher
 4. Claude hooks send state updates to the wrapper socket (`claude_update` commands); the wrapper uses these for idle detection, conversation tracking, deferred restarts, tmux pane coloring, and recording prompts via the server
 5. Main event loop blocks until Claude exits or a signal arrives

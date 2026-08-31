@@ -41,6 +41,11 @@ type MissionResponse struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 
+	// ClaudeArgs holds the mission's own Claude CLI overrides (e.g.
+	// {"model": "opus"}), set at creation time and outranking the
+	// defaultModel/claudeArgs config chains for this mission only.
+	ClaudeArgs map[string]string `json:"claude_args"`
+
 	// ResolvedSessionTitle is derived from the active session's title chain:
 	// custom_title > agenc_custom_title > auto_summary. Empty if no session exists.
 	ResolvedSessionTitle string `json:"resolved_session_title"`
@@ -87,6 +92,7 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		PromptCount:          mr.PromptCount,
 		CreatedAt:            mr.CreatedAt,
 		UpdatedAt:            mr.UpdatedAt,
+		ClaudeArgs:           mr.ClaudeArgs,
 		ResolvedSessionTitle: mr.ResolvedSessionTitle,
 		IsAdjutant:           mr.IsAdjutant,
 		ClaudeState:          mr.ClaudeState,
@@ -115,6 +121,7 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		PromptCount:          m.PromptCount,
 		CreatedAt:            m.CreatedAt,
 		UpdatedAt:            m.UpdatedAt,
+		ClaudeArgs:           m.ClaudeArgs,
 		ResolvedSessionTitle: m.ResolvedSessionTitle,
 		IsAdjutant:           m.IsAdjutant,
 		IsAttached:           m.IsAttached,
@@ -375,6 +382,14 @@ type CreateMissionRequest struct {
 	SourceMetadata string `json:"source_metadata"`
 	CloneFrom      string `json:"clone_from"`
 	NoFocus        bool   `json:"no_focus"`
+
+	// ClaudeArgs holds per-mission Claude CLI overrides keyed by
+	// mission.ForwardedClaudeFlag.Key (e.g. {"model": "opus"}). Validated
+	// against the forwarded-flag allowlist before anything is persisted:
+	// Claude exposes flags that would break AgenC's own invariants, and the
+	// HTTP API is reachable by clients that never went through the CLI's
+	// flag parsing.
+	ClaudeArgs map[string]string `json:"claude_args"`
 }
 
 // resolveTrustedMcpServers reads the MCP trust configuration for a repo from
@@ -424,8 +439,12 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
+	if err := mission.ValidateMissionClaudeArgs(req.ClaudeArgs); err != nil {
+		return newHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	// Build creation params
-	createParams := &database.CreateMissionParams{}
+	createParams := &database.CreateMissionParams{ClaudeArgs: req.ClaudeArgs}
 	if req.Source != "" {
 		createParams.Source = &req.Source
 	}
@@ -611,6 +630,15 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	sourceMission, err := s.db.GetMission(sourceID)
 	if err != nil || sourceMission == nil {
 		return newHTTPError(http.StatusNotFound, "source mission not found: "+req.CloneFrom)
+	}
+
+	// A clone means "another one of these", so the source mission's Claude args
+	// carry over — otherwise a mission deliberately put on a stronger model
+	// would silently drop back to the config default when cloned. An explicit
+	// --model (or any other forwarded flag) on the clone command still wins,
+	// and the CLI reports what was inherited so it is never a silent choice.
+	if len(createParams.ClaudeArgs) == 0 {
+		createParams.ClaudeArgs = sourceMission.ClaudeArgs
 	}
 
 	missionRecord, err := s.db.CreateMission(sourceMission.GitRepo, createParams)

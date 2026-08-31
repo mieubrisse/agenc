@@ -117,6 +117,6 @@ func doRunWrapperDirect(missionID string, initialPrompt string) error {
 	// Determine if this is a resume (existing conversation) or a fresh start
 	hasConversation := claudeconfig.GetLastSessionID(agencDirpath, missionID) != ""
 
-	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, initialPrompt)
+	w := wrapper.NewWrapper(agencDirpath, missionID, missionRecord.GitRepo, initialPrompt, missionRecord.ClaudeArgs)
 	return w.Run(hasConversation)
 }

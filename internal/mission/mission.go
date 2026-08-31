@@ -58,17 +58,19 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 // (AGENC_MISSION_UUID, conditionally CLAUDE_CODE_OAUTH_TOKEN) set but does NOT
 // set stdin/stdout/stderr — callers should wire those as needed (e.g.
 // interactive mode connects to the terminal, headless mode uses pipes).
-func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string, claudeArgs []string) (*exec.Cmd, error) {
-	var fullArgs []string
-	if model != "" {
-		fullArgs = append(fullArgs, "--model", model)
-	}
+//
+// Args reach Claude in three groups, in this order: AgenC's --settings overlay,
+// then extraClaudeArgs (the model/config/per-mission args already merged by
+// MergeClaudeArgs), then claudeArgs (the call-site args that choose the
+// conversation shape — -c, -r <session>, --print, the initial prompt).
+func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, claudeArgs []string) (*exec.Cmd, error) {
 	// Deliver AgenC's operational overlay (hooks, prime, guard, allow/deny,
 	// server socket) via --settings so it applies to every spawn shape
 	// (interactive, resume, headless). --settings unions with the user's own
 	// ~/.claude/settings.json rather than replacing it.
 	opSettingsFilepath := config.GetMissionOpSettingsFilepath(agencDirpath, missionID)
-	fullArgs = append(fullArgs, "--settings", opSettingsFilepath)
+
+	fullArgs := []string{"--settings", opSettingsFilepath}
 	fullArgs = append(fullArgs, extraClaudeArgs...)
 	fullArgs = append(fullArgs, claudeArgs...)
 	claudeArgs = fullArgs
@@ -121,25 +123,19 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	return cmd, nil
 }
 
-// SpawnClaude starts claude as a child process in the given agent directory.
-// Returns the running command. The caller is responsible for calling cmd.Wait().
-func SpawnClaude(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string) (*exec.Cmd, error) {
-	return SpawnClaudeWithPrompt(agencDirpath, missionID, agentDirpath, model, extraClaudeArgs, "")
-}
-
 // SpawnClaudeWithPrompt starts claude with an initial prompt as a child process
 // in the given agent directory. Claude always starts in interactive mode; if
 // initialPrompt is non-empty, it is passed as a positional argument to pre-fill
 // the first message. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
-func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string, initialPrompt string) (*exec.Cmd, error) {
+func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, initialPrompt string) (*exec.Cmd, error) {
 	var args []string
 	if initialPrompt != "" {
 		// Pass prompt as positional argument for interactive mode with pre-filled message
 		args = []string{initialPrompt}
 	}
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, model, extraClaudeArgs, args)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, extraClaudeArgs, args)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude command")
 	}
@@ -150,26 +146,6 @@ func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath s
 
 	if err := cmd.Start(); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to start claude")
-	}
-
-	return cmd, nil
-}
-
-// SpawnClaudeResume starts claude -c as a child process in the given agent
-// directory. Returns the running command. The caller is responsible for
-// calling cmd.Wait().
-func SpawnClaudeResume(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string) (*exec.Cmd, error) {
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, model, extraClaudeArgs, []string{"-c"})
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
-	}
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, stacktrace.Propagate(err, "failed to start claude -c")
 	}
 
 	return cmd, nil
@@ -196,10 +172,10 @@ func buildResumeArgs(sessionID string, initialPrompt string) []string {
 // argument so claude submits it as the first message after resuming.
 // Returns the running command. The caller is responsible for calling
 // cmd.Wait().
-func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, model string, extraClaudeArgs []string, sessionID string, initialPrompt string) (*exec.Cmd, error) {
+func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, sessionID string, initialPrompt string) (*exec.Cmd, error) {
 	args := buildResumeArgs(sessionID, initialPrompt)
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, model, extraClaudeArgs, args)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, extraClaudeArgs, args)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
 	}
