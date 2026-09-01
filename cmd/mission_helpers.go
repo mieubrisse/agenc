@@ -63,7 +63,7 @@ func buildMissionPickerEntries(missions []*database.Mission, sessionMaxLen int) 
 	for _, m := range missions {
 		sessionName := resolveSessionName(m)
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
-		repo := formatRepoDisplay(m.GitRepo, m.IsAdjutant, cfg)
+		repo := formatRepoDisplayForPicker(m.GitRepo, m.IsAdjutant, cfg)
 		entries = append(entries, missionPickerEntry{
 			MissionID:  m.ID,
 			LastPrompt: formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),

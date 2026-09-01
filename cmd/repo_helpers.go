@@ -15,7 +15,7 @@ func selectReposWithFzfAndQuery(repoNames []string, prompt string, initialQuery 
 	// Build rows for the picker (single column: repo display name)
 	var rows [][]string
 	for _, name := range repoNames {
-		rows = append(rows, []string{displayGitRepo(name)})
+		rows = append(rows, []string{displayGitRepoForPicker(name)})
 	}
 
 	indices, err := runFzfPicker(FzfPickerConfig{

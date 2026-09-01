@@ -98,7 +98,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			tbl.AddRow(
 				m.ShortID,
 				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
-				colorizeStatus(status),
+				string(status),
 				pane,
 				truncatePrompt(sessionName, defaultPromptMaxLen),
 				repo,
@@ -107,7 +107,7 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 			tbl.AddRow(
 				m.ShortID,
 				formatLastPrompt(m.LastUserPromptAt, m.CreatedAt),
-				colorizeStatus(status),
+				string(status),
 				truncatePrompt(sessionName, defaultPromptMaxLen),
 				repo,
 			)
@@ -127,15 +127,28 @@ func runMissionLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// displayGitRepo formats a canonical repo name for user-facing display.
-// GitHub repos have their "github.com/" prefix stripped; non-GitHub repos are
-// shown in full. The repo name (final path segment) is colored light blue.
-// Returns "--" for an empty repo name.
+// displayGitRepo formats a canonical repo name for command output. GitHub
+// repos have their "github.com/" prefix stripped; non-GitHub repos are shown
+// in full. Returns "--" for an empty repo name.
+//
+// Deliberately uncolored: command output is parsed by agents, and ANSI codes
+// would land in the middle of the values they parse. The colored counterpart
+// is displayGitRepoForPicker.
 func displayGitRepo(gitRepo string) string {
 	if gitRepo == "" {
 		return "--"
 	}
-	display := strings.TrimPrefix(gitRepo, "github.com/")
+	return strings.TrimPrefix(gitRepo, "github.com/")
+}
+
+// displayGitRepoForPicker is displayGitRepo with the repo name (final path
+// segment) colored light blue. Only for fzf pickers and other interactive TUI
+// surfaces a human reads — never for command output.
+func displayGitRepoForPicker(gitRepo string) string {
+	if gitRepo == "" {
+		return "--"
+	}
+	display := displayGitRepo(gitRepo)
 	if idx := strings.LastIndex(display, "/"); idx != -1 {
 		return display[:idx+1] + ansiLightBlue + display[idx+1:] + ansiReset
 	}
@@ -152,16 +165,38 @@ func plainGitRepoName(gitRepo string) string {
 	return strings.TrimPrefix(gitRepo, "github.com/")
 }
 
-// formatRepoDisplay returns a user-facing display string for a repo, combining
-// emoji prefix (if configured), title (if configured), or colored canonical name.
-// For adjutant missions, returns "🤖  Adjutant" regardless of other parameters.
+// formatRepoDisplay returns a display string for a repo, combining emoji
+// prefix (if configured), title (if configured), or canonical name. For
+// adjutant missions, returns "🤖  Adjutant" regardless of other parameters.
 // Safe to call with nil cfg (falls back to displayGitRepo with no emoji).
+//
+// Uncolored, for command output. The colored counterpart is
+// formatRepoDisplayForPicker.
 func formatRepoDisplay(repoName string, isAdjutant bool, cfg *config.AgencConfig) string {
+	return buildRepoDisplay(repoName, isAdjutant, cfg, displayGitRepo)
+}
+
+// formatRepoDisplayForPicker is formatRepoDisplay with the canonical repo name
+// colored. Only for fzf pickers and other interactive TUI surfaces a human
+// reads — never for command output.
+func formatRepoDisplayForPicker(repoName string, isAdjutant bool, cfg *config.AgencConfig) string {
+	return buildRepoDisplay(repoName, isAdjutant, cfg, displayGitRepoForPicker)
+}
+
+// buildRepoDisplay is the shared body of formatRepoDisplay and
+// formatRepoDisplayForPicker; formatCanonicalName decides whether the
+// canonical repo name is colored.
+func buildRepoDisplay(
+	repoName string,
+	isAdjutant bool,
+	cfg *config.AgencConfig,
+	formatCanonicalName func(string) string,
+) string {
 	if isAdjutant {
 		return "🤖  Adjutant"
 	}
 
-	displayName := displayGitRepo(repoName)
+	displayName := formatCanonicalName(repoName)
 	emoji := ""
 	if cfg != nil {
 		if t := cfg.GetRepoTitle(repoName); t != "" {
@@ -188,7 +223,9 @@ func formatLastPrompt(lastUserPromptAt *time.Time, _ time.Time) string {
 	return lastUserPromptAt.Local().Format("2006-01-02 15:04")
 }
 
-// colorizeStatus wraps a status string with ANSI color codes.
+// colorizeStatus wraps a status string with ANSI color codes. Only for fzf
+// pickers and other interactive TUI surfaces a human reads — command output
+// prints the bare status so agents can compare against it.
 func colorizeStatus(status MissionDisplayStatus) string {
 	s := string(status)
 	switch status {

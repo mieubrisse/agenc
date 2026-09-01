@@ -42,7 +42,7 @@ func runCronLs(cmd *cobra.Command, args []string) error {
 	for _, c := range crons {
 		enabled := "yes"
 		if !c.Enabled {
-			enabled = ansiYellow + "no" + ansiReset
+			enabled = "no"
 		}
 
 		lastRun, status := getCronLastRunStatus(client, c)
@@ -74,7 +74,6 @@ func getCronLastRunStatus(client *server.Client, cronInfo server.CronInfo) (stri
 	lastRun := mission.CreatedAt.Local().Format("2006-01-02 15:04")
 
 	status := getMissionStatus(mission.ID, mission.Status, mission.ClaudeState)
-	coloredStatus := colorizeStatus(status)
 
-	return lastRun, coloredStatus
+	return lastRun, string(status)
 }

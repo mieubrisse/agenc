@@ -101,6 +101,35 @@ run_test_no_crash() {
     fi
 }
 
+# Runs a command, captures stdout+stderr to a file, and fails if the raw bytes
+# contain an ANSI escape (0x1b). Command output is consumed by agents, so an
+# escape lands inside the value they compare against and the comparison just
+# silently never matches. A terminal renders escapes invisibly, so byte
+# inspection is the only check that catches this.
+run_test_output_has_no_ansi() {
+    local test_name="${1}"
+    shift
+
+    total=$((total + 1))
+    printf "  %-50s " "${test_name}..."
+
+    local capture_filepath
+    capture_filepath="$(mktemp)"
+    "$@" >"${capture_filepath}" 2>&1 || true
+
+    if LC_ALL=C grep -q $'\033' "${capture_filepath}"; then
+        echo "FAIL (ANSI escape in output)"
+        od -c "${capture_filepath}" | head -10 | sed 's/^/    /'
+        rm -f "${capture_filepath}"
+        failed=$((failed + 1))
+        return
+    fi
+
+    rm -f "${capture_filepath}"
+    echo "PASS"
+    passed=$((passed + 1))
+}
+
 # ---------------------------------------------------------------------------
 # Preflight checks
 # ---------------------------------------------------------------------------
@@ -1573,6 +1602,56 @@ elif echo "${claude_argv}" | grep -q -- "--model haiku"; then
 else
     echo "FAIL (Claude argv lacked '--model haiku': ${claude_argv})"
     failed=$((failed + 1))
+fi
+
+echo ""
+echo "--- No ANSI escapes in command output (agenc-hxr4) ---"
+
+# AgenC command output is consumed overwhelmingly by agents, not read by a
+# human at a terminal. A color code in a status field breaks a comparison
+# against IDLE or STOPPED with no error to notice, so command output carries no
+# escapes at all. Interactive TUI surfaces (the tmux command palette and the
+# fzf pickers it opens) are a separate destination and keep their color, which
+# TestFormatRepoDisplayForPicker_KeepsAnsi and its siblings hold in place.
+#
+# Missions from earlier sections are still present, so the status and repo
+# columns these commands print are actually exercised.
+
+run_test_output_has_no_ansi "mission ls emits no ANSI" \
+    "${agenc_test}" mission ls
+
+run_test_output_has_no_ansi "mission ls --all emits no ANSI" \
+    "${agenc_test}" mission ls --all
+
+run_test_output_has_no_ansi "mission peers emits no ANSI" \
+    "${agenc_test}" mission peers
+
+run_test_output_has_no_ansi "repo ls emits no ANSI" \
+    "${agenc_test}" repo ls
+
+run_test_output_has_no_ansi "cron ls emits no ANSI" \
+    "${agenc_test}" cron ls
+
+run_test_output_has_no_ansi "server status emits no ANSI" \
+    "${agenc_test}" server status
+
+run_test_output_has_no_ansi "notification ls emits no ANSI" \
+    "${agenc_test}" notification ls
+
+run_test_output_has_no_ansi "mission search emits no ANSI" \
+    "${agenc_test}" mission search mission
+
+run_test_output_has_no_ansi "config repoConfig ls emits no ANSI" \
+    "${agenc_test}" config repoConfig ls
+
+if [ -n "${model_short_id}" ]; then
+    run_test_output_has_no_ansi "mission inspect emits no ANSI" \
+        "${agenc_test}" mission inspect "${model_short_id}"
+else
+    total=$((total + 1))
+    printf "  %-50s " "mission inspect emits no ANSI..."
+    echo "SKIP (no mission short ID available)"
+    skipped=$((skipped + 1))
 fi
 
 # ---------------------------------------------------------------------------

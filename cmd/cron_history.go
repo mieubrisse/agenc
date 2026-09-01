@@ -71,7 +71,6 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 
 	for _, m := range displayMissions {
 		status := getMissionStatus(m.ID, m.Status, m.ClaudeState)
-		coloredStatus := colorizeStatus(status)
 
 		started := m.CreatedAt.Local().Format("2006-01-02 15:04:05")
 
@@ -84,7 +83,7 @@ func runCronHistory(cmd *cobra.Command, args []string) error {
 			duration = "--"
 		}
 
-		tbl.AddRow(started, m.ShortID, coloredStatus, duration)
+		tbl.AddRow(started, m.ShortID, string(status), duration)
 	}
 
 	tbl.Print()

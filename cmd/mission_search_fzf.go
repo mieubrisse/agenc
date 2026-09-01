@@ -64,7 +64,7 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 	if looksLikeMissionID(query) {
 		if m, resolveErr := client.GetMission(query); resolveErr == nil {
 			session := resolveSessionName(m)
-			repo := formatRepoDisplay(m.GitRepo, m.IsAdjutant, cfg)
+			repo := formatRepoDisplayForPicker(m.GitRepo, m.IsAdjutant, cfg)
 			lastPrompt := formatLastPrompt(m.LastUserPromptAt, m.CreatedAt)
 			rows = append(rows, searchFzfRow{
 				shortID: m.ShortID,
@@ -98,7 +98,7 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 			session = truncatePrompt(session, 30)
 		}
 
-		repo := formatRepoDisplay(r.GitRepo, false, cfg)
+		repo := formatRepoDisplayForPicker(r.GitRepo, false, cfg)
 
 		snippet := strings.ReplaceAll(r.Snippet, "\n", " ")
 		snippet = database.ColorizeSnippet(snippet)
@@ -177,7 +177,7 @@ func appendSubstringMatches(
 		appended++
 
 		session := truncatePrompt(resolveSessionName(m), 30)
-		repo := formatRepoDisplay(m.GitRepo, m.IsAdjutant, cfg)
+		repo := formatRepoDisplayForPicker(m.GitRepo, m.IsAdjutant, cfg)
 		lastPrompt := formatLastPrompt(m.LastUserPromptAt, m.CreatedAt)
 		rows = append(rows, searchFzfRow{
 			shortID: m.ShortID,
