@@ -44,6 +44,17 @@ Concrete examples:
 - The CLI does NOT call `tmux display-message` to resolve the session name itself — that requires the tmux socket, which may be blocked by a sandbox.
 - New server endpoints are preferred over new CLI logic.
 
+Command Output Carries No ANSI Escapes
+--------------------------------------
+
+AgenC's command output is consumed overwhelmingly by agents, not read by a human at a terminal. A colour code inside a status field breaks an agent's comparison against `IDLE` or `STOPPED`, and breaks it silently — nothing errors, the match simply never happens, and a terminal renders the escape invisibly so the output looks fine.
+
+The rule is by destination, not by file: **anything a command writes to stdout carries no ANSI escapes.** Strings handed to `fzf` as TUI chrome — the tmux command palette and the pickers it opens — are read by a human and keep their colour.
+
+Formatters shared between the two audiences are named for their destination (`formatRepoDisplay` vs. `formatRepoDisplayForPicker`), so a stdout caller cannot pick up colour by accident. When adding a command or a column, print the plain form; reach for a `...ForPicker` variant only when the string's sole destination is fzf.
+
+Both directions are asserted — Go unit tests pin the formatters under `make check`, and an E2E section captures each agent-facing command's output to a file and fails on any escape byte. Verify by inspecting bytes (`od -c`, or grep for `\033`), never by looking at a terminal.
+
 Building and Checking
 ---------------------
 
