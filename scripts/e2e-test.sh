@@ -106,8 +106,18 @@ run_test_no_crash() {
 # escape lands inside the value they compare against and the comparison just
 # silently never matches. A terminal renders escapes invisibly, so byte
 # inspection is the only check that catches this.
+# The second argument is a regex that must match the captured output for the
+# check to count. Without it the check is worthless on any command whose table
+# is empty in the test environment: it inspects an empty-state string, finds no
+# escapes, and reports PASS. That is not hypothetical — colour injected into
+# `mission peers` and `repo ls` passed this entire suite before the guard
+# existed, because the repo library is emptied and no mission has a peer by the
+# time this section runs. A vacuous check is worse than a missing one, because
+# it reports as coverage.
 run_test_output_has_no_ansi() {
     local test_name="${1}"
+    shift
+    local populated_pattern="${1}"
     shift
 
     total=$((total + 1))
@@ -116,6 +126,15 @@ run_test_output_has_no_ansi() {
     local capture_filepath
     capture_filepath="$(mktemp)"
     "$@" >"${capture_filepath}" 2>&1 || true
+
+    if ! grep -qE "${populated_pattern}" "${capture_filepath}"; then
+        echo "FAIL (vacuous: output never rendered the rows this check inspects)"
+        echo "    Expected output matching: ${populated_pattern}"
+        head -5 "${capture_filepath}" | sed 's/^/    /'
+        rm -f "${capture_filepath}"
+        failed=$((failed + 1))
+        return
+    fi
 
     if LC_ALL=C grep -q $'\033' "${capture_filepath}"; then
         echo "FAIL (ANSI escape in output)"
@@ -1614,38 +1633,52 @@ echo "--- No ANSI escapes in command output (agenc-hxr4) ---"
 # fzf pickers it opens) are a separate destination and keep their color, which
 # TestFormatRepoDisplayForPicker_KeepsAnsi and its siblings hold in place.
 #
-# Missions from earlier sections are still present, so the status and repo
-# columns these commands print are actually exercised.
+# Each check below passes a pattern proving the command actually rendered its
+# table. Earlier sections leave the repo library empty and no crons defined, so
+# this section seeds both first — otherwise the repo and cron checks inspect an
+# empty-state string and pass without testing anything.
+
+"${agenc_test}" repo add mieubrisse/stacktrace >/dev/null 2>&1 || true
+"${agenc_test}" config cron add ansi-check-cron --schedule="0 9 * * *" --prompt="ansi check" >/dev/null 2>&1 || true
 
 run_test_output_has_no_ansi "mission ls emits no ANSI" \
+    "[0-9a-f]{8}" \
     "${agenc_test}" mission ls
 
 run_test_output_has_no_ansi "mission ls --all emits no ANSI" \
+    "[0-9a-f]{8}" \
     "${agenc_test}" mission ls --all
 
-run_test_output_has_no_ansi "mission peers emits no ANSI" \
-    "${agenc_test}" mission peers
-
 run_test_output_has_no_ansi "repo ls emits no ANSI" \
+    "stacktrace" \
     "${agenc_test}" repo ls
 
 run_test_output_has_no_ansi "cron ls emits no ANSI" \
+    "ansi-check-cron" \
     "${agenc_test}" cron ls
 
+run_test_output_has_no_ansi "cron history emits no ANSI" \
+    "ansi-check-cron|No runs" \
+    "${agenc_test}" cron history ansi-check-cron
+
 run_test_output_has_no_ansi "server status emits no ANSI" \
+    "Server" \
     "${agenc_test}" server status
 
 run_test_output_has_no_ansi "notification ls emits no ANSI" \
+    "[0-9a-f]{8}|notifications" \
     "${agenc_test}" notification ls
 
-run_test_output_has_no_ansi "mission search emits no ANSI" \
-    "${agenc_test}" mission search mission
-
+# repoConfig rows come from configured repos, not the repo library, so the
+# seeded repo above does not appear here — any owner/name row proves the table
+# rendered.
 run_test_output_has_no_ansi "config repoConfig ls emits no ANSI" \
+    "[a-z0-9._-]+/[a-z0-9._-]+" \
     "${agenc_test}" config repoConfig ls
 
 if [ -n "${model_short_id}" ]; then
     run_test_output_has_no_ansi "mission inspect emits no ANSI" \
+        "Full ID:" \
         "${agenc_test}" mission inspect "${model_short_id}"
 else
     total=$((total + 1))
@@ -1653,6 +1686,19 @@ else
     echo "SKIP (no mission short ID available)"
     skipped=$((skipped + 1))
 fi
+
+# `mission peers` and `mission search` are agent-facing and de-coloured by the
+# same change, but neither can be populated here: a peer row needs a live
+# Claude session, and a search hit needs indexed session content. Their
+# formatters are pinned by unit tests instead (TestFormatPlainRepoName_HasNoAnsi,
+# TestPlainGitRepoName_HasNoAnsi). Listed as skips rather than passes so the
+# gap stays visible — see agenc-pman.
+for uncoverable in "mission peers" "mission search"; do
+    total=$((total + 1))
+    printf "  %-50s " "${uncoverable} emits no ANSI..."
+    echo "SKIP (cannot populate rows in the test environment)"
+    skipped=$((skipped + 1))
+done
 
 # ---------------------------------------------------------------------------
 # Summary

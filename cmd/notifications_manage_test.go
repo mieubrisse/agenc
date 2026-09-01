@@ -83,14 +83,14 @@ func TestFormatReadCell(t *testing.T) {
 }
 
 func TestFormatMissionCell_EmptyShowsPlaceholder(t *testing.T) {
-	got := formatMissionCell("")
+	got := formatMissionCellForPicker("")
 	if got != notificationsManageMissionMissingPlaceholder {
 		t.Errorf("expected placeholder '%v', got '%v'", notificationsManageMissionMissingPlaceholder, got)
 	}
 }
 
 func TestFormatMissionCell_NonEmptyColored(t *testing.T) {
-	got := formatMissionCell("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+	got := formatMissionCellForPicker("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 	if !strings.Contains(got, "aaaaaaaa") {
 		t.Errorf("expected mission short ID in cell, got '%v'", got)
 	}

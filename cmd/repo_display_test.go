@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 func TestFormatRepoDisplay_Adjutant(t *testing.T) {
@@ -96,13 +97,32 @@ func TestDisplayGitRepo_HasNoAnsi(t *testing.T) {
 
 func TestColorizeStatus_KeepsAnsiForPicker(t *testing.T) {
 	// mission ls / cron ls / cron history print the bare status; the picker is
-	// the only caller of colorizeStatus, and it keeps the color.
-	result := colorizeStatus(StatusIdle)
+	// the only caller of colorizeStatusForPicker, and it keeps the color.
+	result := colorizeStatusForPicker(StatusIdle)
 	if !strings.Contains(result, ansiEscape) {
 		t.Errorf("picker status must keep its ANSI color, got %q", result)
 	}
 	if string(StatusIdle) == result {
-		t.Errorf("expected colorizeStatus to wrap the status, got the bare value %q", result)
+		t.Errorf("expected colorizeStatusForPicker to wrap the status, got the bare value %q", result)
+	}
+}
+
+// attachedDotForPicker had no test before agenc-afp8's review caught it: the
+// E2E suite creates only headless missions, which are never attached, so the
+// dot is the empty string throughout and a colour regression there would ship
+// green.
+func TestAttachedDotForPicker_KeepsAnsi(t *testing.T) {
+	const isAttached = true
+	result := attachedDotForPicker(isAttached)
+	if !strings.Contains(result, ansiEscape) {
+		t.Errorf("attached dot must keep its ANSI color, got %q", result)
+	}
+}
+
+func TestAttachedDotForPicker_EmptyWhenDetached(t *testing.T) {
+	const isAttached = false
+	if result := attachedDotForPicker(isAttached); result != "" {
+		t.Errorf("got %q, want empty string", result)
 	}
 }
 
@@ -117,5 +137,41 @@ func TestFormatRepoDisplayForPicker_EmptyRepoIsPlain(t *testing.T) {
 	result := formatRepoDisplayForPicker("", false, nil)
 	if result != "--" {
 		t.Errorf("got %q, want %q", result, "--")
+	}
+}
+
+// The plain-direction formatters on the stdout-only paths. Review found these
+// untested and proved it mattered: colour injected into `mission peers` and
+// `repo ls` passed the entire suite, because by the time the E2E ANSI section
+// runs both commands print an empty-state string and never render a table.
+
+func TestPlainGitRepoName_HasNoAnsi(t *testing.T) {
+	for _, gitRepo := range []string{"", "github.com/owner/repo", "gitlab.com/owner/repo"} {
+		if result := plainGitRepoName(gitRepo); strings.Contains(result, ansiEscape) {
+			t.Errorf("plainGitRepoName(%q) must carry no ANSI escapes, got %q", gitRepo, result)
+		}
+	}
+}
+
+func TestFormatPlainRepoName_HasNoAnsi(t *testing.T) {
+	missions := []*database.Mission{
+		{GitRepo: "github.com/owner/repo"},
+		{GitRepo: ""},
+		{GitRepo: "github.com/owner/repo", IsAdjutant: true},
+	}
+	for _, m := range missions {
+		if result := formatPlainRepoName(m); strings.Contains(result, ansiEscape) {
+			t.Errorf("formatPlainRepoName(%+v) must carry no ANSI escapes, got %q", m, result)
+		}
+	}
+}
+
+// Both branches: the slash branch colors only the final path segment, the
+// no-slash branch colors the whole name.
+func TestDisplayGitRepoForPicker_KeepsAnsi(t *testing.T) {
+	for _, gitRepo := range []string{"github.com/owner/repo", "singlesegment"} {
+		if result := displayGitRepoForPicker(gitRepo); !strings.Contains(result, ansiEscape) {
+			t.Errorf("displayGitRepoForPicker(%q) must keep its ANSI color, got %q", gitRepo, result)
+		}
 	}
 }

@@ -223,10 +223,10 @@ func formatLastPrompt(lastUserPromptAt *time.Time, _ time.Time) string {
 	return lastUserPromptAt.Local().Format("2006-01-02 15:04")
 }
 
-// colorizeStatus wraps a status string with ANSI color codes. Only for fzf
+// colorizeStatusForPicker wraps a status string with ANSI color codes. Only for fzf
 // pickers and other interactive TUI surfaces a human reads — command output
 // prints the bare status so agents can compare against it.
-func colorizeStatus(status MissionDisplayStatus) string {
+func colorizeStatusForPicker(status MissionDisplayStatus) string {
 	s := string(status)
 	switch status {
 	case StatusIdle:
