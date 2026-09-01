@@ -121,7 +121,7 @@ func runMissionSearchPicker(client *server.Client) (string, error) {
 	var buf bytes.Buffer
 	tbl := tableprinter.NewTable("ID", "●", "LAST PROMPT", "SESSION", "REPO", "MATCH").WithWriter(&buf)
 	for _, e := range entries {
-		tbl.AddRow(e.ShortID, attachedDot(e.IsAttached), e.LastPrompt, e.Session, e.Repo, "")
+		tbl.AddRow(e.ShortID, attachedDotForPicker(e.IsAttached), e.LastPrompt, e.Session, e.Repo, "")
 	}
 	tbl.Print()
 

@@ -96,13 +96,32 @@ func TestDisplayGitRepo_HasNoAnsi(t *testing.T) {
 
 func TestColorizeStatus_KeepsAnsiForPicker(t *testing.T) {
 	// mission ls / cron ls / cron history print the bare status; the picker is
-	// the only caller of colorizeStatus, and it keeps the color.
-	result := colorizeStatus(StatusIdle)
+	// the only caller of colorizeStatusForPicker, and it keeps the color.
+	result := colorizeStatusForPicker(StatusIdle)
 	if !strings.Contains(result, ansiEscape) {
 		t.Errorf("picker status must keep its ANSI color, got %q", result)
 	}
 	if string(StatusIdle) == result {
-		t.Errorf("expected colorizeStatus to wrap the status, got the bare value %q", result)
+		t.Errorf("expected colorizeStatusForPicker to wrap the status, got the bare value %q", result)
+	}
+}
+
+// attachedDotForPicker had no test before agenc-afp8's review caught it: the
+// E2E suite creates only headless missions, which are never attached, so the
+// dot is the empty string throughout and a colour regression there would ship
+// green.
+func TestAttachedDotForPicker_KeepsAnsi(t *testing.T) {
+	const isAttached = true
+	result := attachedDotForPicker(isAttached)
+	if !strings.Contains(result, ansiEscape) {
+		t.Errorf("attached dot must keep its ANSI color, got %q", result)
+	}
+}
+
+func TestAttachedDotForPicker_EmptyWhenDetached(t *testing.T) {
+	const isAttached = false
+	if result := attachedDotForPicker(isAttached); result != "" {
+		t.Errorf("got %q, want empty string", result)
 	}
 }
 

@@ -163,7 +163,7 @@ func buildNotificationsManageFzfInput(notifs []server.NotificationResponse) stri
 	shortIDs := make([]string, 0, len(sorted))
 	for _, n := range sorted {
 		shortIDs = append(shortIDs, database.ShortID(n.ID))
-		tbl.AddRow(formatReadCell(n.ReadAt), formatNotificationWhen(n.CreatedAt), formatMissionCell(n.MissionID), n.Title)
+		tbl.AddRow(formatReadCell(n.ReadAt), formatNotificationWhen(n.CreatedAt), formatMissionCellForPicker(n.MissionID), n.Title)
 	}
 	tbl.Print()
 
@@ -186,10 +186,10 @@ func buildNotificationsManageFzfInput(notifs []server.NotificationResponse) stri
 	return out.String()
 }
 
-// formatMissionCell renders the MISSION column. Empty IDs become a placeholder
+// formatMissionCellForPicker renders the MISSION column. Empty IDs become a placeholder
 // so the user can tell at a glance which rows are ENTER-actionable; populated
 // IDs are colored to make them pop.
-func formatMissionCell(missionID string) string {
+func formatMissionCellForPicker(missionID string) string {
 	if missionID == "" {
 		return notificationsManageMissionMissingPlaceholder
 	}

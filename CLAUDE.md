@@ -51,9 +51,9 @@ AgenC's command output is consumed overwhelmingly by agents, not read by a human
 
 The rule is by destination, not by file: **anything a command writes to stdout carries no ANSI escapes.** Strings handed to `fzf` as TUI chrome — the tmux command palette and the pickers it opens — are read by a human and keep their colour.
 
-Formatters shared between the two audiences are named for their destination (`formatRepoDisplay` vs. `formatRepoDisplayForPicker`), so a stdout caller cannot pick up colour by accident. When adding a command or a column, print the plain form; reach for a `...ForPicker` variant only when the string's sole destination is fzf.
+Every display formatter in `cmd/` that returns colour carries `ForPicker` in its name — `formatRepoDisplayForPicker`, `colorizeStatusForPicker`, `attachedDotForPicker`. An unsuffixed formatter returns plain text. Keep it that way when you add one: the suffix is the only warning a future agent gets, and a colour-returning helper without it is a trap. (Palette-exclusive rendering in `cmd/tmux_palette.go` is outside this pairing — nothing there has a stdout twin to be confused with.)
 
-Both directions are asserted — Go unit tests pin the formatters under `make check`, and an E2E section captures each agent-facing command's output to a file and fails on any escape byte. Verify by inspecting bytes (`od -c`, or grep for `\033`), never by looking at a terminal.
+Enforcement is partial, so read this before relying on it. Go unit tests pin each formatter in both directions and run under `make check`, so the pre-commit hook catches a formatter regression. The E2E suite additionally captures a **hand-maintained list** of commands and fails on any escape byte — it is not a sweep, and a command absent from that list is covered by nothing. Add yours to the list in `scripts/e2e-test.sh` when you add a command. Verify by inspecting bytes (`od -c`, or grep for `\033`), never by looking at a terminal.
 
 Building and Checking
 ---------------------
