@@ -5,10 +5,16 @@ import (
 	"time"
 )
 
+// missionColumnsSQL is the missions column list every mission SELECT uses. Its
+// order is load-bearing: scanMission and scanMissions read row values
+// positionally, so a column added here must be added to both scanners in the
+// same position.
+const missionColumnsSQL = "id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata, claude_args"
+
 // buildListMissionsQuery constructs the SQL query and arguments for ListMissions.
 // Returns the query string and a slice of arguments to be used with db.Query.
 func buildListMissionsQuery(params ListMissionsParams) (string, []interface{}) {
-	query := "SELECT id, short_id, prompt, status, git_repo, last_heartbeat, last_user_prompt_at, session_name, session_name_updated_at, cron_id, cron_name, config_commit, tmux_pane, prompt_count, created_at, updated_at, source, source_id, source_metadata FROM missions"
+	query := "SELECT " + missionColumnsSQL + " FROM missions"
 
 	var conditions []string
 	var args []interface{}

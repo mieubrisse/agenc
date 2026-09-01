@@ -14,6 +14,7 @@ agenc_test="${repo_dirpath}/_build/agenc-test"
 
 passed=0
 failed=0
+skipped=0
 total=0
 
 run_test() {
@@ -1455,12 +1456,135 @@ else
     tmux kill-session -t "=${detach_caller_session}" >/dev/null 2>&1 || true
 fi
 
+echo ""
+echo "--- Per-mission Claude args (--model / --effort) ---"
+
+# `agenc mission new` forwards an allowlisted set of Claude CLI flags to the
+# Claude process a mission spawns, stored per-mission as a JSON object in the
+# missions.claude_args column so they survive wrapper restarts, stash-restore
+# and reload without travelling through the tmux resume command string.
+#
+# Every mission below is identified by the short ID its own create output
+# printed. Selecting "the newest row" instead would be unreliable: created_at
+# has second granularity, so missions created in the same second tie.
+
+claude_args_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
+
+# Runs `mission new` with the given args and echoes the short ID it created.
+create_mission_and_echo_short_id() {
+    "${agenc_test}" mission new "$@" 2>&1 | awk '/^Created mission:/{print $3; exit}'
+}
+
+model_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus --model=haiku)
+
+total=$((total + 1))
+printf "  %-50s " "mission new --model created a mission..."
+if [ -n "${model_short_id}" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (no mission short ID in create output)"
+    failed=$((failed + 1))
+fi
+
+# The stored shape is a JSON object keyed by flag name, not a positional argv
+# array — that is what keeps adding a new forwarded flag migration-free.
+run_test_output_contains \
+    "mission new --model persists claude_args as keyed JSON" \
+    '"model":"haiku"' \
+    sqlite3 "${claude_args_db_filepath}" "SELECT claude_args FROM missions WHERE short_id='${model_short_id}';"
+
+run_test_output_contains \
+    "mission inspect surfaces the per-mission Claude args" \
+    "Claude args: --model haiku" \
+    "${agenc_test}" mission inspect "${model_short_id}"
+
+# Multiple forwarded flags are emitted in the order ForwardedClaudeFlags
+# declares them, so spawn commands stay stable across runs.
+multi_flag_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus --model=haiku --effort=low)
+run_test_output_contains \
+    "multiple forwarded flags render in table order" \
+    "Claude args: --model haiku --effort low" \
+    "${agenc_test}" mission inspect "${multi_flag_short_id}"
+
+# A mission with no overrides stores NULL and falls through to the
+# defaultModel / claudeArgs config chain.
+no_args_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
+run_test_output_contains \
+    "mission without Claude args stores no claude_args" \
+    "^$" \
+    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_args, '') FROM missions WHERE short_id='${no_args_short_id}';"
+
+# Only allowlisted Claude flags are reachable. Claude's CLI exposes flags that
+# would break AgenC's invariants (--settings carries the operational overlay,
+# -c/-r are the wrapper's to choose, --bare skips the hooks AgenC tracks state
+# with), so anything off the table must be refused rather than forwarded.
+run_test "mission new rejects a Claude flag that is not forwarded" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --bare
+
+run_test "mission new rejects an unknown flag" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --bogus=value
+
+# A clone means "another one of these", so the source mission's Claude args
+# carry over — and the CLI says so, since silently inheriting a more expensive
+# model would be a surprise.
+run_test_output_contains \
+    "mission new --clone reports inherited Claude args" \
+    "Inherited Claude args: --model haiku" \
+    "${agenc_test}" mission new --clone "${model_short_id}" --headless --no-focus
+
+cloned_short_id=$(create_mission_and_echo_short_id --clone "${model_short_id}" --headless --no-focus)
+run_test_output_contains \
+    "cloned mission carries the inherited Claude args" \
+    "Claude args: --model haiku" \
+    "${agenc_test}" mission inspect "${cloned_short_id}"
+
+# An explicit flag on the clone command outranks what the source carried.
+clone_override_short_id=$(create_mission_and_echo_short_id --clone "${model_short_id}" --headless --no-focus --effort=high)
+run_test_output_contains \
+    "explicit Claude args on a clone replace the source's" \
+    "Claude args: --effort high" \
+    "${agenc_test}" mission inspect "${clone_override_short_id}"
+
+# The assertion the rest of this section cannot make: that the flag reaches the
+# real Claude command line. Poll for the mission's own Claude child, matched on
+# its --settings path, which embeds the mission UUID.
+model_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${model_short_id}';")
+total=$((total + 1))
+printf "  %-50s " "spawned Claude process carries --model..."
+claude_argv=""
+for _ in $(seq 1 20); do
+    claude_argv=$(ps -eo args 2>/dev/null | grep -- "${model_mission_uuid}" | grep "bin/claude" | grep -v grep || true)
+    if [ -n "${claude_argv}" ]; then
+        break
+    fi
+    sleep 1
+done
+if [ -z "${claude_argv}" ]; then
+    # Not a pass and not a failure: this environment never brought a Claude
+    # process up (no credentials, no binary). Say so rather than counting it.
+    echo "SKIP (no Claude process observed for the mission)"
+    skipped=$((skipped + 1))
+elif echo "${claude_argv}" | grep -q -- "--model haiku"; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (Claude argv lacked '--model haiku': ${claude_argv})"
+    failed=$((failed + 1))
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
 echo "=========================================="
-echo "  E2E Results: ${passed}/${total} passed, ${failed} failed"
+if [ "${skipped}" -gt 0 ]; then
+    echo "  E2E Results: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped"
+else
+    echo "  E2E Results: ${passed}/${total} passed, ${failed} failed"
+fi
 echo "=========================================="
 
 if [ "${failed}" -gt 0 ]; then

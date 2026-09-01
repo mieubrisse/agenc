@@ -164,7 +164,7 @@ func getStatusRaw(socketFilepath string, timeout time.Duration) (*StatusResponse
 
 // createTestWrapper creates a wrapper with a logger initialized for testing.
 func createTestWrapper(agencDirpath, missionID, gitRepoName string) *Wrapper {
-	w := NewWrapper(agencDirpath, missionID, gitRepoName, "")
+	w := NewWrapper(agencDirpath, missionID, gitRepoName, "", nil)
 	w.logger = slog.Default()
 	return w
 }
@@ -580,7 +580,7 @@ func TestSpawnClaude_WritesOpSettings(t *testing.T) {
 		t.Fatalf("failed to create mission agent dir: %v", err)
 	}
 
-	w := NewWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", "")
+	w := NewWrapper(setup.agencDirpath, setup.missionID, "github.com/test/repo", "", nil)
 	w.logger = slog.Default()
 
 	if err := w.spawnClaude(false); err != nil {

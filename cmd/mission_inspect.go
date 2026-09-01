@@ -10,6 +10,7 @@ import (
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/mission"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/session"
 )
@@ -111,7 +112,7 @@ func inspectMission(agencDirpath string, missionID string) error {
 	if err != nil {
 		return err
 	}
-	mission, err := client.GetMission(missionID)
+	missionRecord, err := client.GetMission(missionID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to get mission")
 	}
@@ -123,39 +124,42 @@ func inspectMission(agencDirpath string, missionID string) error {
 		return nil
 	}
 
-	fmt.Printf("ID:          %s\n", mission.ShortID)
-	fmt.Printf("Full ID:     %s\n", mission.ID)
-	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, mission.Status, mission.ClaudeState))
+	fmt.Printf("ID:          %s\n", missionRecord.ShortID)
+	fmt.Printf("Full ID:     %s\n", missionRecord.ID)
+	fmt.Printf("Status:      %s\n", getMissionStatus(missionID, missionRecord.Status, missionRecord.ClaudeState))
 	cfg, _, _ := config.ReadAgencConfig(agencDirpath)
 	isAdjutant := config.IsMissionAdjutant(agencDirpath, missionID)
 	if isAdjutant {
 		fmt.Printf("Type:        🤖  Adjutant\n")
-	} else if mission.GitRepo != "" {
-		fmt.Printf("Git repo:    %s\n", displayGitRepo(mission.GitRepo))
-		repoDisplay := formatRepoDisplay(mission.GitRepo, false, cfg)
-		if repoDisplay != displayGitRepo(mission.GitRepo) {
+	} else if missionRecord.GitRepo != "" {
+		fmt.Printf("Git repo:    %s\n", displayGitRepo(missionRecord.GitRepo))
+		repoDisplay := formatRepoDisplay(missionRecord.GitRepo, false, cfg)
+		if repoDisplay != displayGitRepo(missionRecord.GitRepo) {
 			fmt.Printf("Title:       %s\n", repoDisplay)
 		}
 	}
-	sessionName := resolveSessionName(mission)
+	sessionName := resolveSessionName(missionRecord)
 	if sessionName == "" {
 		sessionName = "--"
 	}
 	fmt.Printf("Session:     %s\n", sessionName)
-	fmt.Printf("Peer:        %s\n", formatPeerAddress(mission))
-	prompt := mission.Prompt
+	fmt.Printf("Peer:        %s\n", formatPeerAddress(missionRecord))
+	prompt := missionRecord.Prompt
 	if prompt == "" {
 		prompt = "--"
 	}
+	if formattedClaudeArgs := mission.FormatMissionClaudeArgs(missionRecord.ClaudeArgs); formattedClaudeArgs != "" {
+		fmt.Printf("Claude args: %s\n", formattedClaudeArgs)
+	}
 	fmt.Printf("Prompt:      %s\n", prompt)
 	fmt.Printf("Directory:   %s\n", missionDirpath)
-	fmt.Printf("Created:     %s\n", mission.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Updated:     %s\n", mission.UpdatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Created:     %s\n", missionRecord.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Updated:     %s\n", missionRecord.UpdatedAt.Format("2006-01-02 15:04:05"))
 
 	// List session UUIDs
 	projectDirpath, err := claudeconfig.GetMissionProjectDirpath(agencDirpath, missionID)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to get project directory for mission %s", missionID)
+		return stacktrace.Propagate(err, "failed to get project directory for missionRecord %s", missionID)
 	}
 	sessionIDs := session.ListSessionIDs(projectDirpath)
 	currentSessionID := claudeconfig.GetLastSessionID(agencDirpath, missionID)

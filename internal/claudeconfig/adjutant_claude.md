@@ -26,6 +26,28 @@ agenc mission new <repo> --prompt "Your instructions here"
 agenc mission new --adjutant --prompt "Help with cron setup"
 ```
 
+### Choosing a model or effort level per mission
+
+`agenc mission new` forwards a small allowlist of Claude CLI flags to the mission it launches, scoped to that one mission:
+
+```bash
+# Run this mission on Opus, whatever the configured default is
+agenc mission new <repo> --model opus --prompt "..."
+
+# Cheap model, low effort, for a mechanical task
+agenc mission new <repo> --model haiku --effort low --prompt "..."
+```
+
+`--model` takes a Claude alias (`opus`, `sonnet`, `haiku`) or a full model ID. `--effort` takes `low`, `medium`, `high`, `xhigh`, or `max`.
+
+These override the `defaultModel` and `claudeArgs` config for that mission only — nothing shared changes, so there is no setting to remember to change back. Use them when the user wants a one-off stronger or cheaper mission. Reach for `agenc config set defaultModel <value>` (global) or `agenc config repoConfig set <repo> --default-model <value>` (per-repo) only when they want the change to stick for future missions.
+
+The set of forwardable flags is deliberately small: most Claude flags would break AgenC's own plumbing, so `mission new` refuses anything outside the allowlist. Run `agenc mission new --help` for the current list rather than assuming a flag exists.
+
+`agenc mission inspect <mission>` shows a `Claude args:` line for any mission that has overrides — that is how to answer "why is this mission on Opus?"
+
+Cloning carries the overrides over: `agenc mission new --clone <mission>` inherits the source mission's model and effort (and says so in its output). Pass an explicit flag on the clone command to replace them.
+
 Tmux Configuration Changes
 --------------------------
 

@@ -30,6 +30,7 @@ const (
 	addSourceColumnSQL                 = `ALTER TABLE missions ADD COLUMN source TEXT;`
 	addSourceIDColumnSQL               = `ALTER TABLE missions ADD COLUMN source_id TEXT;`
 	addSourceMetadataColumnSQL         = `ALTER TABLE missions ADD COLUMN source_metadata TEXT;`
+	addClaudeArgsColumnSQL             = `ALTER TABLE missions ADD COLUMN claude_args TEXT;`
 
 	createSessionsTableSQL = `CREATE TABLE IF NOT EXISTS sessions (
 	id TEXT PRIMARY KEY,
@@ -675,4 +676,22 @@ func migrateCreateWriteableCopyPausesTable(conn *sql.DB) error {
 		return stacktrace.Propagate(err, "failed to create writeable_copy_pauses table")
 	}
 	return nil
+}
+
+// migrateAddClaudeArgs idempotently adds the claude_args column, which holds a
+// JSON object of per-mission Claude CLI overrides (e.g. {"model":"opus"}) set
+// at `agenc mission new` time. A JSON object rather than a column per flag so
+// that supporting a new Claude flag stays a code-only change.
+func migrateAddClaudeArgs(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["claude_args"] {
+		return nil
+	}
+
+	_, err = conn.Exec(addClaudeArgsColumnSQL)
+	return err
 }
