@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 )
 
 func TestFormatRepoDisplay_Adjutant(t *testing.T) {
@@ -136,5 +137,41 @@ func TestFormatRepoDisplayForPicker_EmptyRepoIsPlain(t *testing.T) {
 	result := formatRepoDisplayForPicker("", false, nil)
 	if result != "--" {
 		t.Errorf("got %q, want %q", result, "--")
+	}
+}
+
+// The plain-direction formatters on the stdout-only paths. Review found these
+// untested and proved it mattered: colour injected into `mission peers` and
+// `repo ls` passed the entire suite, because by the time the E2E ANSI section
+// runs both commands print an empty-state string and never render a table.
+
+func TestPlainGitRepoName_HasNoAnsi(t *testing.T) {
+	for _, gitRepo := range []string{"", "github.com/owner/repo", "gitlab.com/owner/repo"} {
+		if result := plainGitRepoName(gitRepo); strings.Contains(result, ansiEscape) {
+			t.Errorf("plainGitRepoName(%q) must carry no ANSI escapes, got %q", gitRepo, result)
+		}
+	}
+}
+
+func TestFormatPlainRepoName_HasNoAnsi(t *testing.T) {
+	missions := []*database.Mission{
+		{GitRepo: "github.com/owner/repo"},
+		{GitRepo: ""},
+		{GitRepo: "github.com/owner/repo", IsAdjutant: true},
+	}
+	for _, m := range missions {
+		if result := formatPlainRepoName(m); strings.Contains(result, ansiEscape) {
+			t.Errorf("formatPlainRepoName(%+v) must carry no ANSI escapes, got %q", m, result)
+		}
+	}
+}
+
+// Both branches: the slash branch colors only the final path segment, the
+// no-slash branch colors the whole name.
+func TestDisplayGitRepoForPicker_KeepsAnsi(t *testing.T) {
+	for _, gitRepo := range []string{"github.com/owner/repo", "singlesegment"} {
+		if result := displayGitRepoForPicker(gitRepo); !strings.Contains(result, ansiEscape) {
+			t.Errorf("displayGitRepoForPicker(%q) must keep its ANSI color, got %q", gitRepo, result)
+		}
 	}
 }

@@ -149,10 +149,10 @@ func plainDisplayTitle(entry config.ResolvedPaletteCommand) string {
 	return title
 }
 
-// formatPaletteEntryLine formats a palette entry for fzf display. Entries with
+// formatPaletteEntryLineForPicker formats a palette entry for fzf display. Entries with
 // a description get "Label (prefix → a → key)  —  Description"; entries
 // without get "Label (prefix → a → key)" only. The keybinding is shown in blue.
-func formatPaletteEntryLine(entry config.ResolvedPaletteCommand) string {
+func formatPaletteEntryLineForPicker(entry config.ResolvedPaletteCommand) string {
 	stripped := stripVariationSelectors(entry.Title)
 	boldLabel := fmt.Sprintf("%s%s%s", ansiBold, stripped, ansiReset)
 
@@ -183,7 +183,7 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	// consistent across tmux, the terminal, and fzf — preventing layout jitter.
 	var fzfInput strings.Builder
 	for _, entry := range entries {
-		fmt.Fprintln(&fzfInput, formatPaletteEntryLine(entry))
+		fmt.Fprintln(&fzfInput, formatPaletteEntryLineForPicker(entry))
 	}
 
 	// Run fzf for selection.
@@ -326,6 +326,15 @@ func buildPaletteHeader() string {
 	if err != nil || count == 0 {
 		return ""
 	}
+	return formatUnreadBannerForPicker(count)
+}
+
+// formatUnreadBannerForPicker renders the unread-notification banner shown
+// above the palette entries. Colored: the palette is an interactive human
+// surface, not command output. Split out of buildPaletteHeader so it can be
+// tested without a server — buildPaletteHeader's server call is why the
+// escape here went untested through two rounds of review.
+func formatUnreadBannerForPicker(count int) string {
 	noun := "notifications"
 	if count == 1 {
 		noun = "notification"
