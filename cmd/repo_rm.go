@@ -77,7 +77,7 @@ func runRepoRm(cmd *cobra.Command, args []string) error {
 		},
 		GetItems: func() ([]string, error) { return repoNames, nil },
 		FormatRow: func(repoName string) []string {
-			return []string{formatRepoDisplay(repoName, false, cfg)}
+			return []string{formatRepoDisplayForPicker(repoName, false, cfg)}
 		},
 		FzfPrompt:         "Select repos to remove (TAB to multi-select): ",
 		FzfHeaders:        []string{"REPO"},

@@ -79,7 +79,7 @@ func runMissionSearch(cmd *cobra.Command, args []string) error {
 
 		fmt.Printf("%s  %s  %s\n", shortID, session, repo)
 		if r.Snippet != "" {
-			fmt.Printf("  %s\n\n", database.ColorizeSnippet(r.Snippet))
+			fmt.Printf("  %s\n\n", database.StripSnippetMarkers(r.Snippet))
 		}
 	}
 

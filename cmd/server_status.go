@@ -60,13 +60,10 @@ func runServerStatus(cmd *cobra.Command, args []string) error {
 
 		for _, name := range names {
 			status := health.Loops[name]
-			marker := ansiGreen + "●" + ansiReset
-			if status == "crashed" {
-				marker = ansiRed + "●" + ansiReset
-			} else if status == "stopped" {
-				marker = ansiYellow + "●" + ansiReset
-			}
-			fmt.Printf("  %s %-25s %s\n", marker, name, status)
+			// Deliberately uncolored: this is command output that agents
+			// parse. The status text alongside carries the same information
+			// the marker color used to.
+			fmt.Printf("  ● %-25s %s\n", name, status)
 		}
 	}
 

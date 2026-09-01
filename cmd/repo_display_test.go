@@ -69,3 +69,53 @@ func TestFormatRepoDisplay_EmojiAndTitle(t *testing.T) {
 		t.Errorf("expected title in result, got %q", result)
 	}
 }
+
+// The tests below hold the line agenc-hxr4 draws: command output is parsed by
+// agents and carries no ANSI escapes, while the fzf pickers and the tmux
+// command palette are read by a human and keep their color. The two halves
+// share formatting code, so a change to one can silently take the other with
+// it — these assert both directions.
+
+const ansiEscape = "\033"
+
+func TestFormatRepoDisplay_HasNoAnsi(t *testing.T) {
+	result := formatRepoDisplay("github.com/owner/repo", false, nil)
+	if strings.Contains(result, ansiEscape) {
+		t.Errorf("command output must carry no ANSI escapes, got %q", result)
+	}
+}
+
+func TestDisplayGitRepo_HasNoAnsi(t *testing.T) {
+	for _, gitRepo := range []string{"", "github.com/owner/repo", "gitlab.com/owner/repo"} {
+		result := displayGitRepo(gitRepo)
+		if strings.Contains(result, ansiEscape) {
+			t.Errorf("displayGitRepo(%q) must carry no ANSI escapes, got %q", gitRepo, result)
+		}
+	}
+}
+
+func TestColorizeStatus_KeepsAnsiForPicker(t *testing.T) {
+	// mission ls / cron ls / cron history print the bare status; the picker is
+	// the only caller of colorizeStatus, and it keeps the color.
+	result := colorizeStatus(StatusIdle)
+	if !strings.Contains(result, ansiEscape) {
+		t.Errorf("picker status must keep its ANSI color, got %q", result)
+	}
+	if string(StatusIdle) == result {
+		t.Errorf("expected colorizeStatus to wrap the status, got the bare value %q", result)
+	}
+}
+
+func TestFormatRepoDisplayForPicker_KeepsAnsi(t *testing.T) {
+	result := formatRepoDisplayForPicker("github.com/owner/repo", false, nil)
+	if !strings.Contains(result, ansiEscape) {
+		t.Errorf("picker repo display must keep its ANSI color, got %q", result)
+	}
+}
+
+func TestFormatRepoDisplayForPicker_EmptyRepoIsPlain(t *testing.T) {
+	result := formatRepoDisplayForPicker("", false, nil)
+	if result != "--" {
+		t.Errorf("got %q, want %q", result, "--")
+	}
+}
