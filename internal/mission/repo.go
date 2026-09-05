@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -122,44 +123,75 @@ func ValidateGitRepo(repoDirpath string) error {
 	return nil
 }
 
-// CopyRepo copies an entire git repository from srcRepoDirpath to
-// dstRepoDirpath using rsync. The destination receives a full independent
-// copy including the .git/ directory.
-func CopyRepo(srcRepoDirpath string, dstRepoDirpath string) error {
-	srcPath := srcRepoDirpath + "/"
-	dstPath := dstRepoDirpath + "/"
+// copyDirContents copies everything inside srcDirpath into dstDirpath, which
+// must already exist. The destination receives a full, independent copy —
+// including dotfiles, symlinks (copied as symlinks, never followed), modes and
+// mtimes.
+//
+// On macOS this runs `cp -c`, which uses clonefile(2) to make each file a
+// copy-on-write clone of its source. A clone is a complete, independent file:
+// writing to either side breaks sharing for the affected blocks only, so the
+// two copies can never alias each other. What it buys is that the copy is
+// near-instant and initially costs no additional disk. `cp -c` degrades on its
+// own — per cp(1), "if the source and target are on different filesystems, or
+// the target filesystem does not support cloning, cp will fallback to using
+// copyfile(2) instead to ensure the copy still succeeds" — so a non-APFS or
+// cross-volume $AGENC_DIRPATH still gets a correct copy.
+//
+// Everywhere else, and on any `cp` failure at all, this falls back to the
+// `rsync -a` that AgenC has always used, so mission creation is never blocked
+// by cloning being unavailable. A failed `cp` can only have written a subset of
+// the source, and rsync preserves size and mtime the same way cp does, so the
+// fallback rsync repairs a partial tree rather than being confused by it.
+func copyDirContents(srcDirpath string, dstDirpath string) error {
+	// Trailing slashes make both tools copy the CONTENTS of src into dst,
+	// rather than nesting src as a subdirectory of dst.
+	srcPath := srcDirpath + "/"
+	dstPath := dstDirpath + "/"
 
+	if runtime.GOOS == "darwin" {
+		cloneCmd := exec.Command("cp", "-c", "-R", srcPath, dstPath)
+		if _, err := cloneCmd.CombinedOutput(); err == nil {
+			return nil
+		}
+	}
+
+	rsyncCmd := exec.Command("rsync", "-a", srcPath, dstPath)
+	output, err := rsyncCmd.CombinedOutput()
+	if err != nil {
+		return stacktrace.Propagate(err, "rsync failed: %s", strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+// CopyRepo copies an entire git repository from srcRepoDirpath to
+// dstRepoDirpath. The destination receives a full independent copy including
+// the .git/ directory.
+func CopyRepo(srcRepoDirpath string, dstRepoDirpath string) error {
 	if err := os.MkdirAll(dstRepoDirpath, 0755); err != nil {
 		return stacktrace.Propagate(err, "failed to create directory '%s'", dstRepoDirpath)
 	}
 
-	cmd := exec.Command("rsync", "-a", srcPath, dstPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to copy repo: %s", strings.TrimSpace(string(output)))
+	if err := copyDirContents(srcRepoDirpath, dstRepoDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to copy repo")
 	}
 	return nil
 }
 
 // CopyAgentDir copies an entire agent directory from srcAgentDirpath to
-// dstAgentDirpath using rsync. If the source directory does not exist,
-// this is a no-op (empty agent directory = nothing to copy).
+// dstAgentDirpath. If the source directory does not exist, this is a no-op
+// (empty agent directory = nothing to copy).
 func CopyAgentDir(srcAgentDirpath string, dstAgentDirpath string) error {
 	if _, err := os.Stat(srcAgentDirpath); os.IsNotExist(err) {
 		return nil
 	}
 
-	srcPath := srcAgentDirpath + "/"
-	dstPath := dstAgentDirpath + "/"
-
 	if err := os.MkdirAll(dstAgentDirpath, 0755); err != nil {
 		return stacktrace.Propagate(err, "failed to create directory '%s'", dstAgentDirpath)
 	}
 
-	cmd := exec.Command("rsync", "-a", srcPath, dstPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to copy agent directory: %s", strings.TrimSpace(string(output)))
+	if err := copyDirContents(srcAgentDirpath, dstAgentDirpath); err != nil {
+		return stacktrace.Propagate(err, "failed to copy agent directory")
 	}
 	return nil
 }
