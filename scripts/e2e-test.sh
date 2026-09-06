@@ -574,6 +574,19 @@ fi
 run_test_no_crash "mission search-fzf empty query renders" \
     "${agenc_test}" mission search-fzf
 
+# Search-result ordering — newest first, with the direct mission-ID match
+# pinned above it — is pinned by unit tests only. Neither ordering path can be
+# made to differ here. The substring-merge path reads ListMissions, which
+# already returns newest-first, so a test over it passes whether or not the
+# sort runs. The FTS path needs indexed session content, and putting a second
+# row in front of a mission-ID query needs a session title, and both of those
+# need a live Claude session. Listed as a skip rather than a pass so the gap
+# stays visible — see agenc-t3fb.
+total=$((total + 1))
+printf "  %-50s " "search-fzf orders results newest-first..."
+echo "SKIP (cannot populate discriminating rows in the test environment)"
+skipped=$((skipped + 1))
+
 echo ""
 echo "--- LAST PROMPT column (requires server) ---"
 

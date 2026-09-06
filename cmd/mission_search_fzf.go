@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -39,6 +40,14 @@ const substringMergeCap = 30
 type searchFzfRow struct {
 	shortID string
 	cols    []string
+	// sortTime is COALESCE(last_user_prompt_at, created_at) — the same
+	// recency key the empty-query picker sorts on, so search results stay
+	// in the date order the user sees before typing.
+	sortTime time.Time
+	// isDirectIDMatch marks the row produced by resolving the query as a
+	// mission ID. It outranks recency: typing a mission's ID has to land the
+	// cursor on that mission, not on a newer one that merely mentions the ID.
+	isDirectIDMatch bool
 }
 
 func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
@@ -67,8 +76,10 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 			repo := formatRepoDisplayForPicker(m.GitRepo, m.IsAdjutant, cfg)
 			lastPrompt := formatLastPrompt(m.LastUserPromptAt, m.CreatedAt)
 			rows = append(rows, searchFzfRow{
-				shortID: m.ShortID,
-				cols:    []string{m.ShortID, attachedDotForPicker(m.IsAttached), lastPrompt, session, repo, ""},
+				shortID:         m.ShortID,
+				cols:            []string{m.ShortID, attachedDotForPicker(m.IsAttached), lastPrompt, session, repo, ""},
+				sortTime:        missionRecency(m.LastUserPromptAt, m.CreatedAt),
+				isDirectIDMatch: true,
 			})
 			seenMissionIDs[m.ID] = true
 		}
@@ -106,8 +117,9 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 		lastPrompt := formatLastPromptFromStrings(r.LastUserPromptAt, r.CreatedAt)
 
 		rows = append(rows, searchFzfRow{
-			shortID: shortID,
-			cols:    []string{shortID, attachedDotForPicker(r.IsAttached), lastPrompt, session, repo, snippet},
+			shortID:  shortID,
+			cols:     []string{shortID, attachedDotForPicker(r.IsAttached), lastPrompt, session, repo, snippet},
+			sortTime: recencyFromStrings(r.LastUserPromptAt, r.CreatedAt),
 		})
 	}
 
@@ -119,6 +131,8 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 	if len(rows) == 0 {
 		return nil
 	}
+
+	sortSearchRows(rows)
 
 	// Render through tableprinter for alignment
 	var buf strings.Builder
@@ -180,8 +194,9 @@ func appendSubstringMatches(
 		repo := formatRepoDisplayForPicker(m.GitRepo, m.IsAdjutant, cfg)
 		lastPrompt := formatLastPrompt(m.LastUserPromptAt, m.CreatedAt)
 		rows = append(rows, searchFzfRow{
-			shortID: m.ShortID,
-			cols:    []string{m.ShortID, attachedDotForPicker(m.IsAttached), lastPrompt, session, repo, ""},
+			shortID:  m.ShortID,
+			cols:     []string{m.ShortID, attachedDotForPicker(m.IsAttached), lastPrompt, session, repo, ""},
+			sortTime: missionRecency(m.LastUserPromptAt, m.CreatedAt),
 		})
 	}
 	return rows
@@ -202,6 +217,52 @@ func matchMissionSubstring(m *database.Mission, lowerQuery string) bool {
 		return true
 	}
 	return false
+}
+
+// sortSearchRows sorts search rows in-place using two tiers:
+//  1. The direct mission-ID match first, so typing a mission's ID lands the
+//     cursor on that mission rather than on a newer row that merely mentions
+//     the ID in its prompt, title, or indexed session content
+//  2. COALESCE(last_user_prompt_at, created_at) DESC — the same recency key
+//     the empty-query picker sorts on, so typing a query does not reshuffle
+//     the list into FTS-rank order
+//
+// The empty-query picker floats needs_attention missions above its date tier;
+// search rows cannot match that, because SearchMissionsResponse carries no
+// claude_state to tier on.
+//
+// The sort is stable, so rows sharing a tier and a timestamp keep the order
+// they were merged in (FTS rank, then substring).
+func sortSearchRows(rows []searchFzfRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		// Tier 1: the direct mission-ID match
+		if rows[i].isDirectIDMatch != rows[j].isDirectIDMatch {
+			return rows[i].isDirectIDMatch
+		}
+		// Tier 2: COALESCE(last_user_prompt_at, created_at) DESC
+		return rows[i].sortTime.After(rows[j].sortTime)
+	})
+}
+
+// missionRecency returns COALESCE(lastUserPromptAt, createdAt).
+func missionRecency(lastUserPromptAt *time.Time, createdAt time.Time) time.Time {
+	if lastUserPromptAt != nil {
+		return *lastUserPromptAt
+	}
+	return createdAt
+}
+
+// recencyFromStrings is missionRecency over the RFC3339 timestamps that
+// SearchMissionsResponse carries across JSON. Unparseable values fall back to
+// the zero time, which sorts such rows to the bottom.
+func recencyFromStrings(lastUserPromptAt *string, createdAtRFC3339 string) time.Time {
+	if lastUserPromptAt != nil {
+		if t, err := time.Parse(time.RFC3339, *lastUserPromptAt); err == nil {
+			return t
+		}
+	}
+	createdAt, _ := time.Parse(time.RFC3339, createdAtRFC3339)
+	return createdAt
 }
 
 // formatLastPromptFromStrings parses the RFC3339 timestamps that
