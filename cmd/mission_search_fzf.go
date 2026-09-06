@@ -44,6 +44,10 @@ type searchFzfRow struct {
 	// recency key the empty-query picker sorts on, so search results stay
 	// in the date order the user sees before typing.
 	sortTime time.Time
+	// isDirectIDMatch marks the row produced by resolving the query as a
+	// mission ID. It outranks recency: typing a mission's ID has to land the
+	// cursor on that mission, not on a newer one that merely mentions the ID.
+	isDirectIDMatch bool
 }
 
 func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
@@ -72,9 +76,10 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 			repo := formatRepoDisplayForPicker(m.GitRepo, m.IsAdjutant, cfg)
 			lastPrompt := formatLastPrompt(m.LastUserPromptAt, m.CreatedAt)
 			rows = append(rows, searchFzfRow{
-				shortID:  m.ShortID,
-				cols:     []string{m.ShortID, attachedDotForPicker(m.IsAttached), lastPrompt, session, repo, ""},
-				sortTime: missionRecency(m.LastUserPromptAt, m.CreatedAt),
+				shortID:         m.ShortID,
+				cols:            []string{m.ShortID, attachedDotForPicker(m.IsAttached), lastPrompt, session, repo, ""},
+				sortTime:        missionRecency(m.LastUserPromptAt, m.CreatedAt),
+				isDirectIDMatch: true,
 			})
 			seenMissionIDs[m.ID] = true
 		}
@@ -127,7 +132,7 @@ func runMissionSearchFzf(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	sortSearchRowsByRecency(rows)
+	sortSearchRows(rows)
 
 	// Render through tableprinter for alignment
 	var buf strings.Builder
@@ -214,13 +219,27 @@ func matchMissionSubstring(m *database.Mission, lowerQuery string) bool {
 	return false
 }
 
-// sortSearchRowsByRecency sorts search rows in-place, newest first, by
-// COALESCE(last_user_prompt_at, created_at) — matching the empty-query
-// picker's ordering so typing a query does not reshuffle the list into
-// FTS-rank order. The sort is stable, so rows sharing a timestamp keep the
-// order they were merged in (direct ID hit, then FTS rank, then substring).
-func sortSearchRowsByRecency(rows []searchFzfRow) {
+// sortSearchRows sorts search rows in-place using two tiers:
+//  1. The direct mission-ID match first, so typing a mission's ID lands the
+//     cursor on that mission rather than on a newer row that merely mentions
+//     the ID in its prompt, title, or indexed session content
+//  2. COALESCE(last_user_prompt_at, created_at) DESC — the same recency key
+//     the empty-query picker sorts on, so typing a query does not reshuffle
+//     the list into FTS-rank order
+//
+// The empty-query picker floats needs_attention missions above its date tier;
+// search rows cannot match that, because SearchMissionsResponse carries no
+// claude_state to tier on.
+//
+// The sort is stable, so rows sharing a tier and a timestamp keep the order
+// they were merged in (FTS rank, then substring).
+func sortSearchRows(rows []searchFzfRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
+		// Tier 1: the direct mission-ID match
+		if rows[i].isDirectIDMatch != rows[j].isDirectIDMatch {
+			return rows[i].isDirectIDMatch
+		}
+		// Tier 2: COALESCE(last_user_prompt_at, created_at) DESC
 		return rows[i].sortTime.After(rows[j].sortTime)
 	})
 }
