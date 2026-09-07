@@ -9,7 +9,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// transcriptTimestampLayout is the form transcript records use for timestamps
+// ("2026-08-21T17:59:07.553Z"); run start times are rendered in it so they
+// sort and compare with agent timestamps as plain strings.
+const transcriptTimestampLayout = "2006-01-02T15:04:05.000Z"
 
 // A session's subagents live in two places, and the second is the bigger one.
 //
@@ -73,9 +79,14 @@ type WorkflowRun struct {
 	Summary string
 	Status  string
 
-	// StartedAt is the manifest's RFC3339 timestamp, or the earliest agent's
-	// start when there is no manifest.
-	StartedAt string
+	// StartedAt is the run's start as an RFC3339 UTC timestamp, from the
+	// manifest's startTime (epoch milliseconds), or the earliest agent's start
+	// when the manifest lacks one. The manifest's "timestamp" field is the
+	// run's COMPLETION time — on one machine it trailed the earliest agent's
+	// start by the run's whole duration in 55 of 60 runs — and is kept as
+	// CompletedAt.
+	StartedAt   string
+	CompletedAt string
 
 	DurationMs     int64
 	TotalTokens    int64
@@ -153,6 +164,7 @@ func (v *flexInt64) UnmarshalJSON(b []byte) error {
 type workflowManifest struct {
 	RunID          string    `json:"runId"`
 	Timestamp      string    `json:"timestamp"`
+	StartTime      flexInt64 `json:"startTime"`
 	TaskID         string    `json:"taskId"`
 	WorkflowName   string    `json:"workflowName"`
 	Summary        string    `json:"summary"`
@@ -251,7 +263,10 @@ func applyWorkflowManifest(run *WorkflowRun) {
 	if m.Status != "" {
 		run.Status = m.Status
 	}
-	run.StartedAt = m.Timestamp
+	run.CompletedAt = m.Timestamp
+	if m.StartTime > 0 {
+		run.StartedAt = time.UnixMilli(int64(m.StartTime)).UTC().Format(transcriptTimestampLayout)
+	}
 	run.DurationMs = int64(m.DurationMs)
 	run.TotalTokens = int64(m.TotalTokens)
 	run.TotalToolCalls = int64(m.TotalToolCalls)
@@ -326,6 +341,6 @@ func ResolveWorkflow(root *Transcript, key string) (*WorkflowRun, error) {
 		for _, m := range matches {
 			ids = append(ids, fmt.Sprintf("%s (%s, %d agents)", m.RunID, m.DisplayName(), len(m.Agents)))
 		}
-		return nil, fmt.Errorf("workflow '%s' is ambiguous, matches: %s", key, strings.Join(ids, "; "))
+		return nil, fmt.Errorf("workflow '%s' is ambiguous, matches: %s", key, joinCandidates(ids, "; "))
 	}
 }

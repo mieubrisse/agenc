@@ -181,3 +181,53 @@ func TestFormatTimeWindowKeepsOnlyRecordsInsideIt(t *testing.T) {
 	all := renderRoot(t, root, FormatOptions{})
 	mustContain(t, all, "BEFORE", "AFTER", "NO TIMESTAMP")
 }
+
+func TestFormatBudgetSkipAccountsForWhatTheSkippedAgentSpawned(t *testing.T) {
+	// A loose agent whose transcript spawns a workflow run and a nested agent.
+	// Skipped for budget, the run and the nested agent must be attributed to
+	// the skip — not reported as "no spawn site in the printed range", which
+	// would be false: the site exists, it was not rendered.
+	fs := newFakeSession(t,
+		userLine("2026-01-01T00:00:00.000Z", "go"),
+		spawnLine("2026-01-01T00:01:00.000Z", "toolu_outer", "outer"),
+	)
+	outerLines := append([]string{userLine("2026-01-01T00:01:01.000Z", strings.Repeat("o", 3000))},
+		workflowSpawn("2026-01-01T00:01:02.000Z", "toolu_inner_wf", "wnested1")...)
+	outerLines = append(outerLines, spawnLine("2026-01-01T00:01:03.000Z", "toolu_inner_agent", "inner"))
+	fs.addAgent("aouter", &AgentMeta{AgentType: "Explore", ToolUseID: "toolu_outer"}, outerLines...)
+	fs.addAgent("ainner", &AgentMeta{AgentType: "Explore", ToolUseID: "toolu_inner_agent", ParentAgentID: "aouter"}, assistantLine("2026-01-01T00:01:04.000Z", "inner body"))
+	fs.addWorkflowAgent("wf_nest0001-aaa", "awn", assistantLine("2026-01-01T00:01:05.000Z", "wf body"))
+	fs.addWorkflowManifest("wf_nest0001-aaa", `{"taskId":"wnested1","workflowName":"nested","status":"completed","startTime":1767225665000}`)
+	root := fs.discover()
+
+	got := renderRoot(t, root, FormatOptions{ExpandAgents: true, MaxExpandBytes: 1024})
+
+	mustContain(t, got, "[agent aouter not expanded: ", "; 1 nested agent(s) and 1 workflow run(s) spawned inside it are not shown either]")
+	mustNotContain(t, got, "[UNLINKED WORKFLOWS]", "[UNLINKED AGENTS]", "inner body")
+
+	// Positive control: with the budget off, the run is anchored inside the
+	// inlined block and nothing is reported unlinked either.
+	all := renderRoot(t, root, FormatOptions{ExpandAgents: true})
+	mustContain(t, all, "[workflow wf_nest0001-aaa (nested): 1 agents, completed]", "--- begin agent ainner")
+	mustNotContain(t, all, "[UNLINKED WORKFLOWS]", "[UNLINKED AGENTS]")
+}
+
+func TestFormatBudgetNoteRendersOncePerAgent(t *testing.T) {
+	// Real files carry the same tool_use block in several records with
+	// distinct uuids; the note must not repeat with them.
+	fs := newFakeSession(t,
+		userLine("2026-01-01T00:00:00.000Z", "go"),
+		spawnLine("2026-01-01T00:01:00.000Z", "toolu_big", "big"),
+		strings.Replace(spawnLine("2026-01-01T00:01:00.000Z", "toolu_big", "big"), `"uuid":"`, `"uuid":"dup-`, 1),
+	)
+	fs.addAgent("abig", &AgentMeta{AgentType: "Explore", ToolUseID: "toolu_big"}, assistantLine("2026-01-01T00:01:01.000Z", strings.Repeat("b", 3000)))
+	root := fs.discover()
+
+	got := renderRoot(t, root, FormatOptions{ExpandAgents: true, MaxExpandBytes: 1024})
+	if n := strings.Count(got, "[agent abig not expanded"); n != 1 {
+		t.Errorf("budget note rendered %d times for one agent, want 1\n%s", n, got)
+	}
+	if n := strings.Count(renderRoot(t, root, FormatOptions{ExpandAgents: true}), "--- begin agent abig"); n != 1 {
+		t.Errorf("control: agent inlined %d times, want 1", n)
+	}
+}

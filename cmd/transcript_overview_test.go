@@ -135,7 +135,7 @@ func TestOverviewJSONIsCompleteAndParseable(t *testing.T) {
 		t.Fatalf("workflows = %+v", doc.Workflows)
 	}
 	wf := doc.Workflows[0]
-	if wf.RunID != "wf_3a23189e-9d5" || wf.TaskID != "w9gxz79on" || wf.AgentCount != 2 || wf.JournaledResults != 1 || wf.TotalTokens != 1741419 || wf.Bytes <= 0 || !wf.ManifestFound {
+	if wf.RunID != "wf_3a23189e-9d5" || wf.TaskID != "w9gxz79on" || wf.AgentCount != 2 || wf.ResumeCacheResults != 1 || wf.TotalTokens != 1741419 || wf.Bytes <= 0 || !wf.ManifestFound {
 		t.Errorf("workflow = %+v", wf)
 	}
 }
@@ -244,15 +244,45 @@ func TestExpansionBudgetSkipsTheAgentWithTheNumberAndTheFlag(t *testing.T) {
 }
 
 func TestUnknownFlagSuggestsTheNearestOne(t *testing.T) {
-	for typed, want := range map[string]string{"subagents": "agents", "agnets": "agents", "jsno": "json", "expand": "expand-agents", "workflows": "workflow", "zzzzzzzz": ""} {
+	for typed, want := range map[string]string{
+		"subagents": "agents", "agnets": "agents", "jsno": "json", "expand": "expand-agents", "workflows": "workflow",
+		"sicne": "since", "tial": "tail", "verbos": "verbose", "ALL": "all", "agentsxyz": "agents",
+		"zzzzzzzz": "", "a": "", "ag": "",
+	} {
 		if got := closestFlagName(sessionPrintCmd, typed); got != want {
 			t.Errorf("closestFlagName(%q) = %q, want %q", typed, got, want)
 		}
+	}
+	// A real flag of a sibling command is not a typo of this command's flags.
+	if got := closestFlagName(missionLsCmd, "tail"); got != "" {
+		t.Errorf("closestFlagName(mission ls, %q) = %q, want no suggestion", "tail", got)
 	}
 	rootCmd.SetArgs([]string{"session", "print", "abc", "--subagents"})
 	defer rootCmd.SetArgs(nil)
 	err := rootCmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: --subagents (did you mean --agents?)") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestRawJSONLExpansionHonoursTheBudgetOnStderr(t *testing.T) {
+	big := strings.Repeat("x", 1200*1024)
+	mainFilepath := writeFakeSession(t,
+		[]string{fakeUserLine("2026-01-01T00:00:00.000Z", "go")},
+		map[string][2]string{"abig": {`{"type":"assistant","uuid":"b","timestamp":"2026-01-01T00:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"` + big + `"}]}}`, `{"agentType":"Explore"}`}})
+
+	out, stderr, err := runPrint(t, mainFilepath, transcriptPrintOptions{format: jsonlFormat, expandAgents: true, all: true, maxExpandMB: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "xxxxxxxxxx") {
+		t.Errorf("the raw stream must not emit an agent over the budget")
+	}
+	if !strings.Contains(stderr, "warning: agent abig (1.2 MB) not emitted: over the --max-expand-mb=1 budget; raise it, or print it alone with --agent abig") {
+		t.Errorf("stderr = %q", stderr)
+	}
+	out, _, err = runPrint(t, mainFilepath, transcriptPrintOptions{format: jsonlFormat, expandAgents: true, all: true, maxExpandMB: 0})
+	if err != nil || !strings.Contains(out, "xxxxxxxxxx") {
+		t.Errorf("0 must mean unlimited on the raw path too")
 	}
 }

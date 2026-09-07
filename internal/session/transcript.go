@@ -377,6 +377,24 @@ func assignDepthsAndSort(node *Transcript, depth int) {
 	}
 }
 
+// FormatBytes renders a byte count for a table cell or a notice: whole bytes
+// below 1 KB, one decimal above, and never "1024.0 KB" — a value that would
+// round up to 1024 moves to the next unit.
+func FormatBytes(n int64) string {
+	units := []string{"KB", "MB", "GB", "TB"}
+	f := float64(n)
+	if f < 1024 {
+		return fmt.Sprintf("%d B", n)
+	}
+	unit := 0
+	f /= 1024
+	for f >= 1023.95 && unit < len(units)-1 {
+		f /= 1024
+		unit++
+	}
+	return fmt.Sprintf("%.1f %s", f, units[unit])
+}
+
 // fileSize returns a file's size in bytes, or 0 when it cannot be stat'ed.
 func fileSize(path string) int64 {
 	info, err := os.Stat(path)
@@ -537,7 +555,7 @@ func ResolveAgent(root *Transcript, key string) (*Transcript, error) {
 		case strings.HasPrefix(n.AgentID, key):
 			idPrefix = append(idPrefix, n)
 		}
-		if n.Meta.Name == key {
+		if strings.EqualFold(n.Meta.Name, key) {
 			nameMatch = append(nameMatch, n)
 		} else if strings.HasPrefix(strings.ToLower(n.Meta.Name), lower) || strings.Contains(strings.ToLower(n.Meta.Description), lower) {
 			textMatch = append(textMatch, n)
@@ -557,6 +575,11 @@ func ResolveAgent(root *Transcript, key string) (*Transcript, error) {
 	return nil, fmt.Errorf("%w for '%s'", ErrAgentNotFound, key)
 }
 
+// maxNamedCandidates bounds how many candidates an ambiguity error names.
+// Every agent ID starts with "a", so `--agent a` on a 7214-agent session
+// once produced a 138 KB error message.
+const maxNamedCandidates = 20
+
 // describeAgents renders candidates as "id (label)" pairs, sorted by ID.
 func describeAgents(agents []*Transcript) string {
 	parts := make([]string, 0, len(agents))
@@ -568,5 +591,14 @@ func describeAgents(agents []*Transcript) string {
 		}
 	}
 	sort.Strings(parts)
-	return strings.Join(parts, ", ")
+	return joinCandidates(parts, ", ")
+}
+
+// joinCandidates joins at most maxNamedCandidates entries and says how many
+// were left out, so an ambiguity error stays readable at any scale.
+func joinCandidates(parts []string, sep string) string {
+	if len(parts) <= maxNamedCandidates {
+		return strings.Join(parts, sep)
+	}
+	return strings.Join(parts[:maxNamedCandidates], sep) + fmt.Sprintf("%s... and %d more", sep, len(parts)-maxNamedCandidates)
 }

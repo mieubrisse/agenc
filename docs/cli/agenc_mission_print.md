@@ -48,9 +48,9 @@ agenc mission print [mission-id] [flags]
       --json                with --agents or --workflow: emit JSON instead of a table
       --max-expand-mb int   stop --expand-agents inlining past this many MB of subagent transcripts (0 = unlimited) (default 16)
       --session string      print a specific session of the mission, by session ID or short ID
-      --since string        only records at or after this time: RFC3339, '2026-09-07 14:00', '14:00' (on the transcript's last day) or '2h' (back from its last record)
+      --since string        only records at or after this time: RFC3339, '2026-09-07 14:00', '14:00' (on the transcript's last day) or '2h' (back from its last record); times without a zone are local, while rendered record timestamps are UTC
       --tail int            limit output to last N lines
-      --until string        only records at or before this time; same forms as --since
+      --until string        only records at or before this time; same forms as --since, and a bare date means the end of that day
       --verbose             render every record class: hooks, turn timings, attachments, thinking, successful tool results
       --workflow string     describe one workflow run and list its agents, by run ID, ID prefix, task ID or workflow name
 ```

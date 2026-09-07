@@ -870,9 +870,18 @@ func (f *conversationFormatter) expandAgent(agent *Transcript) string {
 		return nestedIndent + fmt.Sprintf("[agent %s not expanded: nesting limit %d reached]\n", agent.AgentID, maxExpansionDepth)
 	}
 	if budget := f.opts.MaxExpandBytes; budget > 0 && *f.expandedBytes+agent.Bytes > budget {
+		// Marking the agent inlined makes a second spawn record for the same
+		// agent — real files carry the same tool_use in several records —
+		// render nothing rather than a second note.
 		f.claimed[agent.AgentID] = true
-		return nestedIndent + fmt.Sprintf("[agent %s not expanded: %s would exceed the %s expansion budget; raise --max-expand-mb, or print it alone with --agent %s]\n",
-			agent.AgentID, formatByteCount(agent.Bytes), formatByteCount(budget), agent.AgentID)
+		f.inlined[agent.AgentID] = true
+		nested, runs := f.claimContentsOf(agent)
+		note := fmt.Sprintf("[agent %s not expanded: %s would exceed the %s expansion budget; raise --max-expand-mb, or print it alone with --agent %s",
+			agent.AgentID, FormatBytes(agent.Bytes), FormatBytes(budget), agent.AgentID)
+		if nested > 0 || runs > 0 {
+			note += fmt.Sprintf("; %d nested agent(s) and %d workflow run(s) spawned inside it are not shown either", nested, runs)
+		}
+		return nestedIndent + note + "]\n"
 	}
 	*f.expandedBytes += agent.Bytes
 	f.claimed[agent.AgentID] = true
@@ -912,6 +921,36 @@ func (f *conversationFormatter) expandAgent(agent *Transcript) string {
 		body = "(no conversation messages)\n"
 	}
 	return indentBlock(head+body+tail, nestedIndent)
+}
+
+// claimContentsOf accounts for everything spawned inside an agent that is not
+// being rendered: its descendants in the tree and the workflow runs whose
+// spawn sites are in its file. Without this the trailers would call them
+// "no spawn site in the printed range", which is false — the site exists, it
+// was skipped — and the skip note is where they are accounted for instead.
+// Finding the runs costs one streaming pass over the skipped file, looking
+// only at lines that carry the task-ID marker.
+func (f *conversationFormatter) claimContentsOf(agent *Transcript) (nested int, runs int) {
+	agent.Walk(func(n *Transcript) {
+		if n == agent || f.claimed[n.AgentID] {
+			return
+		}
+		f.claimed[n.AgentID] = true
+		nested++
+	})
+	_ = ScanJSONLLines(agent.Filepath, func(line []byte) error {
+		if !bytes.Contains(line, []byte(workflowTaskIDMarker)) {
+			return nil
+		}
+		for _, id := range workflowTaskIDPattern.FindAllSubmatch(line, -1) {
+			if run := f.byTaskID[string(id[1])]; run != nil && !f.claimedRuns[run.RunID] {
+				f.claimedRuns[run.RunID] = true
+				runs++
+			}
+		}
+		return nil
+	})
+	return nested, runs
 }
 
 // scanTranscriptFile makes one pass over a JSONL transcript, returning the last
@@ -1161,23 +1200,6 @@ func indentBlock(block string, indent string) string {
 // a new transcript entry.
 func indentContinuation(s string) string {
 	return strings.ReplaceAll(s, "\n", "\n    ")
-}
-
-// formatByteCount renders a byte count for a notice: whole bytes below 1 KB,
-// one decimal above.
-func formatByteCount(n int64) string {
-	const kb, mb, gb = 1024.0, 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0
-	f := float64(n)
-	switch {
-	case f >= gb:
-		return fmt.Sprintf("%.1f GB", f/gb)
-	case f >= mb:
-		return fmt.Sprintf("%.1f MB", f/mb)
-	case f >= kb:
-		return fmt.Sprintf("%.1f KB", f/kb)
-	default:
-		return fmt.Sprintf("%d B", n)
-	}
 }
 
 // formatDurationMs renders a millisecond duration compactly: "820ms", "12.4s",

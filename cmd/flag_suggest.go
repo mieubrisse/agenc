@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,9 +13,10 @@ import (
 // "unknown flag: --subagents" teaches nothing. When the misspelling is close to
 // a flag the command actually has, the error names it.
 
-// maxFlagSuggestionDistance bounds how far a typo may be from a real flag
-// before no suggestion is offered; beyond it, guessing misleads.
-const maxFlagSuggestionDistance = 3
+// minAffixLength is the shortest typed or real flag name the containment
+// rules consider: "--a" is not evidence for anything, and "--subagents"
+// contains "agents" only meaningfully because both are words.
+const minAffixLength = 4
 
 func init() {
 	rootCmd.SetFlagErrorFunc(suggestFlagOnError)
@@ -38,47 +40,84 @@ func suggestFlagOnError(cmd *cobra.Command, err error) error {
 }
 
 // closestFlagName returns the command's flag nearest to typed, or "" when
-// nothing is close enough.
+// nothing is close enough. Three rules, in priority order, each with a floor
+// that keeps it from firing on noise:
+//
+//   - a typo: edit distance (adjacent transposition counts one) within a
+//     quarter of the typed length, at least one — so "--sicne" reaches
+//     "--since", while "--tail" on a command that has "--all" (distance 2 on
+//     four letters) reaches nothing, because that flag belongs elsewhere;
+//   - a real name inside what was typed ("--subagents" holds "agents"), the
+//     longest such name winning;
+//   - what was typed inside a real name ("--expand" is in "--expand-agents"),
+//     the shortest such name winning.
 func closestFlagName(cmd *cobra.Command, typed string) string {
-	best, bestDistance := "", maxFlagSuggestionDistance+1
-	consider := func(f *pflag.Flag) {
-		if f.Hidden {
-			return
-		}
-		d := editDistance(strings.ToLower(typed), f.Name)
-		if strings.HasPrefix(f.Name, strings.ToLower(typed)) || strings.HasPrefix(strings.ToLower(typed), f.Name) {
-			d = 1
-		}
-		if d < bestDistance || (d == bestDistance && f.Name < best) {
-			best, bestDistance = f.Name, d
+	typed = strings.ToLower(typed)
+	var names []string
+	collect := func(f *pflag.Flag) {
+		if !f.Hidden {
+			names = append(names, f.Name)
 		}
 	}
-	cmd.Flags().VisitAll(consider)
-	cmd.InheritedFlags().VisitAll(consider)
-	if bestDistance > maxFlagSuggestionDistance {
-		return ""
+	cmd.Flags().VisitAll(collect)
+	cmd.InheritedFlags().VisitAll(collect)
+	sort.Strings(names)
+
+	allowed := len(typed) / 4
+	if allowed < 1 {
+		allowed = 1
+	}
+	best, bestDistance := "", allowed+1
+	for _, name := range names {
+		if d := editDistance(typed, name); d < bestDistance {
+			best, bestDistance = name, d
+		}
+	}
+	if best != "" {
+		return best
+	}
+	if len(typed) >= minAffixLength {
+		for _, name := range names {
+			if len(name) >= minAffixLength && strings.Contains(typed, name) && len(name) > len(best) {
+				best = name
+			}
+		}
+		if best != "" {
+			return best
+		}
+		for _, name := range names {
+			if strings.Contains(name, typed) && (best == "" || len(name) < len(best)) {
+				best = name
+			}
+		}
 	}
 	return best
 }
 
-// editDistance is the Levenshtein distance between two strings.
+// editDistance is the optimal string alignment distance: Levenshtein with an
+// adjacent transposition counted as one edit, so "sicne" is one step from
+// "since" rather than two.
 func editDistance(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
-	prev := make([]int, len(rb)+1)
-	cur := make([]int, len(rb)+1)
-	for j := range prev {
-		prev[j] = j
+	d := make([][]int, len(ra)+1)
+	for i := range d {
+		d[i] = make([]int, len(rb)+1)
+		d[i][0] = i
+	}
+	for j := range d[0] {
+		d[0][j] = j
 	}
 	for i := 1; i <= len(ra); i++ {
-		cur[0] = i
 		for j := 1; j <= len(rb); j++ {
 			cost := 1
 			if ra[i-1] == rb[j-1] {
 				cost = 0
 			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+			d[i][j] = min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+cost)
+			if i > 1 && j > 1 && ra[i-1] == rb[j-2] && ra[i-2] == rb[j-1] {
+				d[i][j] = min(d[i][j], d[i-2][j-2]+1)
+			}
 		}
-		prev, cur = cur, prev
 	}
-	return prev[len(rb)]
+	return d[len(ra)][len(rb)]
 }

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestParseTimeBoundAcceptsEveryDocumentedForm(t *testing.T) {
@@ -69,5 +71,55 @@ func TestTimeWindowRelativeFormsAnchorOnTheTranscriptsLastRecord(t *testing.T) {
 	}
 	if err := (transcriptPrintOptions{format: textFormat, all: true, since: "1h", listAgents: true}).validate(); err == nil || !strings.Contains(err.Error(), "apply to a transcript render") {
 		t.Errorf("--since with --agents must be refused, got %v", err)
+	}
+}
+
+func TestUntilBareDateEndsAtTheNextLocalMidnight(t *testing.T) {
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skip("no tz database")
+	}
+	saved := time.Local
+	time.Local = berlin
+	defer func() { time.Local = saved }()
+
+	for _, day := range []string{"2026-10-25", "2026-03-29", "2026-09-07"} {
+		got, err := parseTimeBound(day, time.Time{}, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		y, m, d := got.Date()
+		if got.Format("2006-01-02") != day || got.Hour() != 23 || got.Minute() != 59 || got.Second() != 59 {
+			t.Errorf("--until %s = %s (%d-%02d-%02d), want the last instant of that local day", day, got, y, m, d)
+		}
+	}
+}
+
+func TestWindowImpliesAllUnlessTailWasGiven(t *testing.T) {
+	newCmd := func() (*cobra.Command, *transcriptPrintOptions) {
+		opts := &transcriptPrintOptions{}
+		cmd := &cobra.Command{Use: "print", Run: func(*cobra.Command, []string) {}}
+		cmd.Flags().IntVar(&opts.tailLines, tailFlagName, defaultTailLines, "")
+		registerTranscriptPrintFlags(cmd, opts)
+		return cmd, opts
+	}
+	cmd, opts := newCmd()
+	cmd.SetArgs([]string{"--since", "1h"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	applyWindowDefault(cmd, opts)
+	if !opts.all {
+		t.Errorf("a window with the default tail must print everything inside it")
+	}
+
+	cmd, opts = newCmd()
+	cmd.SetArgs([]string{"--since", "1h", "--tail", "5"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	applyWindowDefault(cmd, opts)
+	if opts.all || opts.tailLines != 5 {
+		t.Errorf("an explicit --tail must still apply: all=%v tail=%d", opts.all, opts.tailLines)
 	}
 }

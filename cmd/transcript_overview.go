@@ -18,7 +18,7 @@ import (
 // spawned, and what each part costs to read. It is bounded by the number of
 // workflow RUNS, never by their agents — a run row is built from its manifest
 // and directory listing without opening a single agent transcript, so a
-// session with 7214 agents in 60 runs lists in 99 rows, not 7253.
+// session with 7214 agents in 60 runs lists as 99 table rows, not 7253.
 
 const (
 	// maxResultPreviewBytes caps the run result shown by --workflow in text
@@ -69,20 +69,25 @@ type agentJSON struct {
 
 // workflowJSON is one workflow run in the JSON views.
 type workflowJSON struct {
-	RunID            string `json:"run_id"`
-	TaskID           string `json:"task_id,omitempty"`
-	Name             string `json:"name,omitempty"`
-	Summary          string `json:"summary,omitempty"`
-	Status           string `json:"status"`
-	StartedAt        string `json:"started_at,omitempty"`
-	DurationMs       int64  `json:"duration_ms"`
-	TotalTokens      int64  `json:"total_tokens"`
-	TotalToolCalls   int64  `json:"total_tool_calls"`
-	AgentCount       int    `json:"agent_count"`
-	JournaledResults int    `json:"journaled_results"`
-	Bytes            int64  `json:"bytes"`
-	ManifestFound    bool   `json:"manifest_found"`
-	Path             string `json:"path,omitempty"`
+	RunID          string `json:"run_id"`
+	TaskID         string `json:"task_id,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Summary        string `json:"summary,omitempty"`
+	Status         string `json:"status"`
+	StartedAt      string `json:"started_at,omitempty"`
+	CompletedAt    string `json:"completed_at,omitempty"`
+	DurationMs     int64  `json:"duration_ms"`
+	TotalTokens    int64  `json:"total_tokens"`
+	TotalToolCalls int64  `json:"total_tool_calls"`
+	AgentCount     int    `json:"agent_count"`
+	// ResumeCacheResults is the run journal's result-record count. The
+	// journal is the Workflow tool's resume cache, so this is how many agent
+	// results were cached, not how many agents finished; the name says so
+	// because a JSON field cannot carry a comment.
+	ResumeCacheResults int    `json:"resume_cache_results"`
+	Bytes              int64  `json:"bytes"`
+	ManifestFound      bool   `json:"manifest_found"`
+	Path               string `json:"path,omitempty"`
 }
 
 // overviewJSON is the --agents --json document.
@@ -140,20 +145,21 @@ func agentToJSON(node *session.Transcript, stats session.TranscriptStats) agentJ
 
 func workflowToJSON(run *session.WorkflowRun) workflowJSON {
 	return workflowJSON{
-		RunID:            run.RunID,
-		TaskID:           run.TaskID,
-		Name:             run.Name,
-		Summary:          run.Summary,
-		Status:           run.Status,
-		StartedAt:        run.StartedAt,
-		DurationMs:       run.DurationMs,
-		TotalTokens:      run.TotalTokens,
-		TotalToolCalls:   run.TotalToolCalls,
-		AgentCount:       len(run.Agents),
-		JournaledResults: run.JournaledResults,
-		Bytes:            run.Bytes,
-		ManifestFound:    run.ManifestFound,
-		Path:             run.Dirpath,
+		RunID:              run.RunID,
+		TaskID:             run.TaskID,
+		Name:               run.Name,
+		Summary:            run.Summary,
+		Status:             run.Status,
+		StartedAt:          run.StartedAt,
+		CompletedAt:        run.CompletedAt,
+		DurationMs:         run.DurationMs,
+		TotalTokens:        run.TotalTokens,
+		TotalToolCalls:     run.TotalToolCalls,
+		AgentCount:         len(run.Agents),
+		ResumeCacheResults: run.JournaledResults,
+		Bytes:              run.Bytes,
+		ManifestFound:      run.ManifestFound,
+		Path:               run.Dirpath,
 	}
 }
 
@@ -189,7 +195,7 @@ func printAgentOverview(root *session.Transcript, opts transcriptPrintOptions, s
 	tbl.AddRow(mainTranscriptLabel, "session", "-",
 		fmt.Sprintf("%d", mainStats.UserMessages+mainStats.AssistantMessages),
 		fmt.Sprintf("%d", mainStats.ToolCalls), fmt.Sprintf("%d", mainStats.ToolErrors),
-		formatTranscriptTimestamp(root.StartedAt), formatBytes(root.Bytes), "")
+		formatTranscriptTimestamp(root.StartedAt), session.FormatBytes(root.Bytes), "")
 	for _, node := range loose {
 		addAgentRow(tbl, node, summarizeOrWarn(node.Filepath, stderr))
 	}
@@ -197,7 +203,7 @@ func printAgentOverview(root *session.Transcript, opts transcriptPrintOptions, s
 		tbl.AddRow(run.RunID, workflowRowType, "-",
 			fmt.Sprintf("%d agents", len(run.Agents)),
 			orDash(nonZero(run.TotalToolCalls)), "-",
-			formatTranscriptTimestamp(run.StartedAt), formatBytes(run.Bytes),
+			formatTranscriptTimestamp(run.StartedAt), session.FormatBytes(run.Bytes),
 			truncatePrompt(workflowLabel(run), maxWorkflowLabelLen))
 	}
 	tbl.Print()
@@ -225,7 +231,7 @@ func sessionToJSON(root *session.Transcript, stats session.TranscriptStats) sess
 func writeOverviewHeader(root *session.Transcript, stats session.TranscriptStats, w io.Writer) {
 	fmt.Fprintf(w, "session %s: %d messages, %d tool calls, %d errors, %d compactions, %s, %s - %s\n",
 		sessionIDFromPath(root.Filepath), stats.UserMessages+stats.AssistantMessages, stats.ToolCalls, stats.ToolErrors,
-		stats.CompactBoundaries, formatBytes(root.Bytes), formatTranscriptTimestamp(stats.FirstTimestamp), formatTranscriptTimestamp(stats.LastTimestamp))
+		stats.CompactBoundaries, session.FormatBytes(root.Bytes), formatTranscriptTimestamp(stats.FirstTimestamp), formatTranscriptTimestamp(stats.LastTimestamp))
 	if stats.ForkedFromSessionID != "" {
 		fmt.Fprintf(w, "forked from session %s\n", stats.ForkedFromSessionID)
 	}
@@ -241,10 +247,10 @@ func writeOverviewHeader(root *session.Transcript, stats session.TranscriptStats
 	}
 	var parts []string
 	if len(loose) > 0 {
-		parts = append(parts, fmt.Sprintf("%d spawned directly (%s)", len(loose), formatBytes(looseBytes)))
+		parts = append(parts, fmt.Sprintf("%d spawned directly (%s)", len(loose), session.FormatBytes(looseBytes)))
 	}
 	if len(root.Workflows) > 0 {
-		parts = append(parts, fmt.Sprintf("%d in %d workflow run(s) (%s)", workflowAgents, len(root.Workflows), formatBytes(workflowBytes)))
+		parts = append(parts, fmt.Sprintf("%d in %d workflow run(s) (%s)", workflowAgents, len(root.Workflows), session.FormatBytes(workflowBytes)))
 	}
 	if len(parts) > 0 {
 		fmt.Fprintf(w, "subagents: %s\n", strings.Join(parts, "; "))
@@ -289,7 +295,11 @@ func printWorkflowRun(run *session.WorkflowRun, opts transcriptPrintOptions, std
 
 	fmt.Fprintf(stdout, "workflow %s (%s): %s\n", run.RunID, run.DisplayName(), strings.Join(runFacts(run), ", "))
 	if run.TaskID != "" || run.StartedAt != "" {
-		fmt.Fprintf(stdout, "task %s, started %s\n", orDash(run.TaskID), formatTranscriptTimestamp(run.StartedAt))
+		line := fmt.Sprintf("task %s, started %s", orDash(run.TaskID), formatTranscriptTimestamp(run.StartedAt))
+		if run.CompletedAt != "" {
+			line += ", completed " + formatTranscriptTimestamp(run.CompletedAt)
+		}
+		fmt.Fprintln(stdout, line)
 	}
 	if run.Summary != "" {
 		fmt.Fprintf(stdout, "summary: %s\n", run.Summary)
@@ -366,7 +376,7 @@ func addAgentRow(tbl table.Table, node *session.Transcript, stats session.Transc
 		fmt.Sprintf("%d", stats.ToolCalls),
 		fmt.Sprintf("%d", stats.ToolErrors),
 		formatTranscriptTimestamp(node.StartedAt),
-		formatBytes(node.Bytes),
+		session.FormatBytes(node.Bytes),
 		truncatePrompt(agentLabelCell(node), maxAgentLabelLen),
 	)
 }
@@ -450,7 +460,7 @@ func (f sessionTranscriptFacts) cells() []string {
 		fmt.Sprintf("%d", f.stats.CompactBoundaries),
 		agents,
 		forkedFrom,
-		formatBytes(f.bytes),
+		session.FormatBytes(f.bytes),
 	}
 }
 

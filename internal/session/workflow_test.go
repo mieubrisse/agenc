@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -75,6 +76,10 @@ func TestDiscoveryReadsWorkflowRunDirectories(t *testing.T) {
 	fs.addWorkflowAgent("wf_aaaa1111-111", "aw1", assistantLine("2026-01-01T00:02:00.000Z", "wf body one"))
 	fs.addWorkflowAgent("wf_aaaa1111-111", "aw2", assistantLine("2026-01-01T00:03:00.000Z", "wf body two"))
 	fs.addWorkflowAgent("wf_bbbb2222-222", "aw3", assistantLine("2026-01-01T00:04:00.000Z", "wf body three"))
+	// The second run has a manifest with a start time, so discovery has no
+	// reason to open its agents; the lazy guard below is only meaningful
+	// because of that.
+	fs.addWorkflowManifest("wf_bbbb2222-222", `{"startTime":1767225840000,"status":"completed"}`)
 
 	root := fs.discover()
 
@@ -107,8 +112,12 @@ func TestDiscoveryReadsWorkflowRunDirectories(t *testing.T) {
 	if run.StartedAt != "2026-01-01T00:02:00.000Z" {
 		t.Errorf("run without manifest should start at its earliest agent, got %q", run.StartedAt)
 	}
-	if second := root.Workflows[1]; second.Agents[0].StartedAt != "" && !second.detailsLoaded {
-		t.Errorf("a run with agents must not read every agent's start eagerly")
+	if second := root.Workflows[1]; second.detailsLoaded || second.Agents[0].StartedAt != "" {
+		t.Errorf("a run whose manifest carries a start time must not read its agents' starts eagerly: loaded=%v startedAt=%q", second.detailsLoaded, second.Agents[0].StartedAt)
+	}
+	root.Workflows[1].LoadAgentDetails()
+	if root.Workflows[1].Agents[0].StartedAt != "2026-01-01T00:04:00.000Z" {
+		t.Errorf("LoadAgentDetails must fill the start, got %q", root.Workflows[1].Agents[0].StartedAt)
 	}
 	if run.Bytes <= 0 || run.Agents[0].Bytes <= 0 {
 		t.Errorf("sizes must be recorded: run=%d agent=%d", run.Bytes, run.Agents[0].Bytes)
@@ -123,9 +132,12 @@ func TestDiscoveryReadsWorkflowManifestAndJournal(t *testing.T) {
 	fs.addWorkflowJournal("wf_cccc3333-333", []string{"ac1", "ac2", "ac3"}, 2)
 	// Numbers quoted, as the real writer quotes them; agentCount deliberately
 	// wrong, as it is in 40 of 106 real runs.
-	fs.addWorkflowManifest("wf_cccc3333-333", `{"runId":"wf_cccc3333-333","timestamp":"2026-01-01T00:01:30.000Z","taskId":"wtask1234","workflowName":"analyze","summary":"one agent per thread","status":"completed","agentCount":"20","durationMs":"1487202","totalTokens":1741419,"totalToolCalls":"194"}`)
+	// "timestamp" is the run's COMPLETION time; startTime (epoch ms) is its
+	// start. Here the completion is placed BEFORE the other run's start so
+	// that ordering by the wrong field would be visible.
+	fs.addWorkflowManifest("wf_cccc3333-333", `{"runId":"wf_cccc3333-333","timestamp":"2026-01-01T00:00:10.000Z","startTime":"1767225690000","taskId":"wtask1234","workflowName":"analyze","summary":"one agent per thread","status":"completed","agentCount":"20","durationMs":"1487202","totalTokens":1741419,"totalToolCalls":"194"}`)
 	// A manifest with no agent directory is still a run.
-	fs.addWorkflowManifest("wf_dddd4444-444", `{"runId":"wf_dddd4444-444","timestamp":"2026-01-01T00:00:30.000Z","taskId":"wtask9999","workflowName":"empty","status":"failed"}`)
+	fs.addWorkflowManifest("wf_dddd4444-444", `{"runId":"wf_dddd4444-444","timestamp":"2026-01-01T00:00:30.000Z","startTime":1767225630000,"taskId":"wtask9999","workflowName":"empty","status":"failed"}`)
 
 	root := fs.discover()
 
@@ -133,14 +145,17 @@ func TestDiscoveryReadsWorkflowManifestAndJournal(t *testing.T) {
 		t.Fatalf("runs = %d, want 2", len(root.Workflows))
 	}
 	if root.Workflows[0].RunID != "wf_dddd4444-444" {
-		t.Errorf("runs must order by manifest timestamp; first = %s", root.Workflows[0].RunID)
+		t.Errorf("runs must order by start time (startTime), not by the completion timestamp; first = %s", root.Workflows[0].RunID)
 	}
 	run := root.Workflows[1]
 	if !run.ManifestFound || run.TaskID != "wtask1234" || run.Name != "analyze" || run.Status != "completed" || run.Summary != "one agent per thread" {
 		t.Errorf("manifest not applied: %+v", *run)
 	}
 	if run.StartedAt != "2026-01-01T00:01:30.000Z" {
-		t.Errorf("StartedAt must come from the manifest, got %q", run.StartedAt)
+		t.Errorf("StartedAt must come from the manifest's startTime (1767225690000 ms = 00:01:30Z), got %q", run.StartedAt)
+	}
+	if run.CompletedAt != "2026-01-01T00:00:10.000Z" {
+		t.Errorf("CompletedAt must be the manifest's timestamp, got %q", run.CompletedAt)
 	}
 	if run.DurationMs != 1487202 || run.TotalTokens != 1741419 || run.TotalToolCalls != 194 {
 		t.Errorf("quoted and unquoted numbers must both decode: %d %d %d", run.DurationMs, run.TotalTokens, run.TotalToolCalls)
@@ -319,5 +334,43 @@ func TestDiscoveryAgreesWithWalkDirAcrossAProjectsRoot(t *testing.T) {
 	t.Logf("sessions=%d agents=%d (walkdir %d) workflow runs=%d mismatches=%d", sessions, agents, walked, runs, mismatches)
 	if sessions == 0 || walked == 0 {
 		t.Fatalf("the control inspected nothing: sessions=%d walked=%d", sessions, walked)
+	}
+}
+
+func TestAmbiguityErrorsAreBounded(t *testing.T) {
+	fs := newFakeSession(t, userLine("2026-01-01T00:00:00.000Z", "go"))
+	for i := 0; i < 30; i++ {
+		fs.addAgent(fmt.Sprintf("a%02d", i), &AgentMeta{Name: fmt.Sprintf("worker-%02d", i)}, assistantLine("2026-01-01T00:01:00.000Z", "x"))
+	}
+	_, err := ResolveAgent(fs.discover(), "a")
+	if err == nil {
+		t.Fatal("want ambiguity")
+	}
+	if !strings.Contains(err.Error(), "a19 (worker-19), ... and 10 more") || strings.Contains(err.Error(), "a20 (") {
+		t.Errorf("ambiguity must name at most %d candidates and count the rest, got %v", maxNamedCandidates, err)
+	}
+}
+
+func TestResolveAgentMatchesNamesCaseInsensitively(t *testing.T) {
+	fs := newFakeSession(t, userLine("2026-01-01T00:00:00.000Z", "go"))
+	fs.addAgent("a1", &AgentMeta{Name: "review"}, assistantLine("2026-01-01T00:01:00.000Z", "x"))
+	fs.addAgent("a12", &AgentMeta{Description: "code review pass"}, assistantLine("2026-01-01T00:01:00.000Z", "x"))
+	root := fs.discover()
+	for _, key := range []string{"review", "Review", "REVIEW"} {
+		got, err := ResolveAgent(root, key)
+		if err != nil || got.AgentID != "a1" {
+			t.Errorf("ResolveAgent(%q) = %v, %v; an exact name must win regardless of case", key, got, err)
+		}
+	}
+}
+
+func TestFormatBytesNeverPrintsATousandAndTwentyFour(t *testing.T) {
+	for n, want := range map[int64]string{
+		0: "0 B", 1023: "1023 B", 1024: "1.0 KB", 1048575: "1.0 MB", 1023*1024 + 1000: "1.0 MB",
+		1048576: "1.0 MB", 1073741823: "1.0 GB", 5*1024*1024 + 200*1024: "5.2 MB",
+	} {
+		if got := FormatBytes(n); got != want {
+			t.Errorf("FormatBytes(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

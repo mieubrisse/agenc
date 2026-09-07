@@ -262,7 +262,7 @@ func printTranscriptTo(jsonlFilepath string, opts transcriptPrintOptions, stdout
 			return stacktrace.Propagate(err, "")
 		}
 	case jsonlFormat:
-		if err := writeRawJSONL(target, opts, since, until, cw); err != nil {
+		if err := writeRawJSONL(target, opts, since, until, cw, stderr); err != nil {
 			return stacktrace.Propagate(err, "")
 		}
 	}
@@ -277,7 +277,7 @@ func printTranscriptTo(jsonlFilepath string, opts transcriptPrintOptions, stdout
 // --expand-agents it concatenates the selected transcript and every descendant;
 // the records are self-identifying (each carries sessionId and, for subagents,
 // agentId), so a concatenated stream stays attributable.
-func writeRawJSONL(target *session.Transcript, opts transcriptPrintOptions, since time.Time, until time.Time, w io.Writer) error {
+func writeRawJSONL(target *session.Transcript, opts transcriptPrintOptions, since time.Time, until time.Time, w io.Writer, stderr io.Writer) error {
 	tail := opts.tailLines
 	if opts.all {
 		tail = 0
@@ -294,10 +294,22 @@ func writeRawJSONL(target *session.Transcript, opts transcriptPrintOptions, sinc
 		return nil
 	}
 
+	// The raw stream is records only, so the expansion budget cannot leave a
+	// note in it; a skipped agent is reported on stderr instead. Silently
+	// emitting 42 MB against a 1 MB budget, as this path once did, is worse
+	// than either.
+	budget := int64(opts.maxExpandMB) * bytesPerMB
+	var emitted int64
 	for _, node := range target.Flatten() {
 		if node == target {
 			continue
 		}
+		if budget > 0 && emitted+node.Bytes > budget {
+			fmt.Fprintf(stderr, "warning: agent %s (%s) not emitted: over the --%s=%d budget; raise it, or print it alone with --%s %s\n",
+				node.AgentID, session.FormatBytes(node.Bytes), maxExpandMBFlagName, opts.maxExpandMB, agentFlagName, node.AgentID)
+			continue
+		}
+		emitted += node.Bytes
 		// Subagent transcripts are emitted whole: a tail of a subagent omits
 		// the prompt that gives its output meaning.
 		if _, err := session.TailJSONLFile(node.Filepath, 0, w); err != nil {
@@ -373,8 +385,8 @@ func registerTranscriptPrintFlags(cmd *cobra.Command, opts *transcriptPrintOptio
 	flags.StringVar(&opts.workflowID, workflowFlagName, "", "describe one workflow run and list its agents, by run ID, ID prefix, task ID or workflow name")
 	flags.BoolVar(&opts.jsonOutput, transcriptJSONFlagName, false, "with --agents or --workflow: emit JSON instead of a table")
 	flags.IntVar(&opts.maxExpandMB, maxExpandMBFlagName, defaultMaxExpandMB, "stop --expand-agents inlining past this many MB of subagent transcripts (0 = unlimited)")
-	flags.StringVar(&opts.since, sinceFlagName, "", "only records at or after this time: RFC3339, '2026-09-07 14:00', '14:00' (on the transcript's last day) or '2h' (back from its last record)")
-	flags.StringVar(&opts.until, untilFlagName, "", "only records at or before this time; same forms as --since")
+	flags.StringVar(&opts.since, sinceFlagName, "", "only records at or after this time: RFC3339, '2026-09-07 14:00', '14:00' (on the transcript's last day) or '2h' (back from its last record); times without a zone are local, while rendered record timestamps are UTC")
+	flags.StringVar(&opts.until, untilFlagName, "", "only records at or before this time; same forms as --since, and a bare date means the end of that day")
 }
 
 // needsReference reports whether a time bound is relative to the transcript.
@@ -410,26 +422,12 @@ func parseTimeBound(value string, reference time.Time, endOfDay bool) (time.Time
 	}
 	if t, err := time.ParseInLocation("2006-01-02", value, time.Local); err == nil {
 		if endOfDay {
-			return t.Add(24*time.Hour - time.Nanosecond), nil
+			// The last instant of the local day, computed from the next
+			// midnight rather than by adding 24 hours: on a DST day the
+			// latter lands an hour early or late.
+			return time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, time.Local).Add(-time.Nanosecond), nil
 		}
 		return t, nil
 	}
 	return time.Time{}, fmt.Errorf("%q is not a time: use RFC3339, '2026-09-07 14:00', '2026-09-07', '14:00' or a duration like '2h'", value)
-}
-
-// formatBytes renders a byte count for a table cell: whole bytes below 1 KB,
-// one decimal above.
-func formatBytes(n int64) string {
-	const kb, mb, gb = 1024.0, 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0
-	f := float64(n)
-	switch {
-	case f >= gb:
-		return fmt.Sprintf("%.1f GB", f/gb)
-	case f >= mb:
-		return fmt.Sprintf("%.1f MB", f/mb)
-	case f >= kb:
-		return fmt.Sprintf("%.1f KB", f/kb)
-	default:
-		return fmt.Sprintf("%d B", n)
-	}
 }
