@@ -1,12 +1,21 @@
 package mission
 
 import (
+	"bytes"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
+
+// discardLogger satisfies the copy functions' logger parameter in tests, where
+// the fallback warning has no useful destination.
+var discardLogger = log.New(io.Discard, "", 0)
 
 func TestGetHEAD(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -306,5 +315,302 @@ func TestParseRepoReferenceWithDefaultOwner(t *testing.T) {
 				t.Errorf("ParseRepoReference(%q, %v, %q) cloneURL = %q, want %q", tt.ref, tt.preferSSH, tt.defaultOwner, cloneURL, tt.wantCloneURL)
 			}
 		})
+	}
+}
+
+// writeCopySourceTree builds a source tree exercising the properties a repo
+// copy has to preserve: dotfiles and dot-directories (.git), nesting, a
+// symlink (which must be copied as a symlink, not followed), a dangling
+// symlink, a non-default file mode, and a non-current mtime.
+func writeCopySourceTree(t *testing.T, srcDirpath string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Join(srcDirpath, ".git", "objects"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcDirpath, "sub"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDirpath, ".git", "config"), []byte("[core]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDirpath, ".git", "objects", "obj"), []byte("object-bytes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDirpath, "sub", "nested.txt"), []byte("nested"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDirpath, "script.sh"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("script.sh", filepath.Join(srcDirpath, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("does-not-exist", filepath.Join(srcDirpath, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A non-default mode on the source root itself, so the root-mode assertion
+	// in assertTreesMatch can tell "copied" apart from "MkdirAll's default".
+	if err := os.Chmod(srcDirpath, 0750); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mtimes well in the past, so "preserved" is distinguishable from
+	// "happened to be written at the same second as the copy". Every regular
+	// file gets a whole-second timestamp: rsync -a truncates mtimes to whole
+	// seconds where cp preserves nanoseconds, so a sub-second fixture mtime
+	// would make the mtime assertions fail on whichever platforms take the
+	// rsync path.
+	past := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	for _, relFilepath := range []string{
+		filepath.Join(".git", "config"),
+		filepath.Join(".git", "objects", "obj"),
+		filepath.Join("sub", "nested.txt"),
+		"script.sh",
+	} {
+		if err := os.Chtimes(filepath.Join(srcDirpath, relFilepath), past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// assertEntryMatches requires one source entry's destination counterpart to
+// have the same mode, and — by type — the same symlink target, or the same
+// content and mtime.
+func assertEntryMatches(t *testing.T, relPath string, srcPath string, dstPath string, srcInfo os.FileInfo) {
+	t.Helper()
+
+	dstInfo, err := os.Lstat(dstPath)
+	if err != nil {
+		t.Errorf("%s: missing from destination: %v", relPath, err)
+		return
+	}
+
+	if srcInfo.Mode() != dstInfo.Mode() {
+		t.Errorf("%s: mode = %v, want %v", relPath, dstInfo.Mode(), srcInfo.Mode())
+	}
+
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		srcTarget, srcErr := os.Readlink(srcPath)
+		dstTarget, dstErr := os.Readlink(dstPath)
+		if srcErr != nil || dstErr != nil {
+			t.Errorf("%s: readlink failed: source %v, destination %v", relPath, srcErr, dstErr)
+			return
+		}
+		if srcTarget != dstTarget {
+			t.Errorf("%s: symlink target = %q, want %q", relPath, dstTarget, srcTarget)
+		}
+		return
+	}
+
+	// Directory mtimes shift as children are written into them, so content and
+	// mtime are asserted for regular files only.
+	if srcInfo.IsDir() {
+		return
+	}
+
+	// Reading a special file would block (a FIFO's open(2) waits for a writer),
+	// so anything that is not a regular file stops at the mode comparison.
+	if !srcInfo.Mode().IsRegular() {
+		return
+	}
+
+	srcContent, srcErr := os.ReadFile(srcPath)
+	dstContent, dstErr := os.ReadFile(dstPath)
+	if srcErr != nil || dstErr != nil {
+		t.Errorf("%s: read failed: source %v, destination %v", relPath, srcErr, dstErr)
+		return
+	}
+	if string(srcContent) != string(dstContent) {
+		t.Errorf("%s: content = %q, want %q", relPath, dstContent, srcContent)
+	}
+	if !srcInfo.ModTime().Equal(dstInfo.ModTime()) {
+		t.Errorf("%s: mtime = %v, want %v", relPath, dstInfo.ModTime(), srcInfo.ModTime())
+	}
+}
+
+// assertTreesMatch walks srcDirpath and requires dstDirpath to hold the same
+// relative paths with the same types, contents, modes, mtimes and symlink
+// targets — then requires dstDirpath to hold nothing extra.
+func assertTreesMatch(t *testing.T, srcDirpath string, dstDirpath string) {
+	t.Helper()
+
+	seen := map[string]bool{}
+	walkErr := filepath.Walk(srcDirpath, func(srcPath string, srcInfo os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(srcDirpath, srcPath)
+		if err != nil {
+			return err
+		}
+		if relPath == "." {
+			return nil
+		}
+		seen[relPath] = true
+		assertEntryMatches(t, relPath, srcPath, filepath.Join(dstDirpath, relPath), srcInfo)
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walking source tree failed: %v", walkErr)
+	}
+
+	// Positive control on the walk itself: a comparison that visited nothing
+	// would pass every assertion above.
+	if len(seen) == 0 {
+		t.Fatal("source tree was empty, so this comparison proved nothing")
+	}
+
+	// The walk above skips the roots themselves, but the destination root's
+	// mode must match the source root's whichever backend ran (rsync -a and
+	// cp -p both apply it to the destination root).
+	srcRootInfo, err := os.Lstat(srcDirpath)
+	if err != nil {
+		t.Fatalf("stat of source root failed: %v", err)
+	}
+	dstRootInfo, err := os.Lstat(dstDirpath)
+	if err != nil {
+		t.Fatalf("stat of destination root failed: %v", err)
+	}
+	if srcRootInfo.Mode().Perm() != dstRootInfo.Mode().Perm() {
+		t.Errorf("destination root mode = %v, want %v", dstRootInfo.Mode().Perm(), srcRootInfo.Mode().Perm())
+	}
+
+	extraErr := filepath.Walk(dstDirpath, func(dstPath string, _ os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(dstDirpath, dstPath)
+		if err != nil {
+			return err
+		}
+		if relPath != "." && !seen[relPath] {
+			t.Errorf("%s: present in destination but not in source", relPath)
+		}
+		return nil
+	})
+	if extraErr != nil {
+		t.Fatalf("walking destination tree failed: %v", extraErr)
+	}
+}
+
+func TestCopyRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDirpath := filepath.Join(tmpDir, "src")
+	dstDirpath := filepath.Join(tmpDir, "dst")
+	writeCopySourceTree(t, srcDirpath)
+
+	if err := CopyRepo(discardLogger, srcDirpath, dstDirpath); err != nil {
+		t.Fatalf("CopyRepo failed: %v", err)
+	}
+
+	assertTreesMatch(t, srcDirpath, dstDirpath)
+}
+
+func TestCopyRepo_CreatesMissingDestination(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDirpath := filepath.Join(tmpDir, "src")
+	dstDirpath := filepath.Join(tmpDir, "not", "yet", "there")
+	writeCopySourceTree(t, srcDirpath)
+
+	if err := CopyRepo(discardLogger, srcDirpath, dstDirpath); err != nil {
+		t.Fatalf("CopyRepo failed: %v", err)
+	}
+
+	assertTreesMatch(t, srcDirpath, dstDirpath)
+}
+
+func TestCopyRepo_IndependentOfSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDirpath := filepath.Join(tmpDir, "src")
+	dstDirpath := filepath.Join(tmpDir, "dst")
+	if err := os.MkdirAll(srcDirpath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	srcFilepath := filepath.Join(srcDirpath, "file.txt")
+	if err := os.WriteFile(srcFilepath, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := CopyRepo(discardLogger, srcDirpath, dstDirpath); err != nil {
+		t.Fatalf("CopyRepo failed: %v", err)
+	}
+
+	// Cloned files are copy-on-write, not shared: a write to either side must
+	// not be visible on the other.
+	dstFilepath := filepath.Join(dstDirpath, "file.txt")
+	if err := os.WriteFile(dstFilepath, []byte("changed in destination"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	srcContent, err := os.ReadFile(srcFilepath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(srcContent) != "original" {
+		t.Errorf("writing the destination changed the source: got %q, want %q", srcContent, "original")
+	}
+
+	if err := os.WriteFile(srcFilepath, []byte("changed in source"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	dstContent, err := os.ReadFile(dstFilepath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(dstContent) != "changed in destination" {
+		t.Errorf("writing the source changed the destination: got %q, want %q", dstContent, "changed in destination")
+	}
+}
+
+func TestCopyAgentDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDirpath := filepath.Join(tmpDir, "src")
+	dstDirpath := filepath.Join(tmpDir, "dst")
+	writeCopySourceTree(t, srcDirpath)
+
+	if err := CopyAgentDir(discardLogger, srcDirpath, dstDirpath); err != nil {
+		t.Fatalf("CopyAgentDir failed: %v", err)
+	}
+
+	assertTreesMatch(t, srcDirpath, dstDirpath)
+}
+
+// TestCopyRepo_MissingSourceFailsLoudly pins the failure path: when the copy
+// cannot succeed at all, the returned error carries the rsync failure, and (on
+// macOS) the cp failure that preceded it is logged rather than swallowed.
+func TestCopyRepo_MissingSourceFailsLoudly(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDirpath := filepath.Join(tmpDir, "does-not-exist")
+	dstDirpath := filepath.Join(tmpDir, "dst")
+
+	var logBuffer bytes.Buffer
+	logger := log.New(&logBuffer, "", 0)
+
+	err := CopyRepo(logger, srcDirpath, dstDirpath)
+	if err == nil {
+		t.Fatal("expected CopyRepo of a nonexistent source to fail")
+	}
+	if !strings.Contains(err.Error(), "rsync") {
+		t.Errorf("error should carry the rsync failure, got: %v", err)
+	}
+	if runtime.GOOS == "darwin" {
+		if !strings.Contains(logBuffer.String(), "falling back to rsync") {
+			t.Errorf("cp failure should be logged before the rsync fallback, got log: %q", logBuffer.String())
+		}
+	}
+}
+
+func TestCopyAgentDir_MissingSourceIsNoOp(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDirpath := filepath.Join(tmpDir, "does-not-exist")
+	dstDirpath := filepath.Join(tmpDir, "dst")
+
+	if err := CopyAgentDir(discardLogger, srcDirpath, dstDirpath); err != nil {
+		t.Fatalf("CopyAgentDir failed: %v", err)
+	}
+
+	if _, err := os.Stat(dstDirpath); !os.IsNotExist(err) {
+		t.Errorf("expected destination not to be created, got err = %v", err)
 	}
 }

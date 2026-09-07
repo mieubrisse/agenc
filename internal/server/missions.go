@@ -497,7 +497,7 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 	}
 
 	// Create mission directory structure
-	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath); err != nil {
+	if _, err := mission.CreateMissionDir(s.logger, s.agencDirpath, missionRecord.ID, gitRepoName, gitCloneDirpath); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission directory: %s", err.Error())
 	}
 
@@ -653,13 +653,13 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	}
 
 	// Create empty mission dir structure, then copy agent dir from source
-	if _, err := mission.CreateMissionDir(s.agencDirpath, missionRecord.ID, "", ""); err != nil {
+	if _, err := mission.CreateMissionDir(s.logger, s.agencDirpath, missionRecord.ID, "", ""); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to create mission directory: %s", err.Error())
 	}
 
 	srcAgentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, sourceMission.ID)
 	dstAgentDirpath := config.GetMissionAgentDirpath(s.agencDirpath, missionRecord.ID)
-	if err := mission.CopyAgentDir(srcAgentDirpath, dstAgentDirpath); err != nil {
+	if err := mission.CopyAgentDir(s.logger, srcAgentDirpath, dstAgentDirpath); err != nil {
 		return newHTTPErrorf(http.StatusInternalServerError, "failed to copy agent directory: %s", err.Error())
 	}
 
