@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -192,6 +193,19 @@ type FormatOptions struct {
 	// annotated with the agent ID needed to print them, and ExpandAgents
 	// becomes available. When nil the formatter renders a single flat file.
 	Root *Transcript
+
+	// MaxExpandBytes bounds the subagent transcript bytes ExpandAgents may
+	// inline across the whole render; 0 is unlimited. Past the budget an agent
+	// is not inlined and a note in its place says so and names the flag. The
+	// budget is enforced where inlining happens, so a tailed render is only
+	// charged for the agents actually spawned inside the printed window.
+	MaxExpandBytes int64
+
+	// ListCommand, when set, is the copy-pasteable command that lists the
+	// session's subagents. It is appended to the footer that reports how many
+	// transcripts the render left out, so a reader who cannot see stderr and
+	// has never read --help still learns the exact next command.
+	ListCommand string
 }
 
 // FormatTranscriptFile renders one JSONL transcript file under the given
@@ -230,6 +244,17 @@ type conversationFormatter struct {
 	// for, so a reused agent name is not handed to two call sites and the
 	// unlinked-agents trailer only lists what genuinely has no anchor.
 	claimed map[string]bool
+	// byTaskID indexes workflow runs by the task ID their spawn's tool_result
+	// reported; runByToolUseID is filled per render from the file scan, which
+	// is the only place the tool_use ID and the task ID meet.
+	byTaskID       map[string]*WorkflowRun
+	runByToolUseID map[string]*WorkflowRun
+	// claimedRuns marks workflow runs whose spawn site was rendered, so the
+	// trailer lists only runs with no anchor in the printed range.
+	claimedRuns map[string]bool
+	// expandedBytes is the running total of subagent bytes inlined so far,
+	// shared with nested formatters so the budget is per render, not per level.
+	expandedBytes *int64
 	// inlined marks agents whose transcript has already been written out.
 	// Transcripts contain duplicate records (the same uuid written twice is
 	// present in real files), so a spawn can be rendered more than once;
@@ -240,14 +265,22 @@ type conversationFormatter struct {
 
 func newConversationFormatter(opts FormatOptions) *conversationFormatter {
 	f := &conversationFormatter{
-		opts:        opts,
-		byToolUseID: map[string]*Transcript{},
-		byAgentID:   map[string]*Transcript{},
-		byAgentName: map[string][]*Transcript{},
-		claimed:     map[string]bool{},
-		inlined:     map[string]bool{},
+		opts:          opts,
+		byToolUseID:   map[string]*Transcript{},
+		byAgentID:     map[string]*Transcript{},
+		byAgentName:   map[string][]*Transcript{},
+		claimed:       map[string]bool{},
+		inlined:       map[string]bool{},
+		byTaskID:      map[string]*WorkflowRun{},
+		claimedRuns:   map[string]bool{},
+		expandedBytes: new(int64),
 	}
 	if opts.Root != nil {
+		for _, run := range opts.Root.Workflows {
+			if run.TaskID != "" {
+				f.byTaskID[run.TaskID] = run
+			}
+		}
 		opts.Root.Walk(func(n *Transcript) {
 			if n.IsMain() {
 				return
@@ -272,9 +305,15 @@ func newConversationFormatter(opts FormatOptions) *conversationFormatter {
 // blank lines. A leading fork banner is emitted when the file carries fork
 // provenance.
 func (f *conversationFormatter) render(jsonlFilepath string, tailLines int, w io.Writer) error {
-	lines, fork, err := scanTranscriptFile(jsonlFilepath, tailLines)
+	lines, fork, taskIDs, err := scanTranscriptFile(jsonlFilepath, tailLines)
 	if err != nil {
 		return err
+	}
+	f.runByToolUseID = map[string]*WorkflowRun{}
+	for toolUseID, taskID := range taskIDs {
+		if run := f.byTaskID[taskID]; run != nil {
+			f.runByToolUseID[toolUseID] = run
+		}
 	}
 
 	var blocks []string
@@ -292,6 +331,12 @@ func (f *conversationFormatter) render(jsonlFilepath string, tailLines int, w io
 	}
 	if trailer := f.unexpandedAgentsTrailer(); trailer != "" {
 		blocks = append(blocks, trailer)
+	}
+	if trailer := f.unlinkedWorkflowsTrailer(); trailer != "" {
+		blocks = append(blocks, trailer)
+	}
+	if footer := f.hiddenTranscriptsFooter(); footer != "" {
+		blocks = append(blocks, footer)
 	}
 
 	for i, block := range blocks {
@@ -368,6 +413,75 @@ func (f *conversationFormatter) unexpandedAgentsTrailer() string {
 		fmt.Fprintf(&b, "  %s (%s) %s\n", n.AgentID, n.Meta.DisplayType(), truncate(n.Meta.DisplayLabel(), maxToolParamLen))
 	}
 	return b.String()
+}
+
+// unlinkedWorkflowsTrailer is the workflow-run counterpart of the agents
+// trailer: under expansion it lists runs whose Workflow spawn is outside the
+// printed range. It is bounded by the number of runs, never by their agents.
+func (f *conversationFormatter) unlinkedWorkflowsTrailer() string {
+	if !f.opts.ExpandAgents || f.depth > 0 || f.target == nil || !f.target.IsMain() || f.opts.Root == nil {
+		return ""
+	}
+	var missing []*WorkflowRun
+	for _, run := range f.opts.Root.Workflows {
+		if !f.claimedRuns[run.RunID] {
+			missing = append(missing, run)
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[UNLINKED WORKFLOWS] %d workflow run(s) with no spawn site in the printed range\n", len(missing))
+	for _, run := range missing {
+		fmt.Fprintf(&b, "  %s (%s): %d agent(s), %s\n", run.RunID, run.DisplayName(), len(run.Agents), run.Status)
+	}
+	return b.String()
+}
+
+// hiddenTranscriptsFooter closes a render of the session's main transcript
+// with what it left out and the command that shows it. It is the one line a
+// reader is guaranteed to reach, which is why it is on stdout and carries the
+// exact flags: a hint on stderr is invisible to every caller that captured
+// only stdout, and "see --help" is not a command.
+//
+// Workflow runs are never inlined, even under expansion — one real session
+// holds 7214 agents in 60 runs, and inlining them would turn a 1 MB render
+// into hundreds of megabytes — so under expansion the footer reports the runs.
+func (f *conversationFormatter) hiddenTranscriptsFooter() string {
+	if f.depth > 0 || f.target == nil || !f.target.IsMain() || f.opts.Root == nil {
+		return ""
+	}
+	root := f.opts.Root
+	loose := len(root.Flatten()) - 1
+	workflowAgents := 0
+	for _, run := range root.Workflows {
+		workflowAgents += len(run.Agents)
+	}
+	runs := len(root.Workflows)
+
+	if f.opts.ExpandAgents {
+		if workflowAgents == 0 {
+			return ""
+		}
+		return fmt.Sprintf("[WORKFLOWS] %d agent transcript(s) in %d workflow run(s) are not inlined - --workflow <id> to list a run\n", workflowAgents, runs)
+	}
+
+	if loose+workflowAgents == 0 {
+		return ""
+	}
+	var parts []string
+	if loose > 0 {
+		parts = append(parts, fmt.Sprintf("%d spawned directly", loose))
+	}
+	if runs > 0 {
+		parts = append(parts, fmt.Sprintf("%d in %d workflow run(s)", workflowAgents, runs))
+	}
+	line := fmt.Sprintf("[SUBAGENTS] %d transcript(s) not shown: %s - --agents to list them, --agent <id> or --workflow <id> to open one", loose+workflowAgents, strings.Join(parts, ", "))
+	if f.opts.ListCommand != "" {
+		line += " - " + f.opts.ListCommand
+	}
+	return line + "\n"
 }
 
 // formatLine parses a single JSONL record and returns its formatted
@@ -627,6 +741,11 @@ func (f *conversationFormatter) formatAssistantEntry(record jsonlRecord) string 
 func (f *conversationFormatter) formatToolUseBlock(b contentBlock, timestamp string) string {
 	line := formatToolCall(b.Name, b.Input)
 
+	if run := f.runByToolUseID[b.ID]; run != nil {
+		f.claimedRuns[run.RunID] = true
+		return line + "  " + workflowAnchor(run)
+	}
+
 	agent := f.resolveSpawnedAgent(b, timestamp)
 	if agent == nil {
 		return line
@@ -637,6 +756,19 @@ func (f *conversationFormatter) formatToolUseBlock(b contentBlock, timestamp str
 		return line + "\n" + nested
 	}
 	return line
+}
+
+// workflowAnchor renders the bracketed summary that follows a Workflow spawn:
+// the run ID a reader needs to open it, its name, how many agents it spawned
+// and how many of those never reported, its status and duration. Everything
+// here comes from the manifest and the directory listing, not from the agent
+// transcripts, so the anchor costs nothing per agent.
+func workflowAnchor(run *WorkflowRun) string {
+	parts := []string{fmt.Sprintf("%d agents", len(run.Agents)), run.Status}
+	if run.DurationMs > 0 {
+		parts = append(parts, formatDurationMs(float64(run.DurationMs)))
+	}
+	return fmt.Sprintf("[workflow %s (%s): %s]", run.RunID, run.DisplayName(), strings.Join(parts, ", "))
 }
 
 // resolveSpawnedAgent finds the transcript a spawn tool_use produced.
@@ -699,18 +831,27 @@ func (f *conversationFormatter) expandAgent(agent *Transcript) string {
 	if f.depth >= maxExpansionDepth {
 		return nestedIndent + fmt.Sprintf("[agent %s not expanded: nesting limit %d reached]\n", agent.AgentID, maxExpansionDepth)
 	}
+	if budget := f.opts.MaxExpandBytes; budget > 0 && *f.expandedBytes+agent.Bytes > budget {
+		f.claimed[agent.AgentID] = true
+		return nestedIndent + fmt.Sprintf("[agent %s not expanded: %s would exceed the %s expansion budget; raise --max-expand-mb, or print it alone with --agent %s]\n",
+			agent.AgentID, formatByteCount(agent.Bytes), formatByteCount(budget), agent.AgentID)
+	}
+	*f.expandedBytes += agent.Bytes
 	f.claimed[agent.AgentID] = true
 	f.inlined[agent.AgentID] = true
 
 	nested := &conversationFormatter{
-		opts:        FormatOptions{Verbose: f.opts.Verbose, ExpandAgents: true, Root: f.opts.Root},
-		target:      agent,
-		byToolUseID: f.byToolUseID,
-		byAgentID:   f.byAgentID,
-		byAgentName: f.byAgentName,
-		claimed:     f.claimed,
-		inlined:     f.inlined,
-		depth:       f.depth + 1,
+		opts:          FormatOptions{Verbose: f.opts.Verbose, ExpandAgents: true, Root: f.opts.Root, MaxExpandBytes: f.opts.MaxExpandBytes},
+		target:        agent,
+		byToolUseID:   f.byToolUseID,
+		byAgentID:     f.byAgentID,
+		byAgentName:   f.byAgentName,
+		byTaskID:      f.byTaskID,
+		claimed:       f.claimed,
+		claimedRuns:   f.claimedRuns,
+		inlined:       f.inlined,
+		expandedBytes: f.expandedBytes,
+		depth:         f.depth + 1,
 	}
 
 	var buf bytes.Buffer
@@ -743,9 +884,37 @@ func (f *conversationFormatter) expandAgent(agent *Transcript) string {
 // transcript — on one real file, records 1 through 2775 of 6049 — so scanning
 // only a tail loses it. `session print` tails by default, which is exactly the
 // invocation where a silent omission is least likely to be noticed.
-func scanTranscriptFile(jsonlFilepath string, n int) ([]string, *forkRef, error) {
+//
+// The same pass collects, for every Workflow spawn, the task ID its tool_result
+// reported ("Task ID: w9gxz79on"), keyed by tool_use ID. That result record is
+// the only place the spawn's tool_use ID and the run's task ID appear together,
+// and the run's manifest carries the same task ID, which is how a Workflow call
+// is linked to the run directory it produced.
+func scanTranscriptFile(jsonlFilepath string, n int) ([]string, *forkRef, map[string]string, error) {
 	var fork *forkRef
+	taskIDs := map[string]string{}
+	noteTaskID := func(line []byte) {
+		if !bytes.Contains(line, []byte(workflowTaskIDMarker)) {
+			return
+		}
+		var record struct {
+			Type    string          `json:"type"`
+			Message json.RawMessage `json:"message"`
+		}
+		if err := json.Unmarshal(line, &record); err != nil || record.Type != "user" {
+			return
+		}
+		for _, b := range decodeContentBlocks(record.Message) {
+			if b.Type != "tool_result" || b.ToolUseID == "" {
+				continue
+			}
+			if id := workflowTaskIDPattern.FindStringSubmatch(extractToolResultText(b)); id != nil {
+				taskIDs[b.ToolUseID] = id[1]
+			}
+		}
+	}
 	noteFork := func(line []byte) {
+		noteTaskID(line)
 		if fork != nil {
 			return
 		}
@@ -768,9 +937,9 @@ func scanTranscriptFile(jsonlFilepath string, n int) ([]string, *forkRef, error)
 			return nil
 		})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		return lines, fork, nil
+		return lines, fork, taskIDs, nil
 	}
 
 	// The ring grows to the requested size rather than being allocated up
@@ -788,7 +957,7 @@ func scanTranscriptFile(jsonlFilepath string, n int) ([]string, *forkRef, error)
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	count := total
@@ -800,8 +969,14 @@ func scanTranscriptFile(jsonlFilepath string, n int) ([]string, *forkRef, error)
 	for i := 0; i < count; i++ {
 		result[i] = ring[(startIdx+i)%n]
 	}
-	return result, fork, nil
+	return result, fork, taskIDs, nil
 }
+
+// workflowTaskIDMarker is the substring a Workflow spawn's tool_result carries
+// before the task ID; workflowTaskIDPattern extracts the ID itself.
+const workflowTaskIDMarker = "Task ID: "
+
+var workflowTaskIDPattern = regexp.MustCompile(`Task ID: ([A-Za-z0-9_-]+)`)
 
 // maxRingSeedCapacity bounds the up-front allocation of a tail buffer. The ring
 // still grows to whatever --tail asked for, but only as lines actually arrive,
@@ -948,6 +1123,23 @@ func indentBlock(block string, indent string) string {
 // a new transcript entry.
 func indentContinuation(s string) string {
 	return strings.ReplaceAll(s, "\n", "\n    ")
+}
+
+// formatByteCount renders a byte count for a notice: whole bytes below 1 KB,
+// one decimal above.
+func formatByteCount(n int64) string {
+	const kb, mb, gb = 1024.0, 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0
+	f := float64(n)
+	switch {
+	case f >= gb:
+		return fmt.Sprintf("%.1f GB", f/gb)
+	case f >= mb:
+		return fmt.Sprintf("%.1f MB", f/mb)
+	case f >= kb:
+		return fmt.Sprintf("%.1f KB", f/kb)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 // formatDurationMs renders a millisecond duration compactly: "820ms", "12.4s",

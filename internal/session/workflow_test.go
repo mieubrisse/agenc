@@ -148,10 +148,10 @@ func TestDiscoveryReadsWorkflowManifestAndJournal(t *testing.T) {
 	if len(run.Agents) != 3 {
 		t.Errorf("agent count must come from disk (3), not the manifest (20): got %d", len(run.Agents))
 	}
-	if run.FinishedAgents != 2 || run.UnfinishedAgents() != 1 {
-		t.Errorf("journal: finished=%d unfinished=%d, want 2/1", run.FinishedAgents, run.UnfinishedAgents())
+	if run.JournaledResults != 2 {
+		t.Errorf("journal: results=%d, want 2", run.JournaledResults)
 	}
-	if empty := root.Workflows[0]; len(empty.Agents) != 0 || empty.Status != "failed" || empty.FinishedAgents != -1 || empty.UnfinishedAgents() != 0 {
+	if empty := root.Workflows[0]; len(empty.Agents) != 0 || empty.Status != "failed" || empty.JournaledResults != -1 {
 		t.Errorf("manifest-only run: %+v", *empty)
 	}
 }
@@ -166,7 +166,7 @@ func TestDiscoveryToleratesMalformedManifestAndJournal(t *testing.T) {
 	if len(root.Workflows) != 1 || len(root.Workflows[0].Agents) != 1 {
 		t.Fatalf("a run with a broken manifest must still list its agents: %+v", root.Workflows)
 	}
-	if run := root.Workflows[0]; run.ManifestFound || run.Status != "unknown" || run.FinishedAgents != -1 {
+	if run := root.Workflows[0]; run.ManifestFound || run.Status != "unknown" || run.JournaledResults != -1 {
 		t.Errorf("broken manifest/absent journal: %+v", *run)
 	}
 }

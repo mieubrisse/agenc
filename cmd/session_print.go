@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"fmt"
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/session"
 )
 
@@ -80,5 +82,6 @@ func runSessionPrint(cmd *cobra.Command, args []string) error {
 		return stacktrace.Propagate(err, "")
 	}
 
+	sessionPrintOpts.listCommand = fmt.Sprintf("agenc session print %s --%s", database.ShortID(resolvedID), agentsFlagName)
 	return printTranscript(jsonlFilepath, sessionPrintOpts)
 }

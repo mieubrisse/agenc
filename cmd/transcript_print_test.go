@@ -393,8 +393,18 @@ func TestPrintTranscriptTellsTheCallerAboutUnprintedSubagents(t *testing.T) {
 		t.Fatalf("printTranscriptTo: %v", err)
 	}
 
-	if !strings.Contains(stderr.String(), "1 subagent transcript(s) not shown") {
-		t.Errorf("expected a hint on stderr, got %q", stderr.String())
+	// The footer is on STDOUT and carries the exact command: a caller that
+	// captured only stdout, and never read --help, still learns the next step.
+	opts.listCommand = "agenc session print 11111111 --agents"
+	stdout.Reset()
+	if err := printTranscriptTo(mainFilepath, opts, &stdout, &stderr); err != nil {
+		t.Fatalf("printTranscriptTo: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "[SUBAGENTS] 1 transcript(s) not shown: 1 spawned directly - --agents to list them, --agent <id> or --workflow <id> to open one - agenc session print 11111111 --agents") {
+		t.Errorf("expected the footer on stdout, got %q", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "not shown") {
+		t.Errorf("the hint moved to stdout; stderr must not repeat it, got %q", stderr.String())
 	}
 	if strings.Contains(stdout.String(), "SUBAGENT PROMPT TEXT") {
 		t.Errorf("the default render should not inline subagents")
@@ -413,8 +423,8 @@ func TestPrintTranscriptDoesNotHintWhenSubagentsAreShown(t *testing.T) {
 	if !strings.Contains(stdout.String(), "SUBAGENT PROMPT TEXT") {
 		t.Fatalf("--expand-agents should inline the subagent, got %q", stdout.String())
 	}
-	if strings.Contains(stderr.String(), "not shown") {
-		t.Errorf("no hint should be printed once subagents are inlined, got %q", stderr.String())
+	if strings.Contains(stdout.String()+stderr.String(), "not shown") {
+		t.Errorf("no footer should be printed once subagents are inlined, got %q", stdout.String())
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
 	"github.com/odyssey/agenc/internal/config"
+	"github.com/odyssey/agenc/internal/database"
 	"github.com/odyssey/agenc/internal/server"
 	"github.com/odyssey/agenc/internal/session"
 )
@@ -143,6 +144,10 @@ func runMissionPrint(cmd *cobra.Command, args []string) error {
 
 	warnOnUnprintedSessions(projectDirpath, jsonlFilepath, missionPrintSessionFlag, os.Stderr)
 
+	missionPrintOpts.listCommand = fmt.Sprintf("agenc mission print %s --%s", database.ShortID(missionID), agentsFlagName)
+	if missionPrintSessionFlag != "" {
+		missionPrintOpts.listCommand += fmt.Sprintf(" --%s %s", sessionFlagName, missionPrintSessionFlag)
+	}
 	return printTranscript(jsonlFilepath, missionPrintOpts)
 }
 

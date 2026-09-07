@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/session"
-	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
 // A Claude session's transcript is a tree, not a file. The main conversation
@@ -40,6 +39,24 @@ const (
 
 	// maxAgentLabelLen caps the description column in the agent tree listing.
 	maxAgentLabelLen = 60
+
+	// workflowFlagName selects one workflow run; transcriptJSONFlagName switches
+	// the --agents and --workflow views to JSON; maxExpandMBFlagName bounds
+	// what --expand-agents may inline.
+	workflowFlagName       = "workflow"
+	transcriptJSONFlagName = "json"
+	maxExpandMBFlagName    = "max-expand-mb"
+
+	// defaultMaxExpandMB is the --expand-agents budget in subagent JSONL bytes.
+	// Rendered text runs about a tenth of the JSONL it comes from, so 16 MB of
+	// transcripts is roughly 1.6 MB of output — already far past any context
+	// window, and past it by design: the budget exists to stop an accidental
+	// flood, not to size a comfortable read. Past it, an agent is skipped with
+	// a note naming the flag.
+	defaultMaxExpandMB = 16
+
+	// bytesPerMB converts the --max-expand-mb budget to bytes.
+	bytesPerMB = 1024 * 1024
 )
 
 // countingWriter wraps an io.Writer and tracks the number of bytes written. It
@@ -80,6 +97,22 @@ type transcriptPrintOptions struct {
 	// verbose renders every record class, including hooks, turn timings,
 	// attachments, thinking blocks and successful tool results.
 	verbose bool
+
+	// workflowID selects one workflow run to describe: by run ID, ID prefix,
+	// task ID or workflow name.
+	workflowID string
+
+	// jsonOutput switches --agents and --workflow to a JSON document.
+	jsonOutput bool
+
+	// maxExpandMB bounds the subagent bytes --expand-agents may inline; 0 is
+	// unlimited.
+	maxExpandMB int
+
+	// listCommand is the copy-pasteable command that lists this session's
+	// subagents, printed in the render's footer. Set by the calling command,
+	// which knows its own name and the ID the user typed.
+	listCommand string
 }
 
 // validate rejects flag combinations that have no coherent meaning, before any
@@ -97,6 +130,19 @@ func (o transcriptPrintOptions) validate() error {
 	if o.listAgents && o.expandAgents {
 		return stacktrace.NewError("--%s and --%s are mutually exclusive", agentsFlagName, expandAgentsFlagName)
 	}
+	if o.workflowID != "" {
+		for name, set := range map[string]bool{agentsFlagName: o.listAgents, agentFlagName: o.agentID != "", expandAgentsFlagName: o.expandAgents} {
+			if set {
+				return stacktrace.NewError("--%s and --%s are mutually exclusive", workflowFlagName, name)
+			}
+		}
+	}
+	if o.jsonOutput && !o.listAgents && o.workflowID == "" {
+		return stacktrace.NewError("--%s applies to --%s and --%s; for the raw transcript records use --%s=%s", transcriptJSONFlagName, agentsFlagName, workflowFlagName, formatFlagName, jsonlFormat)
+	}
+	if o.maxExpandMB < 0 {
+		return stacktrace.NewError("--%s must be zero (unlimited) or positive", maxExpandMBFlagName)
+	}
 	return nil
 }
 
@@ -107,10 +153,12 @@ func (o transcriptPrintOptions) formatOptions(root *session.Transcript) session.
 		tail = 0
 	}
 	return session.FormatOptions{
-		TailLines:    tail,
-		Verbose:      o.verbose,
-		ExpandAgents: o.expandAgents,
-		Root:         root,
+		TailLines:      tail,
+		Verbose:        o.verbose,
+		ExpandAgents:   o.expandAgents,
+		Root:           root,
+		ListCommand:    o.listCommand,
+		MaxExpandBytes: int64(o.maxExpandMB) * bytesPerMB,
 	}
 }
 
@@ -139,14 +187,20 @@ func printTranscriptTo(jsonlFilepath string, opts transcriptPrintOptions, stdout
 	}
 
 	if opts.listAgents {
-		return printAgentTree(root, stdout, stderr)
+		return printAgentOverview(root, opts, stdout, stderr)
 	}
-
+	if opts.workflowID != "" {
+		run, err := session.ResolveWorkflow(root, opts.workflowID)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to resolve --%s '%s' (--%s lists the runs)", workflowFlagName, opts.workflowID, agentsFlagName)
+		}
+		return printWorkflowRun(run, opts, stdout, stderr)
+	}
 	target := root
 	if opts.agentID != "" {
 		target, err = session.ResolveAgent(root, opts.agentID)
 		if err != nil {
-			return stacktrace.Propagate(err, "failed to resolve --%s '%s'", agentFlagName, opts.agentID)
+			return stacktrace.Propagate(err, "failed to resolve --%s '%s' (--%s lists the agents)", agentFlagName, opts.agentID, agentsFlagName)
 		}
 	}
 
@@ -165,7 +219,6 @@ func printTranscriptTo(jsonlFilepath string, opts transcriptPrintOptions, stdout
 	if cw.count == 0 {
 		fmt.Fprint(stderr, emptySessionMessage)
 	}
-	writeAgentHint(target, opts, stderr)
 	return nil
 }
 
@@ -196,56 +249,6 @@ func writeRawJSONL(target *session.Transcript, opts transcriptPrintOptions, w io
 			return err
 		}
 	}
-	return nil
-}
-
-// writeAgentHint tells the caller that subagent transcripts exist but were not
-// printed. Without it, a `--all` render looks complete while omitting every
-// subagent — which is exactly the blindness these flags exist to remove.
-func writeAgentHint(target *session.Transcript, opts transcriptPrintOptions, stderr io.Writer) {
-	if opts.expandAgents || opts.agentID != "" {
-		return
-	}
-	hidden := len(target.Flatten()) - 1
-	if hidden <= 0 {
-		return
-	}
-	fmt.Fprintf(stderr,
-		"(%d subagent transcript(s) not shown - --%s to list them, --%s <id> to print one, --%s to inline them)\n",
-		hidden, agentsFlagName, agentFlagName, expandAgentsFlagName)
-}
-
-// printAgentTree lists the session's transcript tree: the main conversation and
-// every subagent below it, indented by nesting depth.
-func printAgentTree(root *session.Transcript, stdout io.Writer, stderr io.Writer) error {
-	nodes := root.Flatten()
-	if len(nodes) <= 1 {
-		fmt.Fprintln(stdout, "No subagent transcripts for this session.")
-		return nil
-	}
-
-	tbl := tableprinter.NewTable("AGENT", "TYPE", "MODEL", "MSGS", "TOOLS", "ERR", "STARTED", "LABEL").WithWriter(stdout)
-	for _, node := range nodes {
-		stats, err := session.SummarizeTranscript(node.Filepath)
-		if err != nil {
-			// A transcript that cannot be read still belongs in the listing —
-			// its absence from the table would read as "this agent does not
-			// exist", which is a different and wrong claim.
-			fmt.Fprintf(stderr, "warning: could not read transcript '%s': %v\n", node.Filepath, err)
-		}
-
-		tbl.AddRow(
-			agentTreeCell(node),
-			agentTypeCell(node),
-			orDash(node.Meta.Model),
-			fmt.Sprintf("%d", stats.UserMessages+stats.AssistantMessages),
-			fmt.Sprintf("%d", stats.ToolCalls),
-			fmt.Sprintf("%d", stats.ToolErrors),
-			formatTranscriptTimestamp(node.StartedAt),
-			truncatePrompt(agentLabelCell(node), maxAgentLabelLen),
-		)
-	}
-	tbl.Print()
 	return nil
 }
 
@@ -312,4 +315,24 @@ func registerTranscriptPrintFlags(cmd *cobra.Command, opts *transcriptPrintOptio
 	flags.StringVar(&opts.agentID, agentFlagName, "", "print a subagent's transcript, by agent ID or unique ID prefix")
 	flags.BoolVar(&opts.expandAgents, expandAgentsFlagName, false, "inline each subagent's transcript at the point it was spawned")
 	flags.BoolVar(&opts.verbose, verboseFlagName, false, "render every record class: hooks, turn timings, attachments, thinking, successful tool results")
+	flags.StringVar(&opts.workflowID, workflowFlagName, "", "describe one workflow run and list its agents, by run ID, ID prefix, task ID or workflow name")
+	flags.BoolVar(&opts.jsonOutput, transcriptJSONFlagName, false, "with --agents or --workflow: emit JSON instead of a table")
+	flags.IntVar(&opts.maxExpandMB, maxExpandMBFlagName, defaultMaxExpandMB, "stop --expand-agents inlining past this many MB of subagent transcripts (0 = unlimited)")
+}
+
+// formatBytes renders a byte count for a table cell: whole bytes below 1 KB,
+// one decimal above.
+func formatBytes(n int64) string {
+	const kb, mb, gb = 1024.0, 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0
+	f := float64(n)
+	switch {
+	case f >= gb:
+		return fmt.Sprintf("%.1f GB", f/gb)
+	case f >= mb:
+		return fmt.Sprintf("%.1f MB", f/mb)
+	case f >= kb:
+		return fmt.Sprintf("%.1f KB", f/kb)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }

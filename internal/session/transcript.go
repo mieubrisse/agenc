@@ -422,6 +422,9 @@ type TranscriptStats struct {
 	CompactBoundaries int
 	FirstTimestamp    string
 	LastTimestamp     string
+
+	// ForkedFromSessionID is the session this one was forked from, or "".
+	ForkedFromSessionID string
 }
 
 // SummarizeTranscript scans a JSONL transcript and counts its conversation
@@ -442,9 +445,13 @@ func SummarizeTranscript(jsonlFilepath string) (TranscriptStats, error) {
 			Timestamp string          `json:"timestamp"`
 			UUID      string          `json:"uuid"`
 			Message   json.RawMessage `json:"message"`
+			Fork      *forkRef        `json:"forkedFrom"`
 		}
 		if err := json.Unmarshal(line, &record); err != nil {
 			return nil
+		}
+		if record.Fork != nil && record.Fork.SessionID != "" && stats.ForkedFromSessionID == "" {
+			stats.ForkedFromSessionID = record.Fork.SessionID
 		}
 		// A record with no uuid (queue operations, titles, mode switches) has
 		// nothing to identify it, so it is always counted.

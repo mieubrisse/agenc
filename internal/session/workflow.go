@@ -81,10 +81,14 @@ type WorkflowRun struct {
 	TotalTokens    int64
 	TotalToolCalls int64
 
-	// FinishedAgents counts the journal's result records, or -1 when the
-	// journal could not be read. Compared with len(Agents) it exposes agents
-	// that started and never reported.
-	FinishedAgents int
+	// JournaledResults counts the journal's result records, or -1 when the
+	// journal could not be read. The journal is the Workflow tool's resume
+	// cache, not a completion log: on one machine every agent file had a
+	// "started" record, while runs marked completed had hundreds of agents
+	// with no "result" (699 started, 253 results). It therefore says how
+	// many results were cached for resume, and nothing about which agents
+	// finished; it is kept for the JSON view and never rendered as a claim.
+	JournaledResults int
 
 	// Bytes is the total size of the run's agent transcripts on disk.
 	Bytes int64
@@ -119,18 +123,6 @@ func (r *WorkflowRun) DisplayName() string {
 		return r.Name
 	}
 	return "workflow"
-}
-
-// UnfinishedAgents reports how many agents started without reporting a result,
-// or 0 when the journal is unavailable.
-func (r *WorkflowRun) UnfinishedAgents() int {
-	if r.FinishedAgents < 0 {
-		return 0
-	}
-	if n := len(r.Agents) - r.FinishedAgents; n > 0 {
-		return n
-	}
-	return 0
 }
 
 // flexInt64 decodes a JSON number that the manifest writer sometimes quotes
@@ -186,7 +178,7 @@ func discoverWorkflowRuns(subagentsDirpath string, manifestsDirpath string) []*W
 		if r := byID[runID]; r != nil {
 			return r
 		}
-		r := &WorkflowRun{RunID: runID, Status: unknownWorkflowStatus, FinishedAgents: -1}
+		r := &WorkflowRun{RunID: runID, Status: unknownWorkflowStatus, JournaledResults: -1}
 		byID[runID] = r
 		return r
 	}
@@ -206,7 +198,7 @@ func discoverWorkflowRuns(subagentsDirpath string, manifestsDirpath string) []*W
 				run.Bytes += a.Bytes
 			}
 			sort.SliceStable(run.Agents, func(i, j int) bool { return run.Agents[i].AgentID < run.Agents[j].AgentID })
-			run.FinishedAgents = countJournalResults(filepath.Join(run.Dirpath, workflowJournalFilename))
+			run.JournaledResults = countJournalResults(filepath.Join(run.Dirpath, workflowJournalFilename))
 		}
 	}
 
@@ -266,7 +258,8 @@ func applyWorkflowManifest(run *WorkflowRun) {
 }
 
 // countJournalResults counts the result records in a run's journal, or -1 when
-// the journal cannot be read. Each agent that finishes writes exactly one.
+// the journal cannot be read. See WorkflowRun.JournaledResults for what that
+// number does and does not mean.
 func countJournalResults(journalFilepath string) int {
 	n := 0
 	err := ScanJSONLLines(journalFilepath, func(line []byte) error {
