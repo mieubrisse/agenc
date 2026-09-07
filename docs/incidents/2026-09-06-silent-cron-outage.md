@@ -268,3 +268,43 @@ deliberately booted out. The same auditor pass repaired it.
 **`285cb70b` — mixed.** The `daily-state-summary` entry (run at 22:17, no tool
 calls) is **induced failure 2** — a real run stopped before it could make a tool
 call. The other two entries are the genuine catches above.
+
+## Final verification, 2026-09-06 23:51
+
+**The check that mattered most: a repaired job firing on its own schedule.**
+Every fire up to this point had been a manual `launchctl kickstart` or
+`agenc cron run`, which proves the job can be triggered, not that it is
+scheduled. `daily-state-summary` is on `30 23 * * *`:
+
+```
+STARTED              ID        STATUS   DURATION
+2026-09-06 23:32:12  163873ca  BUSY     19m24s
+```
+
+It fired by itself. That is the evidence the repair actually restored the
+schedule rather than just making manual triggers work.
+
+**All seven crons fired and delivered:**
+
+| cron | run | tool calls | delivered |
+|---|---|---|---|
+| daily-state-summary | bddbc19a | 50 | yes; natural 23:32 fire also ran |
+| hn-daily-pull | b02f5ce5 | 46 | yes — posted "HN Daily Pull — 2026-09-06" |
+| arpan-claude-optimization-suggestions | 3628249f | 82 | yes — posted its weekly proposals |
+| claude-news-processor | 9eb25b0c | 30 | yes — posted its digest |
+| exobrain-update | 3c92d1ba | 46 | yes |
+| flight-watcher | 3d02862d | 42 | yes (silent by design — no buy signal) |
+| verify-workspace-mcp-denylist | 9a658a12 | 76 | yes — posted "2 finding(s) need review" |
+
+**Final audit clean:**
+
+```
+All 7 enabled cron job(s) are delivering.
+exit code 0
+```
+
+Two of these are re-runs. The first attempt at `flight-watcher` and
+`verify-workspace-mcp-denylist` died at spawn — almost certainly capacity, from
+starting six missions in quick succession. Those two deaths are the genuine
+catches recorded in the notification evidence trail above: the auditor found
+them without being asked to look.
