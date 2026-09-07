@@ -1,13 +1,15 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
 var configCronCmd = &cobra.Command{
 	Use:   cronCmdStr,
 	Short: "Manage cron job configuration",
-	Long: `Manage cron job configuration in config.yml.
+	Long: fmt.Sprintf(`Manage cron job configuration in config.yml.
 
 Cron jobs run headless Claude missions on a schedule. Each cron job is
 identified by a unique name and has the following configurable fields:
@@ -18,7 +20,7 @@ identified by a unique name and has the following configurable fields:
   repo         - Repository to clone into workspace (optional)
   enabled      - Whether the cron job is enabled (defaults to true)
 
-Example config.yml:
+%v
 
   crons:
     daily-report:
@@ -43,7 +45,7 @@ ALIASES:
   Additional 'agenc cron' commands: history, logs, run
 
   Prefer 'agenc config cron' for scripting and non-interactive contexts.
-`,
+`, configYAMLExampleMarker),
 }
 
 func init() {

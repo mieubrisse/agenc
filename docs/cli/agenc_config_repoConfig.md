@@ -7,7 +7,7 @@ Manage per-repo configuration
 Manage per-repo configuration in config.yml.
 
 Each repo is identified by its canonical name (github.com/owner/repo) and
-supports five optional settings:
+supports these optional settings:
 
   alwaysSynced       - server keeps the repo continuously fetched (every 60s)
   emoji              - emoji to display for missions using this repo

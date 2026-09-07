@@ -1,16 +1,18 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
 var configRepoConfigCmd = &cobra.Command{
 	Use:   repoConfigCmdStr,
 	Short: "Manage per-repo configuration",
-	Long: `Manage per-repo configuration in config.yml.
+	Long: fmt.Sprintf(`Manage per-repo configuration in config.yml.
 
 Each repo is identified by its canonical name (github.com/owner/repo) and
-supports five optional settings:
+supports these optional settings:
 
   alwaysSynced       - server keeps the repo continuously fetched (every 60s)
   emoji              - emoji to display for missions using this repo
@@ -18,7 +20,7 @@ supports five optional settings:
   defaultModel       - default Claude model for missions using this repo
   trustedMcpServers  - pre-approve MCP servers to skip the consent prompt
 
-Example config.yml:
+%v
 
   repoConfig:
     github.com/owner/repo:
@@ -29,7 +31,7 @@ Example config.yml:
       trustedMcpServers: all
     github.com/owner/other:
       alwaysSynced: true
-`,
+`, configYAMLExampleMarker),
 }
 
 func init() {
