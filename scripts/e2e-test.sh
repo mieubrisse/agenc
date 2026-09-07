@@ -1992,11 +1992,11 @@ TXOB_WF
         env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
 
     run_test_output_contains "mission print anchors a workflow spawn to its run" \
-        'Workflow.*\[workflow wf_e2e00001-abc (analyze): 1 agents, completed, 1m05s\]' \
+        'Workflow.*\[workflow wf_e2e00001-abc \(analyze\): 1 agents, completed, 1m05s\]' \
         env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
 
     run_test_output_contains "mission print ends with a stdout footer naming the listing command" \
-        '\[SUBAGENTS\] 2 transcript(s) not shown: 1 spawned directly, 1 in 1 workflow run(s) - --agents to list them.*agenc mission print .* --agents' \
+        '\[SUBAGENTS\] 2 transcript\(s\) not shown: 1 spawned directly, 1 in 1 workflow run\(s\) - --agents to list them.*agenc mission print .* --agents' \
         env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
 
     run_test_output_contains "mission print --agents opens with a session header" \
@@ -2012,7 +2012,7 @@ TXOB_WF
         env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agents --json
 
     run_test_output_contains "mission print --workflow describes the run by prefix" \
-        'workflow wf_e2e00001-abc (analyze): completed, 1m05s, 1 agents, 7 tool calls' \
+        'workflow wf_e2e00001-abc \(analyze\): completed, 1m05s, 1 agents, 7 tool calls' \
         env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --workflow e2e00001
 
     run_test_output_contains "mission print --workflow lists the run's agents" \
@@ -2046,7 +2046,7 @@ TXOB_WF
     fi
 
     run_test_error_contains "mission print --json outside its views teaches --format=jsonl" \
-        "--format=jsonl" \
+        "use [-][-]format=jsonl" \
         env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --json
 
     run_test_error_contains "mission print suggests the nearest flag for a typo" \
