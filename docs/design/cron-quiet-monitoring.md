@@ -172,24 +172,35 @@ Informational, in the register of a colleague mentioning something: which crons,
 when each last ran, what its schedule is, and how to look closer. No urgency
 language, no capitalised severity, no implication that Kevin must act now.
 
-Two additions beyond the letter of the brief
---------------------------------------------
+One addition beyond the letter of the brief
+-------------------------------------------
 
-Both are small, both serve the single check rather than adding a second one, and
-both are called out here so Kevin can strike either in review.
+**launchd's last exit status is included in the note.** Read-only, best-effort,
+and computed *only* for a cron that has already been found quiet — a
+`launchctl print` failure never suppresses or delays the finding. It is here
+because it is the single most useful fact when a cron stops: discovering
+`last exit code = 78: EX_CONFIG` is what took an entire mission last time, and
+putting it in the note turns an investigation into a sentence.
 
-1. **launchd's last exit status is included in the note.** Read-only, best-effort,
-   and computed *only* for a cron that has already been found quiet — a
-   `launchctl print` failure never suppresses or delays the finding. It is here
-   because it is the single most useful fact when a cron stops: discovering
-   `last exit code = 78: EX_CONFIG` is what took an entire mission last time, and
-   putting it in the note turns an investigation into a sentence.
+It is a fact inside a message rather than a new command surface, which is the
+distinction that kept it when the other addition was struck. Still unruled by
+Kevin as of this writing.
 
-2. **`agenc cron health` reports the current state on demand.** Read-only —
-   it evaluates and prints, it does not notify, repair, or mutate. It exists so
-   the monitor is inspectable: without it, the only signal the monitor produces is
-   silence, and silence is ambiguous between "everything is fine" and "the monitor
-   is broken."
+### The addition that was struck: `agenc cron health`
+
+A read-only command printing the monitor's current judgment was built and then
+removed on Kevin's instruction, 2026-09-07: *"get rid of the agenc cron health
+command. I don't trust whatever that mission did."*
+
+Recorded because the reasoning should stop it being rebuilt. On its own merits
+the command was defensible — it was read-only, and it answered a real concern
+about the monitor's silence being its only output. But it read as kin to
+`agenc cron doctor`, which Kevin had backed out that same morning on discovering
+it ran an uncommitted binary and repaired system state unattended. He is drawing
+a line around that whole family of surface area. **Do not rebuild it, rename it,
+or add something functionally similar under another name.** If the monitor ever
+genuinely needs an inspection surface, that is a conversation with Kevin, not an
+implementation detail to reintroduce.
 
 What this deliberately does not do
 ----------------------------------
@@ -236,8 +247,17 @@ get a log of its own:
   the same silent hole in a different place.
 - Transient errors (a database read that fails this cycle) go to the server log
   and are retried on the next tick, because that is what they are.
-- `agenc cron health` surfaces the monitor's current judgment on demand, so its
-  state is never only visible to itself.
+
+**The honest limitation, now that the inspection command is gone: the
+notification is the only signal this monitor produces.** There is no way to ask
+it what it currently thinks. A healthy fleet and a monitor that has stopped
+running look identical from the outside — both are silence. Two things narrow
+that gap without closing it: `agenc server status` reports whether the
+`cron-health` loop goroutine is running, crashed, or stopped, and the loop is
+wrapped in the same panic recovery as every other background loop, so a panic is
+recorded rather than swallowed. Neither tells you the loop is still *reaching the
+right conclusions*. Closing that properly is the dead-man's-switch question in
+`agenc-8tss`, not something to solve by adding an inspection command back.
 
 Provenance
 ----------

@@ -435,10 +435,17 @@ run_test "a cron that will never fire is configured" \
 # A cron created moments ago has its most recent expected fire in the past and
 # no run history. Reporting that would put a false note in front of the user
 # every time they add a cron, so the check measures from when the server first
-# saw it rather than from its schedule alone.
-run_test_output_contains "a just-created cron is not reported quiet" \
-    "No cron jobs have gone quiet" \
-    "${agenc_test}" cron health
+# saw it rather than from its schedule alone. Asserted through the notification
+# list because that is the monitor's only output surface.
+total=$((total + 1))
+printf "  %-50s " "a just-created cron is not reported quiet..."
+if "${agenc_test}" notification ls --all 2>/dev/null | grep -q 'cron\.quiet'; then
+    echo "FAIL (a cron was reported quiet the moment it was created)"
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
 
 echo ""
 echo "--- Prime ---"
@@ -1770,32 +1777,44 @@ run_test_eventually_output_contains "the quiet cron earns a notification unpromp
     300 \
     "${agenc_test}" notification ls
 
-run_test_output_contains "cron health names the quiet cron" \
-    "quiet-fixture" \
-    "${agenc_test}" cron health
-
-run_test_output_contains "cron health says the user has been told" \
-    "Already mentioned in a notification" \
-    "${agenc_test}" cron health
-
 quiet_notification_id="$("${agenc_test}" notification ls 2>/dev/null | grep 'cron\.quiet' | awk '{print $1}' | head -1 || true)"
 if [ -n "${quiet_notification_id}" ]; then
+    run_test_output_contains "the notification names the quiet cron" \
+        "quiet-fixture" \
+        "${agenc_test}" notification show "${quiet_notification_id}"
+
     run_test_output_contains "the notification reads as informational" \
         "Heads up" \
         "${agenc_test}" notification show "${quiet_notification_id}"
 
+    # The note is the only thing this monitor produces, so it has to carry the
+    # next step itself rather than assume the reader knows where to look.
     run_test_output_contains "the notification says how to look closer" \
-        "agenc cron health" \
+        "agenc cron history" \
+        "${agenc_test}" notification show "${quiet_notification_id}"
+
+    run_test_output_has_no_ansi "the notification emits no ANSI" \
+        "quiet-fixture" \
         "${agenc_test}" notification show "${quiet_notification_id}"
 else
-    total=$((total + 2))
-    failed=$((failed + 2))
+    total=$((total + 4))
+    failed=$((failed + 4))
     echo "  the notification body checks...                   FAIL (no cron.quiet notification to read)"
 fi
 
-run_test_output_has_no_ansi "cron health emits no ANSI" \
-    "quiet-fixture" \
-    "${agenc_test}" cron health
+# Mentioned once per quiet spell, not once per missed cycle: the fixture has
+# gone on missing its every-minute schedule throughout the checks above, and
+# must still have earned exactly one note.
+total=$((total + 1))
+printf "  %-50s " "the quiet cron is mentioned only once..."
+quiet_notification_count="$("${agenc_test}" notification ls --all 2>/dev/null | grep -c 'cron\.quiet' || true)"
+if [ "${quiet_notification_count}" = "1" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (expected 1 cron.quiet notification, found ${quiet_notification_count})"
+    failed=$((failed + 1))
+fi
 
 run_test "config cron rm removes the quiet fixture" \
     0 \

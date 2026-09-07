@@ -107,7 +107,6 @@ Current endpoints:
 - `GET /stash` — list saved workspace stash files with metadata
 - `POST /stash/push` — snapshot all running missions and their tmux links, then stop them
 - `POST /stash/pop` — restore missions from a stash file, re-link into tmux sessions
-- `GET /crons/health` — report which enabled crons have stopped producing missions, plus when the cron health loop last ran. Read-only: it evaluates and returns, never notifying or recording
 
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 ### Background loops
@@ -197,6 +196,7 @@ The server runs twelve concurrent background goroutines:
 - Remembers what it has reported in `cron_monitor_state`, so a cron broken for a month is mentioned once; the record is cleared when the cron produces a mission again, and a later relapse earns a fresh note
 - Enriches each finding, best-effort, with launchd's account of the cron's last spawn (`launchctl print`). A failure to read it never suppresses or delays a finding, and it is skipped entirely under `AGENC_TEST_ENV=1` where plists are never created
 - Detects absence rather than catching failure: a cron whose launchd spawn aborts before `agenc` executes writes no log, creates no mission and posts no notification, so nothing else in the system observes it
+- The notification is the loop's only output — there is deliberately no command or endpoint that reports its current judgment, so a healthy fleet and a stopped loop look alike from outside. `agenc server status` shows whether the `cron-health` goroutine is running; see `docs/design/cron-quiet-monitoring.md` for why an inspection surface was removed and should not be reintroduced
 
 The file watcher, custom-title loop, auto-summary loop, and search indexer form a multi-layer session processing pipeline. The file watcher (layer 1) tracks file sizes. Consumers (layer 2) independently query for sessions where `known_file_size > their_offset` and process new content at their own cadence. The sessions table (layer 3) coordinates via four columns: `known_file_size` (nullable, written by file watcher), `last_custom_title_scan_offset` (custom-title loop), `last_auto_summary_scan_offset` (auto-summary loop), and `last_indexed_offset` (search indexer). Each consumer's output column and its offset are advanced together in a single atomic UPDATE — on failure the offset stays put and the session is naturally re-picked on the next cycle.
 
@@ -431,7 +431,6 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `notifications_handlers.go` — notifications CRUD endpoints (`POST /notifications`, `GET /notifications`, `GET /notifications/{id}`, `POST /notifications/{id}/read`, `GET /notifications/unread-count`); body-size cap. Cron-source missions auto-create a `cron.triggered` notification linked to the new mission via `MissionID`; failure to insert is logged and never fails the mission request
 - `notifications_helpers.go` — `sanitizeNotificationLine` strips ANSI sequences and control characters from single-line user-sourced values before persistence (defense-in-depth for cron names and schedule expressions sourced from user-edited config)
 - `cron_health_loop.go` — cron health loop: gathers each enabled cron's schedule and latest mission, delegates the judgment to `internal/cronhealth`, posts a single `cron.quiet` notification naming the crons that newly went quiet, and maintains the `cron_monitor_state` record that keeps one quiet spell to one mention
-- `handle_cron_health.go` — cron health endpoint (`GET /crons/health`), read-only
 
 ### `internal/database/`
 

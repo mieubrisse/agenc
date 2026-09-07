@@ -95,12 +95,11 @@ func (s *Server) runCronHealthLoop(ctx context.Context) {
 // runCronHealthCycle performs one pass: gather, judge, notify about crons that
 // have newly gone quiet, and forget the ones that have started running again.
 func (s *Server) runCronHealthCycle(now time.Time) {
-	monitored, err := s.gatherMonitoredCrons(now, mayUpdateMonitorMemory)
+	monitored, err := s.gatherMonitoredCrons(now)
 	if err != nil {
 		s.logger.Printf("Cron health: skipping this cycle, failed to read cron state: %v", err)
 		return
 	}
-	s.lastCronHealthCycleAt.Store(&now)
 
 	quietCronNames := indexFindingsByCronName(cronhealth.Evaluate(collectCronStates(monitored), now))
 
@@ -169,21 +168,10 @@ func (s *Server) reportQuietCrons(findings []cronhealth.Finding, monitored []mon
 	s.logger.Printf("Cron health: reported %d quiet cron(s): %v", len(findings), strings.Join(reportedNames, ", "))
 }
 
-// Whether a caller of gatherMonitoredCrons may write to the monitor's memory.
-// The background loop owns that memory; the health endpoint only reads it, so a
-// user asking what the monitor currently thinks cannot change what it thinks.
-const (
-	mayUpdateMonitorMemory    = true
-	mustNotTouchMonitorMemory = false
-)
-
-// gatherMonitoredCrons assembles the monitor's view of every enabled cron.
-//
-// When allowed to update the monitor's memory it also records crons it has not
-// seen before and forgets ones it no longer watches. A caller that is not
-// allowed to sees an unrecorded cron as first seen right now, which is the same
-// conclusion the next cycle will persist.
-func (s *Server) gatherMonitoredCrons(now time.Time, mayUpdateMemory bool) ([]monitoredCron, error) {
+// gatherMonitoredCrons assembles the monitor's view of every enabled cron. It
+// also records crons it has not seen before and forgets ones it no longer
+// watches, which together are the monitor's memory between cycles.
+func (s *Server) gatherMonitoredCrons(now time.Time) ([]monitoredCron, error) {
 	enabledCrons := map[string]config.CronConfig{}
 	for name, cronCfg := range s.getConfig().Crons {
 		// A cron with no ID was never synced to launchd and has no mission
@@ -203,9 +191,7 @@ func (s *Server) gatherMonitoredCrons(now time.Time, mayUpdateMemory bool) ([]mo
 		storedStatesByCronID[storedState.CronID] = storedState
 	}
 
-	if mayUpdateMemory {
-		s.forgetUnwatchedCrons(enabledCrons, storedStates)
-	}
+	s.forgetUnwatchedCrons(enabledCrons, storedStates)
 
 	lastMissionByCronID, err := s.readLastCronMissionTimes()
 	if err != nil {
@@ -219,14 +205,11 @@ func (s *Server) gatherMonitoredCrons(now time.Time, mayUpdateMemory bool) ([]mo
 		if storedState, isKnown := storedStatesByCronID[cronCfg.ID]; isKnown {
 			firstSeenAt = storedState.FirstSeenAt
 			hasBeenReportedQuiet = storedState.QuietNotifiedAt != nil
-		} else if mayUpdateMemory {
-			if err := s.db.RecordCronFirstSeen(cronCfg.ID, now); err != nil {
-				// Without a stable reference point this cron cannot be judged
-				// without risking a false report, so leave it for the next
-				// cycle.
-				s.logger.Printf("Cron health: skipping '%v', failed to record when it was first seen: %v", name, err)
-				continue
-			}
+		} else if err := s.db.RecordCronFirstSeen(cronCfg.ID, now); err != nil {
+			// Without a stable reference point this cron cannot be judged
+			// without risking a false report, so leave it for the next cycle.
+			s.logger.Printf("Cron health: skipping '%v', failed to record when it was first seen: %v", name, err)
+			continue
 		}
 
 		// A schedule agenc cannot parse was never handed to launchd. The
@@ -355,7 +338,7 @@ func buildCronQuietNotification(findings []cronhealth.Finding, launchdNotes map[
 
 	body.WriteString("\nAgenC watches for this by looking for a mission from each cron, and mentions a cron once when it goes quiet. ")
 	body.WriteString("If it starts producing missions again and later goes quiet a second time, you'll get a fresh note.\n\n")
-	body.WriteString("`agenc cron health` shows the current picture; `agenc cron history <name>` shows one cron's recent runs.\n")
+	body.WriteString("`agenc cron history <name>` shows one cron's recent runs.\n")
 
 	return &database.Notification{
 		ID:           uuid.New().String(),

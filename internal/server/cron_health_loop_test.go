@@ -243,25 +243,6 @@ func TestCronHealthCycleStartsAReEnabledCronsClockFresh(t *testing.T) {
 	}
 }
 
-func TestCronHealthCycleRecordsWhenItLastRan(t *testing.T) {
-	// The monitor's own liveness has to be visible somewhere, or its silence
-	// cannot be told apart from it having stopped.
-	srv := newCronHealthTestServer(t)
-	setCrons(srv, map[string]config.CronConfig{"any": dailyCron("cron-any")})
-
-	if srv.lastCronHealthCycleAt.Load() != nil {
-		t.Fatal("expected no recorded cycle before the first one runs")
-	}
-
-	now := time.Now()
-	srv.runCronHealthCycle(now)
-
-	lastCycleAt := srv.lastCronHealthCycleAt.Load()
-	if lastCycleAt == nil || !lastCycleAt.Equal(now) {
-		t.Fatalf("expected the cycle time to be recorded as %v, got %v", now, lastCycleAt)
-	}
-}
-
 func TestBuildCronQuietNotificationNamesASingleCronInTheTitle(t *testing.T) {
 	findings := []cronhealth.Finding{{
 		CronName:           "hn-daily-pull",
@@ -277,8 +258,10 @@ func TestBuildCronQuietNotificationNamesASingleCronInTheTitle(t *testing.T) {
 	if notification.Kind != cronQuietNotificationKind {
 		t.Errorf("unexpected kind: '%v'", notification.Kind)
 	}
-	if !strings.Contains(notification.BodyMarkdown, "agenc cron health") {
-		t.Errorf("expected the body to point at the inspection command, got '%v'", notification.BodyMarkdown)
+	// The note is the only thing this monitor produces, so it has to carry the
+	// next step itself rather than assume the reader knows where to look.
+	if !strings.Contains(notification.BodyMarkdown, "agenc cron history") {
+		t.Errorf("expected the body to point at the run history command, got '%v'", notification.BodyMarkdown)
 	}
 }
 
