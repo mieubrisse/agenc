@@ -36,6 +36,37 @@ right thing to test" — and the tone he asked for is informational, not an alar
 "the server itself can just verify that the launchd's are firing occasionally,
 and if they're not fire a notification saying 'hey btw...'"
 
+Scope boundary: AgenC's half, not Claude's
+------------------------------------------
+
+**This is a standing boundary, not a note. Do not cross it without Kevin.**
+
+Kevin, 2026-09-07:
+
+> we should be monitoring the AgenC half of things, not whatever's happening
+> inside the Claude (that can be all sorts of wild and craziness).
+
+AgenC's monitoring responsibility ends at AgenC's own machinery: did the cron
+fire, and did a mission get created. What the Claude session then does inside
+that mission is not AgenC's to judge. Sessions legitimately do unpredictable
+things — a skill that reads nothing and posts nothing on an uneventful day is
+behaving correctly, and several of Kevin's crons are designed exactly that way.
+A monitor that tried to assess whether a mission did *good* work would be wrong
+often and out of its lane.
+
+**The temptation this exists to block:** adding "…and did the run actually do
+something useful" to the check. It reads as an obvious improvement and it is not.
+It recurred once already during this feature's own development, in the form of a
+discriminator that keyed on whether a mission had logged a `PostToolUse` event —
+which mistakes a deliberately quiet cron for a dead one. If a future contributor
+finds themselves reaching for a signal about what happened *inside* a mission,
+that is the boundary, and the answer is to take it to Kevin rather than to build
+it.
+
+The boundary is also what makes the check above the right size. "Did a mission
+appear" is not a simplification of a richer check that was too hard to build; it
+is the complete question AgenC is in a position to answer.
+
 Design decisions
 ----------------
 
@@ -72,14 +103,24 @@ cron system. Alarming on that would produce a false note after every such reboot
 and a channel that cries wolf stops being read. Two consecutive misses is a
 pattern, not an accident.
 
-**The tradeoff, recorded rather than hidden:** this makes weekly crons slow to
+**The tradeoff, and Kevin's ruling on it:** this makes weekly crons slow to
 report — roughly 14 days before a note. In the September outage the three weekly
 crons had been dead 9–10 days when Kevin found them by hand, so the monitor would
 have told him at day 14: later than ideal, versus never. The alternative
 considered was capping the horizon (e.g. "never wait more than 8 days regardless
 of cadence"), which reports weekly crons faster at the cost of a second rule to
-explain. One explainable rule won. If Kevin wants the cap, it is a small change
-to `quietThreshold`.
+explain.
+
+Put to Kevin as an open question on 2026-09-07, he accepted the slow tail and
+supplied the reason it is acceptable rather than merely tolerable: *"I'm fine with
+two cycles taking time to report. this is a safeguard, not live reactions."*
+
+That framing is the one to keep. **This is a safeguard, not a live-reaction
+system.** Its job is that a cron cannot stop happening without anyone finding out,
+not that anyone finds out within minutes. Latency measured against the cadence of
+the thing being watched is the design working, not a defect to apologise for — so
+do not tighten the threshold on the instinct that faster is better. Tighten it
+only if a real case shows the safeguard failing at its actual job.
 
 ### The reference point: last mission, or first sight
 
@@ -169,9 +210,11 @@ What this deliberately does not do
   did any work," on the evidence that nine of ten `hn-daily-pull` runs produced
   nothing. Kevin overruled that on 2026-09-07: several of his cron skills are
   designed to stay silent on uneventful days, so silence is correct behaviour
-  rather than failure. A mission that spawns and then makes zero tool calls is
-  arguably still a failure, and is a genuinely different signal from "no mission
-  appeared" — recorded here as a possible later addition, deliberately not built.
+  rather than failure. (The evidence was also weaker than it looked — what had
+  been measured was whether the mission made any tool calls, not whether it
+  posted a digest, and the two were conflated.) This is not a feature deferred
+  for effort reasons; it is on the far side of the scope boundary above, which is
+  the durable reason it stays out.
 
 - **No watch on the monitor itself.** A server-side monitor cannot detect its own
   death: if the AgenC server is down, nothing notices. That is the external
