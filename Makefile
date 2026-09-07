@@ -49,7 +49,7 @@ setup:
 		fi; \
 	fi
 
-check: genprime
+check: setup genprime
 	@echo "Checking module tidiness..."
 	@go mod tidy
 	@dirty=$$(git diff -- go.mod go.sum); \

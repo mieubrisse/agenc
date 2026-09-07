@@ -555,7 +555,7 @@ Local Development
 ### Install development tools
 
 ```bash
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.11.4
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
 go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 go install golang.org/x/tools/cmd/deadcode@v0.43.0
 ```
@@ -577,6 +577,20 @@ make check
 ```
 
 The pre-commit hook runs `make check` automatically on every commit, so you generally don't need to run this manually.
+
+The hook is activated by `make setup`, which `make check` and `make build` both
+depend on — so the first `make` you run in a fresh clone wires it up. If you have
+never run `make` in a clone, the hook is not yet active; run `make setup`.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs `make check` on every push and pull request. It is
+the same gate as the pre-commit hook, so a commit that reached the repo with hooks
+bypassed or inactive still fails here.
+
+Local hooks stop honest mistakes; CI detects bypasses. Neither *prevents* a red
+commit from landing on `main` on its own — that requires a branch protection rule
+requiring the `make check` status check to pass before merge.
 
 ### E2E tests
 
