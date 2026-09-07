@@ -46,6 +46,9 @@ run_test() {
 # Asserts a command fails AND that its message names the reason. Checking the
 # exit code alone cannot tell "rejected the flag combination" from "crashed for
 # some other reason", and both exit non-zero.
+# Every helper passes the pattern after -e: a pattern that begins with "--"
+# is otherwise read by grep as an option, and every such test then fails
+# with "unrecognized option" against output that matched. It bit twice.
 run_test_error_contains() {
     local test_name="${1}"
     shift
@@ -65,7 +68,7 @@ run_test_error_contains() {
         return
     fi
 
-    if ! echo "${output}" | grep -qE "${expected_pattern}"; then
+    if ! echo "${output}" | grep -qE -e "${expected_pattern}"; then
         echo "FAIL (error did not match '${expected_pattern}')"
         echo "    Output: ${output}" | head -5
         failed=$((failed + 1))
@@ -98,7 +101,7 @@ run_test_output_contains() {
         return
     fi
 
-    if ! echo "${output}" | grep -qE "${expected_pattern}"; then
+    if ! echo "${output}" | grep -qE -e "${expected_pattern}"; then
         echo "FAIL (output missing pattern: ${expected_pattern})"
         echo "    Output: ${output}" | head -5
         failed=$((failed + 1))
