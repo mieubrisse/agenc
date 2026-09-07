@@ -149,7 +149,7 @@ genprime:
 	@test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md
 	go run ./cmd/genprime
 
-test:
+test: genprime
 	@echo "Running tests with coverage..."
 	@go test -race -cover ./...
 	@echo "✓ Tests passed"
