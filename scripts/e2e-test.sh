@@ -1841,14 +1841,32 @@ fi
 # by its schedule as the original one, and differs only in that the monitor has
 # just met it. A monitor judging from the schedule alone would have named it in
 # the cycle that ran during the wait.
+#
+# Read the notification BODIES, not the list. A note about a single quiet cron
+# names it in the title, but a note covering two or more is titled "N cron jobs
+# haven't run in a while" and the names live only in the body -- so grepping the
+# list silently stops looking for the one case where several crons go quiet at
+# once, which is precisely what a broken first-seen guard produces.
 total=$((total + 1))
 printf "  %-50s " "a cron planted mid-spell earns no note..."
-if "${agenc_test}" notification ls --all 2>/dev/null | grep -q 'fresh-fixture'; then
-    echo "FAIL (a cron was reported quiet before the monitor had watched it for its own cadence)"
+quiet_notification_ids="$("${agenc_test}" notification ls --all 2>/dev/null | grep 'cron\.quiet' | awk '{print $1}' || true)"
+mid_spell_mentions=0
+inspected_notifications=0
+for notification_id in ${quiet_notification_ids}; do
+    inspected_notifications=$((inspected_notifications + 1))
+    if "${agenc_test}" notification show "${notification_id}" 2>/dev/null | grep -q 'fresh-fixture'; then
+        mid_spell_mentions=$((mid_spell_mentions + 1))
+    fi
+done
+if [ "${inspected_notifications}" = "0" ]; then
+    echo "FAIL (no cron.quiet notification exists, so this check inspected nothing)"
     failed=$((failed + 1))
-else
+elif [ "${mid_spell_mentions}" = "0" ]; then
     echo "PASS"
     passed=$((passed + 1))
+else
+    echo "FAIL (named in ${mid_spell_mentions} note(s) before the monitor had watched it for its own cadence)"
+    failed=$((failed + 1))
 fi
 
 run_test "config cron rm removes the quiet fixture" \
