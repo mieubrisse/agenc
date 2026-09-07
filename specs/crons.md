@@ -1,6 +1,16 @@
 Crons
 =====
 
+> **This is the original design spec, not a description of what shipped.** It is
+> kept as a record of the thinking, so read it for intent and read the code for
+> behaviour. Known divergences: crons are fired by macOS launchd rather than a
+> daemon scheduler goroutine (see `specs/refactor-cron-launchd-migration.md`), so
+> schedules are 5 fields of a single integer or `*` and `gronx` is gone; the
+> `agent`, `git`, `timeout`, `overlap`, and `maxConcurrent` settings described
+> below were never implemented, and neither were overlap policies or a concurrency
+> cap. The shipped schema is `internal/config/agenc_config.go`; the shipped
+> reference is `docs/configuration.md`.
+
 Overview
 --------
 
