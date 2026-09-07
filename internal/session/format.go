@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -194,6 +195,14 @@ type FormatOptions struct {
 	// becomes available. When nil the formatter renders a single flat file.
 	Root *Transcript
 
+	// Since and Until bound the render to records whose timestamp falls in
+	// [Since, Until]; the zero value on either side is unbounded. A record
+	// without a timestamp is dropped when a bound is set, since nothing places
+	// it. The window applies to the transcript named by the caller; inlined
+	// subagents are still rendered whole.
+	Since time.Time
+	Until time.Time
+
 	// MaxExpandBytes bounds the subagent transcript bytes ExpandAgents may
 	// inline across the whole render; 0 is unlimited. Past the budget an agent
 	// is not inlined and a note in its place says so and names the flag. The
@@ -325,6 +334,9 @@ func (f *conversationFormatter) render(jsonlFilepath string, tailLines int, w io
 		if isDuplicateRecord(line, seenUUIDs) {
 			continue
 		}
+		if f.depth == 0 && !inTimeWindow(line, f.opts.Since, f.opts.Until) {
+			continue
+		}
 		if formatted := f.formatLine(line); formatted != "" {
 			blocks = append(blocks, formatted)
 		}
@@ -346,6 +358,32 @@ func (f *conversationFormatter) render(jsonlFilepath string, tailLines int, w io
 		}
 	}
 	return nil
+}
+
+// inTimeWindow reports whether a record's timestamp falls within [since,
+// until]. With no bounds every record passes; with a bound, a record that
+// carries no timestamp fails, because nothing places it in time.
+func inTimeWindow(line string, since time.Time, until time.Time) bool {
+	if since.IsZero() && until.IsZero() {
+		return true
+	}
+	var record struct {
+		Timestamp string `json:"timestamp"`
+	}
+	if err := json.Unmarshal([]byte(line), &record); err != nil || record.Timestamp == "" {
+		return false
+	}
+	at, err := time.Parse(time.RFC3339Nano, record.Timestamp)
+	if err != nil {
+		return false
+	}
+	if !since.IsZero() && at.Before(since) {
+		return false
+	}
+	if !until.IsZero() && at.After(until) {
+		return false
+	}
+	return true
 }
 
 // isDuplicateRecord reports whether a line repeats a record already rendered,

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // errStopScanningForConversation is a sentinel returned from hasConversationData's
@@ -196,4 +197,26 @@ func findMostRecentJSONL(projectDirpath string) string {
 	}
 
 	return latestFilepath
+}
+
+// WriteJSONLWindow copies the records of a JSONL file whose timestamp falls in
+// [since, until] to w, one per line, and returns how many it wrote. A zero
+// bound is open on that side; a record with no timestamp is skipped when any
+// bound is set. It is the raw-format counterpart of the text renderer's window.
+func WriteJSONLWindow(jsonlFilepath string, since time.Time, until time.Time, w io.Writer) (int, error) {
+	written := 0
+	err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+		if !inTimeWindow(string(line), since, until) {
+			return nil
+		}
+		if _, err := w.Write(line); err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte("\n")); err != nil {
+			return err
+		}
+		written++
+		return nil
+	})
+	return written, err
 }

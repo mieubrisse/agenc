@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 // workflowSpawn writes the two records a Workflow call leaves in a transcript:
@@ -155,4 +156,28 @@ func TestFormatExpansionBudgetIsChargedPerAgentAsItIsInlined(t *testing.T) {
 
 	unlimited := renderRoot(t, root, FormatOptions{ExpandAgents: true})
 	mustContain(t, unlimited, "--- begin agent afirst", "--- begin agent asecond")
+}
+
+func TestFormatTimeWindowKeepsOnlyRecordsInsideIt(t *testing.T) {
+	fs := newFakeSession(t,
+		`{"type":"user","uuid":"f1","timestamp":"2026-01-01T00:00:00.000Z","forkedFrom":{"sessionId":"src-session","messageUuid":"x"},"message":{"role":"user","content":"BEFORE"}}`,
+		userLine("2026-01-01T10:00:00.000Z", "INSIDE ONE"),
+		`{"type":"queue-operation","operation":"enqueue","content":"NO TIMESTAMP"}`,
+		userLine("2026-01-01T11:00:00.000Z", "INSIDE TWO"),
+		userLine("2026-01-01T12:00:00.000Z", "AFTER"),
+	)
+	fs.addAgent("aloose", &AgentMeta{AgentType: "Explore"}, assistantLine("2026-01-01T10:30:00.000Z", "agent body"))
+	root := fs.discover()
+
+	got := renderRoot(t, root, FormatOptions{
+		Since: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
+		Until: time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC),
+	})
+
+	mustContain(t, got, "INSIDE ONE", "INSIDE TWO", "[FORK] this session was forked from session src-session", "[SUBAGENTS] 1 transcript(s) not shown")
+	mustNotContain(t, got, "BEFORE", "AFTER", "NO TIMESTAMP")
+
+	// Positive control: with no window, everything renders.
+	all := renderRoot(t, root, FormatOptions{})
+	mustContain(t, all, "BEFORE", "AFTER", "NO TIMESTAMP")
 }

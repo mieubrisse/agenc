@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/session"
 	"github.com/odyssey/agenc/internal/tableprinter"
 )
 
@@ -44,6 +47,10 @@ func runSessionLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if sessionLsMissionFlag != "" {
+		return printMissionSessions(sessions, session.FindSessionJSONLPath, os.Stdout, os.Stderr)
+	}
+
 	tbl := tableprinter.NewTable("UPDATED", "MISSION", "SESSION", "TITLE", "SUMMARY")
 	for _, s := range sessions {
 		title := resolveSessionTitle(s)
@@ -68,4 +75,38 @@ func resolveSessionTitle(s *database.Session) string {
 		return s.CustomTitle
 	}
 	return s.AgencCustomTitle
+}
+
+// printMissionSessions lists one mission's sessions with what their transcripts
+// hold, so a reader can tell which session to open before opening any: when it
+// started, how much conversation it carries, whether it was compacted, which
+// session it was forked from, how many subagents it spawned and its size.
+// The unfiltered listing keeps its cheap shape: reading every session's
+// transcript is affordable for one mission, not for a whole machine.
+//
+// lookup resolves a session ID to its JSONL path; a session whose transcript
+// cannot be found is still listed, with dashes, and the reason goes to stderr.
+func printMissionSessions(sessions []*database.Session, lookup func(string) (string, error), stdout io.Writer, stderr io.Writer) error {
+	tbl := tableprinter.NewTable("UPDATED", "SESSION", "STARTED", "MSGS", "TOOLS", "ERR", "COMPACT", "AGENTS", "FORKED-FROM", "SIZE", "TITLE").WithWriter(stdout)
+	for _, s := range sessions {
+		row := []string{"-", "-", "-", "-", "-", "-", "-", "-"}
+		if jsonlFilepath, err := lookup(s.ID); err != nil {
+			fmt.Fprintf(stderr, "warning: session %s: %v\n", database.ShortID(s.ID), err)
+		} else if facts, err := describeSessionTranscript(jsonlFilepath); err != nil {
+			fmt.Fprintf(stderr, "warning: session %s: %v\n", database.ShortID(s.ID), err)
+		} else {
+			row = facts.cells()
+		}
+		tbl.AddRow(append(append([]interface{}{s.UpdatedAt.Local().Format("2006-01-02 15:04"), database.ShortID(s.ID)}, toCells(row)...), truncatePrompt(resolveSessionTitle(s), 40))...)
+	}
+	tbl.Print()
+	return nil
+}
+
+func toCells(values []string) []interface{} {
+	out := make([]interface{}, len(values))
+	for i, v := range values {
+		out[i] = v
+	}
+	return out
 }

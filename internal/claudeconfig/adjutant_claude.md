@@ -158,27 +158,46 @@ Reading Transcripts
 `--tail N`, `--all` and `--format=jsonl`.
 
 **A session is a tree of transcripts, not one file.** Every subagent a session
-spawns writes its own transcript, and those subagents spawn subagents. Printing
-the session alone shows the spawn calls and their one-line results, but none of
-the work the subagents did. The flags that reach the rest:
+spawns writes its own transcript, and those subagents spawn subagents. Agents
+spawned by the Workflow tool live one level further down, grouped by run — on a
+long-lived machine that layer held more than half of all subagent transcripts.
+Printing the session alone shows the spawn calls with an anchor naming what
+they produced (`[agent <id>]`, `[workflow <run-id> (name): N agents, status,
+duration]`), and ends with a footer saying how many transcripts were not shown
+and the exact command that lists them. Start there:
 
 ```
-# List the session's subagent transcripts: type, model, message and tool counts
+# The overview: session facts, then one row per subagent and ONE row per
+# workflow run, with sizes, so you can decide what you can afford to read
 agenc session print <id> --agents
+agenc session print <id> --agents --json      # same, as a document
 
-# Print one subagent's transcript (agent ID, or any unique prefix of it)
+# One subagent: agent ID, unique ID prefix, its name, or a description fragment
 agenc session print <id> --agent aa8d6202
+agenc session print <id> --agent reviewer-tests
 
-# Inline every subagent's transcript at the point it was spawned
+# One workflow run: status, phases, structured result, then its agents
+agenc session print <id> --workflow 3a23        # run ID prefix, task ID or name
+
+# A time window instead of a tail: RFC3339, '2026-09-07 14:00', '14:00', or
+# '2h' back from the transcript's last record
+agenc session print <id> --since 2h
+agenc session print <id> --since 14:00 --until 15:30 --format=jsonl
+
+# Inline directly spawned subagents at their spawn sites. Workflow runs are
+# never inlined, and inlining stops past --max-expand-mb (default 16) with a
+# note naming the agent, its size and the flag.
 agenc session print <id> --all --expand-agents
 ```
 
-Both commands print a note on stderr when subagent transcripts exist but were
-not shown, so a plain `--all` never looks complete when it is not.
+A miss on `--agent` or `--workflow` says so and names `--agents`; an ambiguous
+key lists every candidate; a misspelt flag suggests the nearest real one.
 
 **Missions accumulate sessions.** A reload, a `/clear` or a fork each start a
 new one. `agenc mission print` shows the most recent and says on stderr how many
-others exist; `agenc session ls --mission <id>` lists them, and
+others exist; `agenc session ls --mission <id>` lists them with when each
+started, its message and tool counts, compactions, which session it was forked
+from, how many subagents it spawned and its size on disk; and
 `agenc mission print <id> --session <session-id>` prints a specific one. A
 session forked from another opens with a `[FORK]` line naming its source.
 

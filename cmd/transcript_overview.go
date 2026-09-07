@@ -400,3 +400,64 @@ func writeJSON(w io.Writer, doc interface{}) error {
 	}
 	return nil
 }
+
+// sessionTranscriptFacts is what `session ls --mission` shows per session: the
+// main transcript's statistics plus how much hangs below it.
+type sessionTranscriptFacts struct {
+	stats        session.TranscriptStats
+	bytes        int64
+	agents       int
+	workflowRuns int
+	startedAt    string
+}
+
+// describeSessionTranscript discovers a session's tree and summarizes its main
+// transcript. Subagent transcripts are counted, not read.
+func describeSessionTranscript(jsonlFilepath string) (sessionTranscriptFacts, error) {
+	root, err := session.DiscoverTranscriptsForFile(jsonlFilepath)
+	if err != nil {
+		return sessionTranscriptFacts{}, err
+	}
+	stats, err := session.SummarizeTranscript(root.Filepath)
+	if err != nil {
+		return sessionTranscriptFacts{}, err
+	}
+	return sessionTranscriptFacts{
+		stats:        stats,
+		bytes:        root.Bytes,
+		agents:       len(root.AllAgents()),
+		workflowRuns: len(root.Workflows),
+		startedAt:    root.StartedAt,
+	}, nil
+}
+
+// cells renders the facts as the STARTED, MSGS, TOOLS, ERR, COMPACT, AGENTS,
+// FORKED-FROM and SIZE columns.
+func (f sessionTranscriptFacts) cells() []string {
+	agents := fmt.Sprintf("%d", f.agents)
+	if f.workflowRuns > 0 {
+		agents += fmt.Sprintf(" (%d wf)", f.workflowRuns)
+	}
+	forkedFrom := "-"
+	if f.stats.ForkedFromSessionID != "" {
+		forkedFrom = shortSessionID(f.stats.ForkedFromSessionID)
+	}
+	return []string{
+		formatTranscriptTimestamp(f.startedAt),
+		fmt.Sprintf("%d", f.stats.UserMessages+f.stats.AssistantMessages),
+		fmt.Sprintf("%d", f.stats.ToolCalls),
+		fmt.Sprintf("%d", f.stats.ToolErrors),
+		fmt.Sprintf("%d", f.stats.CompactBoundaries),
+		agents,
+		forkedFrom,
+		formatBytes(f.bytes),
+	}
+}
+
+// shortSessionID abbreviates a session UUID the way the listings do.
+func shortSessionID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}

@@ -266,3 +266,58 @@ func TestDiscoveryAgreesWithWalkDirOnARealSession(t *testing.T) {
 		t.Fatalf("discovery = %d, independent walk = %d", got, want)
 	}
 }
+
+// TestDiscoveryAgreesWithWalkDirAcrossAProjectsRoot is the corpus-wide form of
+// the control above: every session under every project directory. It prints
+// the totals it saw, so a run that finds nothing cannot pass as a clean one.
+//
+//	TXOB_REAL_PROJECTS_ROOT=~/.claude/projects go test ./internal/session -run ProjectsRoot -v
+func TestDiscoveryAgreesWithWalkDirAcrossAProjectsRoot(t *testing.T) {
+	root := os.Getenv("TXOB_REAL_PROJECTS_ROOT")
+	if root == "" {
+		t.Skip("set TXOB_REAL_PROJECTS_ROOT to run against a real ~/.claude/projects")
+	}
+	projects, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, agents, runs, walked, mismatches := 0, 0, 0, 0, 0
+	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
+		projectDir := filepath.Join(root, project.Name())
+		entries, err := os.ReadDir(projectDir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+				continue
+			}
+			sessionID := strings.TrimSuffix(e.Name(), ".jsonl")
+			tree, err := DiscoverSessionTranscripts(projectDir, sessionID)
+			if err != nil {
+				t.Errorf("%s/%s: %v", project.Name(), sessionID, err)
+				continue
+			}
+			sessions++
+			got := len(tree.AllAgents())
+			agents += got
+			runs += len(tree.Workflows)
+			want := 0
+			if _, err := os.Stat(filepath.Join(projectDir, sessionID)); err == nil {
+				want = countAgentFilesIndependently(t, filepath.Join(projectDir, sessionID))
+			}
+			walked += want
+			if got != want {
+				mismatches++
+				t.Errorf("%s/%s: discovery=%d walkdir=%d", project.Name(), sessionID, got, want)
+			}
+		}
+	}
+	t.Logf("sessions=%d agents=%d (walkdir %d) workflow runs=%d mismatches=%d", sessions, agents, walked, runs, mismatches)
+	if sessions == 0 || walked == 0 {
+		t.Fatalf("the control inspected nothing: sessions=%d walked=%d", sessions, walked)
+	}
+}

@@ -46,6 +46,8 @@ const (
 	workflowFlagName       = "workflow"
 	transcriptJSONFlagName = "json"
 	maxExpandMBFlagName    = "max-expand-mb"
+	sinceFlagName          = "since"
+	untilFlagName          = "until"
 
 	// defaultMaxExpandMB is the --expand-agents budget in subagent JSONL bytes.
 	// Rendered text runs about a tenth of the JSONL it comes from, so 16 MB of
@@ -109,6 +111,13 @@ type transcriptPrintOptions struct {
 	// unlimited.
 	maxExpandMB int
 
+	// since and until bound the render in time. Each accepts an RFC3339
+	// timestamp, a local date or date-time (2026-09-07, 2026-09-07 14:00), a
+	// local time of day on the transcript's last day (14:00), or a duration
+	// back from the transcript's last record (2h, 45m).
+	since string
+	until string
+
 	// listCommand is the copy-pasteable command that lists this session's
 	// subagents, printed in the render's footer. Set by the calling command,
 	// which knows its own name and the ID the user typed.
@@ -143,7 +152,42 @@ func (o transcriptPrintOptions) validate() error {
 	if o.maxExpandMB < 0 {
 		return stacktrace.NewError("--%s must be zero (unlimited) or positive", maxExpandMBFlagName)
 	}
+	if (o.since != "" || o.until != "") && (o.listAgents || o.workflowID != "") {
+		return stacktrace.NewError("--%s/--%s apply to a transcript render, not to --%s or --%s", sinceFlagName, untilFlagName, agentsFlagName, workflowFlagName)
+	}
 	return nil
+}
+
+// timeWindow resolves the --since/--until flags against the transcript being
+// printed. Relative forms need the transcript's last timestamp, which costs a
+// pass over the file, so it is read only when one is used.
+func (o transcriptPrintOptions) timeWindow(jsonlFilepath string) (time.Time, time.Time, error) {
+	if o.since == "" && o.until == "" {
+		return time.Time{}, time.Time{}, nil
+	}
+	var reference time.Time
+	if needsReference(o.since) || needsReference(o.until) {
+		stats, err := session.SummarizeTranscript(jsonlFilepath)
+		if err != nil {
+			return time.Time{}, time.Time{}, stacktrace.Propagate(err, "failed to read the transcript's last timestamp for a relative --%s/--%s", sinceFlagName, untilFlagName)
+		}
+		if reference, err = time.Parse(time.RFC3339Nano, stats.LastTimestamp); err != nil {
+			return time.Time{}, time.Time{}, stacktrace.NewError("the transcript has no timestamped record to anchor a relative --%s/--%s", sinceFlagName, untilFlagName)
+		}
+		reference = reference.Local()
+	}
+	since, err := parseTimeBound(o.since, reference, false)
+	if err != nil {
+		return time.Time{}, time.Time{}, stacktrace.Propagate(err, "invalid --%s", sinceFlagName)
+	}
+	until, err := parseTimeBound(o.until, reference, true)
+	if err != nil {
+		return time.Time{}, time.Time{}, stacktrace.Propagate(err, "invalid --%s", untilFlagName)
+	}
+	if !since.IsZero() && !until.IsZero() && until.Before(since) {
+		return time.Time{}, time.Time{}, stacktrace.NewError("--%s %s is before --%s %s", untilFlagName, until.Format(time.RFC3339), sinceFlagName, since.Format(time.RFC3339))
+	}
+	return since, until, nil
 }
 
 // formatOptions converts the CLI flags into renderer options.
@@ -196,6 +240,11 @@ func printTranscriptTo(jsonlFilepath string, opts transcriptPrintOptions, stdout
 		}
 		return printWorkflowRun(run, opts, stdout, stderr)
 	}
+	since, until, err := opts.timeWindow(jsonlFilepath)
+	if err != nil {
+		return err
+	}
+
 	target := root
 	if opts.agentID != "" {
 		target, err = session.ResolveAgent(root, opts.agentID)
@@ -207,11 +256,13 @@ func printTranscriptTo(jsonlFilepath string, opts transcriptPrintOptions, stdout
 	cw := &countingWriter{w: stdout}
 	switch opts.format {
 	case textFormat:
-		if err := session.FormatTranscript(target, opts.formatOptions(root), cw); err != nil {
+		formatOpts := opts.formatOptions(root)
+		formatOpts.Since, formatOpts.Until = since, until
+		if err := session.FormatTranscript(target, formatOpts, cw); err != nil {
 			return stacktrace.Propagate(err, "")
 		}
 	case jsonlFormat:
-		if err := writeRawJSONL(target, opts, cw); err != nil {
+		if err := writeRawJSONL(target, opts, since, until, cw); err != nil {
 			return stacktrace.Propagate(err, "")
 		}
 	}
@@ -226,13 +277,17 @@ func printTranscriptTo(jsonlFilepath string, opts transcriptPrintOptions, stdout
 // --expand-agents it concatenates the selected transcript and every descendant;
 // the records are self-identifying (each carries sessionId and, for subagents,
 // agentId), so a concatenated stream stays attributable.
-func writeRawJSONL(target *session.Transcript, opts transcriptPrintOptions, w io.Writer) error {
+func writeRawJSONL(target *session.Transcript, opts transcriptPrintOptions, since time.Time, until time.Time, w io.Writer) error {
 	tail := opts.tailLines
 	if opts.all {
 		tail = 0
 	}
 
-	if _, err := session.TailJSONLFile(target.Filepath, tail, w); err != nil {
+	if !since.IsZero() || !until.IsZero() {
+		if _, err := session.WriteJSONLWindow(target.Filepath, since, until, w); err != nil {
+			return err
+		}
+	} else if _, err := session.TailJSONLFile(target.Filepath, tail, w); err != nil {
 		return err
 	}
 	if !opts.expandAgents {
@@ -318,6 +373,48 @@ func registerTranscriptPrintFlags(cmd *cobra.Command, opts *transcriptPrintOptio
 	flags.StringVar(&opts.workflowID, workflowFlagName, "", "describe one workflow run and list its agents, by run ID, ID prefix, task ID or workflow name")
 	flags.BoolVar(&opts.jsonOutput, transcriptJSONFlagName, false, "with --agents or --workflow: emit JSON instead of a table")
 	flags.IntVar(&opts.maxExpandMB, maxExpandMBFlagName, defaultMaxExpandMB, "stop --expand-agents inlining past this many MB of subagent transcripts (0 = unlimited)")
+	flags.StringVar(&opts.since, sinceFlagName, "", "only records at or after this time: RFC3339, '2026-09-07 14:00', '14:00' (on the transcript's last day) or '2h' (back from its last record)")
+	flags.StringVar(&opts.until, untilFlagName, "", "only records at or before this time; same forms as --since")
+}
+
+// needsReference reports whether a time bound is relative to the transcript.
+func needsReference(value string) bool {
+	if value == "" {
+		return false
+	}
+	if _, err := time.ParseDuration(value); err == nil {
+		return true
+	}
+	_, err := time.Parse("15:04", value)
+	return err == nil
+}
+
+// parseTimeBound turns one --since/--until value into a time. A bare date
+// means its start for --since and its end for --until, so `--since 2026-09-07
+// --until 2026-09-07` covers the whole day. Layouts without a zone are local.
+func parseTimeBound(value string, reference time.Time, endOfDay bool) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	if d, err := time.ParseDuration(value); err == nil {
+		return reference.Add(-d), nil
+	}
+	if t, err := time.Parse("15:04", value); err == nil {
+		y, m, d := reference.Date()
+		return time.Date(y, m, d, t.Hour(), t.Minute(), 0, 0, time.Local), nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04:05", "2006-01-02 15:04"} {
+		if t, err := time.ParseInLocation(layout, value, time.Local); err == nil {
+			return t, nil
+		}
+	}
+	if t, err := time.ParseInLocation("2006-01-02", value, time.Local); err == nil {
+		if endOfDay {
+			return t.Add(24*time.Hour - time.Nanosecond), nil
+		}
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("%q is not a time: use RFC3339, '2026-09-07 14:00', '2026-09-07', '14:00' or a duration like '2h'", value)
 }
 
 // formatBytes renders a byte count for a table cell: whole bytes below 1 KB,

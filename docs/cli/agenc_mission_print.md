@@ -40,14 +40,19 @@ agenc mission print [mission-id] [flags]
 ### Options
 
 ```
-      --agent string     print a subagent's transcript, by agent ID or unique ID prefix
-      --agents           list the session's subagent transcripts instead of printing a conversation
-      --expand-agents    inline each subagent's transcript at the point it was spawned
-      --format string    output format: text or jsonl (default "text")
-  -h, --help             help for print
-      --session string   print a specific session of the mission, by session ID or short ID
-      --tail int         limit output to last N lines
-      --verbose          render every record class: hooks, turn timings, attachments, thinking, successful tool results
+      --agent string        print a subagent's transcript, by agent ID or unique ID prefix
+      --agents              list the session's subagent transcripts instead of printing a conversation
+      --expand-agents       inline each subagent's transcript at the point it was spawned
+      --format string       output format: text or jsonl (default "text")
+  -h, --help                help for print
+      --json                with --agents or --workflow: emit JSON instead of a table
+      --max-expand-mb int   stop --expand-agents inlining past this many MB of subagent transcripts (0 = unlimited) (default 16)
+      --session string      print a specific session of the mission, by session ID or short ID
+      --since string        only records at or after this time: RFC3339, '2026-09-07 14:00', '14:00' (on the transcript's last day) or '2h' (back from its last record)
+      --tail int            limit output to last N lines
+      --until string        only records at or before this time; same forms as --since
+      --verbose             render every record class: hooks, turn timings, attachments, thinking, successful tool results
+      --workflow string     describe one workflow run and list its agents, by run ID, ID prefix, task ID or workflow name
 ```
 
 ### SEE ALSO

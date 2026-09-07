@@ -59,6 +59,11 @@ func runSessionPrint(cmd *cobra.Command, args []string) error {
 	if !sessionPrintOpts.all && sessionPrintOpts.tailLines <= 0 {
 		return stacktrace.NewError("--%s value must be positive", tailFlagName)
 	}
+	// A time window is a selection of its own; the default tail would cut it
+	// again silently. An explicit --tail still applies.
+	if (sessionPrintOpts.since != "" || sessionPrintOpts.until != "") && !cmd.Flags().Changed(tailFlagName) {
+		sessionPrintOpts.all = true
+	}
 
 	// Validate before touching the server so an unusable flag combination is
 	// reported as itself, rather than as whatever the session lookup happens
