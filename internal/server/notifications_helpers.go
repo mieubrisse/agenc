@@ -11,12 +11,14 @@ const notificationTitleMaxRunes = 200
 
 var ansiSequenceRegexp = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
-// sanitizeNotificationTitle strips ANSI escape sequences and replaces
-// CR / LF / tab with single spaces, then truncates to notificationTitleMaxRunes
-// runes. Used at the cron-notification write site as defense-in-depth — cron
-// names come from user-edited config and can contain control characters that
-// would corrupt fzf row rendering or notification list output.
-func sanitizeNotificationTitle(s string) string {
+// sanitizeNotificationLine makes a single-line, user-sourced value safe to put
+// in notification text: it strips ANSI escape sequences, replaces CR / LF / tab
+// with single spaces, and truncates to notificationTitleMaxRunes runes. Applied
+// to notification titles, and to the cron names and schedule expressions quoted
+// inside cron notification bodies — all of them come from user-edited config and
+// can carry control characters that would corrupt fzf row rendering or
+// notification list output.
+func sanitizeNotificationLine(s string) string {
 	s = ansiSequenceRegexp.ReplaceAllString(s, "")
 	s = strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\r' || r == '\t' {

@@ -227,6 +227,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("auto-summary", &wg, ctx, s.runAutoSummaryLoop)
 	go s.runLoop("search-indexer", &wg, ctx, s.runSearchIndexerLoop)
 	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
+	go s.runLoop("cron-health", &wg, ctx, s.runCronHealthLoop)
 
 	// Bootstrap writeable copies: clone if missing, install watchers, and
 	// enqueue an initial reconcile per copy. Subsequent config changes are

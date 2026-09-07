@@ -557,6 +557,12 @@ func (s *Server) cronWantsNotifications(cronID string) bool {
 	return true
 }
 
+// ManualCronTrigger is the trigger value `agenc cron run` writes into a cron
+// mission's source metadata. Exported because the command that writes it and
+// the server code that reads it must agree on the spelling, and a mismatch is
+// silent: the reader simply never matches.
+const ManualCronTrigger = "manual"
+
 // parseCronSourceMetadata extracts cron_name and trigger fields from
 // source_metadata JSON. Returns ("", "") on missing/malformed input — the
 // caller falls back to the source ID for the title.
@@ -579,7 +585,7 @@ func buildCronTriggeredNotification(missionRecord *database.Mission, req CreateM
 	if titleSubject == "" {
 		titleSubject = req.SourceID
 	}
-	title := sanitizeNotificationTitle("Cron triggered: " + titleSubject)
+	title := sanitizeNotificationLine("Cron triggered: " + titleSubject)
 
 	var bodyParts []string
 	if cronName != "" {
@@ -589,8 +595,8 @@ func buildCronTriggeredNotification(missionRecord *database.Mission, req CreateM
 		bodyParts = append(bodyParts, "**Cron ID:** "+req.SourceID)
 	}
 	triggerLabel := "scheduled"
-	if trigger == "manual" {
-		triggerLabel = "manual"
+	if trigger == ManualCronTrigger {
+		triggerLabel = ManualCronTrigger
 	}
 	bodyParts = append(bodyParts, "**Trigger:** "+triggerLabel)
 	bodyParts = append(bodyParts, "**Mission:** "+missionRecord.ShortID)
