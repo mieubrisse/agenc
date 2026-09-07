@@ -75,7 +75,7 @@ Always build via the Makefile — never run `go build` directly. The Makefile in
 # Full build (genprime + docs + setup + check + compile)
 make build
 
-# Quality checks only (module tidy, formatting, vet, lint, vulncheck, deadcode, tests with race + coverage — no binary)
+# Quality checks only (module tidy, formatting, vet, lint, deadcode, tests with race + coverage — no binary)
 make check
 
 # E2E tests (builds binary, creates test-env, runs integration tests, tears down)
