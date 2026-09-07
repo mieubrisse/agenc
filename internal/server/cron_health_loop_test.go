@@ -68,6 +68,67 @@ func recordCronMission(t *testing.T, srv *Server, cronID string) {
 	}
 }
 
+// recordHandTriggeredCronMission inserts the mission `agenc cron run` writes: the
+// same source as a scheduled run, but tagged as hand-triggered.
+func recordHandTriggeredCronMission(t *testing.T, srv *Server, cronID string) {
+	t.Helper()
+	source := cronMissionSource
+	sourceMetadata := `{"cron_name":"hn-daily-pull","trigger":"` + ManualCronTrigger + `"}`
+	if _, err := srv.db.CreateMission("", &database.CreateMissionParams{
+		Source:         &source,
+		SourceID:       &cronID,
+		SourceMetadata: &sourceMetadata,
+	}); err != nil {
+		t.Fatalf("failed to create hand-triggered cron mission: %v", err)
+	}
+}
+
+func TestCronHealthCycleTreatsAHandTriggeredRunAsNoProofTheScheduleFired(t *testing.T) {
+	srv := newCronHealthTestServer(t)
+	setCrons(srv, map[string]config.CronConfig{"hn-daily-pull": dailyCron("cron-hn")})
+
+	now := time.Now()
+	srv.runCronHealthCycle(now.Add(-72 * time.Hour))
+
+	// Three days on, the user notices something is stale and triggers the cron
+	// by hand to catch up. launchd is still not firing it, so this run is no
+	// evidence the schedule recovered and must not restart the quiet clock.
+	recordHandTriggeredCronMission(t, srv, "cron-hn")
+
+	srv.runCronHealthCycle(now)
+
+	count, notification := countQuietNotifications(t, srv)
+	if count != 1 {
+		t.Fatalf("expected the cron to still be reported quiet after a hand-triggered run, got %d notifications", count)
+	}
+	if !strings.Contains(notification.Title, "hn-daily-pull") {
+		t.Errorf("expected the title to name the cron, got '%v'", notification.Title)
+	}
+}
+
+func TestCronHealthCycleKeepsItsMemoryWhenNoConfigHasLoaded(t *testing.T) {
+	srv := newCronHealthTestServer(t)
+	setCrons(srv, map[string]config.CronConfig{"hn-daily-pull": dailyCron("cron-hn")})
+
+	now := time.Now()
+	srv.runCronHealthCycle(now)
+
+	// The server came up while config.yml was unreadable, so nothing was ever
+	// cached. "No crons configured" must not be read as "the user deleted them
+	// all" -- doing so forgets every cron's clock and buys a dead one another
+	// two cadences of silence.
+	srv.cachedConfig.Store(nil)
+	srv.runCronHealthCycle(now.Add(time.Minute))
+
+	states, err := srv.db.ListCronMonitorStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 1 || states[0].CronID != "cron-hn" {
+		t.Fatalf("expected the cron's first-seen clock to survive a cycle with no config loaded, got %+v", states)
+	}
+}
+
 func TestCronHealthCycleSaysNothingAboutACronItHasJustMet(t *testing.T) {
 	srv := newCronHealthTestServer(t)
 	setCrons(srv, map[string]config.CronConfig{"fresh": dailyCron("cron-fresh")})

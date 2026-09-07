@@ -172,6 +172,15 @@ func (s *Server) reportQuietCrons(findings []cronhealth.Finding, monitored []mon
 // also records crons it has not seen before and forgets ones it no longer
 // watches, which together are the monitor's memory between cycles.
 func (s *Server) gatherMonitoredCrons(now time.Time) ([]monitoredCron, error) {
+	// A config that has never loaded reads as "no crons are configured", which
+	// is indistinguishable from the user having deleted them all. Acting on it
+	// would forget every cron's first-seen clock, which for a weekly cron buys
+	// a genuinely dead job another fortnight of silence. Skip the cycle and say
+	// why instead.
+	if s.cachedConfig.Load() == nil {
+		return nil, stacktrace.NewError("no config has loaded yet, so which crons are enabled cannot be determined")
+	}
+
 	enabledCrons := map[string]config.CronConfig{}
 	for name, cronCfg := range s.getConfig().Crons {
 		// A cron with no ID was never synced to launchd and has no mission
@@ -275,6 +284,17 @@ func (s *Server) readLastCronMissionTimes() (map[string]time.Time, error) {
 	for _, mission := range missions {
 		if mission.SourceID == nil || *mission.SourceID == "" {
 			continue
+		}
+		// `agenc cron run` writes a mission carrying this same source, but a run
+		// the user launched by hand proves nothing about whether launchd is
+		// still firing the schedule -- and reaching for it is most likely
+		// exactly when something is broken. Counting it would restart the quiet
+		// clock on a cron that is still dead, and the monitor would then say
+		// nothing for another two of its cadences.
+		if mission.SourceMetadata != nil {
+			if _, trigger := parseCronSourceMetadata(*mission.SourceMetadata); trigger == ManualCronTrigger {
+				continue
+			}
 		}
 		previous, isKnown := lastMissionByCronID[*mission.SourceID]
 		if !isKnown || mission.CreatedAt.After(previous) {

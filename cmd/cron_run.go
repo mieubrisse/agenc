@@ -9,6 +9,8 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/spf13/cobra"
+
+	"github.com/odyssey/agenc/internal/server"
 )
 
 var cronRunCmd = &cobra.Command{
@@ -47,7 +49,7 @@ func runCronRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build source metadata as proper JSON to avoid injection from cron names
-	sourceMetadata, err := json.Marshal(map[string]string{"cron_name": name, "trigger": "manual"})
+	sourceMetadata, err := json.Marshal(map[string]string{"cron_name": name, "trigger": server.ManualCronTrigger})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to marshal source metadata")
 	}
