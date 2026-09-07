@@ -16,7 +16,11 @@ concurrency:
 jobs:
   check:
     name: make check
-    runs-on: ubuntu-latest
+    # macOS, not Linux: this must be the same gate the pre-commit hook runs, and
+    # that hook runs on macOS. internal/launchd's tests also shell out to plutil,
+    # which only exists on macOS — AgenC's cron is launchd-based, so macOS is the
+    # real target rather than a convenience.
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
