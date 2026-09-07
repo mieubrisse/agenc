@@ -17,10 +17,11 @@ import (
 //	agent-<agent-id>.jsonl       the subagent's conversation
 //	agent-<agent-id>.meta.json   who spawned it, what type, how deep
 //
-// Subagents nest — a subagent can spawn subagents — but the directory stays
-// flat: every descendant of the session, at any depth, is a sibling file in
-// that one directory. The tree is reconstructed from each meta file's
-// parentAgentId, not from the filesystem layout.
+// Subagents nest — a subagent can spawn subagents — but that directory stays
+// flat: every descendant spawned with the Agent tool, at any depth, is a
+// sibling file in it, and the tree is reconstructed from each meta file's
+// parentAgentId, not from the filesystem layout. Agents spawned by the Workflow
+// tool live one level down, in subagents/workflows/<run-id>/; see workflow.go.
 
 const (
 	// subagentsDirname is the directory under <project>/<session-id>/ holding
@@ -53,11 +54,13 @@ const (
 var errStopScanning = errors.New("stop scanning")
 
 // AgentMeta mirrors the fields of a subagent's agent-<id>.meta.json sidecar.
-// Every field is optional, and on a long-lived machine most of them are absent:
-// of 7053 subagent transcripts, 3.6% have no sidecar at all, only 31% of the
-// sidecars name a parentAgentId, and only 8.4% of named agents carry a
-// toolUseId. Discovery therefore never requires a sidecar — a subagent with no
-// metadata still appears in the tree, attached to the session root.
+// Every field is optional, and on a long-lived machine most of them are absent.
+// Measured over the flat subagents/ directories of every session on one
+// machine (7158 transcripts): 3.6% have no sidecar at all, 30% of the sidecars
+// name a parentAgentId, and 8.3% of named agents carry a toolUseId. Workflow
+// agents' sidecars (8918 more) carry only agentType and spawnDepth. Discovery
+// therefore never requires a sidecar — a subagent with no metadata still
+// appears in the tree, attached to the session root.
 type AgentMeta struct {
 	AgentType       string `json:"agentType"`
 	CustomAgentType string `json:"customAgentType"`
@@ -139,6 +142,19 @@ type Transcript struct {
 
 	// Children are the subagents this transcript spawned, ordered by StartedAt.
 	Children []*Transcript
+
+	// Bytes is the transcript's size on disk.
+	Bytes int64
+
+	// Workflow is the run this agent belongs to, or nil for the main transcript
+	// and for agents spawned directly with the Agent tool.
+	Workflow *WorkflowRun
+
+	// Workflows lists the session's workflow runs, ordered by start time. Only
+	// the session root carries them; a run's agents are reached through the
+	// run, not through Children, so Walk and Flatten stay bounded by the number
+	// of directly spawned agents.
+	Workflows []*WorkflowRun
 }
 
 // IsMain reports whether this is the session's own transcript rather than a
@@ -170,6 +186,22 @@ func (t *Transcript) Flatten() []*Transcript {
 	return out
 }
 
+// AllAgents returns every subagent transcript of the session in listing order:
+// the directly spawned ones depth-first, then each workflow run's agents by
+// run. It is the set a completeness claim must be checked against.
+func (t *Transcript) AllAgents() []*Transcript {
+	var out []*Transcript
+	t.Walk(func(n *Transcript) {
+		if !n.IsMain() {
+			out = append(out, n)
+		}
+	})
+	for _, run := range t.Workflows {
+		out = append(out, run.Agents...)
+	}
+	return out
+}
+
 // SessionSubagentsDirpath returns the directory holding a session's subagent
 // transcripts. The directory does not necessarily exist — a session that never
 // spawned a subagent has none.
@@ -196,10 +228,12 @@ func DiscoverSessionTranscripts(projectDirpath string, sessionID string) (*Trans
 	root := &Transcript{
 		Filepath:  mainFilepath,
 		StartedAt: readStartTimestamp(mainFilepath),
+		Bytes:     fileSize(mainFilepath),
 	}
 
-	nodes := discoverSubagentTranscripts(SessionSubagentsDirpath(projectDirpath, sessionID))
-	linkTranscriptTree(root, nodes)
+	subagentsDirpath := SessionSubagentsDirpath(projectDirpath, sessionID)
+	linkTranscriptTree(root, discoverSubagentTranscripts(subagentsDirpath, true))
+	root.Workflows = discoverWorkflowRuns(subagentsDirpath, SessionWorkflowsDirpath(projectDirpath, sessionID))
 	return root, nil
 }
 
@@ -216,7 +250,10 @@ func DiscoverTranscriptsForFile(jsonlFilepath string) (*Transcript, error) {
 // discoverSubagentTranscripts reads every agent-<id>.jsonl in a subagents
 // directory, pairing each with its sidecar metadata when present. Returns nil
 // when the directory does not exist or cannot be read.
-func discoverSubagentTranscripts(subagentsDirpath string) []*Transcript {
+//
+// readStarts controls whether each transcript's first timestamp is read now;
+// a workflow run's agents defer it (see WorkflowRun.LoadAgentDetails).
+func discoverSubagentTranscripts(subagentsDirpath string, readStarts bool) []*Transcript {
 	entries, err := os.ReadDir(subagentsDirpath)
 	if err != nil {
 		return nil
@@ -236,13 +273,17 @@ func discoverSubagentTranscripts(subagentsDirpath string) []*Transcript {
 		transcriptFilepath := filepath.Join(subagentsDirpath, name)
 		meta, metaFound := readAgentMeta(filepath.Join(subagentsDirpath, agentFilePrefix+agentID+agentMetaSuffix))
 
-		nodes = append(nodes, &Transcript{
+		node := &Transcript{
 			AgentID:   agentID,
 			Filepath:  transcriptFilepath,
 			Meta:      meta,
 			MetaFound: metaFound,
-			StartedAt: readStartTimestamp(transcriptFilepath),
-		})
+			Bytes:     fileSize(transcriptFilepath),
+		}
+		if readStarts {
+			node.StartedAt = readStartTimestamp(transcriptFilepath)
+		}
+		nodes = append(nodes, node)
 	}
 	return nodes
 }
@@ -315,22 +356,34 @@ func createsParentCycle(byID map[string]*Transcript, agentID string, parentID st
 	return true
 }
 
+// lessByStart orders transcripts chronologically, breaking ties by agent ID so
+// two agents that started in the same instant list deterministically.
+func lessByStart(a, b *Transcript) bool {
+	if a.StartedAt != b.StartedAt {
+		return a.StartedAt < b.StartedAt
+	}
+	return a.AgentID < b.AgentID
+}
+
 // assignDepthsAndSort walks the linked tree setting Depth from the tree shape
 // and ordering each node's children chronologically. Sibling order falls back
 // to agent ID so the output is deterministic when timestamps are missing or
 // identical.
 func assignDepthsAndSort(node *Transcript, depth int) {
 	node.Depth = depth
-	sort.SliceStable(node.Children, func(i, j int) bool {
-		a, b := node.Children[i], node.Children[j]
-		if a.StartedAt != b.StartedAt {
-			return a.StartedAt < b.StartedAt
-		}
-		return a.AgentID < b.AgentID
-	})
+	sort.SliceStable(node.Children, func(i, j int) bool { return lessByStart(node.Children[i], node.Children[j]) })
 	for _, child := range node.Children {
 		assignDepthsAndSort(child, depth+1)
 	}
+}
+
+// fileSize returns a file's size in bytes, or 0 when it cannot be stat'ed.
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
 }
 
 // readStartTimestamp returns the timestamp of the first timestamped record in a
@@ -457,41 +510,56 @@ func decodeContentBlocks(rawMessage json.RawMessage) []contentBlock {
 // matches the requested ID prefix.
 var ErrAgentNotFound = errors.New("no matching subagent transcript")
 
-// ResolveAgent finds the single subagent in a transcript tree whose agent ID
-// starts with the given prefix. An exact match always wins over prefix matches.
-// An ambiguous prefix is an error naming every candidate, so the caller can
-// print something actionable rather than picking arbitrarily.
-func ResolveAgent(root *Transcript, prefix string) (*Transcript, error) {
-	if prefix == "" {
+// ResolveAgent finds the single subagent an agent would mean by a key: its
+// agent ID, a unique prefix of it, its spawn-time name, or a unique prefix of
+// its name or a substring of its description. Workflow agents are searched
+// too. An exact ID match always wins, then an exact name; an ambiguous key is
+// an error naming every candidate, so the caller can print something
+// actionable rather than picking arbitrarily.
+func ResolveAgent(root *Transcript, key string) (*Transcript, error) {
+	if key == "" {
 		return nil, fmt.Errorf("%w: empty agent ID", ErrAgentNotFound)
 	}
 
-	var exact *Transcript
-	var matches []*Transcript
-	root.Walk(func(n *Transcript) {
-		if n.IsMain() || !strings.HasPrefix(n.AgentID, prefix) {
-			return
+	var idPrefix, nameMatch, textMatch []*Transcript
+	lower := strings.ToLower(key)
+	for _, n := range root.AllAgents() {
+		switch {
+		case n.AgentID == key:
+			return n, nil
+		case strings.HasPrefix(n.AgentID, key):
+			idPrefix = append(idPrefix, n)
 		}
-		if n.AgentID == prefix && exact == nil {
-			exact = n
+		if n.Meta.Name == key {
+			nameMatch = append(nameMatch, n)
+		} else if strings.HasPrefix(strings.ToLower(n.Meta.Name), lower) || strings.Contains(strings.ToLower(n.Meta.Description), lower) {
+			textMatch = append(textMatch, n)
 		}
-		matches = append(matches, n)
-	})
+	}
 
-	if exact != nil {
-		return exact, nil
-	}
-	switch len(matches) {
-	case 0:
-		return nil, fmt.Errorf("%w for ID prefix '%s'", ErrAgentNotFound, prefix)
-	case 1:
-		return matches[0], nil
-	default:
-		ids := make([]string, 0, len(matches))
-		for _, m := range matches {
-			ids = append(ids, m.AgentID)
+	for _, candidates := range [][]*Transcript{idPrefix, nameMatch, textMatch} {
+		switch len(candidates) {
+		case 0:
+			continue
+		case 1:
+			return candidates[0], nil
+		default:
+			return nil, fmt.Errorf("agent '%s' is ambiguous, matches: %s", key, describeAgents(candidates))
 		}
-		sort.Strings(ids)
-		return nil, fmt.Errorf("agent ID prefix '%s' is ambiguous, matches: %s", prefix, strings.Join(ids, ", "))
 	}
+	return nil, fmt.Errorf("%w for '%s'", ErrAgentNotFound, key)
+}
+
+// describeAgents renders candidates as "id (label)" pairs, sorted by ID.
+func describeAgents(agents []*Transcript) string {
+	parts := make([]string, 0, len(agents))
+	for _, a := range agents {
+		if label := a.Meta.DisplayLabel(); label != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s)", a.AgentID, label))
+		} else {
+			parts = append(parts, a.AgentID)
+		}
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
 }
