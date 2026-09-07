@@ -1,19 +1,21 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
 var cronCmd = &cobra.Command{
 	Use:   cronCmdStr,
 	Short: "Manage scheduled cron jobs",
-	Long: `Manage scheduled cron jobs that run headless Claude missions on a schedule.
+	Long: fmt.Sprintf(`Manage scheduled cron jobs that run headless Claude missions on a schedule.
 
 Cron jobs are defined in config.yml under the 'crons' key. Each cron job
 specifies a schedule (cron expression), prompt, and optional git repository
 to clone into the workspace.
 
-Example config.yml:
+%v
 
   crons:
     daily-report:
@@ -23,7 +25,7 @@ Example config.yml:
       enabled: true
 
     weekly-cleanup:
-      schedule: "0 0 * * SUN"
+      schedule: "0 0 * * 0"
       prompt: "Clean up old temporary files"
 
 ALIASES:
@@ -36,7 +38,7 @@ ALIASES:
     agenc cron disable   → agenc config cron update --enabled=false
 
   Use 'agenc config cron' for non-interactive/scriptable cron management.
-`,
+`, configYAMLExampleMarker),
 }
 
 func init() {

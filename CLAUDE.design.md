@@ -29,8 +29,24 @@ The document exists because of the gap that bead names. While shipping `agenc-hx
 
   Worth stating plainly, since this document's contract is about what is known rather than what sounds right: **every one of those defects was found by review, not by the author, and the last of them was a false "complete set" enumeration in this very document — the exact failure mode it was being edited to warn about.** A convention that holds for most of its members reads as a guarantee and behaves as a trap, and the pull toward writing the tidy universal is strong enough that it caught the person writing the warning against it. Verify enumerations against the tree mechanically before asserting them here.
 
+- **2026-09-06** — Added the "Help Text and Docs Name Only Real Flags and Keys" section, alongside the drift verifiers in `cmd/help_text_drift_test.go` and `internal/config/docs_yaml_roundtrip_test.go`. Mission `7e071462-4819-4684-b12d-0183477cdb61`, bead `agenc-qz2l`. Originating incident recorded in that bead: mission `c992afb7-8c18-4760-9534-94e0a37cb6ab`, session `6a7de280`.
+
 Design Decisions
 ----------------
+
+### Help text and docs name only real flags and keys (2026-09-06)
+
+**The failure being prevented.** Two Adjutant missions called an `agenc cron --overlap` flag that was never implemented, because `internal/claudeconfig/adjutant_claude.md` and a Cobra `Long` string both documented it. The same sweep found a second instance that had gone unnoticed since February: `docs/configuration.md` documented a `cronsMaxConcurrent` config key, and a behaviour to go with it ("Crons are skipped when the limit is reached"), that exist nowhere in the codebase. Documentation is not decorative here — agents read it as the contract and act on it.
+
+**A verifier, where the bead asked for interpolation.** `agenc-qz2l` records Kevin's explicit preference: interpolate technical identifiers everywhere, "even at the cost of harder-to-read source," because "agents struggle with remembering to update duplicated strings." That reasoning is sound for the drift it targets — a *renamed* flag leaving stale copies behind. But it does not reach the incident that motivated the bead. `--overlap` never existed, so there was no constant to interpolate; an author writing that help text would have typed the literal either way. Interpolation cannot catch a phantom.
+
+A build-time verifier catches both cases. A phantom flag fails because nothing registers it; a renamed flag fails because the old name stops resolving. It strictly dominates interpolation on correctness, and it costs four new test functions instead of ~136 `fmt.Sprintf` sites across `cmd/`. So the sweep was deliberately not done, and this is the one place where the implementation departs from what the bead asked for. **The decision is Kevin's to overturn** — the interpolation sweep remains available and is not blocked by anything here.
+
+**Interpolation kept where it is load-bearing.** `configYAMLExampleMarker` is interpolated into all four help texts that carry a `config.yml` example, because it is the coupling between the help text and the test that checks it. Retyping the words there does not merely duplicate a string — it silently removes that example from coverage. This is the ANSI section's lesson in a new place, so it gets the ANSI section's remedy: `TestHelpTextYAMLExamplesUseTheMarker` fails on the near-miss, and both schema tests fail loudly if they find no examples at all rather than passing vacuously.
+
+**Scope is drawn by who maintains the text.** `docs/cli/` is regenerated from Cobra strings by `make docs`, so checking the help text already covers it. `docs/plans/` and `docs/research/` are dated records of past thinking; auditing them would generate remediation work on material nobody should edit. Only the four hand-written docs are scanned, and only on lines that invoke `agenc` — prose elsewhere may legitimately name another tool's flags, as `docs/system-architecture.md` does when explaining why Claude's `--bare` is deliberately excluded from the forwarded-flag allowlist.
+
+**Both verifiers were proved by mutation, not by passing.** A test that passes may be inspecting nothing. Injecting `--overlap` and a bogus YAML key into `cmd/cron.go` produced exactly the two expected failures; reverting restored green. `--help` needed `InitDefaultHelpFlag()` during collection, because Cobra registers it lazily at execute time and the tree otherwise looks like it has no help flag at all — a false positive that would have been easy to "fix" by weakening the assertion instead.
 
 ### Command output carries no ANSI escapes (2026-09-01)
 

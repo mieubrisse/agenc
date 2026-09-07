@@ -252,7 +252,6 @@ The wizard asks for:
 - **Schedule** — Standard cron expression (e.g., `0 9 * * *` for 9am daily)
 - **Prompt** — What you want Claude to do
 - **Git repo** (optional) — Repository to clone into the workspace
-- **Timeout** (optional) — Max runtime (default: 1 hour)
 
 **What happens when a cron runs:**
 
@@ -305,20 +304,15 @@ agenc cron rm daily-report
 
 **Cron expressions:**
 
-AgenC uses standard 5-field cron expressions: `minute hour day-of-month month day-of-week`
+AgenC uses 5-field cron expressions: `minute hour day-of-month month day-of-week`
+
+Scheduling runs through macOS launchd, so each field must be a single integer or `*`. Ranges (`1-5`), lists (`1,3`), step values (`*/15`), and day names (`SUN`) are rejected.
 
 Common examples:
 - `0 9 * * *` — 9am every day
-- `0 9 * * 1-5` — 9am weekdays (Monday-Friday)
-- `0 0 * * SUN` — Midnight on Sundays
-- `*/15 * * * *` — Every 15 minutes
-- `0 */4 * * *` — Every 4 hours
-
-**Concurrency and overlap:**
-
-By default, if a cron is still running when the next scheduled time arrives, the new run is skipped (`overlap: skip`). You can allow concurrent runs by setting `overlap: allow` in your cron config.
-
-AgenC limits concurrent cron missions to 10 by default (configurable via `cronsMaxConcurrent` in `config.yml`). When the limit is reached, new crons are skipped until slots free up.
+- `0 9 * * 1` — 9am every Monday
+- `0 0 * * 0` — Midnight on Sundays
+- `0 0 1 * *` — Midnight on the 1st of each month
 -->
 
 ### 7. Send feedback
