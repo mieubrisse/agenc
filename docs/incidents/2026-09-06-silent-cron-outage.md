@@ -226,3 +226,45 @@ external monitor is a one-line change to the scheduled command.
 **This needs Kevin's decision, not an agent's** — it means signing up for a
 third-party service (Healthchecks.io was suggested by a parallel research
 mission; free tier covers seven crons). Deliberately not provisioned.
+
+## Known false-positive edge, deliberately not fixed
+
+A cron created today whose daily fire time has already passed reads as
+"missed its scheduled run" until it runs for the first time: it has no run
+history, its last expected fire is in the past, and its launchd job is healthy.
+Left alone rather than patched under time pressure — it cannot fire for any of
+the seven existing crons, and the right shape of the fix (suppress the check
+until a cron has run once? compare against the cron's creation time?) deserves a
+reviewer's judgment rather than a late-night guess.
+
+## Notification evidence trail
+
+AgenC notifications are append-only — they are never deleted, only marked read —
+so all three of these remain retrievable with `agenc notification show <id>`
+regardless of their read state. Recorded here because a read/unread flag is
+mutable and this record is not.
+
+Two of the three mix genuine findings with induced ones. Separating them matters:
+the genuine entries are the first true positives this monitor ever produced, and
+nobody asked it to look for them.
+
+**`4915eea2` — entirely genuine.** The auditor's first live run, before any
+failure was induced. Both entries are real:
+
+> - **flight-watcher** (warning): its run at 2026-09-06 21:27 made no tool calls at all
+> - **verify-workspace-mcp-denylist** (warning): its run at 2026-09-06 21:25 made no tool calls at all
+
+Those two runs were spawned as part of restoring the crons and died at spawn,
+most likely on capacity — several missions were started in quick succession.
+Under the old system they would have passed silently, exactly as the nine dead
+`hn-daily-pull` runs in `exobrain-6g1` did. Nothing was watching for them; the
+auditor found them on its own.
+
+**`1a01beef` — mixed.** The `flight-watcher` entry is the genuine one above. The
+`verify-workspace-mcp-denylist` entry ("launchd has no job registered for this
+cron, so it can never fire") is **induced failure 1** — its launchd job was
+deliberately booted out. The same auditor pass repaired it.
+
+**`285cb70b` — mixed.** The `daily-state-summary` entry (run at 22:17, no tool
+calls) is **induced failure 2** — a real run stopped before it could make a tool
+call. The other two entries are the genuine catches above.
