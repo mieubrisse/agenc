@@ -57,6 +57,15 @@ Within `cmd/`, then, an unsuffixed name returns plain text. Keep it that way whe
 
 Enforcement is real but partial, so read this before relying on it. Go unit tests pin every function named above and their plain counterparts, and run under `make check`, so the pre-commit hook catches a regression in either direction. The E2E suite additionally captures a **hand-maintained list** of commands and fails on any escape byte; it is not a sweep, so a command absent from that list is covered by nothing. When you add a command, add it to the list in `scripts/e2e-test.sh` along with a pattern proving its table actually rendered — a check whose command prints an empty-state string inspects nothing and passes, which is how `mission peers` and `repo ls` sat there looking covered while colour injected into both passed the whole suite. `mission peers` and `mission search` are listed as explicit skips because their rows cannot be populated in the test environment. Verify by inspecting bytes (`od -c`, or grep for `\033`), never by looking at a terminal.
 
+Help Text and Docs Name Only Real Flags and Keys
+------------------------------------------------
+
+AgenC's help text and docs are read overwhelmingly by agents, who treat them as the contract and call what they describe. A documented flag that was never implemented is therefore not a cosmetic error — it is an instruction to do something impossible. This is not hypothetical: `internal/claudeconfig/adjutant_claude.md` and a Cobra `Long` string both documented a cron `--overlap` flag that never existed, and two Adjutant missions called it.
+
+`cmd/help_text_drift_test.go` and `internal/config/docs_yaml_roundtrip_test.go` enforce this under `make check`. Every `--flag` named in help text or in a hand-written doc must be registered by some command in the tree, and every `config.yml` example — in help text and in docs — must parse against the real `AgencConfig` schema with unknown fields rejected. That schema check is what caught `cronsMaxConcurrent`, documented since February and implemented nowhere. Those two test files own the exact scope: which docs are scanned, which are deliberately excluded, and why. Read them rather than assuming, and when a flag genuinely belongs to another program, add it to `externalToolFlagNames` with a comment naming the owner instead of deleting the assertion.
+
+One trap to know before you add a `config.yml` example to help text: examples are found by the `configYAMLExampleMarker` constant, so interpolate it with `fmt.Sprintf` rather than retyping the words. An example introduced any other way is never checked — the same "a test that inspects nothing still reports green" failure the ANSI section below describes. A guard test catches that near-miss, and the schema tests fail loudly if they find no examples at all.
+
 Building and Checking
 ---------------------
 
@@ -66,7 +75,7 @@ Always build via the Makefile — never run `go build` directly. The Makefile in
 # Full build (genprime + docs + setup + check + compile)
 make build
 
-# Quality checks only (module tidy, formatting, vet, lint, vulncheck, deadcode, tests with race + coverage — no binary)
+# Quality checks only (module tidy, formatting, vet, lint, deadcode, tests with race + coverage — no binary)
 make check
 
 # E2E tests (builds binary, creates test-env, runs integration tests, tears down)

@@ -20,6 +20,10 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
+# The check target uses `set -o pipefail`, which dash does not support. Linux
+# defaults /bin/sh to dash, so pin recipes to bash for macOS/Linux parity.
+SHELL := /bin/bash
+
 TEST_ENV_DIR := _test-env
 BUILD_DIR    := _build
 
@@ -49,7 +53,7 @@ setup:
 		fi; \
 	fi
 
-check: genprime
+check: setup genprime
 	@echo "Checking module tidiness..."
 	@go mod tidy
 	@dirty=$$(git diff -- go.mod go.sum); \
@@ -149,7 +153,7 @@ genprime:
 	@test -f internal/claudeconfig/prime_content.md || touch internal/claudeconfig/prime_content.md
 	go run ./cmd/genprime
 
-test:
+test: genprime
 	@echo "Running tests with coverage..."
 	@go test -race -cover ./...
 	@echo "✓ Tests passed"

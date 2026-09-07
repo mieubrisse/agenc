@@ -27,19 +27,14 @@ repoConfig:
 # claudeArgs:
 #   - "--chrome"
 
-<!--
-# Max concurrent headless cron missions (default: 10)
-cronsMaxConcurrent: 10
-
 # Named cron jobs
-crons:
-  my-cron:
-    schedule: "0 9 * * *"      # Cron expression (5 or 6 fields, evaluated by gronx)
-    prompt: "Do something"     # Initial prompt sent to Claude
-    description: ""            # Human-readable description (optional)
-    repo: github.com/owner/repo # Git repo for the mission workspace (optional)
-    enabled: true              # Defaults to true if omitted
--->
+# crons:
+#   my-cron:
+#     schedule: "0 9 * * *"       # 5-field cron expression; each field is an integer or *
+#     prompt: "Do something"      # Initial prompt sent to Claude
+#     description: ""             # Human-readable description (optional)
+#     repo: github.com/owner/repo # Git repo for the mission workspace (optional)
+#     enabled: true               # Defaults to true if omitted
 
 # Palette commands — customize the tmux command palette and keybindings
 paletteCommands:
@@ -129,10 +124,7 @@ agenc repo rm owner/repo                                                     # r
 crons
 -----
 
-Cron jobs spawn headless missions on a schedule. Each cron needs at minimum a `schedule` (cron expression) and a `prompt` (what to tell Claude). The server evaluates cron expressions every 60 seconds.
-
-Key behaviors:
-- **Max concurrent:** Controlled by `cronsMaxConcurrent` (default: 10). Crons are skipped when the limit is reached.
+Cron jobs spawn headless missions on a schedule. Each cron needs at minimum a `schedule` (cron expression) and a `prompt` (what to tell Claude). The server syncs cron definitions to macOS launchd, which is what actually fires them — so crons are macOS-only, and every schedule field must be a single integer or `*`. Ranges (`1-5`), lists (`1,3`), step values (`*/15`), and day names (`SUN`) are rejected.
 
 Manage crons via the CLI:
 
