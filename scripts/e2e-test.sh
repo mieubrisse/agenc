@@ -432,13 +432,13 @@ run_test "a cron that will never fire is configured" \
     0 \
     "${agenc_test}" config cron add quiet-fixture --schedule="* * * * *" --prompt="never fires in the test env"
 
-# A cron created moments ago has its most recent expected fire in the past and
-# no run history. Reporting that would put a false note in front of the user
-# every time they add a cron, so the check measures from when the server first
-# saw it rather than from its schedule alone. Asserted through the notification
-# list because that is the monitor's only output surface.
+# A smoke check only: nothing is reported the instant a cron is added. It runs
+# before the monitor has had a chance to do anything, so it cannot tell a working
+# first-seen guard from a missing one -- do not read it as covering that. The
+# real discriminating check is "a cron planted mid-spell earns no note" at the end
+# of this script, backed by the unit tests in cron_health_loop_test.go.
 total=$((total + 1))
-printf "  %-50s " "a just-created cron is not reported quiet..."
+printf "  %-50s " "nothing is reported the instant a cron is added..."
 if "${agenc_test}" notification ls --all 2>/dev/null | grep -q 'cron\.quiet'; then
     echo "FAIL (a cron was reported quiet the moment it was created)"
     failed=$((failed + 1))
@@ -1802,9 +1802,30 @@ else
     echo "  the notification body checks...                   FAIL (no cron.quiet notification to read)"
 fi
 
-# Mentioned once per quiet spell, not once per missed cycle: the fixture has
-# gone on missing its every-minute schedule throughout the checks above, and
-# must still have earned exactly one note.
+# Two properties are left, and both need a monitor cycle to elapse AFTER the
+# first note landed. Counting the moment it appears proves nothing: the loop has
+# not had a chance to post a second one, so the count reads 1 whether or not the
+# code remembers what it already reported. Planting a second cron first lets one
+# wait cover both.
+#
+# The wait is bounded on both sides and the bounds are the point:
+#   - it must EXCEED one monitor cycle (60s) so a cycle provably runs, otherwise
+#     neither assertion below can fail no matter what the code does;
+#   - it must STAY UNDER the new cron's own quiet threshold (two of its
+#     every-minute cycles, so 120s), or that cron legitimately earns a note and
+#     the assertion becomes wrong rather than strict.
+# 90s sits in the middle. Do not shorten it to speed the suite up -- that is
+# exactly how this pair of checks became decorative the first time.
+run_test "a second cron is planted mid-spell" \
+    0 \
+    "${agenc_test}" config cron add fresh-fixture --schedule="* * * * *" --prompt="never fires in the test env either"
+
+echo "  (waiting 90s so the monitor runs at least one more cycle)"
+sleep 90
+
+# Mentioned once per quiet spell, not once per missed cycle. The original fixture
+# has gone on missing its every-minute schedule across that whole wait, and a
+# monitor that forgot it had already reported would have posted again.
 total=$((total + 1))
 printf "  %-50s " "the quiet cron is mentioned only once..."
 quiet_notification_count="$("${agenc_test}" notification ls --all 2>/dev/null | grep -c 'cron\.quiet' || true)"
@@ -1816,9 +1837,27 @@ else
     failed=$((failed + 1))
 fi
 
+# The first-seen guard, for real this time. The cron planted above is as overdue
+# by its schedule as the original one, and differs only in that the monitor has
+# just met it. A monitor judging from the schedule alone would have named it in
+# the cycle that ran during the wait.
+total=$((total + 1))
+printf "  %-50s " "a cron planted mid-spell earns no note..."
+if "${agenc_test}" notification ls --all 2>/dev/null | grep -q 'fresh-fixture'; then
+    echo "FAIL (a cron was reported quiet before the monitor had watched it for its own cadence)"
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
 run_test "config cron rm removes the quiet fixture" \
     0 \
     "${agenc_test}" config cron rm quiet-fixture
+
+run_test "config cron rm removes the mid-spell fixture" \
+    0 \
+    "${agenc_test}" config cron rm fresh-fixture
 
 # `mission peers` and `mission search` are agent-facing and de-coloured by the
 # same change, but neither can be populated here: a peer row needs a live
