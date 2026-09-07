@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // addWorkflowAgent writes an agent transcript inside a workflow run directory,
@@ -372,5 +373,38 @@ func TestFormatBytesNeverPrintsATousandAndTwentyFour(t *testing.T) {
 		if got := FormatBytes(n); got != want {
 			t.Errorf("FormatBytes(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+func TestLatestTranscriptActivitySeesSubagentsInBothLayouts(t *testing.T) {
+	fs := newFakeSession(t, userLine("2026-01-01T00:00:00.000Z", "go"))
+	fs.addAgent("aloose", &AgentMeta{AgentType: "Explore"}, assistantLine("2026-01-01T00:01:00.000Z", "x"))
+	fs.addWorkflowAgent("wf_live0001-aaa", "awf", assistantLine("2026-01-01T00:02:00.000Z", "x"))
+
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	mid := old.Add(time.Hour)
+	recent := old.Add(2 * time.Hour)
+	sessionDir := filepath.Join(fs.projectDir, fs.sessionID)
+	for path, at := range map[string]time.Time{
+		filepath.Join(fs.projectDir, fs.sessionID+".jsonl"):                                       old,
+		filepath.Join(sessionDir, "subagents", "agent-aloose.jsonl"):                              mid,
+		filepath.Join(sessionDir, "subagents", "workflows", "wf_live0001-aaa", "agent-awf.jsonl"): recent,
+	} {
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, ok := LatestTranscriptActivity(fs.projectDir)
+	if !ok || !got.Equal(recent) {
+		t.Errorf("LatestTranscriptActivity = %s, %v; want the workflow agent's %s", got, ok, recent)
+	}
+	// Positive control: the main file alone would have said "idle for hours".
+	info, _ := os.Stat(filepath.Join(fs.projectDir, fs.sessionID+".jsonl"))
+	if !info.ModTime().Equal(old) {
+		t.Fatalf("control: main jsonl mtime = %s, want %s", info.ModTime(), old)
+	}
+	if _, ok := LatestTranscriptActivity(filepath.Join(fs.projectDir, "does-not-exist")); ok {
+		t.Errorf("a missing project directory must report no activity, not a zero time")
 	}
 }

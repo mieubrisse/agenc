@@ -154,7 +154,7 @@ The server runs twelve concurrent background goroutines:
 **7. Idle timeout loop** (`internal/server/idle_timeout.go`)
 - Runs on a fixed interval
 - Scans all non-archived missions for running wrappers
-- Uses the active JSONL conversation log's modification time to determine idle duration, falling back to `created_at`
+- Uses the most recent modification time across every transcript the mission's sessions write — the main conversation log and every subagent transcript beneath it, in both layouts — to determine idle duration, falling back to `created_at`. The main log alone goes quiet for exactly as long as a subagent or workflow run works, which once stopped missions mid-run
 - Stops wrappers idle past the configured threshold and destroys their pool windows
 - Wrappers are automatically re-spawned on the next attach (lazy start)
 
