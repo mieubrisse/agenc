@@ -436,6 +436,7 @@ macOS launchd integration for cron scheduling.
 
 - `plist.go` — `Plist` struct and XML generation, `ParseCronExpression` (converts cron expressions to `StartCalendarInterval`), `CronToPlistFilename` (sanitizes cron names), `PlistDirpath` helper
 - `manager.go` — `Manager` wraps launchctl operations: `LoadPlist`, `UnloadPlist`, `IsLoaded`, `RemovePlist` (two-step: unload then delete), `ListAgencCronJobs`, `VerifyLaunchctlAvailable`
+- `job_status.go` — `JobStatus` (what launchd reports about a job's most recent run: loaded, never-exited, exit code, symbolic exit reason) with `IsHealthy`/`Describe`, `GetJobStatus` (parses `launchctl print`, which has no machine-readable mode), and `ReloadJob` (bootout + bootstrap, the repair for a job whose registration has gone bad while its plist is still correct)
 
 ### `internal/tmux/`
 
@@ -459,6 +460,7 @@ Per-mission Claude child process management.
 - `internal/history/` — `FindFirstPrompt` extracts the first user prompt from Claude's `history.jsonl` for a given mission UUID (`history.go`)
 - `internal/session/` — `FindSessionName` resolves a mission's session name from Claude metadata (priority: custom-title > sessions-index.json summary > JSONL summary) (`session.go`), `FindCustomTitle` returns only the /rename custom title (`session.go`), `FindSessionJSONLPath` locates the JSONL transcript file for a session UUID by searching all project directories under `~/.claude/projects/` (`session.go`), `ListSessionIDs` returns all session UUIDs for a mission sorted by modification time (most recent first) by scanning the mission's project directory for `.jsonl` files (`session.go`), `TailJSONLFile` reads the last N lines from a JSONL file and writes them to a given writer, or writes the entire file when N is zero (`session.go`), `ExtractRecentUserMessages` extracts user message contents from session JSONL for AI summarization (`conversation.go`)
 - `internal/sleep/` — sleep mode types and validation (`sleep.go`). Defines `WindowDef` (days + start/end times) and validation functions (`ValidateDays`, `ValidateTime`, `ValidateWindow`). Used by `internal/config/` for config validation and `internal/server/` for the sleep guard middleware.
+- `internal/crondoctor/` — cron health diagnosis (`crondoctor.go`, `run_completion.go`). `Diagnose` turns a set of `CronState` facts into `Finding`s covering the three ways a cron silently stops delivering: launchd has no job registered, launchd's last spawn failed before `agenc` ran, or the cron's scheduled fire produced no mission. `PreviousFireTime` computes when a `launchd.CalendarInterval` should last have fired (reading the same interval written into the plist, so the doctor's notion of "should have fired" cannot drift from launchd's). `InspectRunCompletion` judges whether a finished run did any work by looking for a `PostToolUse` event in the mission's `wrapper.log` — the only completion signal AgenC records that is independent of what the cron's skill was meant to produce. Gathering the facts lives in `cmd/cron_doctor.go`; keeping it out of this package is what makes the judgment testable.
 - `internal/tableprinter/` — ANSI-aware table formatting using `rodaine/table` with `runewidth` for wide character support (`tableprinter.go`)
 
 
@@ -648,6 +650,28 @@ The server's cron syncer (`internal/server/cron_syncer.go`, `internal/launchd/`)
 4. After spawn, the server inserts a `cron.triggered` notification with `mission_id` pointing at the new mission so the Notification Center picker can find and attach to it. Skipped when the cron's `notificationsEnabled` is false (default true). Applies to both scheduled and manual `agenc cron run` triggers — the per-cron opt-out is universal across trigger modes.
 5. Mission runs in a tmux pool window like any other headless mission
 6. Standard 30-minute idle timeout applies (JSONL ModTime-based)
+
+**Cron health auditing (`agenc cron doctor`):**
+
+Every layer of the flow above can fail without emitting a signal. launchd can
+fail to spawn the process, in which case nothing is written to the cron log and
+no mission row is created — every AgenC-side view of the cron is identical to one
+that simply has not come due yet. Or the mission can start and die before doing
+any work, leaving a run record indistinguishable from a healthy one.
+
+`agenc cron doctor` (`cmd/cron_doctor.go`, `internal/crondoctor/`) audits every
+enabled cron against all three failure points, exiting non-zero when any cron is
+not delivering:
+
+- `--repair` reloads launchd registrations that have gone bad (bootout +
+  bootstrap from the plist already on disk; changes no configuration)
+- `--notify` posts a `cron.health` notification, skipping the post when an
+  identical unread one already exists, so a long-running fault does not bury the
+  notification list
+
+Intended to run on a schedule *outside* AgenC's own cron system — a cron that
+audits crons shares a failure mode with the thing it audits. Its exit code is the
+contract: 0 only when every cron has actually delivered.
 
 **Key behaviors:**
 - **Cron missions are normal missions** — no special lifecycle, timeout, or cleanup. Users can attach/detach them like any other mission.

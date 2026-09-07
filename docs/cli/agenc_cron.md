@@ -45,6 +45,7 @@ ALIASES:
 
 * [agenc](agenc.md)	 - The AgenC — agent mission management CLI
 * [agenc cron disable](agenc_cron_disable.md)	 - Disable a cron job
+* [agenc cron doctor](agenc_cron_doctor.md)	 - Audit scheduled cron jobs for silent failure
 * [agenc cron enable](agenc_cron_enable.md)	 - Enable a cron job
 * [agenc cron history](agenc_cron_history.md)	 - Show run history for a cron job
 * [agenc cron logs](agenc_cron_logs.md)	 - View cron job logs

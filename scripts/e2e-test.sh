@@ -383,6 +383,49 @@ run_test "config cron rm rejects missing cron" \
     "${agenc_test}" config cron rm nonexistent
 
 echo ""
+echo "--- Cron doctor (agenc-inrf: crons must not fail silently) ---"
+# The test env deliberately skips launchd plist creation, so a configured cron
+# has no launchd job behind it. That is the same observable state as the
+# production failure this command exists to catch — launchd cannot spawn the
+# cron — which makes it a faithful fixture rather than a contrived one.
+
+run_test_output_contains "cron doctor reports all clear when no crons are configured" \
+    "All 0 enabled cron job\(s\) are delivering" \
+    "${agenc_test}" cron doctor
+
+run_test "config cron add for doctor tests" \
+    0 \
+    "${agenc_test}" config cron add doctor-cron --schedule="0 9 * * *" --prompt="doctor fixture"
+
+run_test "cron doctor exits nonzero when a cron cannot fire" \
+    2 \
+    "${agenc_test}" cron doctor
+
+run_test_output_has_no_ansi "cron doctor emits no ANSI" \
+    "doctor-cron" \
+    "${agenc_test}" cron doctor || true
+
+run_test "cron doctor --repair skips crons with no plist to reload" \
+    2 \
+    "${agenc_test}" cron doctor --repair
+
+run_test "cron doctor --notify posts a notification about the finding" \
+    2 \
+    "${agenc_test}" cron doctor --notify
+
+run_test_output_contains "the posted notification is visible to the user" \
+    "Cron not delivering: doctor-cron" \
+    "${agenc_test}" notification ls
+
+run_test_output_contains "a disabled cron is not audited" \
+    "All 0 enabled cron job\(s\) are delivering" \
+    env AGENC_E2E_DISABLED_CRON=1 sh -c '"$0" cron disable doctor-cron >/dev/null && "$0" cron doctor' "${agenc_test}"
+
+run_test "config cron rm removes doctor-cron" \
+    0 \
+    "${agenc_test}" config cron rm doctor-cron
+
+echo ""
 echo "--- Prime ---"
 run_test_output_contains "prime outputs quick reference" \
     "(agenc|AgenC|usage|Usage|command|Command)" \
