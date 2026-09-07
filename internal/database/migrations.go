@@ -75,6 +75,12 @@ const (
 
 	addNotificationsMissionIDColumnSQL = `ALTER TABLE notifications ADD COLUMN mission_id TEXT;`
 
+	createCronMonitorStateTableSQL = `CREATE TABLE IF NOT EXISTS cron_monitor_state (
+	cron_id            TEXT    PRIMARY KEY,
+	first_seen_at      TEXT    NOT NULL,
+	quiet_notified_at  TEXT
+);`
+
 	createWriteableCopyPausesTableSQL = `CREATE TABLE IF NOT EXISTS writeable_copy_pauses (
 	repo_name              TEXT    PRIMARY KEY,
 	paused_at              TEXT    NOT NULL,
@@ -674,6 +680,18 @@ func migrateAddNotificationsMissionID(conn *sql.DB) error {
 func migrateCreateWriteableCopyPausesTable(conn *sql.DB) error {
 	if _, err := conn.Exec(createWriteableCopyPausesTableSQL); err != nil {
 		return stacktrace.Propagate(err, "failed to create writeable_copy_pauses table")
+	}
+	return nil
+}
+
+// migrateCreateCronMonitorStateTable idempotently creates the
+// cron_monitor_state table, which holds the cron monitor's memory between
+// cycles: when each cron was first seen, and whether the user has already been
+// told it went quiet. A row exists for every cron the monitor currently watches
+// and is deleted when the cron is removed or disabled.
+func migrateCreateCronMonitorStateTable(conn *sql.DB) error {
+	if _, err := conn.Exec(createCronMonitorStateTableSQL); err != nil {
+		return stacktrace.Propagate(err, "failed to create cron_monitor_state table")
 	}
 	return nil
 }

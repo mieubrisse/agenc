@@ -76,6 +76,38 @@ run_test_output_contains() {
     passed=$((passed + 1))
 }
 
+# Polls a command until its output matches a pattern, or the deadline passes.
+# For behaviour a server background loop produces on its own schedule, where the
+# test cannot make the clock move and asserting immediately would only ever
+# assert "not yet".
+run_test_eventually_output_contains() {
+    local test_name="${1}"
+    shift
+    local expected_pattern="${1}"
+    shift
+    local timeout_seconds="${1}"
+    shift
+
+    total=$((total + 1))
+    printf "  %-50s " "${test_name}..."
+
+    local deadline=$((SECONDS + timeout_seconds))
+    local output=""
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        output=$("$@" 2>&1) || true
+        if echo "${output}" | grep -qE "${expected_pattern}"; then
+            echo "PASS"
+            passed=$((passed + 1))
+            return
+        fi
+        sleep 5
+    done
+
+    echo "FAIL (pattern never appeared within ${timeout_seconds}s: ${expected_pattern})"
+    echo "    Last output: ${output}" | head -5
+    failed=$((failed + 1))
+}
+
 # Run a command and accept any exit code <= 1 (i.e. it did not crash/segfault).
 # Useful for commands that require a server but should not panic without one.
 run_test_no_crash() {
@@ -381,6 +413,32 @@ run_test_output_contains "config cron ls is empty after rm" \
 run_test "config cron rm rejects missing cron" \
     1 \
     "${agenc_test}" config cron rm nonexistent
+
+echo ""
+echo "--- Cron quiet monitoring, part 1: plant the failure (agenc-inrf) ---"
+# The failure being induced: a cron that is configured, repeatedly due, and
+# produces no mission — the shape of the September 2026 outage, where launchd
+# fired every job on schedule and the spawn aborted before agenc ever ran, so
+# nothing was written anywhere. The test environment reproduces that state
+# honestly rather than by contrivance: it deliberately never registers plists,
+# so a cron here genuinely cannot fire.
+#
+# The schedule is every minute so the cron's own cadence — and therefore the two
+# skipped cycles the server waits for — is measured in minutes rather than days.
+# The assertion that the notice arrived is deliberately at the END of this
+# script, so the rest of the suite covers most of the waiting.
+
+run_test "a cron that will never fire is configured" \
+    0 \
+    "${agenc_test}" config cron add quiet-fixture --schedule="* * * * *" --prompt="never fires in the test env"
+
+# A cron created moments ago has its most recent expected fire in the past and
+# no run history. Reporting that would put a false note in front of the user
+# every time they add a cron, so the check measures from when the server first
+# saw it rather than from its schedule alone.
+run_test_output_contains "a just-created cron is not reported quiet" \
+    "No cron jobs have gone quiet" \
+    "${agenc_test}" cron health
 
 echo ""
 echo "--- Prime ---"
@@ -1699,6 +1757,49 @@ else
     echo "SKIP (no mission short ID available)"
     skipped=$((skipped + 1))
 fi
+
+echo ""
+echo "--- Cron quiet monitoring, part 2: the notice arrives (agenc-inrf) ---"
+# Closing the induction planted earlier: the cron has been due every minute and
+# has produced nothing, so the server's cron health loop should have noticed the
+# absence on its own and posted an informational notification naming it. Nothing
+# in this section triggers the check — the point is that it happens unprompted.
+
+run_test_eventually_output_contains "the quiet cron earns a notification unprompted" \
+    "quiet-fixture hasn't run in a while" \
+    300 \
+    "${agenc_test}" notification ls
+
+run_test_output_contains "cron health names the quiet cron" \
+    "quiet-fixture" \
+    "${agenc_test}" cron health
+
+run_test_output_contains "cron health says the user has been told" \
+    "Already mentioned in a notification" \
+    "${agenc_test}" cron health
+
+quiet_notification_id="$("${agenc_test}" notification ls 2>/dev/null | grep 'cron\.quiet' | awk '{print $1}' | head -1 || true)"
+if [ -n "${quiet_notification_id}" ]; then
+    run_test_output_contains "the notification reads as informational" \
+        "Heads up" \
+        "${agenc_test}" notification show "${quiet_notification_id}"
+
+    run_test_output_contains "the notification says how to look closer" \
+        "agenc cron health" \
+        "${agenc_test}" notification show "${quiet_notification_id}"
+else
+    total=$((total + 2))
+    failed=$((failed + 2))
+    echo "  the notification body checks...                   FAIL (no cron.quiet notification to read)"
+fi
+
+run_test_output_has_no_ansi "cron health emits no ANSI" \
+    "quiet-fixture" \
+    "${agenc_test}" cron health
+
+run_test "config cron rm removes the quiet fixture" \
+    0 \
+    "${agenc_test}" config cron rm quiet-fixture
 
 # `mission peers` and `mission search` are agent-facing and de-coloured by the
 # same change, but neither can be populated here: a peer row needs a live

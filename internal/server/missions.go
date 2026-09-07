@@ -579,7 +579,7 @@ func buildCronTriggeredNotification(missionRecord *database.Mission, req CreateM
 	if titleSubject == "" {
 		titleSubject = req.SourceID
 	}
-	title := sanitizeNotificationTitle("Cron triggered: " + titleSubject)
+	title := sanitizeNotificationLine("Cron triggered: " + titleSubject)
 
 	var bodyParts []string
 	if cronName != "" {

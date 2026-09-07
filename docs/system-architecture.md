@@ -107,11 +107,12 @@ Current endpoints:
 - `GET /stash` — list saved workspace stash files with metadata
 - `POST /stash/push` — snapshot all running missions and their tmux links, then stop them
 - `POST /stash/pop` — restore missions from a stash file, re-link into tmux sessions
+- `GET /crons/health` — report which enabled crons have stopped producing missions, plus when the cron health loop last ran. Read-only: it evaluates and returns, never notifying or recording
 
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 ### Background loops
 
-The server runs eleven concurrent background goroutines:
+The server runs twelve concurrent background goroutines:
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs on a fixed interval
@@ -188,6 +189,14 @@ The server runs eleven concurrent background goroutines:
 - On rebase conflict, non-FF push reject, auth failure, wrong branch, origin URL drift, missing path, or git corruption: atomically inserts a pause row in `writeable_copy_pauses` and a notification in `notifications`. The pause is checked at the start of every subsequent tick; the loop auto-resumes when `git status` is clean and HEAD has moved past `local_head_at_pause`
 - Notifications are append-only (only mutation: mark-as-read). Pauses are deleted on auto-resume; the linked notification stays in history
 - Per-writeable-copy fsnotify watchers are managed by `writeableCopyWatchers` (`internal/server/writeable_copies_watcher.go`): one watcher on the working tree (excluding `.git/`) and one on `.git/refs/remotes/origin/<default-branch>`. The latter triggers an existing-machinery library push-event refresh when the writeable copy successfully pushes to origin
+
+**12. Cron health loop** (`internal/server/cron_health_loop.go`)
+- Runs on a fixed 1-minute interval, after a startup delay that lets launchd replay any cron fires deferred across sleep
+- Per cycle: reads enabled crons from cached config, reads the latest `source=cron` mission per cron ID, and asks `internal/cronhealth` which crons have produced nothing for longer than twice their own scheduled cadence
+- Posts one `cron.quiet` notification naming every cron that has newly gone quiet — one note per cycle rather than one per cron, because the outage this loop exists for took six crons at once
+- Remembers what it has reported in `cron_monitor_state`, so a cron broken for a month is mentioned once; the record is cleared when the cron produces a mission again, and a later relapse earns a fresh note
+- Enriches each finding, best-effort, with launchd's account of the cron's last spawn (`launchctl print`). A failure to read it never suppresses or delays a finding, and it is skipped entirely under `AGENC_TEST_ENV=1` where plists are never created
+- Detects absence rather than catching failure: a cron whose launchd spawn aborts before `agenc` executes writes no log, creates no mission and posts no notification, so nothing else in the system observes it
 
 The file watcher, custom-title loop, auto-summary loop, and search indexer form a multi-layer session processing pipeline. The file watcher (layer 1) tracks file sizes. Consumers (layer 2) independently query for sessions where `known_file_size > their_offset` and process new content at their own cadence. The sessions table (layer 3) coordinates via four columns: `known_file_size` (nullable, written by file watcher), `last_custom_title_scan_offset` (custom-title loop), `last_auto_summary_scan_offset` (auto-summary loop), and `last_indexed_offset` (search indexer). Each consumer's output column and its offset are advanced together in a single atomic UPDATE — on failure the offset stays put and the session is naturally re-picked on the next cycle.
 
@@ -420,7 +429,9 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `tmux.go` — tmux window title reconciliation: idempotent convergence of tmux window names using the priority chain (custom_title > agenc_custom_title > auto_summary > repo name > short ID), with sole-pane guard. Prepends per-mission emoji (from config, or hardcoded 🤖 for adjutant / 🦀 for blank missions) with fixed-column-4 padding via `go-runewidth`
 - `sessions.go` — session HTTP handlers: list sessions by mission, update session fields (agenc_custom_title) with automatic title reconciliation
 - `notifications_handlers.go` — notifications CRUD endpoints (`POST /notifications`, `GET /notifications`, `GET /notifications/{id}`, `POST /notifications/{id}/read`, `GET /notifications/unread-count`); body-size cap. Cron-source missions auto-create a `cron.triggered` notification linked to the new mission via `MissionID`; failure to insert is logged and never fails the mission request
-- `notifications_helpers.go` — `sanitizeNotificationTitle` strips ANSI sequences and control characters from titles before persistence (defense-in-depth for cron names sourced from user-edited config)
+- `notifications_helpers.go` — `sanitizeNotificationLine` strips ANSI sequences and control characters from single-line user-sourced values before persistence (defense-in-depth for cron names and schedule expressions sourced from user-edited config)
+- `cron_health_loop.go` — cron health loop: gathers each enabled cron's schedule and latest mission, delegates the judgment to `internal/cronhealth`, posts a single `cron.quiet` notification naming the crons that newly went quiet, and maintains the `cron_monitor_state` record that keeps one quiet spell to one mention
+- `handle_cron_health.go` — cron health endpoint (`GET /crons/health`), read-only
 
 ### `internal/database/`
 
@@ -428,6 +439,7 @@ SQLite mission tracking with auto-migration.
 
 - `database.go` — `DB` struct (wraps `sql.DB` with max connections = 1 for SQLite), `Mission` struct, CRUD operations (`CreateMission`, `ListMissions`, `GetMission`, `ResolveMissionID`, `ArchiveMission`, `DeleteMission`), heartbeat updates, session name caching, generic source tracking (`source`, `source_id`, `source_metadata` columns), per-mission Claude CLI overrides (`claude_args`, a JSON object keyed by flag name). Idempotent migrations handle schema evolution.
 - `sessions.go` — `Session` struct and CRUD operations: `CreateSession`, `GetSession`, `ListSessions`, `ListSessionsByMission`, `GetActiveSession`, `UpdateSessionAgencCustomTitle`, `UpdateKnownFileSize`, `SessionsWithNullFileSize`, plus the split-loop query and atomic-update helpers — `SessionsNeedingCustomTitleUpdate` / `UpdateCustomTitleAndOffset` / `UpdateCustomTitleScanOffset` for the custom-title loop, and `SessionsNeedingAutoSummary` / `UpdateAutoSummaryAndOffset` / `UpdateAutoSummaryScanOffset` for the auto-summary loop. Each `*AndOffset` helper writes the output column and advances its scan offset in a single UPDATE so failure rolls back both. `GetActiveSession` returns the most recently updated session for a mission, used by tmux title reconciliation to determine the current display title.
+- `cron_monitor_state.go` — `CronMonitorState` struct and CRUD operations (`RecordCronFirstSeen`, `ListCronMonitorStates`, `SetCronQuietNotifiedAt`, `DeleteCronMonitorState`). Holds only what the cron health loop cannot re-derive: when a cron was first seen, and whether its current quiet spell has already been reported
 - `notifications.go` — `Notification` struct (with optional `MissionID` attach target) and CRUD operations (`CreateNotification`, `GetNotification`, `ListNotifications`, `MarkNotificationRead`, `CountUnreadNotifications`). Notifications are append-only — `read_at` is the only mutation. The `mission_id` column links a notification to a mission so the Notification Center picker can attach on `ENTER`.
 
 ### `internal/launchd/`
@@ -436,6 +448,13 @@ macOS launchd integration for cron scheduling.
 
 - `plist.go` — `Plist` struct and XML generation, `ParseCronExpression` (converts cron expressions to `StartCalendarInterval`), `CronToPlistFilename` (sanitizes cron names), `PlistDirpath` helper
 - `manager.go` — `Manager` wraps launchctl operations: `LoadPlist`, `UnloadPlist`, `IsLoaded`, `RemovePlist` (two-step: unload then delete), `ListAgencCronJobs`, `VerifyLaunchctlAvailable`
+- `job_status.go` — `JobStatus` and `GetJobStatus`, which parse `launchctl print` for what happened on a job's most recent spawn. A spawn that fails before the program executes is recorded only here — there is no stdout yet, no mission row and no notification — which is why the cron health loop reads it
+
+### `internal/cronhealth/`
+
+Decides whether a cron has stopped happening. Pure judgment with no I/O: the caller gathers the facts and this package rules on them, which is what makes the ruling testable without a launchd, a database or a clock.
+
+- `cronhealth.go` — `CronState` (what the caller gathers), `Finding` (one quiet cron), `Evaluate` (the ruling), `PreviousFireTime` and `estimateCadence`. Cadence is derived from the same `StartCalendarInterval` the syncer writes into the plist, so the monitor's notion of when a cron should fire cannot drift from what launchd was told; the longest gap across recent fires is used so an uneven schedule's own quiet stretch is not mistaken for silence. Reasoning behind the thresholds is recorded in `docs/design/cron-quiet-monitoring.md`
 
 ### `internal/tmux/`
 
@@ -762,5 +781,15 @@ Database Schema
 | Index | Columns | Description |
 |-------|---------|-------------|
 | `idx_sessions_mission_id` | `mission_id` | Enables efficient lookup of all sessions belonging to a mission |
+
+### `cron_monitor_state` table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `cron_id` | TEXT (PK) | UUID of the cron, matching `crons.<name>.id` in `config.yml` |
+| `first_seen_at` | TEXT | When the cron health loop first observed this cron enabled (RFC3339). The reference point for a cron that has never run, and what stops a cron created this afternoon from reading as overdue since this morning |
+| `quiet_notified_at` | TEXT | When the user was told this cron had gone quiet (RFC3339, nullable). NULL means the cron is not currently reported quiet; it is cleared when the cron produces a mission again so a later relapse earns a fresh note |
+
+Rows exist only for crons the monitor currently watches. A cron that is deleted or disabled has its row removed, which is what starts its clock fresh if it is later re-enabled.
 
 SQLite is opened with max connections = 1 (`SetMaxOpenConns(1)`) due to its single-writer limitation. Only the server process opens the database; the CLI and wrapper access data exclusively through the server's HTTP API. Migrations are idempotent and run on every database open.

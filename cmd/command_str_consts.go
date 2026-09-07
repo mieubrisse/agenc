@@ -95,6 +95,7 @@ const (
 	runCmdStr     = "run"
 	logsCmdStr    = "logs"
 	historyCmdStr = "history"
+	healthCmdStr  = "health"
 )
 
 // Centralized flag name strings for CLI flags. Use these constants in flag

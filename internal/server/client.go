@@ -467,6 +467,16 @@ func (c *Client) ListCrons() ([]CronInfo, error) {
 	return crons, nil
 }
 
+// GetCronHealth fetches the server's current picture of which crons have
+// stopped producing missions.
+func (c *Client) GetCronHealth() (*CronHealthResponse, error) {
+	var health CronHealthResponse
+	if err := c.Get("/crons/health", &health); err != nil {
+		return nil, err
+	}
+	return &health, nil
+}
+
 // CreateCron creates a new cron job via the server.
 func (c *Client) CreateCron(req CreateCronRequest) (*CronInfo, error) {
 	var result CronInfo

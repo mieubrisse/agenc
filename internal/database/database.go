@@ -48,6 +48,7 @@ func getMigrationSteps() []migrationStep {
 		{migrateCreateWriteableCopyPausesTable, "create writeable_copy_pauses table"},
 		{migrateAddNotificationsMissionID, "add mission_id column to notifications"},
 		{migrateAddClaudeArgs, "add claude_args column"},
+		{migrateCreateCronMonitorStateTable, "create cron_monitor_state table"},
 	}
 }
 

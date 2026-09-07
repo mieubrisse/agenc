@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -53,6 +54,11 @@ type Server struct {
 	// stashInProgress is set while a stash push or pop is running.
 	// Mutating mission endpoints return 503 while this is true.
 	stashInProgress atomic.Bool
+
+	// lastCronHealthCycleAt is when the cron health monitor last completed a
+	// pass. Written only by that loop; read by the cron health endpoint so the
+	// monitor's own liveness is visible rather than merely assumed.
+	lastCronHealthCycleAt atomic.Pointer[time.Time]
 
 	// loopHealth tracks the status of each background loop goroutine.
 	// Values are "running", "stopped", or "crashed".
@@ -227,6 +233,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("auto-summary", &wg, ctx, s.runAutoSummaryLoop)
 	go s.runLoop("search-indexer", &wg, ctx, s.runSearchIndexerLoop)
 	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
+	go s.runLoop("cron-health", &wg, ctx, s.runCronHealthLoop)
 
 	// Bootstrap writeable copies: clone if missing, install watchers, and
 	// enqueue an initial reconcile per copy. Subsequent config changes are
@@ -308,6 +315,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// Cron endpoints
 	mux.Handle("GET /crons", appHandler(s.requestLogger, s.handleListCrons))
+	mux.Handle("GET /crons/health", appHandler(s.requestLogger, s.handleGetCronHealth))
 	mux.Handle("POST /crons", appHandler(s.requestLogger, s.sleepGuard(s.handleCreateCron)))
 	mux.Handle("PATCH /crons/{name}", appHandler(s.requestLogger, s.handleUpdateCron))
 	mux.Handle("DELETE /crons/{name}", appHandler(s.requestLogger, s.handleDeleteCron))
