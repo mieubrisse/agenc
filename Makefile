@@ -20,6 +20,10 @@ endif
 
 LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
 
+# The check target uses `set -o pipefail`, which dash does not support. Linux
+# defaults /bin/sh to dash, so pin recipes to bash for macOS/Linux parity.
+SHELL := /bin/bash
+
 TEST_ENV_DIR := _test-env
 BUILD_DIR    := _build
 
