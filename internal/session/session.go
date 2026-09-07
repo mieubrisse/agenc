@@ -135,10 +135,16 @@ func TailJSONLFile(jsonlFilepath string, n int, w io.Writer) (int, error) {
 		return count, err
 	}
 
-	ring := make([]string, n)
+	// The ring grows to the requested size rather than being allocated up
+	// front, so a mistyped line count cannot reserve gigabytes for a small file.
+	ring := make([]string, 0, ringSeedCapacity(n))
 	total := 0
 	err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
-		ring[total%n] = string(line)
+		if len(ring) < n {
+			ring = append(ring, string(line))
+		} else {
+			ring[total%n] = string(line)
+		}
 		total++
 		return nil
 	})

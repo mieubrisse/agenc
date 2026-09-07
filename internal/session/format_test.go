@@ -117,7 +117,7 @@ func TestFormatToolCall(t *testing.T) {
 	}
 }
 
-func TestFormatConversation(t *testing.T) {
+func TestFormatTranscriptFile(t *testing.T) {
 	claudeTmpDir := "/tmp/claude"
 	if err := os.MkdirAll(claudeTmpDir, 0755); err != nil {
 		t.Fatalf("failed to create /tmp/claude: %v", err)
@@ -306,13 +306,13 @@ func TestFormatConversation(t *testing.T) {
 			}
 
 			var buf bytes.Buffer
-			if err := FormatConversation(jsonlFilepath, tt.n, &buf); err != nil {
-				t.Fatalf("FormatConversation() error: %v", err)
+			if err := FormatTranscriptFile(jsonlFilepath, FormatOptions{TailLines: tt.n}, &buf); err != nil {
+				t.Fatalf("FormatTranscriptFile() error: %v", err)
 			}
 
 			got := buf.String()
 			if got != tt.want {
-				t.Errorf("FormatConversation() =\n%q\nwant:\n%q", got, tt.want)
+				t.Errorf("FormatTranscriptFile() =\n%q\nwant:\n%q", got, tt.want)
 			}
 		})
 	}
@@ -320,8 +320,8 @@ func TestFormatConversation(t *testing.T) {
 
 func TestFormatConversationFileError(t *testing.T) {
 	var buf bytes.Buffer
-	err := FormatConversation("/nonexistent/path/session.jsonl", 0, &buf)
+	err := FormatTranscriptFile("/nonexistent/path/session.jsonl", FormatOptions{}, &buf)
 	if err == nil {
-		t.Error("FormatConversation() should return error for nonexistent file")
+		t.Error("FormatTranscriptFile() should return error for nonexistent file")
 	}
 }

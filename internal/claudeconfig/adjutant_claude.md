@@ -150,6 +150,50 @@ agenc cron ls
 
 **"How do I test a cron before scheduling it?"** — Use `agenc cron run <name>` to trigger it manually. This creates a mission with the same prompt and repo, tracked in history alongside scheduled runs.
 
+Reading Transcripts
+-------------------
+
+`agenc mission print <id>` prints a mission's most recent session transcript;
+`agenc session print <session-id>` prints a specific session. Both accept
+`--tail N`, `--all` and `--format=jsonl`.
+
+**A session is a tree of transcripts, not one file.** Every subagent a session
+spawns writes its own transcript, and those subagents spawn subagents. Printing
+the session alone shows the spawn calls and their one-line results, but none of
+the work the subagents did. The flags that reach the rest:
+
+```
+# List the session's subagent transcripts: type, model, message and tool counts
+agenc session print <id> --agents
+
+# Print one subagent's transcript (agent ID, or any unique prefix of it)
+agenc session print <id> --agent aa8d6202
+
+# Inline every subagent's transcript at the point it was spawned
+agenc session print <id> --all --expand-agents
+```
+
+Both commands print a note on stderr when subagent transcripts exist but were
+not shown, so a plain `--all` never looks complete when it is not.
+
+**Missions accumulate sessions.** A reload, a `/clear` or a fork each start a
+new one. `agenc mission print` shows the most recent and says on stderr how many
+others exist; `agenc session ls --mission <id>` lists them, and
+`agenc mission print <id> --session <session-id>` prints a specific one. A
+session forked from another opens with a `[FORK]` line naming its source.
+
+**What the default render includes beyond the conversation:** compaction
+boundaries (with how many tokens were dropped), the compaction summary labelled
+as such rather than as a user message, message origin (`USER human` vs
+`USER peer:<name>` vs `USER task-notification`), instructions queued while a
+turn was running, slash commands, API errors, killed agents, and failing hooks.
+`--verbose` adds thinking blocks, successful tool results, attachments, turn
+timings and clean hook runs.
+
+**Answering "did the user actually say that?"** — look for `USER human` in the
+transcript. Messages from peer agents and background-task notifications are
+written as user records too, and are indistinguishable without the origin tag.
+
 Sleep Mode
 ----------
 

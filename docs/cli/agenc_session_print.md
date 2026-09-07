@@ -14,12 +14,21 @@ raw JSONL output.
 Outputs the last 20 lines by default. Use --tail to change the line count,
 or --all to print the entire session.
 
+A session is not a single transcript: every subagent it spawns writes its own,
+and those subagents spawn subagents. --agents lists that tree, --agent prints
+one subagent's transcript, and --expand-agents inlines them all at their spawn
+sites. --verbose additionally renders hooks, turn timings, attachments,
+thinking blocks and successful tool results.
+
 Example:
   agenc session print 18749fb5
   agenc session print 18749fb5-02ba-4b19-b989-4e18fbf8ea92
   agenc session print 18749fb5 --format=jsonl
   agenc session print 18749fb5 --tail 50
   agenc session print 18749fb5 --all
+  agenc session print 18749fb5 --agents
+  agenc session print 18749fb5 --agent aa8d6202
+  agenc session print 18749fb5 --all --expand-agents
 
 ```
 agenc session print <session-id> [flags]
@@ -28,10 +37,14 @@ agenc session print <session-id> [flags]
 ### Options
 
 ```
+      --agent string    print a subagent's transcript, by agent ID or unique ID prefix
+      --agents          list the session's subagent transcripts instead of printing a conversation
       --all             print entire session
+      --expand-agents   inline each subagent's transcript at the point it was spawned
       --format string   output format: text or jsonl (default "text")
   -h, --help            help for print
       --tail int        number of lines to print from end of session (default 20)
+      --verbose         render every record class: hooks, turn timings, attachments, thinking, successful tool results
 ```
 
 ### SEE ALSO

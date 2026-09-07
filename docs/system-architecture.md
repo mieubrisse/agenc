@@ -295,8 +295,9 @@ Directory Structure
 ├── AGENTS.md                     # Agent definitions
 ├── cmd/                          # CLI commands (Cobra); see docs/cli/ for full reference
 │   ├── session.go                # `session` command group
-│   ├── session_print.go          # `session print` — print raw JSONL transcript for a session
-│   ├── mission_print.go          # `mission print` — print JSONL for a mission's current session
+│   ├── session_print.go          # `session print` — print a session's transcript
+│   ├── mission_print.go          # `mission print` — print a mission's session transcript
+│   ├── transcript_print.go       # Shared transcript print path: agent tree listing, subagent selection, expansion
 │   ├── gendocs/                  # Build-time CLI doc generator
 │   └── genprime/                 # Build-time CLI quick reference generator (agenc prime)
 ├── internal/
@@ -308,7 +309,7 @@ Directory Structure
 │   ├── tmux/                     # Tmux keybindings generation
 │   ├── wrapper/                  # Claude child process management
 │   ├── history/                  # Prompt extraction from history.jsonl
-│   ├── session/                  # Session name resolution and transcript access
+│   ├── session/                  # Session name resolution, transcript tree discovery and rendering
 │   ├── version/                  # Build-time version string
 │   └── tableprinter/             # ANSI-aware table formatting
 ├── docs/                         # Documentation
@@ -475,13 +476,48 @@ Per-mission Claude child process management.
 
 - `internal/version/` — single `Version` string set via ldflags at build time (`version.go`)
 - `internal/history/` — `FindFirstPrompt` extracts the first user prompt from Claude's `history.jsonl` for a given mission UUID (`history.go`)
-- `internal/session/` — `FindSessionName` resolves a mission's session name from Claude metadata (priority: custom-title > sessions-index.json summary > JSONL summary) (`session.go`), `FindCustomTitle` returns only the /rename custom title (`session.go`), `FindSessionJSONLPath` locates the JSONL transcript file for a session UUID by searching all project directories under `~/.claude/projects/` (`session.go`), `ListSessionIDs` returns all session UUIDs for a mission sorted by modification time (most recent first) by scanning the mission's project directory for `.jsonl` files (`session.go`), `TailJSONLFile` reads the last N lines from a JSONL file and writes them to a given writer, or writes the entire file when N is zero (`session.go`), `ExtractRecentUserMessages` extracts user message contents from session JSONL for AI summarization (`conversation.go`)
+- `internal/session/` — `FindSessionName` resolves a mission's session name from Claude metadata (priority: custom-title > sessions-index.json summary > JSONL summary) (`session.go`), `FindCustomTitle` returns only the /rename custom title (`session.go`), `FindSessionJSONLPath` locates the JSONL transcript file for a session UUID by searching all project directories under `~/.claude/projects/` (`session.go`), `ListSessionIDs` returns all session UUIDs for a mission sorted by modification time (most recent first) by scanning the mission's project directory for `.jsonl` files (`session.go`), `TailJSONLFile` reads the last N lines from a JSONL file and writes them to a given writer, or writes the entire file when N is zero (`session.go`), `ExtractRecentUserMessages` extracts user message contents from session JSONL for AI summarization (`conversation.go`), `ScanJSONLLines` iterates a JSONL file with no per-line size ceiling (`jsonl.go`), `DiscoverSessionTranscripts` / `DiscoverTranscriptsForFile` build a session's transcript tree from the main JSONL plus its subagent sidecar directory, `ResolveAgent` selects one subagent by ID prefix, and `SummarizeTranscript` counts a transcript's records (`transcript.go`), `FormatTranscript` / `FormatTranscriptFile` / `FormatConversation` render a transcript to human-readable text under `FormatOptions` (`format.go`), with the non-conversation record classes rendered by `format_events.go`
 - `internal/sleep/` — sleep mode types and validation (`sleep.go`). Defines `WindowDef` (days + start/end times) and validation functions (`ValidateDays`, `ValidateTime`, `ValidateWindow`). Used by `internal/config/` for config validation and `internal/server/` for the sleep guard middleware.
 - `internal/tableprinter/` — ANSI-aware table formatting using `rodaine/table` with `runewidth` for wide character support (`tableprinter.go`)
 
 
 Key Architectural Patterns
 --------------------------
+
+### Session transcripts are a tree, not a file
+
+A Claude session writes more than one transcript. The main conversation is
+`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`, and every subagent the
+session spawns gets its own transcript beside it, in
+`~/.claude/projects/<encoded-cwd>/<session-id>/subagents/`, written as a pair:
+`agent-<agent-id>.jsonl` and a sidecar `agent-<agent-id>.meta.json`. Subagents
+nest — a subagent can spawn subagents — but the directory stays flat, so the
+tree is reconstructed from each sidecar's `parentAgentId` rather than from the
+filesystem layout.
+
+`internal/session/transcript.go` owns that reconstruction. Only the main
+transcript is required; everything below it degrades rather than disappears. A
+sidecar that is missing, unreadable, names a parent whose transcript is not on
+disk, or forms a cycle attaches its transcript to the session root instead of
+dropping it, because a transcript that exists on disk must be reachable in the
+tree.
+
+Linking a subagent back to the call that spawned it has two paths. The direct
+one is the sidecar's `toolUseId`, matched against the spawning `tool_use` block.
+A *named* agent gets no `toolUseId` and its spawn's tool result reports
+`status: "teammate_spawned"` with no agent ID, so the sidecar's `name` is the
+only link; reused names are disambiguated by start time, and an ambiguous case
+is left unlinked rather than attributed to the wrong call. Anything still
+unlinked is listed explicitly at the end of an expanded render.
+
+A transcript also carries record types beyond `user` and `assistant` that change
+how the conversation reads: `system/compact_boundary` (everything above it was
+dropped from the model's context), a `forkedFrom` reference on every record of a
+forked session, `queue-operation` records holding instructions typed mid-turn,
+and an `origin` field distinguishing a human turn from a peer agent's message or
+a background-task notification. `internal/session/format_events.go` splits these
+by whether a reader who cannot see them would misread the conversation:
+structural events render by default, bookkeeping renders under `--verbose`.
 
 ### Operational settings (State Y)
 
