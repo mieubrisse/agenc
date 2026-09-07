@@ -671,6 +671,7 @@ else
     total=$((total + 1))
     printf "  %-50s " "search-fzf finds mission by short ID..."
     echo "SKIP (could not create test mission)"
+    skipped=$((skipped + 1))
 fi
 
 # Regression: the attach picker reload command (search-fzf) still renders rows
@@ -1164,6 +1165,7 @@ PY
         # Environment could not launch Claude (no binary/token, or run failed).
         # Visible named skip — never a silent green.
         echo "SKIP: --settings union firing check — Claude did not launch in this env"
+        skipped=$((skipped + 1))
     else
         echo "FAIL (union did not fire: user_sentinel=$([ -f "${statey_union_user_sentinel}" ] && echo yes || echo no), settings_sentinel=$([ -f "${statey_union_settings_sentinel}" ] && echo yes || echo no))"
         failed=$((failed + 1))
@@ -1500,7 +1502,7 @@ else
     total=$((total + 1))
     printf "  %-50s " "FD count stays under 1000 (agenc-ku7h)"
     echo "SKIP (server PID file not found at ${server_pid_file})"
-    passed=$((passed + 1)) # skip counts as pass — no server means no regression
+    skipped=$((skipped + 1))
 fi
 
 # Clean up the writeable-copy config entry and the synthetic dir.
@@ -1537,7 +1539,7 @@ if [ -z "${detach_mission_pane}" ]; then
     total=$((total + 1))
     printf "  %-50s " "detach unlinks a window in another session..."
     echo "SKIP (could not create a mission with a tmux pane)"
-    passed=$((passed + 1))
+    skipped=$((skipped + 1))
 else
     detach_pool_session="agenc-${detach_namespace}-pool"
     detach_host_session="agenc-${detach_namespace}-e2e-host"
@@ -1940,6 +1942,18 @@ else
     echo "  E2E Results: ${passed}/${total} passed, ${failed} failed"
 fi
 echo "=========================================="
+
+# Counter coherence: every test that incremented 'total' must land in exactly
+# one outcome bucket. A SKIP (or any outcome) path that forgets its counter
+# silently inflates the denominator — the exact bug behind bead agenc-uhie —
+# so bookkeeping drift fails the suite loudly instead.
+accounted=$((passed + failed + skipped))
+if [ "${accounted}" -ne "${total}" ]; then
+    echo ""
+    echo "COUNTER BUG: ${passed} passed + ${failed} failed + ${skipped} skipped = ${accounted}, but total is ${total}."
+    echo "Some test path updated 'total' without updating exactly one outcome counter (or vice versa)."
+    exit 1
+fi
 
 if [ "${failed}" -gt 0 ]; then
     exit 1
