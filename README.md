@@ -550,17 +550,21 @@ Local Development
 ### Prerequisites
 
 - **Go** (version specified in `go.mod`)
-- **golangci-lint**, **govulncheck**, and **deadcode** (see below)
+- **golangci-lint** and **deadcode** (see below)
 
 ### Install development tools
 
 ```bash
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 go install golang.org/x/tools/cmd/deadcode@v0.43.0
 ```
 
-These are the same versions pinned in CI. `govulncheck` and `deadcode` are official Go team tools from the `golang.org/x/` extended repositories.
+These are the same versions pinned in CI. `deadcode` is an official Go team tool
+from the `golang.org/x/` extended repositories.
+
+`govulncheck` is not in that list because nothing in the build currently invokes
+it — it was dropped from `make check` in April 2026 and the docs did not follow.
+Wiring the vulnerability scan back up is tracked in `agenc-2x6f`.
 
 ### Build
 
@@ -568,7 +572,7 @@ These are the same versions pinned in CI. `govulncheck` and `deadcode` are offic
 make build
 ```
 
-This runs code generation, quality checks (formatting, vet, lint, vulnerability scan, dead code analysis, tests with race detection and coverage), and compiles the binary to `_build/agenc`.
+This runs code generation, quality checks (formatting, vet, lint, dead code analysis, tests with race detection and coverage), and compiles the binary to `_build/agenc`.
 
 ### Quality checks only
 
