@@ -1,6 +1,7 @@
 package mission
 
 import (
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +19,10 @@ import (
 // The per-mission claude config directory is built by the wrapper on every
 // Claude spawn, so this function does not pre-build it.
 //
+// The logger receives copy-degradation warnings from CopyRepo.
+//
 // Returns the mission root directory path (not the agent/ subdirectory).
-func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string, gitRepoSource string) (string, error) {
+func CreateMissionDir(logger *log.Logger, agencDirpath string, missionID string, gitRepoName string, gitRepoSource string) (string, error) {
 	missionDirpath := config.GetMissionDirpath(agencDirpath, missionID)
 	agentDirpath := config.GetMissionAgentDirpath(agencDirpath, missionID)
 
@@ -29,7 +32,7 @@ func CreateMissionDir(agencDirpath string, missionID string, gitRepoName string,
 
 	if gitRepoSource != "" {
 		// Copy the repo directly as agent/ (CopyRepo creates the destination)
-		if err := CopyRepo(gitRepoSource, agentDirpath); err != nil {
+		if err := CopyRepo(logger, gitRepoSource, agentDirpath); err != nil {
 			return "", stacktrace.Propagate(err, "failed to copy git repo into agent directory")
 		}
 	} else {

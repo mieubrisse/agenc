@@ -472,6 +472,45 @@ run_test "repo rm cleans up description-test repo" \
     "${agenc_test}" repo rm github.com/mieubrisse/stacktrace
 
 echo ""
+echo "--- Repo-backed mission creation (requires server + network) ---"
+# Every other mission test uses --blank, which skips CopyRepo entirely — this
+# section is the only end-to-end coverage of the library-repo -> agent/ copy
+# path (APFS clones on macOS, rsync fallback).
+run_test "repo add for CopyRepo test" \
+    0 \
+    "${agenc_test}" repo add mieubrisse/stacktrace
+
+copy_mission_output=$("${agenc_test}" mission new mieubrisse/stacktrace --headless --no-focus 2>&1) || true
+copy_mission_short_id=$(echo "${copy_mission_output}" | grep -oE '[0-9a-f]{8}' | head -1)
+
+total=$((total + 1))
+printf "  %-50s " "repo-backed mission gets the full repo copy..."
+if [ -z "${copy_mission_short_id}" ]; then
+    echo "FAIL (could not create repo-backed mission)"
+    echo "    Output: ${copy_mission_output}" | head -5
+    failed=$((failed + 1))
+else
+    copy_mission_dirpath=$("${agenc_test}" mission inspect "${copy_mission_short_id}" --dir)
+    copy_agent_dirpath="${copy_mission_dirpath}/agent"
+    library_repo_dirpath="${repo_dirpath}/_test-env/repos/github.com/mieubrisse/stacktrace"
+    # Same HEAD commit resolvable in both places proves the .git directory
+    # arrived intact and complete, whichever copy backend ran.
+    library_head=$(git -C "${library_repo_dirpath}" rev-parse HEAD 2>/dev/null || echo "library-head-unreadable")
+    mission_head=$(git -C "${copy_agent_dirpath}" rev-parse HEAD 2>/dev/null || echo "mission-head-unreadable")
+    if [ "${library_head}" = "${mission_head}" ] && [ "${library_head}" != "library-head-unreadable" ]; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (library HEAD '${library_head}' vs mission HEAD '${mission_head}')"
+        failed=$((failed + 1))
+    fi
+fi
+
+run_test "repo rm cleans up CopyRepo-test repo" \
+    0 \
+    "${agenc_test}" repo rm github.com/mieubrisse/stacktrace
+
+echo ""
 echo "--- Mission commands (requires server) ---"
 run_test_no_crash "mission ls does not crash" \
     "${agenc_test}" mission ls
