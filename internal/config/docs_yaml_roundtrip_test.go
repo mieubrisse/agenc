@@ -103,5 +103,24 @@ func requireYAMLMatchesConfigSchema(t *testing.T, yamlSnippet string) {
 			err,
 			yamlSnippet,
 		)
+		return
+	}
+
+	// Matching the schema only proves the example's keys exist. A schedule the
+	// CLI would reject still reads as a working example, so the values that have
+	// a validator get run through it. Examples that omit the schedule are
+	// documenting some other key and are left alone.
+	for cronName, cronConfig := range cfg.Crons {
+		if cronConfig.Schedule == "" {
+			continue
+		}
+		if err := ValidateCronSchedule(cronConfig.Schedule); err != nil {
+			t.Errorf(
+				"The '%v' cron in this config.yml example is scheduled '%v', which agenc rejects: %v",
+				cronName,
+				cronConfig.Schedule,
+				err,
+			)
+		}
 	}
 }

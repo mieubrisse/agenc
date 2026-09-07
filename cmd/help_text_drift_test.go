@@ -43,12 +43,14 @@ var externalToolFlagNames = map[string]bool{
 func TestHelpTextFlagReferencesExist(t *testing.T) {
 	requireFlagLookupWorks(t)
 
+	assertedFlagReferenceCount := 0
 	forEachCommand(GetRootCmd(), func(cmd *cobra.Command) {
 		t.Run(cmd.CommandPath(), func(t *testing.T) {
 			for _, referencedFlagName := range findFlagReferences(helpTextOf(cmd)) {
 				if externalToolFlagNames[referencedFlagName] {
 					continue
 				}
+				assertedFlagReferenceCount++
 				if isFlagRegisteredAnywhere(GetRootCmd(), referencedFlagName) {
 					continue
 				}
@@ -60,6 +62,10 @@ func TestHelpTextFlagReferencesExist(t *testing.T) {
 			}
 		})
 	})
+
+	if assertedFlagReferenceCount == 0 {
+		t.Fatal("Found no flag references to check in any command's help text; either the help text stopped naming flags or findFlagReferences stopped finding them, and this test is now inspecting nothing")
+	}
 }
 
 // handWrittenDocRelFilepaths are the prose docs that name AgenC flags without
@@ -81,6 +87,7 @@ var handWrittenDocRelFilepaths = []string{
 func TestHandWrittenDocFlagReferencesExist(t *testing.T) {
 	requireFlagLookupWorks(t)
 
+	assertedFlagReferenceCount := 0
 	for _, docRelFilepath := range handWrittenDocRelFilepaths {
 		t.Run(docRelFilepath, func(t *testing.T) {
 			docContent, err := os.ReadFile(docRelFilepath)
@@ -98,6 +105,7 @@ func TestHandWrittenDocFlagReferencesExist(t *testing.T) {
 					if externalToolFlagNames[referencedFlagName] {
 						continue
 					}
+					assertedFlagReferenceCount++
 					if isFlagRegisteredAnywhere(GetRootCmd(), referencedFlagName) {
 						continue
 					}
@@ -111,6 +119,14 @@ func TestHandWrittenDocFlagReferencesExist(t *testing.T) {
 				}
 			}
 		})
+	}
+
+	if assertedFlagReferenceCount == 0 {
+		t.Fatalf(
+			"Found no flag references to check across %v; either those docs stopped naming flags on %v command lines or the scan stopped finding them, and this test is now inspecting nothing",
+			handWrittenDocRelFilepaths,
+			agencCmdStr,
+		)
 	}
 }
 
@@ -137,7 +153,9 @@ func TestHelpTextYAMLExamplesMatchSchema(t *testing.T) {
 						err,
 						example,
 					)
+					continue
 				}
+				requireExampleCronSchedulesAreValid(t, cmd.CommandPath()+" help text", cfg)
 			}
 		})
 	})
@@ -172,6 +190,31 @@ func TestHelpTextYAMLExamplesUseTheMarker(t *testing.T) {
 			)
 		}
 	})
+}
+
+// requireExampleCronSchedulesAreValid runs every cron schedule in a documented
+// config.yml example through the same validator the CLI uses. Matching the schema
+// only proves the example's keys exist; a schedule VALUE that agenc rejects still
+// reads as a working example, which is the same "the docs promise something
+// impossible" failure one field over. Examples that omit the schedule are
+// documenting some other key and are left alone.
+func requireExampleCronSchedulesAreValid(t *testing.T, exampleSource string, cfg config.AgencConfig) {
+	t.Helper()
+
+	for cronName, cronConfig := range cfg.Crons {
+		if cronConfig.Schedule == "" {
+			continue
+		}
+		if err := config.ValidateCronSchedule(cronConfig.Schedule); err != nil {
+			t.Errorf(
+				"The '%v' cron in the config.yml example in %v is scheduled '%v', which agenc rejects: %v",
+				cronName,
+				exampleSource,
+				cronConfig.Schedule,
+				err,
+			)
+		}
+	}
 }
 
 // isFlagRegisteredAnywhere reports whether any command in the tree registers a

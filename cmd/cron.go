@@ -25,7 +25,7 @@ to clone into the workspace.
       enabled: true
 
     weekly-cleanup:
-      schedule: "0 0 * * SUN"
+      schedule: "0 0 * * 0"
       prompt: "Clean up old temporary files"
 
 ALIASES:
