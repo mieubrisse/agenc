@@ -43,6 +43,42 @@ run_test() {
     passed=$((passed + 1))
 }
 
+# Asserts a command fails AND that its message names the reason. Checking the
+# exit code alone cannot tell "rejected the flag combination" from "crashed for
+# some other reason", and both exit non-zero.
+# Every helper passes the pattern after -e: a pattern that begins with "--"
+# is otherwise read by grep as an option, and every such test then fails
+# with "unrecognized option" against output that matched. It bit twice.
+run_test_error_contains() {
+    local test_name="${1}"
+    shift
+    local expected_pattern="${1}"
+    shift
+
+    total=$((total + 1))
+    printf "  %-50s " "${test_name}..."
+
+    local output
+    local actual_exit=0
+    output=$("$@" 2>&1) || actual_exit=$?
+
+    if [ "${actual_exit}" -eq 0 ]; then
+        echo "FAIL (expected a non-zero exit)"
+        failed=$((failed + 1))
+        return
+    fi
+
+    if ! echo "${output}" | grep -qE -e "${expected_pattern}"; then
+        echo "FAIL (error did not match '${expected_pattern}')"
+        echo "    Output: ${output}" | head -5
+        failed=$((failed + 1))
+        return
+    fi
+
+    echo "PASS"
+    passed=$((passed + 1))
+}
+
 run_test_output_contains() {
     local test_name="${1}"
     shift
@@ -65,7 +101,7 @@ run_test_output_contains() {
         return
     fi
 
-    if ! echo "${output}" | grep -qE "${expected_pattern}"; then
+    if ! echo "${output}" | grep -qE -e "${expected_pattern}"; then
         echo "FAIL (output missing pattern: ${expected_pattern})"
         echo "    Output: ${output}" | head -5
         failed=$((failed + 1))
@@ -1743,6 +1779,291 @@ else
 fi
 
 echo ""
+echo "--- Transcript observability flags (agenc-txob) ---"
+
+# A Claude session is a tree of transcripts: the main conversation plus one
+# JSONL per subagent it spawned, nested arbitrarily deep. `session print` and
+# `mission print` reach that tree through --agents / --agent / --expand-agents.
+#
+# Two things are covered below. First the CLI contract: flag validation runs
+# before any server call or file read, so a bad combination reports itself
+# rather than failing later as a lookup error. Then the rendering itself,
+# against a transcript tree synthesized on disk.
+
+run_test_error_contains "session print rejects --agents with --agent" \
+    "mutually exclusive" \
+    "${agenc_test}" session print deadbeef --agents --agent aa8d6202
+
+run_test_error_contains "session print rejects --agents with --expand-agents" \
+    "mutually exclusive" \
+    "${agenc_test}" session print deadbeef --agents --expand-agents
+
+run_test_error_contains "session print rejects an unknown --format" \
+    "invalid [-][-]format" \
+    "${agenc_test}" session print deadbeef --format=yaml
+
+run_test_error_contains "session print rejects a non-positive --tail" \
+    "must be positive" \
+    "${agenc_test}" session print deadbeef --tail 0
+
+run_test_error_contains "mission print rejects --agents with --agent" \
+    "mutually exclusive" \
+    "${agenc_test}" mission print deadbeef --agents --agent aa8d6202
+
+run_test_error_contains "mission print rejects an unknown --format" \
+    "invalid [-][-]format" \
+    "${agenc_test}" mission print deadbeef --format=yaml
+
+run_test_output_contains "session print help documents --agents" \
+    "[-][-]agents " \
+    "${agenc_test}" session print --help
+
+run_test_output_contains "session print help documents --agent" \
+    "[-][-]agent string" \
+    "${agenc_test}" session print --help
+
+run_test_output_contains "session print help documents --expand-agents" \
+    "[-][-]expand-agents" \
+    "${agenc_test}" session print --help
+
+run_test_output_contains "session print help documents --verbose" \
+    "[-][-]verbose" \
+    "${agenc_test}" session print --help
+
+run_test_output_contains "mission print help documents --session" \
+    "[-][-]session string" \
+    "${agenc_test}" mission print --help
+
+run_test_output_contains "mission print help documents --agents" \
+    "[-][-]agents " \
+    "${agenc_test}" mission print --help
+
+
+# --- Rendering a real transcript tree -------------------------------------
+#
+# Claude writes transcripts to $HOME/.claude/projects/<agent-dir-with-slashes-
+# and-dots-turned-to-hyphens>/. That path is HOME-relative, and agenc reads it
+# through os.UserHomeDir(), which honours $HOME — while AGENC_DIRPATH (which
+# owns the database and the server socket) is a separate variable the wrapper
+# sets. So a throwaway HOME redirects transcript lookup and nothing else, and
+# the developer's real ~/.claude is never touched.
+#
+# `mission print` without --session resolves its file straight off the
+# filesystem (session.FindActiveJSONLPath), so no database row is needed for the
+# session. `session print` is the wrong door here: it resolves the session ID
+# through the server, which requires a row.
+#
+# The server is already running by this point, started under the real HOME, so
+# the fake HOME below is never inherited by a server start.
+
+txob_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
+txob_full_id=""
+if [ -n "${txob_short_id}" ]; then
+    txob_full_id=$("${agenc_test}" mission inspect "${txob_short_id}" 2>/dev/null | awk '/^Full ID:/{print $3; exit}')
+fi
+
+if [ -z "${txob_full_id}" ]; then
+    total=$((total + 1))
+    printf "  %-50s " "transcript rendering fixture..."
+    echo "SKIP (could not create a mission to hang a transcript off)"
+    skipped=$((skipped + 1))
+else
+    # Resolve the same way the agenc-test wrapper does, so the encoded project
+    # directory matches what the binary computes.
+    txob_agenc_dirpath=$(cd "${repo_dirpath}/_test-env" && pwd)
+    txob_agent_dirpath="${txob_agenc_dirpath}/missions/${txob_full_id}/agent"
+    txob_project=$(printf '%s' "${txob_agent_dirpath}" | tr '/.' '--')
+    txob_session="11111111-2222-3333-4444-555555555555"
+    txob_home=$(mktemp -d)
+    txob_projdir="${txob_home}/.claude/projects/${txob_project}"
+    mkdir -p "${txob_projdir}/${txob_session}/subagents"
+
+    # A session that: was forked from another, spawned a subagent, was
+    # compacted, and had an instruction queued mid-turn. The fork record comes
+    # first so that a tailed render has to scan past the window to find it.
+    cat > "${txob_projdir}/${txob_session}.jsonl" <<'TXOB_MAIN'
+{"type":"user","uuid":"m1","timestamp":"2026-01-01T00:00:00.000Z","forkedFrom":{"sessionId":"aaaaaaaa-1111-2222-3333-444444444444","messageUuid":"m1"},"origin":{"kind":"human"},"message":{"role":"user","content":"MAIN HUMAN TURN"}}
+{"type":"assistant","uuid":"m2","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_e2e","name":"Agent","input":{"description":"e2e scout","subagent_type":"Explore"}}]}}
+{"type":"user","uuid":"m3","timestamp":"2026-01-01T00:00:30.000Z","toolUseResult":{"status":"completed","agentId":"ae2e0001","agentType":"Explore","totalDurationMs":29000,"totalToolUseCount":4},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_e2e","content":"ok"}]}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-01T00:00:40.000Z","content":"QUEUED MID TURN"}
+{"type":"system","subtype":"compact_boundary","uuid":"m4","timestamp":"2026-01-01T00:00:50.000Z","compactMetadata":{"trigger":"manual","preTokens":354559,"postTokens":26757}}
+{"type":"assistant","uuid":"m5","timestamp":"2026-01-01T00:01:00.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"E2E THINKING BLOCK"},{"type":"text","text":"MAIN ASSISTANT REPLY"}]}}
+TXOB_MAIN
+
+    cat > "${txob_projdir}/${txob_session}/subagents/agent-ae2e0001.jsonl" <<'TXOB_AGENT'
+{"type":"user","uuid":"s1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"user","content":"SUBAGENT PROMPT"}}
+{"type":"assistant","uuid":"s2","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"assistant","content":[{"type":"text","text":"SUBAGENT ANSWER"}]}}
+TXOB_AGENT
+
+    printf '%s' '{"agentType":"Explore","description":"e2e scout","toolUseId":"toolu_e2e","spawnDepth":1,"model":"haiku"}' \
+        > "${txob_projdir}/${txob_session}/subagents/agent-ae2e0001.meta.json"
+
+    # A workflow run: its agents live one directory down, its manifest beside
+    # the subagents directory, and its spawn is linked through the task ID the
+    # Workflow tool's result reported. This layout held 55% of the subagent
+    # transcripts on the machine this was written on and was invisible before.
+    txob_run="wf_e2e00001-abc"
+    mkdir -p "${txob_projdir}/${txob_session}/subagents/workflows/${txob_run}" "${txob_projdir}/${txob_session}/workflows"
+    cat >> "${txob_projdir}/${txob_session}.jsonl" <<'TXOB_WF'
+{"type":"assistant","uuid":"m6","timestamp":"2026-01-01T00:02:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_wf","name":"Workflow","input":{"scriptPath":"/x/analyze.js"}}]}}
+{"type":"user","uuid":"m7","timestamp":"2026-01-01T00:02:01.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_wf","content":"Workflow launched in background. Task ID: we2etask1\nSummary: e2e workflow"}]}}
+{"type":"user","uuid":"m8","timestamp":"2026-01-01T00:03:00.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"LATE HUMAN TURN"}}
+TXOB_WF
+    printf '%s\n' '{"type":"user","uuid":"w1","timestamp":"2026-01-01T00:02:10.000Z","message":{"role":"user","content":"WORKFLOW AGENT PROMPT"}}' \
+        > "${txob_projdir}/${txob_session}/subagents/workflows/${txob_run}/agent-awf00001.jsonl"
+    printf '%s' '{"agentType":"workflow-subagent","spawnDepth":1}' \
+        > "${txob_projdir}/${txob_session}/subagents/workflows/${txob_run}/agent-awf00001.meta.json"
+    printf '%s\n' '{"type":"started","key":"k","agentId":"awf00001"}' \
+        > "${txob_projdir}/${txob_session}/subagents/workflows/${txob_run}/journal.jsonl"
+    printf '%s' '{"runId":"wf_e2e00001-abc","timestamp":"2026-01-01T00:02:00.500Z","taskId":"we2etask1","workflowName":"analyze","summary":"e2e workflow","status":"completed","durationMs":"65000","totalToolCalls":"7","phases":[{"title":"Review"}],"result":{"dispatched":1}}' \
+        > "${txob_projdir}/${txob_session}/workflows/${txob_run}.json"
+
+    run_test_output_contains "mission print renders the main conversation" \
+        "MAIN HUMAN TURN" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print tags a human turn's origin" \
+        "USER human" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print names the spawned subagent" \
+        "ae2e0001" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print shows the compaction boundary" \
+        "COMPACTED.*354559" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print shows a mid-turn queued instruction" \
+        "QUEUED MID TURN" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print shows fork provenance past the tail" \
+        "FORK.*aaaaaaaa-1111-2222-3333-444444444444" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --tail 2
+
+    run_test_output_contains "mission print hides thinking by default" \
+        "MAIN ASSISTANT REPLY" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print --verbose shows thinking" \
+        "E2E THINKING BLOCK" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --verbose
+
+    run_test_output_contains "mission print --agents lists the subagent tree" \
+        "ae2e0001.*Explore.*haiku" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agents
+
+    run_test_output_contains "mission print --agent prints one subagent" \
+        "SUBAGENT ANSWER" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agent ae2e0001
+
+    run_test_output_contains "mission print --expand-agents inlines the subagent" \
+        "begin agent ae2e0001" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --expand-agents
+
+    run_test_output_contains "mission print --format=jsonl emits raw records" \
+        '"uuid":"m1"' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --format=jsonl
+
+    run_test_error_contains "mission print rejects an unknown agent ID" \
+        "no matching subagent transcript" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agent nosuchagent
+
+    # The default render must NOT inline the subagent — otherwise --expand-agents
+    # is meaningless and the "not shown" hint would be a lie.
+    total=$((total + 1))
+    printf "  %-50s " "mission print does not inline subagents by default..."
+    txob_default_out=$(env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" 2>/dev/null || true)
+    if echo "${txob_default_out}" | grep -q "SUBAGENT ANSWER"; then
+        echo "FAIL (subagent inlined without --expand-agents)"
+        failed=$((failed + 1))
+    elif ! echo "${txob_default_out}" | grep -q "MAIN ASSISTANT REPLY"; then
+        echo "FAIL (nothing rendered, so the check inspected nothing)"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+
+    run_test_output_has_no_ansi "mission print --agents emits no ANSI" \
+        "ae2e0001" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agents
+
+    run_test_output_has_no_ansi "mission print emits no ANSI" \
+        "MAIN HUMAN TURN" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print anchors a workflow spawn to its run" \
+        'Workflow.*\[workflow wf_e2e00001-abc \(analyze\): 1 agents, completed, 1m05s\]' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print ends with a stdout footer naming the listing command" \
+        '\[SUBAGENTS\] 2 transcript\(s\) not shown: 1 spawned directly, 1 in 1 workflow run\(s\) - --agents to list them.*agenc mission print .* --agents' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}"
+
+    run_test_output_contains "mission print --agents opens with a session header" \
+        'session .*: [0-9]+ messages, [0-9]+ tool calls, [0-9]+ errors, 1 compactions, ' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agents
+
+    run_test_output_contains "mission print --agents shows a workflow run as one row" \
+        'wf_e2e00001-abc +workflow +- +1 agents +7 ' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agents
+
+    run_test_output_contains "mission print --agents --json is a document" \
+        '"run_id": "wf_e2e00001-abc"' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agents --json
+
+    run_test_output_contains "mission print --workflow describes the run by prefix" \
+        'workflow wf_e2e00001-abc \(analyze\): completed, 1m05s, 1 agents, 7 tool calls' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --workflow e2e00001
+
+    run_test_output_contains "mission print --workflow lists the run's agents" \
+        'awf00001 +workflow-subagent' \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --workflow analyze
+
+    run_test_output_contains "mission print --agent reaches a workflow agent" \
+        "WORKFLOW AGENT PROMPT" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agent awf00001
+
+    run_test_output_contains "mission print --agent accepts a description fragment" \
+        "SUBAGENT PROMPT" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --agent "e2e scout"
+
+    run_test_output_contains "mission print --since keeps only the window" \
+        "LATE HUMAN TURN" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --since 2026-01-01T00:02:30Z
+
+    total=$((total + 1))
+    printf "  %-50s " "mission print --since drops records before it..."
+    txob_since_out=$(env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --since 2026-01-01T00:02:30Z 2>/dev/null || true)
+    if echo "${txob_since_out}" | grep -q "MAIN HUMAN TURN"; then
+        echo "FAIL (a record before --since was rendered)"
+        failed=$((failed + 1))
+    elif ! echo "${txob_since_out}" | grep -q "LATE HUMAN TURN"; then
+        echo "FAIL (nothing rendered, so the check inspected nothing)"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+
+    run_test_error_contains "mission print --json outside its views teaches --format=jsonl" \
+        "use [-][-]format=jsonl" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --json
+
+    run_test_error_contains "mission print suggests the nearest flag for a typo" \
+        "did you mean --agents" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --subagents
+
+    run_test_output_has_no_ansi "mission print --workflow emits no ANSI" \
+        "awf00001" \
+        env HOME="${txob_home}" "${agenc_test}" mission print "${txob_short_id}" --workflow analyze
+
+    rm -rf "${txob_home}"
+fi
+
+echo ""
 echo "--- No ANSI escapes in command output (agenc-hxr4) ---"
 
 # AgenC command output is consumed overwhelmingly by agents, not read by a
@@ -1924,7 +2245,13 @@ run_test "config cron rm removes the mid-spell fixture" \
 # formatters are pinned by unit tests instead (TestFormatPlainRepoName_HasNoAnsi,
 # TestPlainGitRepoName_HasNoAnsi). Listed as skips rather than passes so the
 # gap stays visible — see agenc-pman.
-for uncoverable in "mission peers" "mission search"; do
+# `mission print` and `mission print --agents` are covered for real in the
+# transcript section above, against a synthesized transcript tree under a
+# throwaway HOME. `session print` is not: it resolves its session ID through the
+# server, which needs a sessions row that only a live Claude run creates. Its
+# rendering path is the same shared code, and printAgentTree's plainness is
+# additionally pinned by TestPrintAgentTreeEmitsNoAnsi.
+for uncoverable in "mission peers" "mission search" "session print --agents"; do
     total=$((total + 1))
     printf "  %-50s " "${uncoverable} emits no ANSI..."
     echo "SKIP (cannot populate rows in the test environment)"

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // errStopScanningForConversation is a sentinel returned from hasConversationData's
@@ -135,10 +137,16 @@ func TailJSONLFile(jsonlFilepath string, n int, w io.Writer) (int, error) {
 		return count, err
 	}
 
-	ring := make([]string, n)
+	// The ring grows to the requested size rather than being allocated up
+	// front, so a mistyped line count cannot reserve gigabytes for a small file.
+	ring := make([]string, 0, ringSeedCapacity(n))
 	total := 0
 	err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
-		ring[total%n] = string(line)
+		if len(ring) < n {
+			ring = append(ring, string(line))
+		} else {
+			ring[total%n] = string(line)
+		}
 		total++
 		return nil
 	})
@@ -190,4 +198,72 @@ func findMostRecentJSONL(projectDirpath string) string {
 	}
 
 	return latestFilepath
+}
+
+// WriteJSONLWindow copies the records of a JSONL file whose timestamp falls in
+// [since, until] to w, one per line, and returns how many it wrote. A zero
+// bound is open on that side; a record with no timestamp is skipped when any
+// bound is set. It is the raw-format counterpart of the text renderer's window.
+func WriteJSONLWindow(jsonlFilepath string, since time.Time, until time.Time, w io.Writer) (int, error) {
+	written := 0
+	err := ScanJSONLLines(jsonlFilepath, func(line []byte) error {
+		if !inTimeWindow(string(line), since, until) {
+			return nil
+		}
+		if _, err := w.Write(line); err != nil {
+			return err
+		}
+		if _, err := w.Write([]byte("\n")); err != nil {
+			return err
+		}
+		written++
+		return nil
+	})
+	return written, err
+}
+
+// LatestTranscriptActivity returns the most recent modification time among
+// everything a project's sessions write: each session's main JSONL and every
+// subagent transcript and workflow journal beneath it, in both layouts. It is
+// the liveness signal for idle detection.
+//
+// The main JSONL alone is not that signal. While the main agent waits on a
+// subagent or a workflow run it writes nothing, and on this machine one run
+// lasted 47 minutes against a 30-minute idle timeout — the mission would have
+// been stopped mid-run with 699 agents working under it. The subagent files
+// are where the activity is during exactly the stretches the main file is
+// silent.
+func LatestTranscriptActivity(projectDirpath string) (time.Time, bool) {
+	var latest time.Time
+	found := false
+	note := func(info os.FileInfo) {
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+		found = true
+	}
+	entries, err := os.ReadDir(projectDirpath)
+	if err != nil {
+		return time.Time{}, false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			if strings.HasSuffix(entry.Name(), ".jsonl") {
+				if info, err := entry.Info(); err == nil {
+					note(info)
+				}
+			}
+			continue
+		}
+		_ = filepath.WalkDir(filepath.Join(projectDirpath, entry.Name(), subagentsDirname), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+				return nil
+			}
+			if info, err := d.Info(); err == nil {
+				note(info)
+			}
+			return nil
+		})
+	}
+	return latest, found
 }

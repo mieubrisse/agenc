@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestPrintSessionMetadataOnly verifies that printSessionTo emits the
+// TestPrintSessionMetadataOnly verifies that printTranscriptTo emits the
 // empty-session message to stderr (and nothing to stdout) when the JSONL
 // contains only metadata entries — the bug previously masqueraded as
 // "agenc mission print | tail produces empty output" during the brief
@@ -27,7 +27,7 @@ func TestPrintSessionMetadataOnly(t *testing.T) {
 	for _, format := range []string{"text", "jsonl"} {
 		t.Run(format, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if err := printSessionTo(jsonlFilepath, 0, true, format, &stdout, &stderr); err != nil {
+			if err := printTranscriptTo(jsonlFilepath, transcriptPrintOptions{all: true, format: format}, &stdout, &stderr); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
@@ -61,7 +61,7 @@ func TestPrintSessionWithConversation(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if err := printSessionTo(jsonlFilepath, 0, true, "text", &stdout, &stderr); err != nil {
+	if err := printTranscriptTo(jsonlFilepath, transcriptPrintOptions{all: true, format: textFormat}, &stdout, &stderr); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -94,8 +94,8 @@ func TestPrintSessionOversizedLine(t *testing.T) {
 	for _, format := range []string{"text", "jsonl"} {
 		t.Run(format, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if err := printSessionTo(jsonlFilepath, 0, true, format, &stdout, &stderr); err != nil {
-				t.Fatalf("printSessionTo returned error: %v", err)
+			if err := printTranscriptTo(jsonlFilepath, transcriptPrintOptions{all: true, format: format}, &stdout, &stderr); err != nil {
+				t.Fatalf("printTranscriptTo returned error: %v", err)
 			}
 			if stdout.Len() == 0 {
 				t.Fatalf("expected non-empty stdout for format=%s, got empty output", format)

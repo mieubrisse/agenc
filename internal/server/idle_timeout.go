@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/odyssey/agenc/internal/claudeconfig"
@@ -16,7 +15,8 @@ const (
 	idleTimeoutCheckInterval = 2 * time.Minute
 
 	// defaultIdleTimeout is how long a mission can be idle before its wrapper
-	// is stopped. Idle means the JSONL conversation log has not been modified.
+	// is stopped. Idle means none of the session's transcripts — the main
+	// conversation log or any subagent's — has been modified.
 	defaultIdleTimeout = 30 * time.Minute
 
 	// staleHeartbeatThreshold is how long after the last heartbeat before a
@@ -124,23 +124,22 @@ func (s *Server) isWrapperRunning(missionID string) bool {
 	return IsProcessRunning(pid)
 }
 
-// missionIdleDuration returns how long a mission has been idle by checking the
-// modification time of the active JSONL conversation log. Claude Code writes to
-// this file whenever it does anything (streaming, tool calls, thinking), so a
-// recently modified file means Claude is actively working.
+// missionIdleDuration returns how long a mission has been idle: the time since
+// any transcript of the mission's sessions was last modified. Claude Code
+// writes to the main conversation log whenever the main agent does anything,
+// and to a subagent's own log while that subagent works — which is exactly
+// when the main log goes quiet, so reading the main log alone once stopped
+// missions in the middle of long subagent and workflow runs.
 //
-// Falls back to created_at if the JSONL file cannot be located (mission has no
+// Falls back to created_at if no transcript can be located (mission has no
 // session yet, or the project directory doesn't exist).
 func (s *Server) missionIdleDuration(m *database.Mission, now time.Time) time.Duration {
 	projectDirpath, err := claudeconfig.GetMissionProjectDirpath(s.agencDirpath, m.ID)
 	if err != nil {
 		return now.Sub(m.CreatedAt)
 	}
-	jsonlFilepath := session.FindActiveJSONLPath(projectDirpath)
-	if jsonlFilepath != "" {
-		if info, err := os.Stat(jsonlFilepath); err == nil {
-			return now.Sub(info.ModTime())
-		}
+	if latest, ok := session.LatestTranscriptActivity(projectDirpath); ok {
+		return now.Sub(latest)
 	}
 	return now.Sub(m.CreatedAt)
 }

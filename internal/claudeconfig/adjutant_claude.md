@@ -150,6 +150,69 @@ agenc cron ls
 
 **"How do I test a cron before scheduling it?"** — Use `agenc cron run <name>` to trigger it manually. This creates a mission with the same prompt and repo, tracked in history alongside scheduled runs.
 
+Reading Transcripts
+-------------------
+
+`agenc mission print <id>` prints a mission's most recent session transcript;
+`agenc session print <session-id>` prints a specific session. Both accept
+`--tail N`, `--all` and `--format=jsonl`.
+
+**A session is a tree of transcripts, not one file.** Every subagent a session
+spawns writes its own transcript, and those subagents spawn subagents. Agents
+spawned by the Workflow tool live one level further down, grouped by run — on a
+long-lived machine that layer held more than half of all subagent transcripts.
+Printing the session alone shows the spawn calls with an anchor naming what
+they produced (`[agent <id>]`, `[workflow <run-id> (name): N agents, status,
+duration]`), and ends with a footer saying how many transcripts were not shown
+and the exact command that lists them. Start there:
+
+```
+# The overview: session facts, then one row per subagent and ONE row per
+# workflow run, with sizes, so you can decide what you can afford to read
+agenc session print <id> --agents
+agenc session print <id> --agents --json      # same, as a document
+
+# One subagent: agent ID, unique ID prefix, its name, or a description fragment
+agenc session print <id> --agent aa8d6202
+agenc session print <id> --agent reviewer-tests
+
+# One workflow run: status, phases, structured result, then its agents
+agenc session print <id> --workflow 3a23        # run ID prefix, task ID or name
+
+# A time window instead of a tail: RFC3339, '2026-09-07 14:00', '14:00', or
+# '2h' back from the transcript's last record
+agenc session print <id> --since 2h
+agenc session print <id> --since 14:00 --until 15:30 --format=jsonl
+
+# Inline directly spawned subagents at their spawn sites. Workflow runs are
+# never inlined, and inlining stops past --max-expand-mb (default 16) with a
+# note naming the agent, its size and the flag.
+agenc session print <id> --all --expand-agents
+```
+
+A miss on `--agent` or `--workflow` says so and names `--agents`; an ambiguous
+key lists every candidate; a misspelt flag suggests the nearest real one.
+
+**Missions accumulate sessions.** A reload, a `/clear` or a fork each start a
+new one. `agenc mission print` shows the most recent and says on stderr how many
+others exist; `agenc session ls --mission <id>` lists them with when each
+started, its message and tool counts, compactions, which session it was forked
+from, how many subagents it spawned and its size on disk; and
+`agenc mission print <id> --session <session-id>` prints a specific one. A
+session forked from another opens with a `[FORK]` line naming its source.
+
+**What the default render includes beyond the conversation:** compaction
+boundaries (with how many tokens were dropped), the compaction summary labelled
+as such rather than as a user message, message origin (`USER human` vs
+`USER peer:<name>` vs `USER task-notification`), instructions queued while a
+turn was running, slash commands, API errors, killed agents, and failing hooks.
+`--verbose` adds thinking blocks, successful tool results, attachments, turn
+timings and clean hook runs.
+
+**Answering "did the user actually say that?"** — look for `USER human` in the
+transcript. Messages from peer agents and background-task notifications are
+written as user records too, and are indistinguishable without the origin tag.
+
 Sleep Mode
 ----------
 
