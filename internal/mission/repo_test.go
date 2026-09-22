@@ -63,41 +63,201 @@ func TestGetHEAD_InvalidRepo(t *testing.T) {
 	}
 }
 
-func TestIsRepoStale(t *testing.T) {
-	tmpDir := t.TempDir()
-	gitDir := filepath.Join(tmpDir, ".git")
-	if err := os.MkdirAll(gitDir, 0755); err != nil {
+// newOriginAndClone builds a bare "origin" repo with one commit plus a clone of
+// it with origin/HEAD set, mirroring the shape of an AgenC repo-library clone.
+// Returns (originDirpath, cloneDirpath).
+func newOriginAndClone(t *testing.T) (string, string) {
+	t.Helper()
+	root := t.TempDir()
+	originDirpath := filepath.Join(root, "origin.git")
+	seedDirpath := filepath.Join(root, "seed")
+	cloneDirpath := filepath.Join(root, "clone")
+
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v in %s failed: %s: %v", args, dir, output, err)
+		}
+	}
+
+	run(root, "init", "--bare", "--initial-branch=main", originDirpath)
+	run(root, "init", "--initial-branch=main", seedDirpath)
+	run(seedDirpath, "config", "user.email", "test@test.com")
+	run(seedDirpath, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(seedDirpath, "file.txt"), []byte("hello"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	fetchHeadFilepath := filepath.Join(gitDir, "FETCH_HEAD")
+	run(seedDirpath, "add", "file.txt")
+	run(seedDirpath, "commit", "-m", "initial commit")
+	run(seedDirpath, "remote", "add", "origin", originDirpath)
+	run(seedDirpath, "push", "origin", "main")
 
+	run(root, "clone", originDirpath, cloneDirpath)
+	run(cloneDirpath, "config", "user.email", "test@test.com")
+	run(cloneDirpath, "config", "user.name", "Test")
+	run(cloneDirpath, "remote", "set-head", "origin", "--auto")
+
+	// Give origin a second commit so the clone can be made genuinely behind.
+	if err := os.WriteFile(filepath.Join(seedDirpath, "file.txt"), []byte("world"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run(seedDirpath, "commit", "-am", "second commit")
+	run(seedDirpath, "push", "origin", "main")
+
+	return originDirpath, cloneDirpath
+}
+
+func touchFetchHead(t *testing.T, repoDirpath string, age time.Duration) {
+	t.Helper()
+	fetchHeadFilepath := filepath.Join(repoDirpath, ".git", "FETCH_HEAD")
+	if err := os.WriteFile(fetchHeadFilepath, []byte("abc123"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().Add(-age)
+	if err := os.Chtimes(fetchHeadFilepath, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsRepoStale(t *testing.T) {
 	t.Run("missing FETCH_HEAD returns true", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(tmpDir, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
 		if !IsRepoStale(tmpDir, 24*time.Hour) {
 			t.Error("expected stale when FETCH_HEAD is missing")
 		}
 	})
 
 	t.Run("old FETCH_HEAD returns true", func(t *testing.T) {
-		if err := os.WriteFile(fetchHeadFilepath, []byte("abc123"), 0644); err != nil {
-			t.Fatal(err)
+		_, clone := newOriginAndClone(t)
+		if err := ForceUpdateRepo(clone); err != nil {
+			t.Fatalf("ForceUpdateRepo failed: %v", err)
 		}
-		oldTime := time.Now().Add(-48 * time.Hour)
-		if err := os.Chtimes(fetchHeadFilepath, oldTime, oldTime); err != nil {
-			t.Fatal(err)
-		}
-		if !IsRepoStale(tmpDir, 24*time.Hour) {
+		touchFetchHead(t, clone, 48*time.Hour)
+		if !IsRepoStale(clone, 24*time.Hour) {
 			t.Error("expected stale when FETCH_HEAD is 48h old")
 		}
 	})
 
-	t.Run("recent FETCH_HEAD returns false", func(t *testing.T) {
-		if err := os.WriteFile(fetchHeadFilepath, []byte("abc123"), 0644); err != nil {
-			t.Fatal(err)
+	t.Run("recent FETCH_HEAD on a pristine clone returns false", func(t *testing.T) {
+		_, clone := newOriginAndClone(t)
+		if err := ForceUpdateRepo(clone); err != nil {
+			t.Fatalf("ForceUpdateRepo failed: %v", err)
 		}
-		if IsRepoStale(tmpDir, 24*time.Hour) {
-			t.Error("expected not stale when FETCH_HEAD was just written")
+		touchFetchHead(t, clone, 0)
+		if IsRepoStale(clone, 24*time.Hour) {
+			t.Error("expected not stale for a freshly-fetched pristine clone")
 		}
 	})
+
+	// Regression: the incident. A fresh FETCH_HEAD said "fresh" while HEAD was
+	// frozen commits behind origin, because fetch kept succeeding after reset
+	// started failing. Freshness must be judged on HEAD, not on FETCH_HEAD alone.
+	t.Run("fresh FETCH_HEAD but HEAD behind origin returns true", func(t *testing.T) {
+		_, clone := newOriginAndClone(t)
+		if err := ForceUpdateRepo(clone); err != nil {
+			t.Fatalf("ForceUpdateRepo failed: %v", err)
+		}
+		cmd := exec.Command("git", "reset", "--hard", "HEAD~1")
+		cmd.Dir = clone
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("reset failed: %s: %v", output, err)
+		}
+		touchFetchHead(t, clone, 0)
+		if !IsRepoStale(clone, 24*time.Hour) {
+			t.Error("expected stale when HEAD is behind origin despite a fresh FETCH_HEAD")
+		}
+	})
+
+	// Regression: untracked debris in the library clone gets rsynced into every
+	// mission, so a dirty tree must also count as stale.
+	t.Run("fresh FETCH_HEAD but dirty tree returns true", func(t *testing.T) {
+		_, clone := newOriginAndClone(t)
+		if err := ForceUpdateRepo(clone); err != nil {
+			t.Fatalf("ForceUpdateRepo failed: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(clone, "junk.txt"), []byte("debris"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		touchFetchHead(t, clone, 0)
+		if !IsRepoStale(clone, 24*time.Hour) {
+			t.Error("expected stale when the working tree has untracked debris")
+		}
+	})
+}
+
+// Regression: a killed git process leaves .git/index.lock behind. Every later
+// reset fails with exit 128 while fetch keeps succeeding, so the clone froze
+// three weeks behind origin with a dirty tree and nothing surfaced it.
+func TestForceUpdateRepo_ClearsStaleIndexLockAndDebris(t *testing.T) {
+	_, clone := newOriginAndClone(t)
+
+	lockFilepath := filepath.Join(clone, ".git", "index.lock")
+	if err := os.WriteFile(lockFilepath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-24 * time.Hour)
+	if err := os.Chtimes(lockFilepath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clone, "junk.txt"), []byte("debris"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Positive control: without the fix this reset is what fails.
+	control := exec.Command("git", "reset", "--hard", "origin/main")
+	control.Dir = clone
+	if _, err := control.CombinedOutput(); err == nil {
+		t.Fatal("positive control failed: reset succeeded despite a stale index.lock, so this test proves nothing")
+	}
+
+	if err := ForceUpdateRepo(clone); err != nil {
+		t.Fatalf("ForceUpdateRepo should clear the stale lock and succeed, got: %v", err)
+	}
+	if _, err := os.Stat(lockFilepath); !os.IsNotExist(err) {
+		t.Error("expected the stale index.lock to be removed")
+	}
+	if _, err := os.Stat(filepath.Join(clone, "junk.txt")); !os.IsNotExist(err) {
+		t.Error("expected untracked debris to be cleaned")
+	}
+	if !isRepoPristine(clone) {
+		t.Error("expected the clone to be pristine after ForceUpdateRepo")
+	}
+}
+
+// A lock young enough to plausibly have a live owner must be left alone.
+func TestForceUpdateRepo_LeavesFreshIndexLock(t *testing.T) {
+	_, clone := newOriginAndClone(t)
+	lockFilepath := filepath.Join(clone, ".git", "index.lock")
+	if err := os.WriteFile(lockFilepath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ForceUpdateRepo(clone); err == nil {
+		t.Error("expected ForceUpdateRepo to fail rather than stomp a live index.lock")
+	}
+	if _, err := os.Stat(lockFilepath); err != nil {
+		t.Error("expected a fresh index.lock to be left in place")
+	}
+}
+
+// CopyRepo must not reproduce a lock file into the mission copy; rsync -a does.
+func TestCopyRepo_DropsIndexLock(t *testing.T) {
+	_, clone := newOriginAndClone(t)
+	if err := os.WriteFile(filepath.Join(clone, ".git", "index.lock"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "mission-agent")
+	if err := CopyRepo(discardLogger, clone, dst); err != nil {
+		t.Fatalf("CopyRepo failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".git", "index.lock")); !os.IsNotExist(err) {
+		t.Error("expected the copied repo to have no index.lock")
+	}
 }
 
 func TestParseRepoReference(t *testing.T) {
