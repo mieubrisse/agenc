@@ -103,17 +103,30 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 		_ = exec.Command("tmux", "send-keys", "-t", targetPane, "-X", "cancel").Run()
 	}
 
-	// -p is load-bearing, not cosmetic: it wraps the payload in bracketed-paste control codes.
-	// The pty hands its reader at most ~1KB per read, so a draft over roughly a kilobyte arrives
-	// in two chunks. Without the brackets nothing tells the receiving program that the chunks
-	// belong to one paste, and Claude Code keeps only the last one — a 1437-byte draft silently
-	// lost its leading 1022 bytes, landing as a message truncated mid-word with no error anywhere.
-	// (-r, which would also stop tmux rewriting newlines to carriage returns, is not needed:
-	// Claude Code normalises them inside a bracketed paste. Verified against a live pane.)
-	pasteCmd := exec.Command("tmux", "paste-buffer", "-p", "-t", targetPane)
+	pasteCmd := exec.Command("tmux", buildPasteBufferArgs(targetPane)...)
 	if output, err := pasteCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "failed to paste buffer into pane: %s", string(output))
 	}
 
 	return nil
+}
+
+// buildPasteBufferArgs returns the tmux arguments that paste a finished draft into the mission's
+// pane.
+//
+// The -p is load-bearing, not cosmetic, and removing it silently corrupts long drafts. It asks
+// tmux to wrap the payload in bracketed-paste control codes. A pty hands its reader only about a
+// kilobyte per read -- measured on macOS as reads of 1022 then 415 bytes for a 1437-byte draft --
+// so a draft over that size arrives in more than one piece. The control codes are the only thing
+// telling the receiving program that those pieces are one paste; without them Claude Code treats
+// each piece as a fresh paste and keeps just the last, which lost a real 1437-byte draft its
+// leading 1022 bytes and delivered a message truncated mid-word with no error reported anywhere.
+//
+// Passing -p is safe regardless of what occupies the pane: tmux inserts the codes only when the
+// receiving program has itself requested bracketed-paste mode, and is otherwise unchanged.
+//
+// -r is deliberately absent. It would stop tmux rewriting the draft's newlines into carriage
+// returns, but Claude Code normalises those inside a bracketed paste, so it changes nothing.
+func buildPasteBufferArgs(targetPane string) []string {
+	return []string{"paste-buffer", "-p", "-t", targetPane}
 }

@@ -1655,7 +1655,9 @@ else
     # Deliberately over 1 KiB and multi-line. The pty hands its reader at most ~1KB per read,
     # so only a draft this size exercises the chunked path where a draft used to lose its
     # leading bytes; a short one-line draft arrives in a single read and always worked.
-    # No trailing newline, so nothing can submit if a live prompt is on the other end.
+    # The fixture ends without a trailing newline. Its internal newlines are inert against a
+    # receiver in bracketed-paste mode, but tmux rewrites newlines to carriage returns for one
+    # that is not, where each would read as Enter -- so the last byte is left bare either way.
     draft_head_text="side-draft-e2e-head-marker"
     draft_tail_text="side-draft-e2e-tail-marker"
     {
@@ -1668,7 +1670,7 @@ else
     } > "${draft_prefilled_filepath}"
 
     total=$((total + 1))
-    printf "  %-50s " "the e2e draft exceeds the 1KiB read boundary"
+    printf "  %-50s " "the e2e draft exceeds the 1KiB read boundary..."
     draft_prefilled_size=$(wc -c < "${draft_prefilled_filepath}" | tr -d ' ')
     if [ "${draft_prefilled_size}" -gt 1024 ]; then
         echo "PASS"
