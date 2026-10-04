@@ -49,15 +49,21 @@ func TestSystemNow_MatchesSystemTimezone(t *testing.T) {
 	}
 }
 
-// buildActiveWindow returns a WindowDef guaranteed to contain "now", using today's day name
-// with a window spanning from 1 hour ago to 1 hour from now.
+// buildActiveWindow returns a WindowDef guaranteed to contain "now", spanning from 1 hour ago
+// to 1 hour from now.
+//
+// Both yesterday's and today's day names are listed because during the midnight hour the window
+// wraps past midnight, and a window that wraps is matched against the day it STARTED on — so
+// "now" at 00:30 falls inside yesterday's 23:00-01:00 window, not today's. Listing today alone
+// made every test using this helper fail between 00:00 and 00:59 local time.
 func buildActiveWindow(now time.Time) sleep.WindowDef {
+	yesterdayDay := dayNames[now.AddDate(0, 0, -1).Weekday()]
 	todayDay := dayNames[now.Weekday()]
 	startHour := (now.Hour() + 23) % 24
 	endHour := (now.Hour() + 1) % 24
 	startTime := fmt.Sprintf("%02d:00", startHour)
 	endTime := fmt.Sprintf("%02d:00", endHour)
-	return sleep.WindowDef{Days: []string{todayDay}, Start: startTime, End: endTime}
+	return sleep.WindowDef{Days: []string{yesterdayDay, todayDay}, Start: startTime, End: endTime}
 }
 
 // buildInactiveWindow returns a WindowDef guaranteed to NOT contain "now",
