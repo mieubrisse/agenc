@@ -1624,6 +1624,79 @@ else
 fi
 
 echo ""
+echo "--- Side Draft keeps its draft file (requires server + tmux) ---"
+
+# `agenc mission draft` (the Side Draft palette entry) opens $EDITOR on a temp
+# file and pastes the result into the mission's pane. It used to delete that
+# file on exit, so a paste that landed garbled destroyed the only copy of what
+# the user had typed. The file must outlive the command; the OS reaps it.
+
+draft_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
+draft_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
+    | awk '/^Created mission:/{print $3; exit}')
+draft_mission_pane=""
+if [ -n "${draft_mission_short_id}" ]; then
+    draft_mission_pane=$(sqlite3 "${draft_db_filepath}" \
+        "SELECT tmux_pane FROM missions WHERE id LIKE '${draft_mission_short_id}%';" 2>/dev/null || echo "")
+fi
+
+if [ -z "${draft_mission_pane}" ]; then
+    total=$((total + 1))
+    printf "  %-50s " "mission draft leaves the draft file on disk..."
+    echo "SKIP (could not create a mission with a tmux pane)"
+    skipped=$((skipped + 1))
+else
+    # A private TMPDIR is what makes the draft file findable, since the command
+    # names the file itself. $EDITOR becomes a `cp` of a prefilled file:
+    # mission draft appends the draft path to $EDITOR's words, so the editor
+    # step runs `cp <prefilled> <draft>` and needs no terminal.
+    draft_tmp_dirpath="$(mktemp -d)"
+    draft_prefilled_filepath="${draft_tmp_dirpath}/prefilled.md"
+    # No trailing newline: the pasted bytes land in a live Claude prompt, and a
+    # newline would submit it.
+    draft_text="side-draft-e2e-marker"
+    printf '%s' "${draft_text}" > "${draft_prefilled_filepath}"
+
+    run_test "mission draft succeeds with a non-interactive editor" \
+        0 \
+        env TMPDIR="${draft_tmp_dirpath}" EDITOR="cp ${draft_prefilled_filepath}" \
+        "${agenc_test}" mission draft "${draft_mission_short_id}"
+
+    # Drafting twice from one mission must leave two files. The draft name carries the mission
+    # short ID so a recovered draft is attributable, and the second draft must not overwrite
+    # the first on its way to being attributable.
+    run_test "mission draft succeeds again for the same mission" \
+        0 \
+        env TMPDIR="${draft_tmp_dirpath}" EDITOR="cp ${draft_prefilled_filepath}" \
+        "${agenc_test}" mission draft "${draft_mission_short_id}"
+
+    total=$((total + 1))
+    printf "  %-50s " "both drafts survive, named for their mission"
+    draft_surviving_count=0
+    draft_with_text_count=0
+    while IFS= read -r draft_leftover_filepath; do
+        draft_surviving_count=$((draft_surviving_count + 1))
+        if grep -qF "${draft_text}" "${draft_leftover_filepath}"; then
+            draft_with_text_count=$((draft_with_text_count + 1))
+        fi
+    done < <(find "${draft_tmp_dirpath}" -name "agenc-draft-${draft_mission_short_id}-*.md")
+
+    if [ "${draft_surviving_count}" != "2" ]; then
+        echo "FAIL (expected 2 drafts named for mission ${draft_mission_short_id}, found ${draft_surviving_count})"
+        failed=$((failed + 1))
+    elif [ "${draft_with_text_count}" != "2" ]; then
+        echo "FAIL (only ${draft_with_text_count} of 2 surviving drafts hold the drafted text)"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+
+    rm -f "${draft_tmp_dirpath}"/*
+    rmdir "${draft_tmp_dirpath}"
+fi
+
+echo ""
 echo "--- Per-mission Claude args (--model / --effort) ---"
 
 # `agenc mission new` forwards an allowlisted set of Claude CLI flags to the

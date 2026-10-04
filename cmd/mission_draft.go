@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,9 +42,14 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 	}
 	targetPane := "%" + *mission.TmuxPane
 
-	tmpFile, err := os.CreateTemp("", "agenc-draft-*.md")
+	// The mission's short ID makes a recovered draft attributable, since drafts outlive the
+	// command and several missions' drafts accumulate side by side. The '*' is what keeps
+	// repeated drafts from the SAME mission from overwriting each other — CreateTemp replaces
+	// it with a random component — so it must stay.
+	draftFilenamePattern := fmt.Sprintf("agenc-draft-%s-*.md", database.ShortID(mission.ID))
+	tmpFile, err := os.CreateTemp("", draftFilenamePattern)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to create temp file")
+		return stacktrace.Propagate(err, "failed to create draft file matching pattern '%v'", draftFilenamePattern)
 	}
 	tmpFilepath := tmpFile.Name()
 	tmpFile.Close()
@@ -51,7 +57,7 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 	// The draft file is deliberately never deleted. A paste into the target pane occasionally
 	// lands garbled, and this file is the only copy of what the user typed — deleting it on exit
 	// destroys their work with no way back. Leaving it in the OS temp directory keeps it
-	// recoverable (the newest is `ls -t $TMPDIR/agenc-draft-*.md`) and lets the OS reap it.
+	// recoverable (`ls -t $TMPDIR/agenc-draft-*.md` is newest-first) and lets the OS reap it.
 
 	editorEnv := os.Getenv("EDITOR")
 	if editorEnv == "" {
