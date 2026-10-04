@@ -1652,10 +1652,31 @@ else
     # step runs `cp <prefilled> <draft>` and needs no terminal.
     draft_tmp_dirpath="$(mktemp -d)"
     draft_prefilled_filepath="${draft_tmp_dirpath}/prefilled.md"
-    # No trailing newline: the pasted bytes land in a live Claude prompt, and a
-    # newline would submit it.
-    draft_text="side-draft-e2e-marker"
-    printf '%s' "${draft_text}" > "${draft_prefilled_filepath}"
+    # Deliberately over 1 KiB and multi-line. The pty hands its reader at most ~1KB per read,
+    # so only a draft this size exercises the chunked path where a draft used to lose its
+    # leading bytes; a short one-line draft arrives in a single read and always worked.
+    # No trailing newline, so nothing can submit if a live prompt is on the other end.
+    draft_head_text="side-draft-e2e-head-marker"
+    draft_tail_text="side-draft-e2e-tail-marker"
+    {
+        printf '%s\n' "${draft_head_text}"
+        for draft_filler_line in $(seq 1 24); do
+            printf 'filler line %02d: padding this draft past the one-kilobyte read boundary\n' \
+                "${draft_filler_line}"
+        done
+        printf '%s' "${draft_tail_text}"
+    } > "${draft_prefilled_filepath}"
+
+    total=$((total + 1))
+    printf "  %-50s " "the e2e draft exceeds the 1KiB read boundary"
+    draft_prefilled_size=$(wc -c < "${draft_prefilled_filepath}" | tr -d ' ')
+    if [ "${draft_prefilled_size}" -gt 1024 ]; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (fixture is ${draft_prefilled_size} bytes, so it never spans two reads)"
+        failed=$((failed + 1))
+    fi
 
     run_test "mission draft succeeds with a non-interactive editor" \
         0 \
@@ -1676,7 +1697,8 @@ else
     draft_with_text_count=0
     while IFS= read -r draft_leftover_filepath; do
         draft_surviving_count=$((draft_surviving_count + 1))
-        if grep -qF "${draft_text}" "${draft_leftover_filepath}"; then
+        if grep -qF "${draft_head_text}" "${draft_leftover_filepath}" \
+            && grep -qF "${draft_tail_text}" "${draft_leftover_filepath}"; then
             draft_with_text_count=$((draft_with_text_count + 1))
         fi
     done < <(find "${draft_tmp_dirpath}" -name "agenc-draft-${draft_mission_short_id}-*.md")
@@ -1685,7 +1707,7 @@ else
         echo "FAIL (expected 2 drafts named for mission ${draft_mission_short_id}, found ${draft_surviving_count})"
         failed=$((failed + 1))
     elif [ "${draft_with_text_count}" != "2" ]; then
-        echo "FAIL (only ${draft_with_text_count} of 2 surviving drafts hold the drafted text)"
+        echo "FAIL (only ${draft_with_text_count} of 2 surviving drafts hold the whole drafted text)"
         failed=$((failed + 1))
     else
         echo "PASS"

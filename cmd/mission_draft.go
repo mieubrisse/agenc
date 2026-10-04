@@ -103,7 +103,14 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 		_ = exec.Command("tmux", "send-keys", "-t", targetPane, "-X", "cancel").Run()
 	}
 
-	pasteCmd := exec.Command("tmux", "paste-buffer", "-t", targetPane)
+	// -p is load-bearing, not cosmetic: it wraps the payload in bracketed-paste control codes.
+	// The pty hands its reader at most ~1KB per read, so a draft over roughly a kilobyte arrives
+	// in two chunks. Without the brackets nothing tells the receiving program that the chunks
+	// belong to one paste, and Claude Code keeps only the last one — a 1437-byte draft silently
+	// lost its leading 1022 bytes, landing as a message truncated mid-word with no error anywhere.
+	// (-r, which would also stop tmux rewriting newlines to carriage returns, is not needed:
+	// Claude Code normalises them inside a bracketed paste. Verified against a live pane.)
+	pasteCmd := exec.Command("tmux", "paste-buffer", "-p", "-t", targetPane)
 	if output, err := pasteCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "failed to paste buffer into pane: %s", string(output))
 	}
