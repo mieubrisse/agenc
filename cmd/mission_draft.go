@@ -47,7 +47,11 @@ func runMissionDraft(cmd *cobra.Command, args []string) error {
 	}
 	tmpFilepath := tmpFile.Name()
 	tmpFile.Close()
-	defer func() { _ = os.Remove(tmpFilepath) }()
+
+	// The draft file is deliberately never deleted. A paste into the target pane occasionally
+	// lands garbled, and this file is the only copy of what the user typed — deleting it on exit
+	// destroys their work with no way back. Leaving it in the OS temp directory keeps it
+	// recoverable (the newest is `ls -t $TMPDIR/agenc-draft-*.md`) and lets the OS reap it.
 
 	editorEnv := os.Getenv("EDITOR")
 	if editorEnv == "" {
