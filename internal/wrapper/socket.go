@@ -31,7 +31,9 @@ type ClaudeUpdateRequest struct {
 	AgentID string `json:"agent_id"`
 	// HookError is Claude Code's `error` on StopFailure — the kind of API
 	// failure that killed the turn (rate_limit, overloaded, server_error, …).
-	// Recorded in the wrapper log for later diagnosis; never branched on.
+	// Logged for later diagnosis, and branched on for exactly one value:
+	// rate_limit means the turn may still resume when the quota resets, so it
+	// is not treated as the turn ending.
 	HookError     string `json:"hook_error"`
 	PayloadParsed bool   `json:"payload_parsed"`
 }

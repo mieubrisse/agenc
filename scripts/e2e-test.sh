@@ -2086,6 +2086,7 @@ if [ "${stopfailure_state_observable}" != "yes" ]; then
         "StopFailure from a subagent leaves the mission busy" \
         "a quota-stopped turn reports QUOTA, not IDLE" \
         "quota auto-resume puts the mission back to work" \
+        "a quota wait Claude Code abandons ends the turn" \
         "StopFailure from the main agent ends the turn"; do
         total=$((total + 1))
         printf "  %-50s " "${stopfailure_uncoverable}..."
@@ -2102,9 +2103,14 @@ else
     stopfailure_wrapper_log_filepath="${repo_dirpath}/_test-env/missions/${stopfailure_mission_uuid}/wrapper.log"
 
     # Poll `mission inspect` until it reports the wanted status, or give up.
-    # Returns 0 on match. Only sound for a status nothing else in this section
-    # can produce, which is why the subagent case below also asserts on the
-    # wrapper's own decision record rather than on status alone.
+    # Returns 0 on match.
+    #
+    # Polling makes an assertion meaningful only when the status is CHANGING
+    # to the wanted value. Asserting a status the mission already holds proves
+    # nothing — the first sample returns immediately whether or not the event
+    # under test did anything. The subagent case below is exactly that shape,
+    # which is why it leans on the wrapper's own decision record in the log
+    # and treats the status check as corroboration rather than as the test.
     #
     # `grep -E ... >/dev/null`, never `grep -q`. This script runs under
     # `set -o pipefail`, and `grep -q` exits the instant it matches, so the
@@ -2196,11 +2202,34 @@ else
 
     total=$((total + 1))
     printf "  %-50s " "quota auto-resume puts the mission back to work..."
+    # Changing QUOTA -> BUSY, so this one is a real transition.
     if await_mission_status "${stopfailure_mission_uuid}" "BUSY"; then
         echo "PASS"
         passed=$((passed + 1))
     else
         echo "FAIL (the mission stayed quota-blocked after Claude Code resumed it, so it would never be reaped)"
+        echo "    Last output: $("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -E "^Status:")"
+        failed=$((failed + 1))
+    fi
+
+    # Claude Code reporting that it has given up on resuming: "this task will
+    # not resume on its own". Without handling it the mission stays spared
+    # until the 6-hour ceiling, hours after recovery was ruled out. Re-enter
+    # the quota state first, since the resume above cleared it.
+    printf '{"hook_event_name":"StopFailure","error":"rate_limit","last_assistant_message":"API Error: 429"}' \
+        | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" StopFailure >/dev/null 2>&1 || true
+    sleep 2
+    printf '{"hook_event_name":"Notification","notification_type":"quota_auto_resume_disabled"}' \
+        | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" Notification >/dev/null 2>&1 || true
+    sleep 2
+
+    total=$((total + 1))
+    printf "  %-50s " "a quota wait Claude Code abandons ends the turn..."
+    if await_mission_status "${stopfailure_mission_uuid}" "IDLE"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (the mission stayed quota-blocked after Claude Code said the task will not resume)"
         echo "    Last output: $("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -E "^Status:")"
         failed=$((failed + 1))
     fi

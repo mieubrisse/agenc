@@ -412,10 +412,25 @@ func (w *Wrapper) handleCommand(cmd Command) CommandResponse {
 // and continue by itself.
 const claudeQuotaErrorKind = "rate_limit"
 
-// claudeQuotaResumedNotificationType is the Notification `notification_type`
-// Claude Code emits when an armed quota wait fires and work resumes. It is the
-// signal that a quota-blocked mission is moving again.
-const claudeQuotaResumedNotificationType = "quota_auto_resume_fired"
+// Notification `notification_type` values Claude Code emits about a quota
+// wait. Together they are the authoritative end of the wait, which is why the
+// quota state does not have to be guessed at from timing:
+//
+//	resumed — the window reset and Claude Code picked the turn back up.
+//	stale   — "Usage limit has reset · press enter to continue". The wait is
+//	          over but a human has to act, so the turn is not resuming.
+//	abandoned — "this task will not resume on its own", emitted when
+//	          auto-continue is off, when the reset is more than 24 hours out,
+//	          or after repeated usage-limit hits.
+//
+// The last two are Claude Code saying the turn is finished. Without them a
+// mission would sit spared until the 6-hour ceiling, long after Claude Code
+// announced that recovery was not coming.
+const (
+	claudeQuotaResumedNotificationType   = "quota_auto_resume_fired"
+	claudeQuotaStaleNotificationType     = "quota_auto_resume_stale"
+	claudeQuotaAbandonedNotificationType = "quota_auto_resume_disabled"
+)
 
 // handleClaudeUpdate processes a claude_update command sent by hooks. It
 // updates the wrapper's idle state, hasConversation flag, needsAttention flag,
@@ -519,8 +534,20 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 			w.setWindowNeedsAttention()
 		case claudeQuotaResumedNotificationType:
 			// The quota window reset and Claude Code picked the turn back up.
-			w.quotaBlocked = false
-			w.setWindowBusy()
+			// Guarded so a stray notification cannot repaint the pane of a
+			// mission that was never blocked — which would overwrite the
+			// attention color while the status API still says needs_attention.
+			if w.quotaBlocked {
+				w.quotaBlocked = false
+				w.setWindowBusy()
+			}
+		case claudeQuotaStaleNotificationType, claudeQuotaAbandonedNotificationType:
+			// Claude Code has given up on resuming by itself. The turn really
+			// is over, so stop sparing the mission and let it be reclaimed on
+			// the ordinary idle path rather than held to the hard ceiling.
+			if w.quotaBlocked {
+				w.markTurnEndedLocked()
+			}
 		}
 	}
 
@@ -528,9 +555,13 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 }
 
 // markTurnEndedLocked records that Claude's turn is over and it is back at the
-// prompt. Shared by the Stop and StopFailure arms of handleClaudeUpdate so the
-// two cannot drift: a turn that died on an API error leaves Claude exactly as
-// idle as one that finished normally, and the wrapper must say so either way.
+// prompt. Shared by every arm of handleClaudeUpdate that ends a turn — Stop, a
+// non-quota StopFailure, and a quota wait Claude Code has abandoned — so they
+// cannot drift: a turn that died on an API error leaves Claude exactly as idle
+// as one that finished normally, and the wrapper must say so either way.
+//
+// The exception is a turn stopped on the usage quota, which is NOT routed here
+// while the wait is live, because Claude Code may still resume it.
 //
 // needsAttention going false is load-bearing, not incidental. The server's
 // reaper spares a mission reporting needs_attention just as it spares one

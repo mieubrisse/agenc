@@ -216,6 +216,29 @@ func TestQuotaBlockedClearsWhenWorkResumes(t *testing.T) {
 			expectedState: "busy",
 		},
 		{
+			// Claude Code reporting that the window reset but a human must
+			// press enter: the wait is over and the turn is not resuming.
+			name: "the quota-stale notification",
+			resumeEvent: ClaudeUpdateRequest{
+				Event:            "Notification",
+				NotificationType: "quota_auto_resume_stale",
+				PayloadParsed:    true,
+			},
+			expectedState: "idle",
+		},
+		{
+			// Claude Code's own words: "this task will not resume on its own".
+			// Without this the mission is spared until the 6-hour ceiling,
+			// hours after recovery was ruled out.
+			name: "the quota-abandoned notification",
+			resumeEvent: ClaudeUpdateRequest{
+				Event:            "Notification",
+				NotificationType: "quota_auto_resume_disabled",
+				PayloadParsed:    true,
+			},
+			expectedState: "idle",
+		},
+		{
 			// Backstop: a tool running proves the wait is over even if the
 			// notification never arrived.
 			name:          "a tool call completing",
@@ -254,6 +277,48 @@ func TestQuotaBlockedClearsWhenWorkResumes(t *testing.T) {
 			}
 			if actual := w.getClaudeStateStringUnderLock(); actual != testCase.expectedState {
 				t.Errorf("claude state = %q, want %q", actual, testCase.expectedState)
+			}
+		})
+	}
+}
+
+// TestQuotaNotificationsDoNothingWithoutABlock guards the side effects of the
+// quota notifications against firing on a mission that was never blocked. The
+// resume notification repaints the tmux pane, which would overwrite the
+// attention color of a mission sitting at a permission prompt while the status
+// API still reported needs_attention — pane and API disagreeing.
+func TestQuotaNotificationsDoNothingWithoutABlock(t *testing.T) {
+	for _, notificationType := range []string{
+		"quota_auto_resume_fired",
+		"quota_auto_resume_stale",
+		"quota_auto_resume_disabled",
+	} {
+		t.Run(notificationType, func(t *testing.T) {
+			client, w := startStopFailureTestWrapper(t)
+
+			if err := client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "UserPromptSubmit"}); err != nil {
+				t.Fatalf("UserPromptSubmit failed: %v", err)
+			}
+			permissionPrompt := ClaudeUpdateRequest{
+				Event:            "Notification",
+				NotificationType: "permission_prompt",
+				PayloadParsed:    true,
+			}
+			if err := client.SendClaudeUpdate(permissionPrompt); err != nil {
+				t.Fatalf("Notification failed: %v", err)
+			}
+
+			quotaNotification := ClaudeUpdateRequest{
+				Event:            "Notification",
+				NotificationType: notificationType,
+				PayloadParsed:    true,
+			}
+			if err := client.SendClaudeUpdate(quotaNotification); err != nil {
+				t.Fatalf("quota notification failed: %v", err)
+			}
+
+			if actual := w.getClaudeStateStringUnderLock(); actual != "needs_attention" {
+				t.Errorf("claude state = %q, want \"needs_attention\" — a quota notification must not disturb a mission that was never quota-blocked", actual)
 			}
 		})
 	}
