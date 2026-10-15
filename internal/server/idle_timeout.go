@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"net"
 	"os"
 	"time"
 
@@ -16,8 +18,24 @@ const (
 	idleTimeoutCheckInterval = 2 * time.Minute
 
 	// defaultIdleTimeout is how long a mission can be idle before its wrapper
-	// is stopped. Idle means the JSONL conversation log has not been modified.
+	// is stopped. Idle means Claude's turn has ended and the JSONL conversation
+	// log has not been modified since.
 	defaultIdleTimeout = 30 * time.Minute
+
+	// idleTimeoutHardCeiling bounds how long the wrapper-state veto below may
+	// spare a mission. That state is hook-fed, and hooks can be missed: an
+	// interrupted turn fires no Stop hook, which wedges the wrapper at "busy"
+	// for the rest of its life. Without a ceiling every such miss becomes a
+	// permanent leak of a live Claude process and a tmux pool window. Sized to
+	// exceed any realistic single tool call, so it reclaims wedged missions
+	// without interrupting work that is slow but genuine.
+	idleTimeoutHardCeiling = 6 * time.Hour
+
+	// reapWrapperQueryTimeout is the budget for asking a wrapper whether Claude
+	// is still working. Deliberately longer than wrapperQueryTimeout, which is
+	// tuned for rendering `agenc mission ls` interactively — here a timeout
+	// costs a mission its work, so it is worth waiting longer to avoid one.
+	reapWrapperQueryTimeout = 2 * time.Second
 
 	// staleHeartbeatThreshold is how long after the last heartbeat before a
 	// mission's tmux_pane is considered stale and cleared. Set to 3x the
@@ -25,19 +43,45 @@ const (
 	staleHeartbeatThreshold = 30 * time.Second
 )
 
+// Claude states a mission's wrapper reports over its status socket. Both of
+// these mean Claude's turn is still in flight: needs-attention is set by the
+// Notification hook and cleared by Stop, so it can never mean "finished".
+const (
+	claudeStateBusy           = "busy"
+	claudeStateNeedsAttention = "needs_attention"
+)
+
+// idleTimeoutCheckIntervalForEnvironment returns how often to scan for idle
+// missions. The test environment scans far more often so an end-to-end test can
+// observe a decision without waiting minutes for it.
+//
+// Only the interval is shortened. defaultIdleTimeout is deliberately left alone
+// in the test environment: shortening it would reap the missions other E2E
+// sections create and depend on, turning one new test into cross-section
+// flakiness. A test that needs a mission to look idle backdates that mission
+// instead.
+func idleTimeoutCheckIntervalForEnvironment() time.Duration {
+	if config.IsTestEnv() {
+		return 10 * time.Second
+	}
+	return idleTimeoutCheckInterval
+}
+
 // runIdleTimeoutLoop periodically scans running missions and stops wrappers
 // that have been idle longer than the timeout threshold. The wrapper is
 // automatically re-spawned on the next attach (lazy start).
 func (s *Server) runIdleTimeoutLoop(ctx context.Context) {
+	checkInterval := idleTimeoutCheckIntervalForEnvironment()
+
 	// Initial delay to avoid racing with startup
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(idleTimeoutCheckInterval):
+	case <-time.After(checkInterval):
 		s.runIdleTimeoutCycle()
 	}
 
-	ticker := time.NewTicker(idleTimeoutCheckInterval)
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
 	for {
@@ -70,16 +114,27 @@ func (s *Server) runIdleTimeoutCycle() {
 		}
 
 		idleDuration := s.missionIdleDuration(m, now)
-		if idleDuration < defaultIdleTimeout {
+		isAttached := m.TmuxPane != nil && linkedPaneIDs[*m.TmuxPane]
+
+		// Both of these are re-checked inside shouldReapMission, which owns the
+		// policy. They are repeated here only to skip the wrapper round-trip
+		// below for the overwhelming majority of missions, which are either
+		// attached or nowhere near the threshold.
+		if isAttached || idleDuration < defaultIdleTimeout {
 			continue
 		}
 
-		// Skip missions whose tmux pane is linked into a user session
-		if m.TmuxPane != nil && linkedPaneIDs[*m.TmuxPane] {
+		claudeState, wrapperUnresponsive := s.probeWrapperClaudeState(m.ID)
+		if !shouldReapMission(idleDuration, defaultIdleTimeout, idleTimeoutHardCeiling, isAttached, claudeState, wrapperUnresponsive) {
+			// Deliberately not logged: a spared mission is re-examined every
+			// check interval, and logging each pass floods the server log.
 			continue
 		}
 
-		s.logger.Printf("Idle timeout: stopping mission %s (idle for %s)", database.ShortID(m.ID), idleDuration.Round(time.Second))
+		s.logger.Printf(
+			"Idle timeout: stopping mission %s (idle for %s, wrapper reported %q)",
+			database.ShortID(m.ID), idleDuration.Round(time.Second), claudeState,
+		)
 		if err := s.stopWrapper(m.ID); err != nil {
 			s.logger.Printf("Idle timeout: failed to stop mission %s: %v", database.ShortID(m.ID), err)
 			continue
@@ -90,6 +145,70 @@ func (s *Server) runIdleTimeoutCycle() {
 			s.destroyPoolWindow(*m.TmuxPane)
 		}
 	}
+}
+
+// shouldReapMission decides whether a mission's wrapper should be stopped. It
+// is the single statement of the reaping policy, kept pure so that every case
+// below is testable without a server, tmux, or a live wrapper socket.
+//
+// idleDuration comes from the conversation log, which is only appended at turn
+// and tool-call boundaries — so on its own it cannot tell a finished mission
+// from one sitting inside a single long tool call. That is what claudeState is
+// for: it is what the mission's wrapper reports, or "" when no state could be
+// read at all. wrapperUnresponsive means a live wrapper failed to answer in
+// time, the one case where the decision is deferred rather than made.
+func shouldReapMission(
+	idleDuration time.Duration,
+	timeout time.Duration,
+	ceiling time.Duration,
+	isAttached bool,
+	claudeState string,
+	wrapperUnresponsive bool,
+) bool {
+	// A human is looking at this mission. Never reap it, whatever it reports.
+	if isAttached {
+		return false
+	}
+	if idleDuration < timeout {
+		return false
+	}
+	// The backstop for a hook-fed signal that can be wrong. Past the ceiling,
+	// nothing the wrapper reports — or fails to report — spares the mission.
+	if idleDuration >= ceiling {
+		return true
+	}
+	// A wrapper that is alive but slow to answer is far more likely to be busy
+	// than finished: it holds its state lock across tmux calls while hooks
+	// fire, which is exactly when Claude is active. Wait for the next cycle
+	// rather than destroy work on the strength of a timeout.
+	if wrapperUnresponsive {
+		return false
+	}
+	if claudeState == claudeStateBusy || claudeState == claudeStateNeedsAttention {
+		return false
+	}
+	// "idle", an empty state from a wrapper too old to report one, or no
+	// wrapper state at all: fall through to the conversation log's verdict,
+	// which the idleDuration check above has already delivered.
+	return true
+}
+
+// probeWrapperClaudeState asks a mission's wrapper what Claude is doing.
+// It returns the reported state, or unresponsive=true when a live wrapper
+// failed to answer within the budget. Every other failure — no wrapper
+// process, no socket to dial, an undecodable body — yields an empty state,
+// which leaves the mission judged on its conversation log alone exactly as it
+// was before the wrapper-state veto existed.
+func (s *Server) probeWrapperClaudeState(missionID string) (state string, unresponsive bool) {
+	status, err := s.queryWrapperStatus(missionID, reapWrapperQueryTimeout)
+	if err == nil {
+		return status.ClaudeState, false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "", true
+	}
+	return "", false
 }
 
 // reapStalePaneIDs clears tmux_pane for missions whose wrapper has stopped

@@ -155,7 +155,11 @@ The server runs twelve concurrent background goroutines:
 - Runs on a fixed interval
 - Scans all non-archived missions for running wrappers
 - Uses the active JSONL conversation log's modification time to determine idle duration, falling back to `created_at`
-- Stops wrappers idle past the configured threshold and destroys their pool windows
+- Stops wrappers idle past a fixed 30-minute threshold and destroys their pool windows. The threshold is a constant, not a config key
+- Missions attached to a tmux session outside the pool are never stopped
+- The conversation log is only appended at turn and tool-call boundaries, so its mtime cannot distinguish a finished mission from one sitting inside a single long tool call. Before stopping a mission the loop therefore asks its wrapper what Claude is doing, over the wrapper's status socket, and spares anything reporting `busy` or `needs_attention` — both of which mean the turn is still in flight. A wrapper that is alive but too slow to answer defers the decision to the next cycle; one that cannot be reached at all leaves the mission judged on its log alone
+- That wrapper state is hook-fed and can be wrong in the sparing direction — an interrupted turn fires no `Stop` hook, wedging the wrapper at `busy` indefinitely — so a hard ceiling (`idleTimeoutHardCeiling`) stops a mission regardless of what it reports. Attachment still wins over the ceiling
+- `shouldReapMission` holds the whole policy as a pure function; the loop body only gathers its inputs
 - Wrappers are automatically re-spawned on the next attach (lazy start)
 
 **8. Repo update worker** (`internal/server/repo_update_worker.go`)

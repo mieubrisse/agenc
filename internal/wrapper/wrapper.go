@@ -269,6 +269,16 @@ func (w *Wrapper) spawnClaude(isResume bool) error {
 	if err := claudeconfig.WriteMissionOpSettings(w.agencDirpath, w.missionID); err != nil {
 		return stacktrace.Propagate(err, "failed to write operational settings before spawn")
 	}
+	// A spawn carrying a prompt submits it immediately, so Claude is working
+	// from the moment it boots. Record that now instead of waiting for the
+	// UserPromptSubmit hook: claudeIdle starts true, so until that hook lands
+	// the wrapper would otherwise report "idle" while Claude is in fact
+	// starting a turn — and the server's idle-timeout loop believes it.
+	if w.initialPrompt != "" {
+		w.stateMu.Lock()
+		w.claudeIdle = false
+		w.stateMu.Unlock()
+	}
 	return w.spawnClaudeDirectly(isResume)
 }
 

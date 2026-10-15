@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -218,33 +219,51 @@ type wrapperStatusResponse struct {
 	ClaudeState string `json:"claude_state"`
 }
 
-// queryWrapperClaudeState queries the wrapper for a running mission's Claude state.
-// Returns nil if the wrapper is not running or unreachable.
-func (s *Server) queryWrapperClaudeState(missionID string) *string {
+// errWrapperNotRunning reports that a mission has no live wrapper process, so
+// there is no Claude state to read. Callers that must distinguish "no state
+// exists" from "a live wrapper failed to answer" depend on this being separate
+// from a transport error — see probeWrapperClaudeState.
+var errWrapperNotRunning = errors.New("wrapper process is not running")
+
+// queryWrapperStatus asks a mission's wrapper for its status over the wrapper's
+// unix socket, within the given budget. The error is returned rather than
+// flattened to nil so callers can tell a missing wrapper from a slow one.
+func (s *Server) queryWrapperStatus(missionID string, timeout time.Duration) (wrapperStatusResponse, error) {
+	var status wrapperStatusResponse
+
 	pidFilepath := config.GetMissionPIDFilepath(s.agencDirpath, missionID)
 	pid, err := ReadPID(pidFilepath)
 	if err != nil || pid == 0 || !IsProcessRunning(pid) {
-		return nil
+		return status, errWrapperNotRunning
 	}
 
 	socketFilepath := config.GetMissionSocketFilepath(s.agencDirpath, missionID)
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return net.DialTimeout("unix", socketFilepath, wrapperQueryTimeout)
+				return net.DialTimeout("unix", socketFilepath, timeout)
 			},
 		},
-		Timeout: wrapperQueryTimeout,
+		Timeout: timeout,
 	}
 
 	resp, err := httpClient.Get("http://wrapper/status")
 	if err != nil {
-		return nil
+		return status, err
 	}
 	defer resp.Body.Close()
 
-	var status wrapperStatusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return status, err
+	}
+	return status, nil
+}
+
+// queryWrapperClaudeState queries the wrapper for a running mission's Claude state.
+// Returns nil if the wrapper is not running or unreachable.
+func (s *Server) queryWrapperClaudeState(missionID string) *string {
+	status, err := s.queryWrapperStatus(missionID, wrapperQueryTimeout)
+	if err != nil {
 		return nil
 	}
 	return &status.ClaudeState

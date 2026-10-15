@@ -2028,6 +2028,97 @@ for uncoverable in "mission peers" "mission search"; do
     skipped=$((skipped + 1))
 done
 
+echo "--- Idle timeout spares a working mission (requires server + wrapper socket) ---"
+
+# The idle-timeout loop used to infer "idle" from one signal: the mtime of the
+# mission's JSONL conversation log. That log is only appended at turn and
+# tool-call boundaries, so a mission sitting inside a single long tool call
+# looked idle and had its wrapper SIGTERMed mid-work. The loop now also asks the
+# wrapper what Claude is doing and spares anything reporting busy.
+#
+# Both assertions below use the same mission, in order, and the second one is
+# what makes the first mean anything: if the backdating silently failed, nothing
+# was ever eligible for reaping, and "still BUSY" would pass while inspecting
+# nothing. The reap assertion fails in that case.
+#
+# This section runs last because it shortens nothing globally but does leave a
+# backdated mission behind, and because a mission reaped here must not be one a
+# later section depends on.
+
+idle_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
+idle_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
+    | awk '/^Created mission:/{print $3; exit}')
+idle_mission_uuid=""
+if [ -n "${idle_mission_short_id}" ]; then
+    idle_mission_uuid=$(sqlite3 "${idle_db_filepath}" \
+        "SELECT id FROM missions WHERE id LIKE '${idle_mission_short_id}%';" 2>/dev/null || echo "")
+fi
+
+# Backdate the mission past the 30-minute threshold. A blank mission has no
+# JSONL log yet, so missionIdleDuration falls back to created_at — that is the
+# clock to move. The busy timeout matters: the server holds this database open
+# and it is not in WAL mode, so a bare write can lose a race to SQLITE_BUSY.
+idle_backdated="no"
+if [ -n "${idle_mission_uuid}" ]; then
+    if sqlite3 -cmd ".timeout 5000" "${idle_db_filepath}" \
+        "UPDATE missions SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-40 minutes') WHERE id = '${idle_mission_uuid}';" 2>/dev/null; then
+        idle_backdated="yes"
+    fi
+fi
+
+# Can this environment report a Claude state at all? The wrapper serves its
+# state over a unix socket inside the mission directory, and macOS caps socket
+# paths at 104 bytes — which a deep checkout (an AgenC mission clone, for one)
+# overruns, leaving the wrapper alive but socket-less and every state nil. In
+# that case there is no veto to observe, so skip loudly rather than fail.
+idle_state_observable="no"
+if [ -n "${idle_mission_uuid}" ] && [ "${idle_backdated}" = "yes" ]; then
+    "${agenc_test}" mission send claude-update "${idle_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
+    sleep 2
+    if "${agenc_test}" mission ls 2>&1 | grep -E "^${idle_mission_short_id}\b" | grep -q "BUSY"; then
+        idle_state_observable="yes"
+    fi
+fi
+
+if [ "${idle_state_observable}" != "yes" ]; then
+    for idle_uncoverable in "idle timeout spares a busy mission" "idle timeout still reaps an idle mission"; do
+        total=$((total + 1))
+        printf "  %-50s " "${idle_uncoverable}..."
+        echo "SKIP (no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none})"
+        skipped=$((skipped + 1))
+    done
+else
+    # One fixed wait, not a poll. A poll that finds BUSY immediately proves
+    # nothing about what the loop would have done; the mission has to survive a
+    # scan. The test environment scans every 10 seconds
+    # (idleTimeoutCheckIntervalForEnvironment), so 25 seconds clears at least
+    # two scans with margin.
+    sleep 25
+
+    total=$((total + 1))
+    printf "  %-50s " "idle timeout spares a busy mission..."
+    if "${agenc_test}" mission ls 2>&1 | grep -E "^${idle_mission_short_id}\b" | grep -q "BUSY"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (a mission reporting busy was stopped despite being past the idle threshold)"
+        echo "    Last output: $("${agenc_test}" mission ls 2>&1 | grep -E "^${idle_mission_short_id}\b")"
+        failed=$((failed + 1))
+    fi
+
+    # Now let the same mission go genuinely idle. It must be reaped, which both
+    # proves the veto is not unconditional and proves the backdating above
+    # actually took effect.
+    "${agenc_test}" mission send claude-update "${idle_mission_uuid}" Stop >/dev/null 2>&1 || true
+
+    run_test_eventually_output_contains "idle timeout still reaps an idle mission" \
+        "^${idle_mission_short_id}[[:space:]].*STOPPED" \
+        60 \
+        "${agenc_test}" mission ls
+fi
+
+echo ""
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
