@@ -55,7 +55,7 @@ type MissionResponse struct {
 	IsAdjutant bool `json:"is_adjutant"`
 
 	// ClaudeState is the current state of Claude in this mission. Nil when the
-	// wrapper is not running. Possible values: "idle", "busy", "needs_attention".
+	// wrapper is not running. Possible values: "idle", "busy", "needs_attention", "quota_blocked".
 	ClaudeState *string `json:"claude_state"`
 
 	// IsAttached is true if the mission's tmux pane is currently linked into a

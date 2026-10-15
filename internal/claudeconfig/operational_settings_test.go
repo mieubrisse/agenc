@@ -63,6 +63,7 @@ func TestBuildOperationalSettings_HookKeys(t *testing.T) {
 	expectedHookKeys := []string{
 		"SessionStart",
 		"Stop",
+		"StopFailure",
 		"UserPromptSubmit",
 		"Notification",
 		"PostToolUse",

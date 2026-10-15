@@ -22,10 +22,12 @@ var missionSendClaudeUpdateCmd = &cobra.Command{
 	Short: "Send a Claude hook event to the mission wrapper",
 	Long: `Send a Claude hook event to the mission wrapper via its unix socket.
 
-This command is called by Claude Code hooks (Stop, UserPromptSubmit, Notification,
-PostToolUse, PostToolUseFailure) to report state changes. For Notification events,
-hook JSON is read from stdin (with a timeout) to extract notification_type. All
-other events skip stdin entirely to avoid blocking when Claude Code doesn't close it.
+This command is called by Claude Code hooks (Stop, StopFailure, UserPromptSubmit,
+Notification, PostToolUse, PostToolUseFailure) to report state changes. For
+Notification and StopFailure events, hook JSON is read from stdin (with a timeout)
+to extract the fields the wrapper needs — notification_type for the former,
+agent_id and error for the latter. All other events skip stdin entirely to avoid
+blocking when Claude Code doesn't close it.
 
 Always exits 0, even on failure, to avoid blocking Claude.`,
 	Args:               cobra.ExactArgs(2),
@@ -43,13 +45,15 @@ func runMissionSendClaudeUpdate(cmd *cobra.Command, args []string) error {
 	missionID := args[0]
 	event := args[1]
 
-	// Only read stdin for Notification events (to extract notification_type).
-	// Other events (Stop, UserPromptSubmit, PostToolUse, PostToolUseFailure)
-	// don't pass useful data via stdin, and Claude Code may not close stdin
-	// for them — causing io.ReadAll to block indefinitely.
-	var notificationType string
-	if event == "Notification" {
-		notificationType = extractNotificationType(os.Stdin)
+	// Only read stdin for the events whose payload the wrapper actually needs:
+	// Notification (for notification_type) and StopFailure (for agent_id, which
+	// says whether the MAIN agent's turn died or merely a subagent's). The rest
+	// (Stop, UserPromptSubmit, PostToolUse, PostToolUseFailure) pass nothing
+	// useful via stdin, and Claude Code may not close stdin for them — causing
+	// io.ReadAll to block indefinitely.
+	var payload claudeHookPayload
+	if payloadIsNeededForEvent(event) {
+		payload = extractClaudeHookPayload(os.Stdin, event)
 	}
 
 	agencDirpath, err := config.GetAgencDirpath()
@@ -62,7 +66,14 @@ func runMissionSendClaudeUpdate(cmd *cobra.Command, args []string) error {
 
 	// Use a short timeout to avoid blocking Claude if the wrapper is unresponsive
 	client := wrapper.NewWrapperClient(socketFilepath, claudeUpdateClientTimeout)
-	if err := client.SendClaudeUpdate(event, notificationType); err != nil {
+	update := wrapper.ClaudeUpdateRequest{
+		Event:            event,
+		NotificationType: payload.NotificationType,
+		AgentID:          payload.AgentID,
+		HookError:        payload.Error,
+		PayloadParsed:    payload.Parsed,
+	}
+	if err := client.SendClaudeUpdate(update); err != nil {
 		// Silently fail — never block Claude
 		return nil
 	}
@@ -70,14 +81,45 @@ func runMissionSendClaudeUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// extractNotificationType reads stdin with a short timeout and extracts the
-// notification_type field from the hook JSON payload. Returns empty string if
-// stdin is empty, the field is not present, or the read times out.
+// claudeHookPayload holds the fields the wrapper needs out of a Claude Code
+// hook's JSON payload. Parsed reports whether the payload was read and decoded
+// successfully; it is NOT implied by the other fields being set, because every
+// one of them is legitimately absent on some events.
+//
+// Parsed is the field that keeps the StopFailure handler safe. "No agent_id"
+// and "could not read the payload" both leave AgentID empty, but they mean
+// opposite things: the first says the main agent's turn died, the second says
+// we know nothing at all. Collapsing them would let a failed read mark a
+// working mission idle.
+type claudeHookPayload struct {
+	NotificationType string
+	AgentID          string
+	Error            string
+	Parsed           bool
+}
+
+// payloadIsNeededForEvent reports whether the wrapper needs anything out of
+// this event's stdin payload. Reading stdin costs up to stdinReadTimeout, so
+// events that carry nothing useful skip it entirely.
+func payloadIsNeededForEvent(event string) bool {
+	return event == "Notification" || event == "StopFailure"
+}
+
+// extractClaudeHookPayload reads stdin with a short timeout and decodes the
+// hook JSON payload. A zero-value payload (Parsed false) is returned if stdin
+// is empty, the JSON is malformed, or the read times out — callers must treat
+// that as "nothing is known about this event" rather than as absent fields.
+//
+// expectedEvent is the event name the hook was invoked with. The payload must
+// identify itself as that same event before Parsed is set, which keeps `{}`,
+// `null`, and any other JSON that decodes but carries no evidence from being
+// mistaken for a real hook payload — the empty AgentID such a payload yields
+// would otherwise read as "the main agent's turn died".
 //
 // The timeout prevents blocking if Claude Code doesn't close stdin. This is a
 // CLI process that exits immediately after, so a leaked goroutine on timeout
 // is acceptable.
-func extractNotificationType(reader io.Reader) string {
+func extractClaudeHookPayload(reader io.Reader, expectedEvent string) claudeHookPayload {
 	type readResult struct {
 		data []byte
 		err  error
@@ -92,22 +134,40 @@ func extractNotificationType(reader io.Reader) string {
 	select {
 	case res := <-ch:
 		if res.err != nil {
-			return ""
+			return claudeHookPayload{}
 		}
 		data = res.data
 	case <-time.After(stdinReadTimeout):
-		return ""
+		return claudeHookPayload{}
 	}
 
 	if len(data) == 0 {
-		return ""
+		return claudeHookPayload{}
 	}
 
-	var payload struct {
+	// agent_id, per Claude Code's own hook-payload schema: "Subagent
+	// identifier. Present only when the hook fires from within a subagent
+	// (e.g., a tool called by an AgentTool worker). Absent for the main
+	// thread, even in --agent sessions. Use this field (not agent_type) to
+	// distinguish subagent calls from main-thread calls."
+	var decoded struct {
+		HookEventName    string `json:"hook_event_name"`
 		NotificationType string `json:"notification_type"`
+		AgentID          string `json:"agent_id"`
+		Error            string `json:"error"`
 	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return ""
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return claudeHookPayload{}
 	}
-	return payload.NotificationType
+	// json.Unmarshal succeeds on `null` and on `{}`, so a successful decode is
+	// not on its own evidence that a hook payload arrived.
+	if decoded.HookEventName != expectedEvent {
+		return claudeHookPayload{}
+	}
+	return claudeHookPayload{
+		NotificationType: decoded.NotificationType,
+		AgentID:          decoded.AgentID,
+		Error:            decoded.Error,
+		Parsed:           true,
+	}
 }

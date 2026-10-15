@@ -50,7 +50,7 @@ type Mission struct {
 	IsAdjutant bool
 
 	// ClaudeState is a transient field populated by the server API, not stored in the database.
-	// Possible values: "idle", "busy", "needs_attention", or nil when wrapper is not running.
+	// Possible values: "idle", "busy", "needs_attention", "quota_blocked", or nil when wrapper is not running.
 	ClaudeState *string
 
 	// IsAttached is a transient field populated by the server API, not stored in

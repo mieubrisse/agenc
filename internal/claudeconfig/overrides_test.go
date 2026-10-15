@@ -135,3 +135,48 @@ func TestSessionStartHookEntry_WiresPrimeInjection(t *testing.T) {
 		t.Errorf("expected SessionStart command to be \"agenc prime\", got: %s", string(raw))
 	}
 }
+
+// TestBuildAgencHookEntries_StateTrackingHooksHaveNoMatcher pins a constraint
+// that is invisible in the code and easy to "improve" away: the state-tracking
+// hooks must be registered without a matcher.
+//
+// It matters most for StopFailure. Claude Code can filter that event on its
+// error kind, so narrowing it to the kinds we care about looks like a tidy-up —
+// but the kind is not a faithful read of the upstream failure. A 529 carrying
+// an `overloaded_error` body was observed arriving as `server_error`, which a
+// `matcher: "overloaded"` entry does not match, so the hook would silently
+// stop firing for exactly the overload case it was narrowed for.
+func TestBuildAgencHookEntries_StateTrackingHooksHaveNoMatcher(t *testing.T) {
+	entries := BuildAgencHookEntries("/tmp/test-mission/claude-config")
+
+	for _, eventName := range agencHookEventNames {
+		entryRaw, ok := entries[eventName]
+		if !ok {
+			t.Errorf("expected %q entry in BuildAgencHookEntries result", eventName)
+			continue
+		}
+
+		var hookGroups []map[string]interface{}
+		if err := json.Unmarshal(entryRaw, &hookGroups); err != nil {
+			t.Errorf("failed to parse %q entry: %v", eventName, err)
+			continue
+		}
+		for _, hookGroup := range hookGroups {
+			if matcher, present := hookGroup["matcher"]; present {
+				t.Errorf("%q hook declares matcher %q; state-tracking hooks must catch every occurrence", eventName, matcher)
+			}
+		}
+	}
+}
+
+// TestAgencHookEventNames_IncludesStopFailure pins the registration itself. A
+// turn killed by an API error fires StopFailure instead of Stop, so dropping
+// this event leaves the wrapper reporting "busy" for the rest of its life.
+func TestAgencHookEventNames_IncludesStopFailure(t *testing.T) {
+	for _, eventName := range agencHookEventNames {
+		if eventName == "StopFailure" {
+			return
+		}
+	}
+	t.Errorf("StopFailure missing from agencHookEventNames: %v", agencHookEventNames)
+}

@@ -21,9 +21,13 @@ const defaultMissionLsLimit = 20
 type MissionDisplayStatus string
 
 const (
-	StatusIdle     MissionDisplayStatus = "IDLE"
-	StatusBusy     MissionDisplayStatus = "BUSY"
-	StatusWaiting  MissionDisplayStatus = "WAITING"
+	StatusIdle    MissionDisplayStatus = "IDLE"
+	StatusBusy    MissionDisplayStatus = "BUSY"
+	StatusWaiting MissionDisplayStatus = "WAITING"
+	// StatusQuota is a turn stopped on the account's usage quota. Distinct
+	// from BUSY because nothing is executing, and from IDLE because the turn
+	// is not finished — Claude Code may resume it when the window resets.
+	StatusQuota    MissionDisplayStatus = "QUOTA"
 	StatusRunning  MissionDisplayStatus = "RUNNING"
 	StatusStopped  MissionDisplayStatus = "STOPPED"
 	StatusArchived MissionDisplayStatus = "ARCHIVED"
@@ -235,6 +239,10 @@ func colorizeStatusForPicker(status MissionDisplayStatus) string {
 		return ansiGreen + s + ansiReset
 	case StatusWaiting:
 		return ansiYellow + s + ansiReset
+	case StatusQuota:
+		// Yellow with WAITING: both mean stalled on something outside the
+		// mission, which a human scanning the picker wants to spot together.
+		return ansiYellow + s + ansiReset
 	case StatusRunning:
 		return ansiGreen + s + ansiReset
 	case StatusArchived:
@@ -282,6 +290,8 @@ func getMissionStatus(missionID string, dbStatus string, claudeState *string) Mi
 			return StatusBusy
 		case "needs_attention":
 			return StatusWaiting
+		case "quota_blocked":
+			return StatusQuota
 		default:
 			return StatusRunning
 		}
@@ -301,7 +311,7 @@ func getMissionStatus(missionID string, dbStatus string, claudeState *string) Mi
 // isMissionRunning returns true if the mission status indicates the wrapper is alive.
 func isMissionRunning(status MissionDisplayStatus) bool {
 	switch status {
-	case StatusRunning, StatusIdle, StatusBusy, StatusWaiting:
+	case StatusRunning, StatusIdle, StatusBusy, StatusWaiting, StatusQuota:
 		return true
 	}
 	return false
