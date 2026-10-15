@@ -30,6 +30,7 @@ func TestPayloadIsNeededForEvent(t *testing.T) {
 func TestExtractClaudeHookPayload(t *testing.T) {
 	testCases := []struct {
 		name                     string
+		event                    string
 		stdin                    string
 		expectedNotificationType string
 		expectedAgentID          string
@@ -41,12 +42,14 @@ func TestExtractClaudeHookPayload(t *testing.T) {
 			// signal the wrapper acts on — so Parsed must be true to tell it
 			// apart from a read that simply failed.
 			name:           "StopFailure from the main agent has no agent_id",
+			event:          "StopFailure",
 			stdin:          `{"hook_event_name":"StopFailure","error":"rate_limit","last_assistant_message":"API Error: 429"}`,
 			expectedError:  "rate_limit",
 			expectedParsed: true,
 		},
 		{
 			name:            "StopFailure from a subagent carries agent_id",
+			event:           "StopFailure",
 			stdin:           `{"hook_event_name":"StopFailure","error":"unknown","agent_id":"a9721025944e80c23","agent_type":"general-purpose"}`,
 			expectedAgentID: "a9721025944e80c23",
 			expectedError:   "unknown",
@@ -54,6 +57,7 @@ func TestExtractClaudeHookPayload(t *testing.T) {
 		},
 		{
 			name:                     "Notification still yields notification_type",
+			event:                    "Notification",
 			stdin:                    `{"hook_event_name":"Notification","notification_type":"permission_prompt"}`,
 			expectedNotificationType: "permission_prompt",
 			expectedParsed:           true,
@@ -63,24 +67,50 @@ func TestExtractClaudeHookPayload(t *testing.T) {
 			// treats that as "nothing is known", which is what stops a failed
 			// read from being mistaken for a main-agent failure.
 			name:           "empty stdin is not parsed",
+			event:          "StopFailure",
 			stdin:          "",
 			expectedParsed: false,
 		},
 		{
 			name:           "malformed JSON is not parsed",
+			event:          "StopFailure",
 			stdin:          `{"hook_event_name":"StopFailure"`,
 			expectedParsed: false,
 		},
 		{
 			name:           "JSON that is not an object is not parsed",
+			event:          "StopFailure",
 			stdin:          `["StopFailure"]`,
+			expectedParsed: false,
+		},
+		{
+			// json.Unmarshal succeeds on both of these, and both leave AgentID
+			// empty. Without the hook_event_name check they would read as "the
+			// main agent's turn died" on a payload that said nothing at all.
+			name:           "empty JSON object is not parsed",
+			event:          "StopFailure",
+			stdin:          `{}`,
+			expectedParsed: false,
+		},
+		{
+			name:           "JSON null is not parsed",
+			event:          "StopFailure",
+			stdin:          `null`,
+			expectedParsed: false,
+		},
+		{
+			// A payload describing a different event is not evidence about this
+			// one.
+			name:           "payload for a different event is not parsed",
+			event:          "StopFailure",
+			stdin:          `{"hook_event_name":"Notification","notification_type":"permission_prompt"}`,
 			expectedParsed: false,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			payload := extractClaudeHookPayload(strings.NewReader(testCase.stdin))
+			payload := extractClaudeHookPayload(strings.NewReader(testCase.stdin), testCase.event)
 
 			if payload.NotificationType != testCase.expectedNotificationType {
 				t.Errorf("notification type = %q, want %q", payload.NotificationType, testCase.expectedNotificationType)
@@ -121,7 +151,7 @@ func TestExtractClaudeHookPayload_TimeoutIsNotParsed(t *testing.T) {
 	t.Cleanup(func() { close(reader.released) })
 
 	start := time.Now()
-	payload := extractClaudeHookPayload(reader)
+	payload := extractClaudeHookPayload(reader, "StopFailure")
 	elapsed := time.Since(start)
 
 	if payload.Parsed {

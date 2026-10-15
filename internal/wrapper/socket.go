@@ -26,7 +26,8 @@ type ClaudeUpdateRequest struct {
 	Event            string `json:"event"`
 	NotificationType string `json:"notification_type"`
 	// AgentID is Claude Code's `agent_id`: set only when the hook fired from
-	// inside a subagent, absent for the main thread.
+	// inside a subagent, absent for the main thread — including in `--agent`
+	// sessions, which is the part that makes it safe to key on here.
 	AgentID string `json:"agent_id"`
 	// HookError is Claude Code's `error` on StopFailure — the kind of API
 	// failure that killed the turn (rate_limit, overloaded, server_error, …).

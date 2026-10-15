@@ -53,7 +53,7 @@ func runMissionSendClaudeUpdate(cmd *cobra.Command, args []string) error {
 	// io.ReadAll to block indefinitely.
 	var payload claudeHookPayload
 	if payloadIsNeededForEvent(event) {
-		payload = extractClaudeHookPayload(os.Stdin)
+		payload = extractClaudeHookPayload(os.Stdin, event)
 	}
 
 	agencDirpath, err := config.GetAgencDirpath()
@@ -110,10 +110,16 @@ func payloadIsNeededForEvent(event string) bool {
 // is empty, the JSON is malformed, or the read times out — callers must treat
 // that as "nothing is known about this event" rather than as absent fields.
 //
+// expectedEvent is the event name the hook was invoked with. The payload must
+// identify itself as that same event before Parsed is set, which keeps `{}`,
+// `null`, and any other JSON that decodes but carries no evidence from being
+// mistaken for a real hook payload — the empty AgentID such a payload yields
+// would otherwise read as "the main agent's turn died".
+//
 // The timeout prevents blocking if Claude Code doesn't close stdin. This is a
 // CLI process that exits immediately after, so a leaked goroutine on timeout
 // is acceptable.
-func extractClaudeHookPayload(reader io.Reader) claudeHookPayload {
+func extractClaudeHookPayload(reader io.Reader, expectedEvent string) claudeHookPayload {
 	type readResult struct {
 		data []byte
 		err  error
@@ -145,11 +151,17 @@ func extractClaudeHookPayload(reader io.Reader) claudeHookPayload {
 	// thread, even in --agent sessions. Use this field (not agent_type) to
 	// distinguish subagent calls from main-thread calls."
 	var decoded struct {
+		HookEventName    string `json:"hook_event_name"`
 		NotificationType string `json:"notification_type"`
 		AgentID          string `json:"agent_id"`
 		Error            string `json:"error"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
+		return claudeHookPayload{}
+	}
+	// json.Unmarshal succeeds on `null` and on `{}`, so a successful decode is
+	// not on its own evidence that a hook payload arrived.
+	if decoded.HookEventName != expectedEvent {
 		return claudeHookPayload{}
 	}
 	return claudeHookPayload{

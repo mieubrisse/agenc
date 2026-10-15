@@ -2081,6 +2081,7 @@ fi
 
 if [ "${stopfailure_state_observable}" != "yes" ]; then
     for stopfailure_uncoverable in \
+        "subagent StopFailure reaches the wrapper" \
         "StopFailure from a subagent leaves the mission busy" \
         "StopFailure from the main agent ends the turn"; do
         total=$((total + 1))
@@ -2091,9 +2092,26 @@ if [ "${stopfailure_state_observable}" != "yes" ]; then
 else
     # A subagent died. The main agent is still working, so the mission must
     # stay busy — marking it idle here is the bug KEV-70 fixed, re-introduced.
+    #
+    # "Still BUSY" is a dangerous shape for an assertion: the CLI always exits
+    # 0 by design, so if this message never reached the wrapper at all the
+    # mission would still read BUSY and the test would pass having inspected
+    # nothing. Delivery is therefore proven separately, out of the wrapper's
+    # own log, before the state is judged.
+    stopfailure_wrapper_log_filepath="${repo_dirpath}/_test-env/missions/${stopfailure_mission_uuid}/wrapper.log"
     printf '{"hook_event_name":"StopFailure","error":"unknown","agent_id":"e2e-subagent","agent_type":"general-purpose"}' \
         | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" StopFailure >/dev/null 2>&1 || true
     sleep 2
+
+    total=$((total + 1))
+    printf "  %-50s " "subagent StopFailure reaches the wrapper..."
+    if grep -q '"agent_id":"e2e-subagent"' "${stopfailure_wrapper_log_filepath}" 2>/dev/null; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (the subagent payload never reached the wrapper, so the next assertion proves nothing)"
+        failed=$((failed + 1))
+    fi
 
     total=$((total + 1))
     printf "  %-50s " "StopFailure from a subagent leaves the mission busy..."

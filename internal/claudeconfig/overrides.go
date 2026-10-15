@@ -57,9 +57,10 @@ var staticAgencHookEntries map[string]json.RawMessage
 func init() {
 	staticAgencHookEntries = make(map[string]json.RawMessage, len(agencHookEventNames)+1)
 	for _, eventName := range agencHookEventNames {
-		// The Go command handler (runMissionSendClaudeUpdate) skips stdin for
-		// non-Notification events and uses a timeout for Notification events,
-		// so no shell-level stdin redirect is needed here. Shell redirects like
+		// The Go command handler (runMissionSendClaudeUpdate) reads stdin only
+		// for the events whose payload it needs (Notification, StopFailure) and
+		// bounds that read with a timeout, so no shell-level stdin redirect is
+		// needed here. Shell redirects like
 		// "< /dev/null" cannot be used because Claude Code may tokenize the
 		// command string rather than passing it to sh -c, causing the redirect
 		// tokens to be interpreted as extra positional arguments.

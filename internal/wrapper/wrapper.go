@@ -432,6 +432,18 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 		// Failing either one leaves the state untouched: the mission stays
 		// wedged until the server's hard ceiling reclaims it, which is exactly
 		// today's behavior and strictly better than killing live work.
+		//
+		// What these two conditions do NOT cover: whether Claude Code intends
+		// to carry the turn on by itself. Its own disposition for an api_error
+		// is computed after this hook has already fired, and for some error
+		// kinds it is "retry" or "pause" rather than "finished" — so a future
+		// Claude Code could leave a mission working while we report it idle.
+		// Observed on 2.1.274: plain and quota-headed 429s both exhaust ten
+		// retries BEFORE firing StopFailure and then sit at the prompt, so
+		// idle is the correct report today. Re-check this if the retry or
+		// auto-resume behavior changes; the hard ceiling is not a defense
+		// here, because reporting idle makes the mission reapable at the
+		// 30-minute threshold instead.
 		w.logger.Info(
 			"Claude turn ended in an API error",
 			"error_kind", cmd.HookError,

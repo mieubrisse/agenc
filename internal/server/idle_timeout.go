@@ -54,7 +54,8 @@ const (
 
 // Claude states a mission's wrapper reports over its status socket. Both of
 // these mean Claude's turn is still in flight: needs-attention is set by the
-// Notification hook and cleared by Stop, so it can never mean "finished".
+// Notification hook and cleared whenever a turn ends (Stop, or a StopFailure
+// attributed to the main agent), so it can never mean "finished".
 const (
 	claudeStateBusy           = "busy"
 	claudeStateNeedsAttention = "needs_attention"
