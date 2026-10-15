@@ -2075,7 +2075,7 @@ idle_state_observable="no"
 if [ -n "${idle_mission_uuid}" ] && [ "${idle_backdated}" = "yes" ]; then
     "${agenc_test}" mission send claude-update "${idle_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
     sleep 2
-    if "${agenc_test}" mission ls 2>&1 | grep -E "^${idle_mission_short_id}\b" | grep -q "BUSY"; then
+    if "${agenc_test}" mission inspect "${idle_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
         idle_state_observable="yes"
     fi
 fi
@@ -2097,12 +2097,12 @@ else
 
     total=$((total + 1))
     printf "  %-50s " "idle timeout spares a busy mission..."
-    if "${agenc_test}" mission ls 2>&1 | grep -E "^${idle_mission_short_id}\b" | grep -q "BUSY"; then
+    if "${agenc_test}" mission inspect "${idle_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
         echo "PASS"
         passed=$((passed + 1))
     else
         echo "FAIL (a mission reporting busy was stopped despite being past the idle threshold)"
-        echo "    Last output: $("${agenc_test}" mission ls 2>&1 | grep -E "^${idle_mission_short_id}\b")"
+        echo "    Last output: $("${agenc_test}" mission inspect "${idle_mission_uuid}" 2>&1 | grep -E "^Status:")"
         failed=$((failed + 1))
     fi
 
@@ -2112,9 +2112,9 @@ else
     "${agenc_test}" mission send claude-update "${idle_mission_uuid}" Stop >/dev/null 2>&1 || true
 
     run_test_eventually_output_contains "idle timeout still reaps an idle mission" \
-        "^${idle_mission_short_id}[[:space:]].*STOPPED" \
+        "^Status:[[:space:]]+STOPPED" \
         60 \
-        "${agenc_test}" mission ls
+        "${agenc_test}" mission inspect "${idle_mission_uuid}"
 fi
 
 echo ""

@@ -23,9 +23,11 @@ import (
 // and a mission whose wrapper says it is idle must still be reaped (proving the
 // veto did not turn the loop into a no-op).
 func TestShouldReapMission(t *testing.T) {
+	// The production values, not copies of them: a table built on local
+	// constants would keep passing if someone retuned the real ones.
 	const (
-		timeout = 30 * time.Minute
-		ceiling = 6 * time.Hour
+		timeout = defaultIdleTimeout
+		ceiling = idleTimeoutHardCeiling
 	)
 
 	tests := []struct {
@@ -111,6 +113,33 @@ func TestShouldReapMission(t *testing.T) {
 			idleDuration: 31 * time.Minute,
 			claudeState:  "something_new",
 			expected:     true,
+		},
+		// The two comparison boundaries. `<` on the threshold and `>=` on the
+		// ceiling both live exactly here, so an off-by-one in either would
+		// otherwise slip through every row above.
+		{
+			name:         "exactly at the threshold: reaped, the threshold is not exclusive",
+			idleDuration: timeout,
+			claudeState:  "idle",
+			expected:     true,
+		},
+		{
+			name:         "one nanosecond under the threshold: spared",
+			idleDuration: timeout - 1,
+			claudeState:  "idle",
+			expected:     false,
+		},
+		{
+			name:         "exactly at the ceiling while busy: reaped, the ceiling is not exclusive",
+			idleDuration: ceiling,
+			claudeState:  claudeStateBusy,
+			expected:     true,
+		},
+		{
+			name:         "one nanosecond under the ceiling while busy: still spared",
+			idleDuration: ceiling - 1,
+			claudeState:  claudeStateBusy,
+			expected:     false,
 		},
 	}
 

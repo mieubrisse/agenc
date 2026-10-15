@@ -89,7 +89,7 @@ After changing keybindings via `agenc config` commands, AgenC automatically rege
 Managing Cron Jobs
 ------------------
 
-AgenC cron jobs are scheduled tasks that launch headless missions on a cron schedule via macOS launchd. Each cron mission behaves identically to a normal headless mission — it runs in a tmux pool window and uses the standard 30-minute idle timeout. "Idle" means two things together: the JSONL session file has not been touched for 30 minutes, *and* the mission's wrapper does not report Claude as still working. A mission inside one long tool call is not idle, however quiet its session file looks, so a cron mission running a slow job is not stopped out from under itself. A separate, much longer ceiling does stop a mission regardless, to catch wrappers whose state has gone stale.
+AgenC cron jobs are scheduled tasks that launch headless missions on a cron schedule via macOS launchd. Each cron mission behaves identically to a normal headless mission — it runs in a tmux pool window and uses the standard 30-minute idle timeout. "Idle" means two things together: the JSONL session file has not been touched for 30 minutes, *and* the mission's wrapper does not report Claude as still working. A mission inside one long tool call is not idle, however quiet its session file looks, so a cron mission running a slow job is not stopped out from under itself. There is an outer limit, though: after **6 hours** of no JSONL activity a mission is stopped no matter what its wrapper reports, to catch wrappers whose state has gone stale. So a cron job whose single step runs longer than 6 hours can still be stopped mid-run, and a mission left sitting at an unanswered permission prompt is reclaimed after 6 hours rather than 30 minutes.
 
 ### How crons work
 

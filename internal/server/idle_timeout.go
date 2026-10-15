@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"time"
@@ -131,9 +132,18 @@ func (s *Server) runIdleTimeoutCycle() {
 			continue
 		}
 
+		// Spell out which signal condemned the mission. "no state" and a
+		// reported state are different diagnoses for whoever reads this log.
+		verdict := "no wrapper state available"
+		switch {
+		case idleDuration >= idleTimeoutHardCeiling:
+			verdict = fmt.Sprintf("past the %s ceiling, wrapper state %q ignored", idleTimeoutHardCeiling, claudeState)
+		case claudeState != "":
+			verdict = fmt.Sprintf("wrapper reported %q", claudeState)
+		}
 		s.logger.Printf(
-			"Idle timeout: stopping mission %s (idle for %s, wrapper reported %q)",
-			database.ShortID(m.ID), idleDuration.Round(time.Second), claudeState,
+			"Idle timeout: stopping mission %s (idle for %s, %s)",
+			database.ShortID(m.ID), idleDuration.Round(time.Second), verdict,
 		)
 		if err := s.stopWrapper(m.ID); err != nil {
 			s.logger.Printf("Idle timeout: failed to stop mission %s: %v", database.ShortID(m.ID), err)
@@ -243,10 +253,15 @@ func (s *Server) isWrapperRunning(missionID string) bool {
 	return IsProcessRunning(pid)
 }
 
-// missionIdleDuration returns how long a mission has been idle by checking the
-// modification time of the active JSONL conversation log. Claude Code writes to
-// this file whenever it does anything (streaming, tool calls, thinking), so a
-// recently modified file means Claude is actively working.
+// missionIdleDuration returns how long it has been since a mission's active
+// JSONL conversation log was last modified.
+//
+// Claude Code appends to that log at turn and tool-call boundaries, not
+// continuously, so a recently modified file does mean Claude was recently
+// active — but a stale one does NOT mean Claude is finished. A mission sitting
+// inside a single long tool call, or driving a subagent, writes nothing for the
+// duration. Treating that as idleness is the bug shouldReapMission's
+// wrapper-state veto exists to prevent; this value is only half the picture.
 //
 // Falls back to created_at if the JSONL file cannot be located (mission has no
 // session yet, or the project directory doesn't exist).

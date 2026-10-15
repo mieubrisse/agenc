@@ -220,9 +220,10 @@ type wrapperStatusResponse struct {
 }
 
 // errWrapperNotRunning reports that a mission has no live wrapper process, so
-// there is no Claude state to read. Callers that must distinguish "no state
-// exists" from "a live wrapper failed to answer" depend on this being separate
-// from a transport error — see probeWrapperClaudeState.
+// there is no Claude state to read. Returned instead of a transport error so
+// the reason shows up in logs and in any future caller that wants to branch on
+// it; probeWrapperClaudeState currently treats it like any other non-timeout
+// failure.
 var errWrapperNotRunning = errors.New("wrapper process is not running")
 
 // queryWrapperStatus asks a mission's wrapper for its status over the wrapper's
