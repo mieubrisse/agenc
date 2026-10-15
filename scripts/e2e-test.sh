@@ -2073,10 +2073,10 @@ if [ -n "${stopfailure_mission_uuid}" ]; then
     "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
     sleep 2
     stopfailure_observed_status=$("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 \
-        | grep -E "^Status:" | head -1 | tr -s ' ')
-    if printf '%s' "${stopfailure_observed_status}" | grep -qE "^Status: BUSY"; then
-        stopfailure_state_observable="yes"
-    fi
+        | grep -E "^Status:" | head -1 | tr -s ' ' || true)
+    case "${stopfailure_observed_status}" in
+        "Status: BUSY"*) stopfailure_state_observable="yes" ;;
+    esac
 fi
 
 if [ "${stopfailure_state_observable}" != "yes" ]; then
@@ -2105,12 +2105,19 @@ else
     # Returns 0 on match. Only sound for a status nothing else in this section
     # can produce, which is why the subagent case below also asserts on the
     # wrapper's own decision record rather than on status alone.
+    #
+    # `grep -E ... >/dev/null`, never `grep -q`. This script runs under
+    # `set -o pipefail`, and `grep -q` exits the instant it matches, so the
+    # command upstream of it dies with SIGPIPE and the pipeline reports 141 —
+    # a successful match turned into a failed test. Without -q, grep drains
+    # the input, the producer exits 0, and the pipeline status is grep's.
     await_mission_status() {
         local uuid="${1}"
         local wanted="${2}"
         local deadline=$((SECONDS + 20))
         while [ "${SECONDS}" -lt "${deadline}" ]; do
-            if "${agenc_test}" mission inspect "${uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+${wanted}\b"; then
+            if "${agenc_test}" mission inspect "${uuid}" 2>&1 \
+                | grep -E "^Status:[[:space:]]+${wanted}([[:space:]]|$)" >/dev/null; then
                 return 0
             fi
             sleep 2
