@@ -2112,11 +2112,23 @@ else
     # which is why it leans on the wrapper's own decision record in the log
     # and treats the status check as corroboration rather than as the test.
     #
-    # `grep -E ... >/dev/null`, never `grep -q`. This script runs under
-    # `set -o pipefail`, and `grep -q` exits the instant it matches, so the
-    # command upstream of it dies with SIGPIPE and the pipeline reports 141 —
-    # a successful match turned into a failed test. Without -q, grep drains
-    # the input, the producer exits 0, and the pipeline status is grep's.
+    # `grep -E ... >/dev/null`, never `grep -q`, and the reason is specific
+    # enough to be worth stating because it is invisible at a glance.
+    #
+    # `mission inspect` prints 10 lines with Status on line 3. `grep -q` exits
+    # the instant it matches line 3, while the Go producer is still writing
+    # the remaining 7 — those writes hit a closed pipe, and a Go program
+    # killed by SIGPIPE on stdout exits 141. This script runs under
+    # `set -o pipefail`, so that 141 becomes the pipeline's status and a
+    # successful match is reported as a failed test. Measured here as
+    # deterministic, 10 runs out of 10, with `PIPESTATUS=141 0` naming the
+    # producer as the one that died and grep as having matched.
+    #
+    # It needs all three: an early match, a producer still writing after it,
+    # and pipefail. Drop any one and it returns 0 — which is why the same
+    # line typed into an interactive shell (no pipefail) succeeds, and why
+    # this is easy to "disprove" by testing it the wrong way. Without -q,
+    # grep drains the input, the producer finishes, and the status is grep's.
     await_mission_status() {
         local uuid="${1}"
         local wanted="${2}"
