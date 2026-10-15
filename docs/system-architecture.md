@@ -152,10 +152,14 @@ The server runs twelve concurrent background goroutines:
 - Uses the Claude CLI subprocess rather than a direct API call to avoid requiring users to configure an API key
 
 **7. Idle timeout loop** (`internal/server/idle_timeout.go`)
-- Runs on a fixed interval
+- Runs every 2 minutes, or every 10 seconds under `AGENC_TEST_ENV` so an E2E test can observe a decision without waiting minutes (`idleTimeoutCheckIntervalForEnvironment`). Only the scan interval changes in the test environment; the idle threshold does not
 - Scans all non-archived missions for running wrappers
 - Uses the active JSONL conversation log's modification time to determine idle duration, falling back to `created_at`
-- Stops wrappers idle past the configured threshold and destroys their pool windows
+- Stops wrappers idle past a fixed 30-minute threshold and destroys their pool windows. The threshold is a constant, not a config key
+- Missions attached to a tmux session outside the pool are never stopped
+- The conversation log is only appended at turn and tool-call boundaries, so its mtime cannot distinguish a finished mission from one sitting inside a single long tool call. Before stopping a mission the loop therefore asks its wrapper what Claude is doing, over the wrapper's status socket, and spares anything reporting `busy` or `needs_attention` — both of which mean the turn is still in flight. A wrapper that is alive but too slow to answer defers the decision to the next cycle; one that cannot be reached at all leaves the mission judged on its log alone
+- That wrapper state is hook-fed and can be wrong in the sparing direction — an interrupted turn fires no `Stop` hook, wedging the wrapper at `busy` indefinitely — so a 6-hour hard ceiling (`idleTimeoutHardCeiling`) stops a mission regardless of what it reports. Attachment still wins over the ceiling. The accepted cost: a wedged mission, or one parked unattended at a permission prompt nobody will answer, now holds its Claude process and pool window for 6 hours rather than 30 minutes
+- `shouldReapMission` holds the whole policy as a pure function. The loop body duplicates two of its cheap checks (attachment, and the threshold) as a fast path, so that the wrapper round-trip is only paid for missions that are actually reap candidates
 - Wrappers are automatically re-spawned on the next attach (lazy start)
 
 **8. Repo update worker** (`internal/server/repo_update_worker.go`)
