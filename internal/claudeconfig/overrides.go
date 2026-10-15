@@ -27,8 +27,20 @@ var RepoLibraryGuardScript string
 
 // agencHookEventNames lists the Claude hook events that agenc intercepts to
 // track Claude state and update tmux pane colors.
+//
+// Every entry is registered WITHOUT a matcher, which matters most for
+// StopFailure. Claude Code lets that event be filtered on its error kind, but
+// the kind is not a faithful read of what went wrong upstream: a 529 carrying
+// an `overloaded_error` body arrives as `server_error`, so a hook registered
+// for `overloaded` never runs. AgenC wants every turn that died, whatever
+// killed it, so it asks for all of them.
 var agencHookEventNames = []string{
 	"Stop",
+	// A turn that dies on an API error — a rate limit, an overload, an auth
+	// failure — fires StopFailure INSTEAD OF Stop, never alongside it. Without
+	// this registration the wrapper never learns the turn ended and reports
+	// "busy" for the rest of its life, which measured out at 13.7% of missions.
+	"StopFailure",
 	"UserPromptSubmit",
 	"Notification",
 	"PostToolUse",
@@ -36,10 +48,10 @@ var agencHookEventNames = []string{
 }
 
 // staticAgencHookEntries holds the host-mission state-tracking hook entries
-// (Stop, UserPromptSubmit, Notification, PostToolUse, PostToolUseFailure) that
-// don't depend on any per-mission path. The PreToolUse repo-library guard,
-// which does depend on the per-mission mission-dir path (for the agenc-hooks/
-// guard script location), is added by BuildAgencHookEntries.
+// (the events in agencHookEventNames) that don't depend on any per-mission
+// path. The PreToolUse repo-library guard, which does depend on the
+// per-mission mission-dir path (for the agenc-hooks/ guard script location),
+// is added by BuildAgencHookEntries.
 var staticAgencHookEntries map[string]json.RawMessage
 
 func init() {

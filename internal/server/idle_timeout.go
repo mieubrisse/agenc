@@ -24,12 +24,20 @@ const (
 	defaultIdleTimeout = 30 * time.Minute
 
 	// idleTimeoutHardCeiling bounds how long the wrapper-state veto below may
-	// spare a mission. That state is hook-fed, and hooks can be missed: an
-	// interrupted turn fires no Stop hook, which wedges the wrapper at "busy"
-	// for the rest of its life. Without a ceiling every such miss becomes a
-	// permanent leak of a live Claude process and a tmux pool window. Sized to
-	// exceed any realistic single tool call, so it reclaims wedged missions
-	// without interrupting work that is slow but genuine.
+	// spare a mission. That state is hook-fed, and a hook that never fires or
+	// never arrives wedges the wrapper at "busy" for the rest of its life.
+	// Without a ceiling every such miss becomes a permanent leak of a live
+	// Claude process and a tmux pool window. Sized to exceed any realistic
+	// single tool call, so it reclaims wedged missions without interrupting
+	// work that is slow but genuine.
+	//
+	// The dominant cause was turns dying on API errors, which fire StopFailure
+	// rather than Stop — a hook AgenC did not register until KEV-71, measured
+	// at 13.7% of missions. ESC-interrupted turns, long suspected, turned out
+	// to be 0 of the 149 provably-wedged missions examined. The ceiling stays
+	// for the residue: interrupts, undelivered hooks, and version skew. Moving
+	// it needs a fresh wedge measurement over missions created after the
+	// StopFailure fix shipped.
 	idleTimeoutHardCeiling = 6 * time.Hour
 
 	// reapWrapperQueryTimeout is the budget for asking a wrapper whether Claude

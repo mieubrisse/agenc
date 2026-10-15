@@ -60,7 +60,9 @@ type Wrapper struct {
 	// hasConversation tracks whether a Claude conversation exists that can be
 	// resumed with `claude -c`. Set to true at startup for resumes, and flipped
 	// to true when the user submits their first message (via UserPromptSubmit
-	// hook). Both reads and writes happen in the main event loop.
+	// hook). Guarded by stateMu: the startup write happens on the Run
+	// goroutine after the HTTP server is already serving GET /status, so it
+	// races the handler's read without the lock.
 	hasConversation bool
 
 	// claudeIdle tracks whether Claude is currently idle (waiting for user
@@ -210,8 +212,13 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 	// Track whether a resumable conversation exists. For resumes, one already
 	// exists. For new missions, we start with false and flip to true when the
 	// first UserPromptSubmit hook fires.
+	//
+	// Locked because startHTTPServer went live immediately above, and its
+	// GET /status handler reads this field from another goroutine.
 	if isResume {
+		w.stateMu.Lock()
 		w.hasConversation = true
+		w.stateMu.Unlock()
 	}
 
 	// Change the wrapper's working directory to the agent directory so that
@@ -402,18 +409,40 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 
 	switch cmd.Event {
 	case "Stop":
-		w.claudeIdle = true
-		w.hasConversation = true
-		w.needsAttention = false
-		w.resetWindowTabStyle()
-		// Notify the server so any async-queued reload can fire now.
-		// Best-effort: errors are logged, not propagated — a missed
-		// notification means the pending reload waits for the next Stop.
-		go func() {
-			if err := w.client.NotifyClaudeIdle(w.missionID); err != nil {
-				w.logger.Warn("Failed to notify server of claude-idle", "error", err)
-			}
-		}()
+		w.markTurnEndedLocked()
+
+	case "StopFailure":
+		// A turn that died on an API error. Claude Code fires this INSTEAD OF
+		// Stop, so without this case the wrapper never learns the turn ended
+		// and reports "busy" until the process dies.
+		//
+		// It also fires when a SUBAGENT's turn dies, while the main agent
+		// carries on working — acting on that would mark a working mission
+		// idle, which is the bug KEV-70 just fixed. Two conditions must both
+		// hold before we believe the main agent is finished:
+		//
+		//   PayloadParsed — we actually read the hook payload. A timed-out or
+		//     malformed read leaves AgentID empty for a reason that has
+		//     nothing to do with who failed, so it must not be mistaken for
+		//     evidence about the main agent.
+		//   AgentID == "" — Claude Code's agent_id is "present only when the
+		//     hook fires from within a subagent […] absent for the main
+		//     thread", and its schema says to use this field, not agent_type.
+		//
+		// Failing either one leaves the state untouched: the mission stays
+		// wedged until the server's hard ceiling reclaims it, which is exactly
+		// today's behavior and strictly better than killing live work.
+		w.logger.Info(
+			"Claude turn ended in an API error",
+			"error_kind", cmd.HookError,
+			"agent_id", cmd.AgentID,
+			"payload_parsed", cmd.PayloadParsed,
+			"treated_as_idle", cmd.PayloadParsed && cmd.AgentID == "",
+		)
+		if !cmd.PayloadParsed || cmd.AgentID != "" {
+			break
+		}
+		w.markTurnEndedLocked()
 
 	case "UserPromptSubmit":
 		w.claudeIdle = false
@@ -441,6 +470,32 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 	}
 
 	return CommandResponse{Status: "ok"}
+}
+
+// markTurnEndedLocked records that Claude's turn is over and it is back at the
+// prompt. Shared by the Stop and StopFailure arms of handleClaudeUpdate so the
+// two cannot drift: a turn that died on an API error leaves Claude exactly as
+// idle as one that finished normally, and the wrapper must say so either way.
+//
+// needsAttention going false is load-bearing, not incidental. The server's
+// reaper spares a mission reporting needs_attention just as it spares one
+// reporting busy, so leaving it set here would trade one flavor of
+// never-reclaimed mission for another.
+//
+// Must be called with stateMu held.
+func (w *Wrapper) markTurnEndedLocked() {
+	w.claudeIdle = true
+	w.hasConversation = true
+	w.needsAttention = false
+	w.resetWindowTabStyle()
+	// Notify the server so any async-queued reload can fire now.
+	// Best-effort: errors are logged, not propagated — a missed
+	// notification means the pending reload waits for the next turn to end.
+	go func() {
+		if err := w.client.NotifyClaudeIdle(w.missionID); err != nil {
+			w.logger.Warn("Failed to notify server of claude-idle", "error", err)
+		}
+	}()
 }
 
 // getClaudeStateString returns the Claude state as a string for the status API.

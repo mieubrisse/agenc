@@ -950,6 +950,12 @@ run_test "claude-update Notification without stdin returns immediately" \
     0 \
     timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 Notification
 
+# StopFailure joins Notification as a stdin-reading event (it extracts agent_id
+# and error), so it needs the same no-hang guarantee this section exists for.
+run_test "claude-update StopFailure without stdin returns immediately" \
+    0 \
+    timeout 5 "${agenc_test}" mission send claude-update 00000000-0000-0000-0000-000000000000 StopFailure
+
 echo ""
 echo "--- State Y native passthrough ---"
 
@@ -2028,6 +2034,87 @@ for uncoverable in "mission peers" "mission search"; do
     skipped=$((skipped + 1))
 done
 
+echo "--- StopFailure ends a turn, but only the main agent's (requires server + wrapper socket) ---"
+
+# A turn killed by an API error fires StopFailure INSTEAD OF Stop, so before
+# this hook was registered the wrapper stayed "busy" for the rest of its life —
+# measured at 13.7% of missions, and the reason the idle reaper could never
+# reclaim them.
+#
+# The same event also fires when a SUBAGENT's turn dies while the main agent
+# keeps working, and the only thing telling the two apart is an agent_id in the
+# hook payload. Both branches are asserted here, over the real path a hook
+# takes (stdin -> CLI -> unix socket -> wrapper state -> mission inspect),
+# because a unit test cannot show that the payload survives that journey.
+#
+# No backdating and no reaping in this section: it is about what the wrapper
+# reports, not about what the server does with it.
+
+stopfailure_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
+    | awk '/^Created mission:/{print $3; exit}')
+stopfailure_mission_uuid=""
+if [ -n "${stopfailure_mission_short_id}" ]; then
+    stopfailure_mission_uuid=$(sqlite3 "${repo_dirpath}/_test-env/database.sqlite" \
+        "SELECT id FROM missions WHERE id LIKE '${stopfailure_mission_short_id}%';" 2>/dev/null || echo "")
+fi
+
+# Same guard as the idle-timeout section below: a wrapper whose socket path
+# overruns the macOS 104-byte limit stays alive but socket-less, and every
+# state reads nil. Skip loudly rather than pass while inspecting nothing.
+stopfailure_state_observable="no"
+if [ -n "${stopfailure_mission_uuid}" ]; then
+    "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
+    sleep 2
+    if "${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
+        stopfailure_state_observable="yes"
+    fi
+fi
+
+if [ "${stopfailure_state_observable}" != "yes" ]; then
+    for stopfailure_uncoverable in \
+        "StopFailure from a subagent leaves the mission busy" \
+        "StopFailure from the main agent ends the turn"; do
+        total=$((total + 1))
+        printf "  %-50s " "${stopfailure_uncoverable}..."
+        echo "SKIP (no wrapper state in this environment: mission=${stopfailure_mission_short_id:-none})"
+        skipped=$((skipped + 1))
+    done
+else
+    # A subagent died. The main agent is still working, so the mission must
+    # stay busy — marking it idle here is the bug KEV-70 fixed, re-introduced.
+    printf '{"hook_event_name":"StopFailure","error":"unknown","agent_id":"e2e-subagent","agent_type":"general-purpose"}' \
+        | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" StopFailure >/dev/null 2>&1 || true
+    sleep 2
+
+    total=$((total + 1))
+    printf "  %-50s " "StopFailure from a subagent leaves the mission busy..."
+    if "${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (a subagent's StopFailure marked the mission idle while the main agent was still working)"
+        echo "    Last output: $("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -E "^Status:")"
+        failed=$((failed + 1))
+    fi
+
+    # Now the main agent's own turn dies: no agent_id in the payload.
+    printf '{"hook_event_name":"StopFailure","error":"rate_limit","last_assistant_message":"API Error: 429"}' \
+        | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" StopFailure >/dev/null 2>&1 || true
+    sleep 2
+
+    total=$((total + 1))
+    printf "  %-50s " "StopFailure from the main agent ends the turn..."
+    if "${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+IDLE"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (a turn killed by an API error left the wrapper reporting busy — the KEV-71 wedge)"
+        echo "    Last output: $("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -E "^Status:")"
+        failed=$((failed + 1))
+    fi
+fi
+
+echo ""
 echo "--- Idle timeout spares a working mission (requires server + wrapper socket) ---"
 
 # The idle-timeout loop used to infer "idle" from one signal: the mtime of the

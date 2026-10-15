@@ -247,7 +247,7 @@ func TestSocketProtocol(t *testing.T) {
 		{
 			name: "claude_update Stop event",
 			action: func() error {
-				return client.SendClaudeUpdate("Stop", "")
+				return client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "Stop"})
 			},
 			checkState: func(t *testing.T, w *Wrapper) {
 				if !w.claudeIdle {
@@ -261,7 +261,7 @@ func TestSocketProtocol(t *testing.T) {
 		{
 			name: "claude_update UserPromptSubmit event",
 			action: func() error {
-				return client.SendClaudeUpdate("UserPromptSubmit", "")
+				return client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "UserPromptSubmit"})
 			},
 			checkState: func(t *testing.T, w *Wrapper) {
 				if w.claudeIdle {
@@ -275,19 +275,19 @@ func TestSocketProtocol(t *testing.T) {
 		{
 			name: "claude_update Notification event",
 			action: func() error {
-				return client.SendClaudeUpdate("Notification", "permission_prompt")
+				return client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "Notification", NotificationType: "permission_prompt", PayloadParsed: true})
 			},
 		},
 		{
 			name: "claude_update PostToolUse event",
 			action: func() error {
-				return client.SendClaudeUpdate("PostToolUse", "")
+				return client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "PostToolUse"})
 			},
 		},
 		{
 			name: "claude_update PostToolUseFailure event",
 			action: func() error {
-				return client.SendClaudeUpdate("PostToolUseFailure", "")
+				return client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "PostToolUseFailure"})
 			},
 		},
 	}
@@ -406,7 +406,7 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	client := NewWrapperClient(setup.socketFilepath, 1*time.Second)
 
 	// Test Stop event: sets idle=true, hasConversation=true
-	if err := client.SendClaudeUpdate("Stop", ""); err != nil {
+	if err := client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "Stop"}); err != nil {
 		t.Fatalf("Stop event failed: %v", err)
 	}
 	if !w.claudeIdle {
@@ -417,7 +417,7 @@ func TestClaudeUpdateEventsStateTracking(t *testing.T) {
 	}
 
 	// Test UserPromptSubmit event: sets idle=false, hasConversation=true
-	if err := client.SendClaudeUpdate("UserPromptSubmit", ""); err != nil {
+	if err := client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "UserPromptSubmit"}); err != nil {
 		t.Fatalf("UserPromptSubmit event failed: %v", err)
 	}
 	if w.claudeIdle {

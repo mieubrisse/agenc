@@ -41,9 +41,12 @@ func NewWrapperClient(socketFilepath string, timeout time.Duration) *WrapperClie
 	}
 }
 
-// SendClaudeUpdate sends a claude_update event to the wrapper.
-func (c *WrapperClient) SendClaudeUpdate(event, notificationType string) error {
-	req := ClaudeUpdateRequest{Event: event, NotificationType: notificationType}
+// SendClaudeUpdate sends a claude_update event to the wrapper. It takes the
+// whole request rather than a positional list so that callers must name the
+// payload fields they are (and are not) supplying — PayloadParsed in
+// particular changes how the wrapper reads AgentID, and a positional bool
+// would be easy to get silently backwards.
+func (c *WrapperClient) SendClaudeUpdate(req ClaudeUpdateRequest) error {
 	cmdResp, err := c.postCommand("/claude-update", req)
 	if err != nil {
 		return err

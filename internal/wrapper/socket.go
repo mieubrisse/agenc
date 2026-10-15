@@ -17,9 +17,22 @@ type StatusResponse struct {
 }
 
 // ClaudeUpdateRequest is the JSON body for POST /claude-update.
+//
+// NotificationType, AgentID and HookError are only populated for the events
+// whose stdin payload the CLI reads (Notification, StopFailure). PayloadParsed
+// distinguishes "the payload said this field was empty" from "the payload
+// could not be read at all" — see claudeHookPayload in the cmd package.
 type ClaudeUpdateRequest struct {
 	Event            string `json:"event"`
 	NotificationType string `json:"notification_type"`
+	// AgentID is Claude Code's `agent_id`: set only when the hook fired from
+	// inside a subagent, absent for the main thread.
+	AgentID string `json:"agent_id"`
+	// HookError is Claude Code's `error` on StopFailure — the kind of API
+	// failure that killed the turn (rate_limit, overloaded, server_error, …).
+	// Recorded in the wrapper log for later diagnosis; never branched on.
+	HookError     string `json:"hook_error"`
+	PayloadParsed bool   `json:"payload_parsed"`
 }
 
 // CommandResponse is the JSON response for POST /claude-update.
@@ -35,6 +48,9 @@ type Command struct {
 	Command          string
 	Event            string
 	NotificationType string
+	AgentID          string
+	HookError        string
+	PayloadParsed    bool
 }
 
 // commandWithResponse pairs a Command with a channel for sending back the CommandResponse.
@@ -133,6 +149,9 @@ func handleClaudeUpdateHTTP(w *Wrapper, logger *slog.Logger) http.HandlerFunc {
 			Command:          "claude_update",
 			Event:            req.Event,
 			NotificationType: req.NotificationType,
+			AgentID:          req.AgentID,
+			HookError:        req.HookError,
+			PayloadParsed:    req.PayloadParsed,
 		}
 
 		resp := sendCommandAndWait(w.commandCh, cmd)
