@@ -2058,14 +2058,23 @@ if [ -n "${stopfailure_mission_short_id}" ]; then
         "SELECT id FROM missions WHERE id LIKE '${stopfailure_mission_short_id}%';" 2>/dev/null || echo "")
 fi
 
-# Same guard as the idle-timeout section below: a wrapper whose socket path
-# overruns the macOS 104-byte limit stays alive but socket-less, and every
-# state reads nil. Skip loudly rather than pass while inspecting nothing.
+# Same guard as the idle-timeout section below: without a reachable wrapper
+# socket every state reads nil, and both assertions would inspect nothing while
+# reporting green. Skip loudly instead.
+#
+# The skip carries the observed status, because "no wrapper state" has more
+# than one cause and the message is the only clue the next reader gets. A
+# socket path over the macOS 104-byte limit leaves the wrapper alive but
+# unbindable (KEV-72) — but that is not the only way to land here, and a run
+# from a short path can still skip, so do not assume the path is the problem.
 stopfailure_state_observable="no"
+stopfailure_observed_status=""
 if [ -n "${stopfailure_mission_uuid}" ]; then
     "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
     sleep 2
-    if "${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
+    stopfailure_observed_status=$("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 \
+        | grep -E "^Status:" | head -1 | tr -s ' ')
+    if printf '%s' "${stopfailure_observed_status}" | grep -qE "^Status: BUSY"; then
         stopfailure_state_observable="yes"
     fi
 fi
@@ -2076,7 +2085,7 @@ if [ "${stopfailure_state_observable}" != "yes" ]; then
         "StopFailure from the main agent ends the turn"; do
         total=$((total + 1))
         printf "  %-50s " "${stopfailure_uncoverable}..."
-        echo "SKIP (no wrapper state in this environment: mission=${stopfailure_mission_short_id:-none})"
+        echo "SKIP (no wrapper state: mission=${stopfailure_mission_short_id:-none}, saw '${stopfailure_observed_status:-<no status line>}', wanted BUSY)"
         skipped=$((skipped + 1))
     done
 else
