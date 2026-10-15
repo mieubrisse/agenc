@@ -26,11 +26,25 @@ func TestStopFailureStateTransitions(t *testing.T) {
 			name: "main agent failure goes idle",
 			request: ClaudeUpdateRequest{
 				Event:         "StopFailure",
-				HookError:     "rate_limit",
+				HookError:     "server_error",
 				PayloadParsed: true,
 			},
 			expectedIdle:       true,
 			expectedClaudeStat: "idle",
+		},
+		{
+			// A usage quota is the one error kind that does not mean the turn
+			// is over: Claude Code can wait out the reset and resume. Reporting
+			// idle here would let the reaper kill the mission at 30 minutes,
+			// and an observed real pause ran 70.
+			name: "quota failure is NOT idle",
+			request: ClaudeUpdateRequest{
+				Event:         "StopFailure",
+				HookError:     "rate_limit",
+				PayloadParsed: true,
+			},
+			expectedIdle:       false,
+			expectedClaudeStat: "quota_blocked",
 		},
 		{
 			// KEV-70 in reverse: the main agent is still working.
@@ -174,4 +188,73 @@ func (w *Wrapper) getClaudeStateStringUnderLock() string {
 	w.stateMu.RLock()
 	defer w.stateMu.RUnlock()
 	return w.getClaudeStateString()
+}
+
+// TestQuotaBlockedClearsWhenWorkResumes covers the exits from the quota state.
+// Without them a mission that resumed would keep reporting quota_blocked and
+// would be spared forever — trading a premature kill for a permanent leak.
+func TestQuotaBlockedClearsWhenWorkResumes(t *testing.T) {
+	quotaFailure := ClaudeUpdateRequest{
+		Event:         "StopFailure",
+		HookError:     "rate_limit",
+		PayloadParsed: true,
+	}
+
+	testCases := []struct {
+		name          string
+		resumeEvent   ClaudeUpdateRequest
+		expectedState string
+	}{
+		{
+			// Claude Code's own signal that an armed quota wait fired.
+			name: "the quota auto-resume notification",
+			resumeEvent: ClaudeUpdateRequest{
+				Event:            "Notification",
+				NotificationType: "quota_auto_resume_fired",
+				PayloadParsed:    true,
+			},
+			expectedState: "busy",
+		},
+		{
+			// Backstop: a tool running proves the wait is over even if the
+			// notification never arrived.
+			name:          "a tool call completing",
+			resumeEvent:   ClaudeUpdateRequest{Event: "PostToolUse"},
+			expectedState: "busy",
+		},
+		{
+			name:          "the user submitting a new prompt",
+			resumeEvent:   ClaudeUpdateRequest{Event: "UserPromptSubmit"},
+			expectedState: "busy",
+		},
+		{
+			// A turn that actually finishes supersedes the wait.
+			name:          "the turn finishing normally",
+			resumeEvent:   ClaudeUpdateRequest{Event: "Stop"},
+			expectedState: "idle",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			client, w := startStopFailureTestWrapper(t)
+
+			if err := client.SendClaudeUpdate(ClaudeUpdateRequest{Event: "UserPromptSubmit"}); err != nil {
+				t.Fatalf("UserPromptSubmit failed: %v", err)
+			}
+			if err := client.SendClaudeUpdate(quotaFailure); err != nil {
+				t.Fatalf("quota StopFailure failed: %v", err)
+			}
+			if actual := w.getClaudeStateStringUnderLock(); actual != "quota_blocked" {
+				t.Fatalf("precondition failed: expected quota_blocked, got %q", actual)
+			}
+
+			if err := client.SendClaudeUpdate(testCase.resumeEvent); err != nil {
+				t.Fatalf("resume event failed: %v", err)
+			}
+			if actual := w.getClaudeStateStringUnderLock(); actual != testCase.expectedState {
+				t.Errorf("claude state = %q, want %q", actual, testCase.expectedState)
+			}
+		})
+	}
 }

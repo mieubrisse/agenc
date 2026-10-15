@@ -59,6 +59,12 @@ const (
 const (
 	claudeStateBusy           = "busy"
 	claudeStateNeedsAttention = "needs_attention"
+	// claudeStateQuotaBlocked means the turn stopped on the account's usage
+	// quota. Claude Code can wait out the reset and resume the turn itself —
+	// one observed pause ran 70 minutes before resuming and completing — so
+	// this is pending work, not idleness, and reaping it at the 30-minute
+	// threshold would destroy the turn 40 minutes before its own recovery.
+	claudeStateQuotaBlocked = "quota_blocked"
 )
 
 // idleTimeoutCheckIntervalForEnvironment returns how often to scan for idle
@@ -203,7 +209,9 @@ func shouldReapMission(
 	if wrapperUnresponsive {
 		return false
 	}
-	if claudeState == claudeStateBusy || claudeState == claudeStateNeedsAttention {
+	if claudeState == claudeStateBusy ||
+		claudeState == claudeStateNeedsAttention ||
+		claudeState == claudeStateQuotaBlocked {
 		return false
 	}
 	// "idle", an empty state from a wrapper too old to report one, or no

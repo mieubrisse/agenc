@@ -2082,7 +2082,10 @@ fi
 if [ "${stopfailure_state_observable}" != "yes" ]; then
     for stopfailure_uncoverable in \
         "subagent StopFailure reaches the wrapper" \
+        "subagent StopFailure is not treated as the turn ending" \
         "StopFailure from a subagent leaves the mission busy" \
+        "a quota-stopped turn reports QUOTA, not IDLE" \
+        "quota auto-resume puts the mission back to work" \
         "StopFailure from the main agent ends the turn"; do
         total=$((total + 1))
         printf "  %-50s " "${stopfailure_uncoverable}..."
@@ -2090,15 +2093,40 @@ if [ "${stopfailure_state_observable}" != "yes" ]; then
         skipped=$((skipped + 1))
     done
 else
+    # Every state read below polls instead of sampling once. The server asks
+    # the wrapper for its state over a socket with a 500ms budget
+    # (wrapperQueryTimeout), tuned for `mission ls` being interactive; under
+    # the load this suite generates that query times out, claude_state comes
+    # back nil and `mission inspect` falls back to RUNNING. A single sample
+    # therefore reports a failure that says nothing about the state machine.
+    stopfailure_wrapper_log_filepath="${repo_dirpath}/_test-env/missions/${stopfailure_mission_uuid}/wrapper.log"
+
+    # Poll `mission inspect` until it reports the wanted status, or give up.
+    # Returns 0 on match. Only sound for a status nothing else in this section
+    # can produce, which is why the subagent case below also asserts on the
+    # wrapper's own decision record rather than on status alone.
+    await_mission_status() {
+        local uuid="${1}"
+        local wanted="${2}"
+        local deadline=$((SECONDS + 20))
+        while [ "${SECONDS}" -lt "${deadline}" ]; do
+            if "${agenc_test}" mission inspect "${uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+${wanted}\b"; then
+                return 0
+            fi
+            sleep 2
+        done
+        return 1
+    }
+
     # A subagent died. The main agent is still working, so the mission must
     # stay busy — marking it idle here is the bug KEV-70 fixed, re-introduced.
     #
     # "Still BUSY" is a dangerous shape for an assertion: the CLI always exits
     # 0 by design, so if this message never reached the wrapper at all the
     # mission would still read BUSY and the test would pass having inspected
-    # nothing. Delivery is therefore proven separately, out of the wrapper's
-    # own log, before the state is judged.
-    stopfailure_wrapper_log_filepath="${repo_dirpath}/_test-env/missions/${stopfailure_mission_uuid}/wrapper.log"
+    # nothing. Both halves are therefore asserted — that the payload arrived,
+    # and what the wrapper decided about it — straight out of the wrapper log,
+    # which is immune to the status-query timeout described above.
     printf '{"hook_event_name":"StopFailure","error":"unknown","agent_id":"e2e-subagent","agent_type":"general-purpose"}' \
         | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" StopFailure >/dev/null 2>&1 || true
     sleep 2
@@ -2114,8 +2142,19 @@ else
     fi
 
     total=$((total + 1))
+    printf "  %-50s " "subagent StopFailure is not treated as the turn ending..."
+    if grep -q '"agent_id":"e2e-subagent".*"treated_as_idle":false' "${stopfailure_wrapper_log_filepath}" 2>/dev/null; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (a subagent's StopFailure was treated as the main agent's turn ending)"
+        echo "    Last line: $(grep '"agent_id":"e2e-subagent"' "${stopfailure_wrapper_log_filepath}" 2>/dev/null | tail -1)"
+        failed=$((failed + 1))
+    fi
+
+    total=$((total + 1))
     printf "  %-50s " "StopFailure from a subagent leaves the mission busy..."
-    if "${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
+    if await_mission_status "${stopfailure_mission_uuid}" "BUSY"; then
         echo "PASS"
         passed=$((passed + 1))
     else
@@ -2124,14 +2163,51 @@ else
         failed=$((failed + 1))
     fi
 
-    # Now the main agent's own turn dies: no agent_id in the payload.
+    # A turn stopped on the usage quota is NOT a finished turn — Claude Code
+    # can wait out the reset and resume it. Reporting idle would hand the
+    # mission to the reaper at the 30-minute threshold; an observed real pause
+    # ran 70 minutes before resuming.
     printf '{"hook_event_name":"StopFailure","error":"rate_limit","last_assistant_message":"API Error: 429"}' \
         | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" StopFailure >/dev/null 2>&1 || true
     sleep 2
 
     total=$((total + 1))
+    printf "  %-50s " "a quota-stopped turn reports QUOTA, not IDLE..."
+    if await_mission_status "${stopfailure_mission_uuid}" "QUOTA"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (a turn stopped on the usage quota was reported as something the reaper may kill)"
+        echo "    Last output: $("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -E "^Status:")"
+        failed=$((failed + 1))
+    fi
+
+    # Claude Code's own signal that the quota window reset and work resumed.
+    printf '{"hook_event_name":"Notification","notification_type":"quota_auto_resume_fired"}' \
+        | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" Notification >/dev/null 2>&1 || true
+    sleep 2
+
+    total=$((total + 1))
+    printf "  %-50s " "quota auto-resume puts the mission back to work..."
+    if await_mission_status "${stopfailure_mission_uuid}" "BUSY"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (the mission stayed quota-blocked after Claude Code resumed it, so it would never be reaped)"
+        echo "    Last output: $("${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -E "^Status:")"
+        failed=$((failed + 1))
+    fi
+
+    # Finally the ordinary case: an API error that is not a quota. This is the
+    # KEV-71 wedge itself — before StopFailure was registered the wrapper sat
+    # at busy here for the rest of its life.
+    printf '{"hook_event_name":"StopFailure","error":"server_error","last_assistant_message":"API Error: 500"}' \
+        | "${agenc_test}" mission send claude-update "${stopfailure_mission_uuid}" StopFailure >/dev/null 2>&1 || true
+    sleep 2
+
+    total=$((total + 1))
     printf "  %-50s " "StopFailure from the main agent ends the turn..."
-    if "${agenc_test}" mission inspect "${stopfailure_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+IDLE"; then
+    if await_mission_status "${stopfailure_mission_uuid}" "IDLE"; then
         echo "PASS"
         passed=$((passed + 1))
     else

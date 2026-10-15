@@ -51,6 +51,23 @@ func TestShouldReapMission(t *testing.T) {
 			expected:     false,
 		},
 		{
+			// The case KEV-71 had to avoid creating: a quota pause observed on
+			// a real mission ran 70 minutes before Claude Code resumed by
+			// itself. Reaping at 30 minutes would have destroyed that turn.
+			name:         "stopped on the usage quota: spared, because Claude Code may resume the turn itself",
+			idleDuration: 71 * time.Minute,
+			claudeState:  claudeStateQuotaBlocked,
+			expected:     false,
+		},
+		{
+			// The quota state is a veto, not an exemption — otherwise a
+			// mission whose quota never resets leaks forever.
+			name:         "stopped on the usage quota past the hard ceiling: reaped anyway",
+			idleDuration: 7 * time.Hour,
+			claudeState:  claudeStateQuotaBlocked,
+			expected:     true,
+		},
+		{
 			name:         "genuinely idle past the threshold: reaped",
 			idleDuration: 31 * time.Minute,
 			claudeState:  "idle",

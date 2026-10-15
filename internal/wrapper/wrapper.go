@@ -70,9 +70,17 @@ type Wrapper struct {
 	// by handleClaudeUpdate from the main event loop.
 	claudeIdle bool
 
-	// stateMu protects claudeIdle, hasConversation, state, and needsAttention.
-	// The HTTP GET /status handler reads these fields concurrently with the
-	// main event loop, so all reads and writes must hold the appropriate lock.
+	// quotaBlocked tracks whether the turn stopped because the account's usage
+	// quota was exhausted, rather than because Claude finished. Claude Code
+	// can wait out the reset and carry the turn on by itself, so this is not
+	// idleness — a mission in this state still has work pending and must not
+	// be reaped at the ordinary idle threshold.
+	quotaBlocked bool
+
+	// stateMu protects claudeIdle, hasConversation, state, needsAttention, and
+	// quotaBlocked. The HTTP GET /status handler reads these fields
+	// concurrently with the main event loop, so all reads and writes must hold
+	// the appropriate lock.
 	stateMu          sync.RWMutex
 	needsAttention   bool      // true when Claude needs user attention (permission prompt etc.)
 	lastUserPromptAt time.Time // zero value means no prompt yet this session
@@ -398,6 +406,17 @@ func (w *Wrapper) handleCommand(cmd Command) CommandResponse {
 	}
 }
 
+// claudeQuotaErrorKind is Claude Code's StopFailure `error` value for a turn
+// stopped by the account's usage quota. It is the one error kind that does not
+// mean the turn is over: Claude Code can wait for the quota window to reset
+// and continue by itself.
+const claudeQuotaErrorKind = "rate_limit"
+
+// claudeQuotaResumedNotificationType is the Notification `notification_type`
+// Claude Code emits when an armed quota wait fires and work resumes. It is the
+// signal that a quota-blocked mission is moving again.
+const claudeQuotaResumedNotificationType = "quota_auto_resume_fired"
+
 // handleClaudeUpdate processes a claude_update command sent by hooks. It
 // updates the wrapper's idle state, hasConversation flag, needsAttention flag,
 // and sets tmux pane colors for visual feedback.
@@ -433,25 +452,41 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 		// wedged until the server's hard ceiling reclaims it, which is exactly
 		// today's behavior and strictly better than killing live work.
 		//
-		// What these two conditions do NOT cover: whether Claude Code intends
-		// to carry the turn on by itself. Its own disposition for an api_error
-		// is computed after this hook has already fired, and for some error
-		// kinds it is "retry" or "pause" rather than "finished" — so a future
-		// Claude Code could leave a mission working while we report it idle.
-		// Observed on 2.1.274: plain and quota-headed 429s both exhaust ten
-		// retries BEFORE firing StopFailure and then sit at the prompt, so
-		// idle is the correct report today. Re-check this if the retry or
-		// auto-resume behavior changes; the hard ceiling is not a defense
-		// here, because reporting idle makes the mission reapable at the
-		// 30-minute threshold instead.
+		// A turn stopped on a usage quota is NOT a finished turn, which is why
+		// the error kind is read here rather than only logged. Claude Code can
+		// wait out the reset and resume by itself: one such pause on a real
+		// mission lasted 70 minutes before `quota_auto_resume_fired` and the
+		// work completed. Reporting idle would hand that mission to the reaper
+		// at the 30-minute threshold, 40 minutes before the reset that would
+		// have saved it — losing unattended work, which is the KEV-70 harm
+		// this change exists to avoid rather than relocate.
+		//
+		// Safe whichever way Claude Code behaves, which matters because the
+		// auto-resume path could not be observed here (it needs subscription
+		// auth; this was verified against an API key):
+		//   - if StopFailure fires and Claude Code THEN waits, the mission is
+		//     spared and the resume lands;
+		//   - if StopFailure fires INSTEAD of a wait — the observed 2.1.274
+		//     behavior, where ten retries are exhausted first and the session
+		//     returns to the prompt — the mission is spared until the hard
+		//     ceiling, which is exactly what it did before this change.
+		// Either way no mission is reaped earlier than it is today.
+		turnEndedForMainAgent := cmd.PayloadParsed && cmd.AgentID == ""
+		quotaBlocked := turnEndedForMainAgent && cmd.HookError == claudeQuotaErrorKind
 		w.logger.Info(
 			"Claude turn ended in an API error",
 			"error_kind", cmd.HookError,
 			"agent_id", cmd.AgentID,
 			"payload_parsed", cmd.PayloadParsed,
-			"treated_as_idle", cmd.PayloadParsed && cmd.AgentID == "",
+			"treated_as_idle", turnEndedForMainAgent && !quotaBlocked,
+			"quota_blocked", quotaBlocked,
 		)
-		if !cmd.PayloadParsed || cmd.AgentID != "" {
+		if !turnEndedForMainAgent {
+			break
+		}
+		if quotaBlocked {
+			w.quotaBlocked = true
+			w.needsAttention = false
 			break
 		}
 		w.markTurnEndedLocked()
@@ -460,6 +495,7 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 		w.claudeIdle = false
 		w.hasConversation = true
 		w.needsAttention = false
+		w.quotaBlocked = false
 		w.lastUserPromptAt = time.Now().UTC()
 		w.setWindowBusy()
 		if err := w.client.RecordPrompt(w.missionID); err != nil {
@@ -469,15 +505,22 @@ func (w *Wrapper) handleClaudeUpdate(cmd Command) CommandResponse {
 	case "PostToolUse", "PostToolUseFailure":
 		// A tool just completed (or failed) — Claude is still actively working,
 		// so reset the window to busy in case a permission prompt turned it orange.
+		// A running tool also proves any quota wait is over, which is the
+		// backstop for a resume that arrives without its notification.
 		w.needsAttention = false
+		w.quotaBlocked = false
 		w.setWindowBusy()
 
 	case "Notification":
-		// Color the pane for notification types that need user attention
 		switch cmd.NotificationType {
 		case "permission_prompt", "elicitation_dialog":
+			// Color the pane for notification types that need user attention
 			w.needsAttention = true
 			w.setWindowNeedsAttention()
+		case claudeQuotaResumedNotificationType:
+			// The quota window reset and Claude Code picked the turn back up.
+			w.quotaBlocked = false
+			w.setWindowBusy()
 		}
 	}
 
@@ -499,6 +542,7 @@ func (w *Wrapper) markTurnEndedLocked() {
 	w.claudeIdle = true
 	w.hasConversation = true
 	w.needsAttention = false
+	w.quotaBlocked = false
 	w.resetWindowTabStyle()
 	// Notify the server so any async-queued reload can fire now.
 	// Best-effort: errors are logged, not propagated — a missed
@@ -515,6 +559,12 @@ func (w *Wrapper) markTurnEndedLocked() {
 func (w *Wrapper) getClaudeStateString() string {
 	if w.needsAttention {
 		return "needs_attention"
+	}
+	// Ahead of idle: a quota wait is a turn that has not finished. Ahead of
+	// busy too, so the reason a mission is making no progress is visible in
+	// `agenc mission ls` rather than hidden behind an ordinary "busy".
+	if w.quotaBlocked {
+		return "quota_blocked"
 	}
 	if w.claudeIdle {
 		return "idle"
