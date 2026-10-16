@@ -28,19 +28,97 @@ const (
 	// clone-scale git timeout — while still preventing an indefinite hang on
 	// a stalled volume.
 	copyOperationTimeout = 10 * time.Minute
+
+	// staleIndexLockMaxAge is how old a .git/index.lock must be before we treat
+	// it as orphaned debris from a killed git process rather than a live lock.
+	// Any real git operation AgenC runs is bounded by gitOperationTimeout, so a
+	// lock older than this has no owner.
+	staleIndexLockMaxAge = 10 * time.Minute
 )
 
-// IsRepoStale reports whether the repo's last fetch is older than maxAge.
-// Checks the mtime of .git/FETCH_HEAD, which git updates on every fetch.
-// Returns true (stale) if the file is missing or on any error — erring on
-// the side of freshness.
+// IsRepoStale reports whether the repo library clone needs a ForceUpdateRepo
+// before it is copied into a mission.
+//
+// Two independent signals, because either one alone can lie:
+//
+//  1. The mtime of .git/FETCH_HEAD, which git updates on every fetch.
+//  2. Whether HEAD actually points at origin/<default branch>, and whether the
+//     working tree is clean.
+//
+// Signal 2 exists because signal 1 is written by the *fetch* half of
+// ForceUpdateRepo while the damage happens in the *reset* half. A stale
+// .git/index.lock makes reset fail (exit 128) while fetch keeps succeeding, so
+// FETCH_HEAD stays fresh forever while HEAD freezes — the repo reads "fresh"
+// precisely because the instrument cannot see the thing that broke. Asking
+// "is HEAD where it should be" measures the outcome instead of a sub-step.
+//
+// Returns true (stale) on any error — erring on the side of freshness.
 func IsRepoStale(repoDirpath string, maxAge time.Duration) bool {
 	fetchHeadFilepath := filepath.Join(repoDirpath, ".git", "FETCH_HEAD")
 	info, err := os.Stat(fetchHeadFilepath)
 	if err != nil {
 		return true
 	}
-	return time.Since(info.ModTime()) > maxAge
+	if time.Since(info.ModTime()) > maxAge {
+		return true
+	}
+	return !isRepoPristine(repoDirpath)
+}
+
+// isRepoPristine reports whether HEAD equals origin/<default branch> and the
+// working tree has no modified or untracked files. Returns false on any error.
+func isRepoPristine(repoDirpath string) bool {
+	defaultBranch, err := GetDefaultBranch(repoDirpath)
+	if err != nil {
+		return false
+	}
+
+	head, err := GetHEAD(repoDirpath)
+	if err != nil || head == "" {
+		return false
+	}
+
+	remoteRef, err := revParse(repoDirpath, "origin/"+defaultBranch)
+	if err != nil || remoteRef != head {
+		return false
+	}
+
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = repoDirpath
+	output, err := statusCmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(output))) == 0
+}
+
+// revParse resolves a revision to its commit SHA within repoDirpath.
+func revParse(repoDirpath string, rev string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", rev)
+	cmd.Dir = repoDirpath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to rev-parse '%s'", rev)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// clearStaleIndexLock removes .git/index.lock when it is older than
+// staleIndexLockMaxAge. A killed git process leaves this file behind, and every
+// later index-touching command (reset, add, commit) then fails with exit 128
+// while non-index commands like fetch keep working — so the breakage is silent
+// and permanent until someone deletes the file by hand. Returns true if a lock
+// was cleared.
+func clearStaleIndexLock(repoDirpath string) bool {
+	lockFilepath := filepath.Join(repoDirpath, ".git", "index.lock")
+	info, err := os.Stat(lockFilepath)
+	if err != nil {
+		return false
+	}
+	if time.Since(info.ModTime()) <= staleIndexLockMaxAge {
+		return false
+	}
+	return os.Remove(lockFilepath) == nil
 }
 
 // ForceUpdateRepo fetches from origin and resets the local default branch to
@@ -49,6 +127,10 @@ func IsRepoStale(repoDirpath string, maxAge time.Duration) bool {
 func ForceUpdateRepo(repoDirpath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
 	defer cancel()
+
+	// Orphaned lock from a killed git process; without this every reset below
+	// fails forever while fetch keeps succeeding.
+	clearStaleIndexLock(repoDirpath)
 
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin", "--tags")
 	fetchCmd.Dir = repoDirpath
@@ -66,6 +148,31 @@ func ForceUpdateRepo(repoDirpath string) error {
 	resetCmd.Dir = repoDirpath
 	if output, err := resetCmd.CombinedOutput(); err != nil {
 		return stacktrace.Propagate(err, "git reset failed: %s", strings.TrimSpace(string(output)))
+	}
+
+	// reset --hard restores tracked files but leaves untracked ones in place
+	// forever. The library clone is a copy source, not a workspace, so anything
+	// untracked in it is debris that gets copied into every mission.
+	//
+	// Deliberately -fd and not -ffd: single -f makes git refuse to recurse into
+	// an untracked nested git repository. A nested repo may hold the only copy
+	// of real work, so it is left alone and the pristineness assertion below
+	// then fails loudly — surfacing it beats silently deleting it. Ignored files
+	// are untouched either way (no -x).
+	cleanCmd := exec.CommandContext(ctx, "git", "clean", "-fd")
+	cleanCmd.Dir = repoDirpath
+	if output, err := cleanCmd.CombinedOutput(); err != nil {
+		return stacktrace.Propagate(err, "git clean failed: %s", strings.TrimSpace(string(output)))
+	}
+
+	// Positively confirm the outcome rather than trusting the exit codes above:
+	// this is the assertion that would have caught the three-week silent freeze.
+	if !isRepoPristine(repoDirpath) {
+		return stacktrace.NewError(
+			"repo '%s' is still not at %s with a clean tree after fetch+reset+clean; "+
+				"investigate manually (cd %s && git status && git log HEAD..%s --oneline)",
+			repoDirpath, remoteRef, repoDirpath, remoteRef,
+		)
 	}
 
 	return nil
@@ -204,6 +311,14 @@ func CopyRepo(logger *log.Logger, srcRepoDirpath string, dstRepoDirpath string) 
 	if err := copyDirContents(logger, srcRepoDirpath, dstRepoDirpath); err != nil {
 		return stacktrace.Propagate(err, "failed to copy repo")
 	}
+
+	// The copy is brand new, so nothing can legitimately hold its index lock.
+	// Both copy paths reproduce whatever the source carried — clonefile clones
+	// the file, and the rsync fallback preserves it mtime and all — so a lock
+	// orphaned in the library would leave the mission unable to run git add or
+	// git commit at all. Ignore the error: a missing lock is the normal case.
+	_ = os.Remove(filepath.Join(dstRepoDirpath, ".git", "index.lock"))
+
 	return nil
 }
 
