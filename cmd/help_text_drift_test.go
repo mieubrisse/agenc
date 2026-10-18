@@ -26,9 +26,15 @@ var quotedSpanRegex = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 // but belong to programs AgenC invokes rather than to AgenC itself, so the
 // command tree is not the place to look for them.
 var externalToolFlagNames = map[string]bool{
-	// Claude Code's own flag, named in docs/system-architecture.md to explain
-	// why it is deliberately NOT in the forwarded-flag allowlist.
-	"bare": true,
+	// Claude Code's own flags. These appear unquoted in `mission new` help text
+	// and in docs/system-architecture.md as examples of what the passthrough
+	// channel carries -- naming a real Claude flag is the point, so the command
+	// tree is not where to look for them.
+	"bare":                         true,
+	"append-system-prompt":         true,
+	"add-dir":                      true,
+	"settings":                     true,
+	"dangerously-skip-permissions": true,
 
 	// Homebrew's, from the "$(brew --prefix)" install path in the completion
 	// help text Cobra generates for us.

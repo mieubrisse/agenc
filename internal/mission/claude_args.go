@@ -7,13 +7,20 @@ import (
 	"github.com/mieubrisse/stacktrace"
 )
 
-// Claude CLI flag names AgenC forwards. These are external tokens owned by the
-// Claude CLI, so they are bound to named symbols rather than spelled inline: an
-// upstream rename becomes a one-line change here instead of a silent runtime
-// miss scattered across the spawn path.
+// Claude CLI flag names AgenC names anywhere. These are external tokens owned
+// by the Claude CLI, so they are bound to named symbols rather than spelled
+// inline: an upstream rename becomes a one-line change here instead of a silent
+// runtime miss scattered across the spawn path.
 const (
 	modelClaudeFlag  = "--model"
 	effortClaudeFlag = "--effort"
+
+	// settingsClaudeFlag is the flag AgenC delivers its own operational overlay
+	// through, which is why a caller passing one too is worth a warning.
+	settingsClaudeFlag = "--settings"
+
+	// bareClaudeFlag turns off the hooks AgenC tracks mission state with.
+	bareClaudeFlag = "--bare"
 )
 
 // ForwardedClaudeFlag describes one Claude CLI flag that AgenC forwards from
@@ -33,14 +40,15 @@ type ForwardedClaudeFlag struct {
 	Usage string
 }
 
-// ForwardedClaudeFlags is the allowlist of Claude CLI flags a caller may set
-// per-mission. It is deliberately an allowlist rather than an open passthrough:
-// Claude's CLI exposes flags that would break AgenC's own invariants if a
-// caller set them (--settings carries the operational overlay, -c/-r are the
-// wrapper's to choose, --bare skips the hooks AgenC tracks mission state with).
+// ForwardedClaudeFlags are the Claude CLI flags `agenc mission new` promotes to
+// first-class AgenC flags, so that `--help` lists them, a typo is caught at
+// parse time, and the value can be deduplicated against the config chain. It is
+// a convenience surface, not a permission boundary: any Claude flag at all
+// reaches a mission through the passthrough channel in
+// claude_passthrough_args.go, so a flag's absence here constrains nothing.
 //
-// Adding a new forwarded flag is a single entry here. Per-mission values are
-// stored as a JSON object keyed by Key, so no database migration is involved.
+// Promoting a new flag is a single entry here. Per-mission values are stored as
+// a JSON object keyed by Key, so no database migration is involved.
 //
 // Order matters: it is the order flags are emitted onto Claude's command line,
 // which keeps spawn commands stable and diffable across runs.
@@ -76,10 +84,11 @@ func forwardedClaudeFlagKeys() []string {
 	return keys
 }
 
-// ValidateMissionClaudeArgs checks that every per-mission Claude arg names a
-// supported flag and carries a value. The CLI's own flag parsing already
-// rejects unknown flags, so this is the guard for the server's HTTP API, which
-// any client can reach.
+// ValidateMissionClaudeArgs checks that every key in the keyed per-mission arg
+// map names a promoted flag and carries a value. The CLI's own flag parsing
+// already rejects an unknown AgenC flag, so this is the guard for the server's
+// HTTP API, which any client can reach. It says nothing about the passthrough
+// channel, which is verbatim argv and has no keys to validate.
 func ValidateMissionClaudeArgs(missionClaudeArgs map[string]string) error {
 	for key, value := range missionClaudeArgs {
 		if _, found := lookupForwardedClaudeFlag(key); !found {
@@ -135,21 +144,46 @@ func FormatMissionClaudeArgs(missionClaudeArgs map[string]string) string {
 	return strings.Join(MissionClaudeArgsToArgv(missionClaudeArgs), " ")
 }
 
-// MergeClaudeArgs assembles the Claude CLI args for a mission spawn from the
-// three sources that can supply them, lowest precedence first:
+// ClaudeArgSources holds every source that can contribute Claude CLI args to a
+// mission spawn. It is a struct rather than a positional parameter list because
+// three of its four fields are string slices or maps of strings: transposing two
+// of them would compile cleanly and fail only at runtime, inside a spawn.
+type ClaudeArgSources struct {
+	// ResolvedModel comes from the defaultModel config chain (repo, then global).
+	ResolvedModel string
+
+	// ConfigClaudeArgs comes from the claudeArgs config chain (global, then repo).
+	ConfigClaudeArgs []string
+
+	// MissionClaudeArgs are the keyed per-mission overrides for the flags
+	// ForwardedClaudeFlags promotes, set at `agenc mission new` time.
+	MissionClaudeArgs map[string]string
+
+	// ClaudePassthroughArgs is the verbatim argv a caller handed to
+	// `agenc mission new` after the `--` separator.
+	ClaudePassthroughArgs []string
+}
+
+// MergeClaudeArgs assembles the Claude CLI args for a mission spawn, lowest
+// precedence first: ResolvedModel, then ConfigClaudeArgs, then
+// MissionClaudeArgs, then ClaudePassthroughArgs.
 //
-//  1. resolvedModel — from the defaultModel config chain (repo, then global)
-//  2. configClaudeArgs — from the claudeArgs config chain (global, then repo)
-//  3. missionClaudeArgs — the per-mission overrides set at `mission new` time
-//
-// A per-mission override removes every occurrence of the same flag from the
-// two lower-precedence sources, so each forwarded flag reaches Claude exactly
+// A keyed per-mission override removes every occurrence of the same flag from
+// the two lower-precedence sources, so each promoted flag reaches Claude exactly
 // once. Claude's parser does resolve duplicate flags last-wins, but leaning on
 // that is leaning on undocumented behaviour; emitting each flag once makes the
 // precedence AgenC's own, and therefore testable.
-func MergeClaudeArgs(resolvedModel string, configClaudeArgs []string, missionClaudeArgs map[string]string) []string {
+//
+// Passthrough args get no such treatment, deliberately. They are opaque argv —
+// AgenC does not know which of them are flags, which take values, or whether a
+// flag may be repeated, so it cannot dedupe them without guessing. They are
+// appended last instead, which is what makes a passthrough flag outrank the
+// same flag from config: for a scalar flag Claude takes the final occurrence.
+// A caller who passes a flag the config chain also sets is relying on Claude's
+// last-wins, not on AgenC.
+func MergeClaudeArgs(sources ClaudeArgSources) []string {
 	overriddenFlags := map[string]bool{}
-	for key := range missionClaudeArgs {
+	for key := range sources.MissionClaudeArgs {
 		forwardedFlag, found := lookupForwardedClaudeFlag(key)
 		if !found {
 			continue
@@ -158,11 +192,12 @@ func MergeClaudeArgs(resolvedModel string, configClaudeArgs []string, missionCla
 	}
 
 	var merged []string
-	if resolvedModel != "" && !overriddenFlags[modelClaudeFlag] {
-		merged = append(merged, modelClaudeFlag, resolvedModel)
+	if sources.ResolvedModel != "" && !overriddenFlags[modelClaudeFlag] {
+		merged = append(merged, modelClaudeFlag, sources.ResolvedModel)
 	}
-	merged = append(merged, stripConflictingArgs(configClaudeArgs, overriddenFlags)...)
-	merged = append(merged, MissionClaudeArgsToArgv(missionClaudeArgs)...)
+	merged = append(merged, stripConflictingArgs(sources.ConfigClaudeArgs, overriddenFlags)...)
+	merged = append(merged, MissionClaudeArgsToArgv(sources.MissionClaudeArgs)...)
+	merged = append(merged, sources.ClaudePassthroughArgs...)
 	return merged
 }
 

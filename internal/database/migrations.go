@@ -31,6 +31,7 @@ const (
 	addSourceIDColumnSQL               = `ALTER TABLE missions ADD COLUMN source_id TEXT;`
 	addSourceMetadataColumnSQL         = `ALTER TABLE missions ADD COLUMN source_metadata TEXT;`
 	addClaudeArgsColumnSQL             = `ALTER TABLE missions ADD COLUMN claude_args TEXT;`
+	addClaudePassthroughArgsColumnSQL  = `ALTER TABLE missions ADD COLUMN claude_passthrough_args TEXT;`
 
 	createSessionsTableSQL = `CREATE TABLE IF NOT EXISTS sessions (
 	id TEXT PRIMARY KEY,
@@ -711,5 +712,25 @@ func migrateAddClaudeArgs(conn *sql.DB) error {
 	}
 
 	_, err = conn.Exec(addClaudeArgsColumnSQL)
+	return err
+}
+
+// migrateAddClaudePassthroughArgs idempotently adds the
+// claude_passthrough_args column, which holds a JSON array of the verbatim
+// Claude CLI argv a caller passed to `agenc mission new` after the `--`
+// separator. An array rather than an object because order is meaningful and the
+// same flag may legitimately repeat, which is exactly what the keyed
+// claude_args column cannot express.
+func migrateAddClaudePassthroughArgs(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["claude_passthrough_args"] {
+		return nil
+	}
+
+	_, err = conn.Exec(addClaudePassthroughArgsColumnSQL)
 	return err
 }

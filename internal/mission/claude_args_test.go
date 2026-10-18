@@ -6,14 +6,14 @@ import (
 )
 
 func TestMergeClaudeArgsWithNoSourcesReturnsNothing(t *testing.T) {
-	merged := MergeClaudeArgs("", nil, nil)
+	merged := MergeClaudeArgs(ClaudeArgSources{})
 	if len(merged) != 0 {
 		t.Fatalf("expected no args, got %v", merged)
 	}
 }
 
 func TestMergeClaudeArgsEmitsResolvedModel(t *testing.T) {
-	merged := MergeClaudeArgs("sonnet", nil, nil)
+	merged := MergeClaudeArgs(ClaudeArgSources{ResolvedModel: "sonnet"})
 	expected := []string{"--model", "sonnet"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected %v, got %v", expected, merged)
@@ -21,7 +21,7 @@ func TestMergeClaudeArgsEmitsResolvedModel(t *testing.T) {
 }
 
 func TestMergeClaudeArgsMissionModelSuppressesResolvedModel(t *testing.T) {
-	merged := MergeClaudeArgs("sonnet", nil, map[string]string{"model": "opus"})
+	merged := MergeClaudeArgs(ClaudeArgSources{ResolvedModel: "sonnet", MissionClaudeArgs: map[string]string{"model": "opus"}})
 	expected := []string{"--model", "opus"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected the resolved model to be replaced, not duplicated; expected %v, got %v", expected, merged)
@@ -29,7 +29,7 @@ func TestMergeClaudeArgsMissionModelSuppressesResolvedModel(t *testing.T) {
 }
 
 func TestMergeClaudeArgsKeepsNonConflictingConfigArgs(t *testing.T) {
-	merged := MergeClaudeArgs("sonnet", []string{"--chrome", "--verbose"}, nil)
+	merged := MergeClaudeArgs(ClaudeArgSources{ResolvedModel: "sonnet", ConfigClaudeArgs: []string{"--chrome", "--verbose"}})
 	expected := []string{"--model", "sonnet", "--chrome", "--verbose"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected %v, got %v", expected, merged)
@@ -37,7 +37,7 @@ func TestMergeClaudeArgsKeepsNonConflictingConfigArgs(t *testing.T) {
 }
 
 func TestMergeClaudeArgsStripsInlineValueConfigArgConflict(t *testing.T) {
-	merged := MergeClaudeArgs("", []string{"--chrome", "--model=sonnet"}, map[string]string{"model": "opus"})
+	merged := MergeClaudeArgs(ClaudeArgSources{ConfigClaudeArgs: []string{"--chrome", "--model=sonnet"}, MissionClaudeArgs: map[string]string{"model": "opus"}})
 	expected := []string{"--chrome", "--model", "opus"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected the config --model=sonnet to be stripped; expected %v, got %v", expected, merged)
@@ -45,7 +45,7 @@ func TestMergeClaudeArgsStripsInlineValueConfigArgConflict(t *testing.T) {
 }
 
 func TestMergeClaudeArgsStripsSeparateValueConfigArgConflict(t *testing.T) {
-	merged := MergeClaudeArgs("", []string{"--model", "sonnet", "--chrome"}, map[string]string{"model": "opus"})
+	merged := MergeClaudeArgs(ClaudeArgSources{ConfigClaudeArgs: []string{"--model", "sonnet", "--chrome"}, MissionClaudeArgs: map[string]string{"model": "opus"}})
 	expected := []string{"--chrome", "--model", "opus"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected both the config --model and its value token to be stripped; expected %v, got %v", expected, merged)
@@ -53,7 +53,7 @@ func TestMergeClaudeArgsStripsSeparateValueConfigArgConflict(t *testing.T) {
 }
 
 func TestMergeClaudeArgsStripsTrailingBareConfigArgConflict(t *testing.T) {
-	merged := MergeClaudeArgs("", []string{"--chrome", "--model"}, map[string]string{"model": "opus"})
+	merged := MergeClaudeArgs(ClaudeArgSources{ConfigClaudeArgs: []string{"--chrome", "--model"}, MissionClaudeArgs: map[string]string{"model": "opus"}})
 	expected := []string{"--chrome", "--model", "opus"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected a valueless trailing --model to be stripped without panicking; expected %v, got %v", expected, merged)
@@ -61,7 +61,7 @@ func TestMergeClaudeArgsStripsTrailingBareConfigArgConflict(t *testing.T) {
 }
 
 func TestMergeClaudeArgsEmitsMissionArgsInTableOrder(t *testing.T) {
-	merged := MergeClaudeArgs("", nil, map[string]string{"effort": "high", "model": "opus"})
+	merged := MergeClaudeArgs(ClaudeArgSources{MissionClaudeArgs: map[string]string{"effort": "high", "model": "opus"}})
 	expected := []string{"--model", "opus", "--effort", "high"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected forwarded flags in table order regardless of map iteration order; expected %v, got %v", expected, merged)
@@ -69,7 +69,7 @@ func TestMergeClaudeArgsEmitsMissionArgsInTableOrder(t *testing.T) {
 }
 
 func TestMergeClaudeArgsIgnoresUnknownMissionKeys(t *testing.T) {
-	merged := MergeClaudeArgs("", nil, map[string]string{"model": "opus", "bogus": "value"})
+	merged := MergeClaudeArgs(ClaudeArgSources{MissionClaudeArgs: map[string]string{"model": "opus", "bogus": "value"}})
 	expected := []string{"--model", "opus"}
 	if !reflect.DeepEqual(merged, expected) {
 		t.Fatalf("expected unknown keys to be dropped rather than emitted as flags; expected %v, got %v", expected, merged)

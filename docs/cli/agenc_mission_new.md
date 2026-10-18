@@ -13,8 +13,26 @@ local path).
 Use --clone <mission-uuid> to create a new mission with a full copy of an
 existing mission's agent directory.
 
+Anything after a "--" separator is handed to the mission's Claude process
+verbatim, so any Claude Code flag is reachable per-mission even when AgenC
+has no flag of its own for it:
+
+  agenc mission new owner/repo -- --append-system-prompt "Tonight is for reflection."
+
+The args are stored on the mission, so they survive reload, restart and the
+wrapper's own respawns, and they never touch a shell — a value containing
+spaces, quotes or newlines arrives at Claude exactly as written. They apply to
+that mission alone.
+
+Claude resolves a repeated scalar flag last-wins, and these are appended after
+the "claudeArgs" config chain, so a flag given here outranks the same flag from
+config. Two Claude flags will disable part of AgenC if passed this way, and
+creation warns when it sees them: "--settings" replaces AgenC's own operational
+overlay rather than adding to it, and "--bare" skips hooks altogether. Either
+one stops the mission reporting its state back to AgenC.
+
 ```
-agenc mission new [repo] [flags]
+agenc mission new [repo] [flags] [-- claude-args...]
 ```
 
 ### Options

@@ -89,7 +89,7 @@ Per-repo configuration, keyed by canonical repo name (`github.com/owner/repo`). 
 - **alwaysSynced** — when `true`, the server keeps the repo continuously fetched and fast-forwarded (every 60 seconds). Defaults to `false`.
 - **emoji** — emoji prepended to tmux window titles (with fixed-column padding) and shown in `repo ls` and the `mission new` fzf picker. When absent, no emoji prefix is applied.
 - **trustedMcpServers** — pre-approves MCP servers from `.mcp.json` so missions skip the Claude Code consent prompt. Accepts `all` (trust every server) or a list of named servers (e.g., `[github, sentry]`). When absent, Claude Code prompts for consent as usual.
-- **claudeArgs** — extra CLI flags passed to Claude Code when launching missions for this repo (e.g., `["--chrome"]`). Per-repo args are appended to global `claudeArgs`, so global flags apply as a baseline and per-repo flags can extend or override them. When absent, only global args (if any) are used.
+- **claudeArgs** — extra CLI flags passed to Claude Code when launching missions for this repo (e.g., `["--chrome"]`). Per-repo args are appended to global `claudeArgs`, so global flags apply as a baseline and per-repo flags can extend or override them. When absent, only global args (if any) are used. For a flag that should apply to one mission rather than to every mission using this repo, pass it after a `--` separator on `agenc mission new` instead; those are appended after this list, so they win for a scalar flag.
 
 ```yaml
 repoConfig:

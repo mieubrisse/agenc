@@ -34,7 +34,15 @@ type Mission struct {
 	// (e.g. {"model": "opus"}). Nil when the mission set none, in which
 	// case the mission falls back to the defaultModel/claudeArgs config
 	// chain at spawn time. Stored as a JSON object in the claude_args column.
-	ClaudeArgs  map[string]string
+	ClaudeArgs map[string]string
+
+	// ClaudePassthroughArgs holds the verbatim Claude CLI argv a caller handed
+	// to `agenc mission new` after the `--` separator, in order. Nil when the
+	// mission was given none. Stored as a JSON array in the
+	// claude_passthrough_args column — an array rather than an object because
+	// order is meaningful and the same flag may legitimately repeat.
+	ClaudePassthroughArgs []string
+
 	TmuxPane    *string
 	PromptCount int
 	CreatedAt   time.Time
@@ -79,6 +87,8 @@ type CreateMissionParams struct {
 	SourceMetadata *string
 	ConfigCommit   *string
 	ClaudeArgs     map[string]string
+
+	ClaudePassthroughArgs []string
 }
 
 // ListMissionsParams holds optional parameters for filtering missions.
@@ -98,12 +108,14 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 
 	var configCommit, source, sourceID, sourceMetadata *string
 	var claudeArgs map[string]string
+	var claudePassthroughArgs []string
 	if params != nil {
 		configCommit = params.ConfigCommit
 		source = params.Source
 		sourceID = params.SourceID
 		sourceMetadata = params.SourceMetadata
 		claudeArgs = params.ClaudeArgs
+		claudePassthroughArgs = params.ClaudePassthroughArgs
 	}
 
 	claudeArgsJSON, err := marshalClaudeArgs(claudeArgs)
@@ -111,9 +123,14 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		return nil, stacktrace.Propagate(err, "failed to serialize Claude args '%v' for mission '%s'", claudeArgs, id)
 	}
 
+	claudePassthroughArgsJSON, err := marshalClaudePassthroughArgs(claudePassthroughArgs)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to serialize Claude passthrough args '%v' for mission '%s'", claudePassthroughArgs, id)
+	}
+
 	_, err = db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, claude_args, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, claudeArgsJSON, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, claude_args, claude_passthrough_args, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, claudeArgsJSON, claudePassthroughArgsJSON, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -129,8 +146,11 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		SourceMetadata: sourceMetadata,
 		ConfigCommit:   configCommit,
 		ClaudeArgs:     claudeArgs,
-		CreatedAt:      time.Now().UTC(),
-		UpdatedAt:      time.Now().UTC(),
+
+		ClaudePassthroughArgs: claudePassthroughArgs,
+
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 	}, nil
 }
 
@@ -459,6 +479,34 @@ func marshalClaudeArgs(claudeArgs map[string]string) (*string, error) {
 	}
 	asString := string(serialized)
 	return &asString, nil
+}
+
+// marshalClaudePassthroughArgs renders passthrough args for storage in the
+// claude_passthrough_args column. An empty list stores NULL rather than "[]",
+// so "this mission has no passthrough args" has exactly one representation.
+func marshalClaudePassthroughArgs(claudePassthroughArgs []string) (*string, error) {
+	if len(claudePassthroughArgs) == 0 {
+		return nil, nil
+	}
+	serialized, err := json.Marshal(claudePassthroughArgs)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal Claude passthrough args '%v'", claudePassthroughArgs)
+	}
+	serializedStr := string(serialized)
+	return &serializedStr, nil
+}
+
+// unmarshalClaudePassthroughArgs parses a stored claude_passthrough_args
+// column. A NULL or empty column yields nil.
+func unmarshalClaudePassthroughArgs(stored sql.NullString) ([]string, error) {
+	if !stored.Valid || stored.String == "" {
+		return nil, nil
+	}
+	var claudePassthroughArgs []string
+	if err := json.Unmarshal([]byte(stored.String), &claudePassthroughArgs); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse stored Claude passthrough args '%v'", stored.String)
+	}
+	return claudePassthroughArgs, nil
 }
 
 // unmarshalClaudeArgs parses a stored claude_args column. A NULL or empty

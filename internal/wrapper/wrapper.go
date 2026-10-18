@@ -45,10 +45,10 @@ type Wrapper struct {
 	logger         *slog.Logger
 	tmuxPaneID     string // numeric pane ID from $TMUX_PANE (%-prefix stripped); empty for headless
 
-	// claudeSpawnArgs is the model/config/per-mission arg list handed to every
-	// Claude spawn, already merged by mission.MergeClaudeArgs at construction
-	// time. Resolved once because the merge reads config, and config must not
-	// shift underneath a mission mid-restart.
+	// claudeSpawnArgs is the model/config/per-mission/passthrough arg list
+	// handed to every Claude spawn, already merged by mission.MergeClaudeArgs
+	// at construction time. Resolved once because the merge reads config, and
+	// config must not shift underneath a mission mid-restart.
 	claudeSpawnArgs []string
 
 	// unknownClaudeArgKeys names per-mission Claude args this build does not
@@ -103,10 +103,22 @@ type Wrapper struct {
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
 // parameter is optional; if non-empty, it will be passed to Claude when
-// starting a new conversation (not used for resumes). missionClaudeArgs holds
-// the mission's own Claude CLI overrides (from `agenc mission new --model` and
-// friends); it outranks the defaultModel and claudeArgs config chains.
-func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initialPrompt string, missionClaudeArgs map[string]string) *Wrapper {
+// starting a new conversation (not used for resumes).
+//
+// missionClaudeArgs holds the mission's own keyed Claude CLI overrides (from
+// `agenc mission new --model` and friends) and missionClaudePassthroughArgs the
+// verbatim argv it was given after `--`. Both are read from the mission record
+// by the caller, which is what makes them outlive this wrapper: every spawn in
+// this process, including the restarts the wrapper decides on its own, reuses
+// the args resolved here, and the next wrapper reads the record again.
+func NewWrapper(
+	agencDirpath string,
+	missionID string,
+	gitRepoName string,
+	initialPrompt string,
+	missionClaudeArgs map[string]string,
+	missionClaudePassthroughArgs []string,
+) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	var titleCfg *config.TmuxWindowTitleConfig
@@ -121,11 +133,16 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 	}
 
 	return &Wrapper{
-		agencDirpath:                   agencDirpath,
-		missionID:                      missionID,
-		gitRepoName:                    gitRepoName,
-		initialPrompt:                  initialPrompt,
-		claudeSpawnArgs:                mission.MergeClaudeArgs(defaultModel, configClaudeArgs, missionClaudeArgs),
+		agencDirpath:  agencDirpath,
+		missionID:     missionID,
+		gitRepoName:   gitRepoName,
+		initialPrompt: initialPrompt,
+		claudeSpawnArgs: mission.MergeClaudeArgs(mission.ClaudeArgSources{
+			ResolvedModel:         defaultModel,
+			ConfigClaudeArgs:      configClaudeArgs,
+			MissionClaudeArgs:     missionClaudeArgs,
+			ClaudePassthroughArgs: missionClaudePassthroughArgs,
+		}),
 		unknownClaudeArgKeys:           mission.UnknownClaudeArgKeys(missionClaudeArgs),
 		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:                   config.GetMissionAgentDirpath(agencDirpath, missionID),

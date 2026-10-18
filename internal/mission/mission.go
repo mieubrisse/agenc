@@ -73,7 +73,7 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	// ~/.claude/settings.json rather than replacing it.
 	opSettingsFilepath := config.GetMissionOpSettingsFilepath(agencDirpath, missionID)
 
-	fullArgs := []string{"--settings", opSettingsFilepath}
+	fullArgs := []string{settingsClaudeFlag, opSettingsFilepath}
 	fullArgs = append(fullArgs, extraClaudeArgs...)
 	fullArgs = append(fullArgs, claudeArgs...)
 	claudeArgs = fullArgs
