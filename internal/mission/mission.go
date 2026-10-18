@@ -66,6 +66,11 @@ func CreateMissionDir(logger *log.Logger, agencDirpath string, missionID string,
 // then extraClaudeArgs (the model/config/per-mission args already merged by
 // MergeClaudeArgs), then claudeArgs (the call-site args that choose the
 // conversation shape — -c, -r <session>, --print, the initial prompt).
+//
+// A call-site arg list that ends in a positional argument must separate it with
+// "--", since extraClaudeArgs can now end in a flag that would otherwise
+// swallow it; buildNewConversationArgs explains why and buildResumeArgs follows
+// the same rule.
 func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, claudeArgs []string) (*exec.Cmd, error) {
 	// Deliver AgenC's operational overlay (hooks, prime, guard, allow/deny,
 	// server socket) via --settings so it applies to every spawn shape
@@ -126,17 +131,35 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	return cmd, nil
 }
 
+// buildNewConversationArgs returns the claude CLI args for starting a fresh
+// conversation. Pure helper extracted for unit testing.
+func buildNewConversationArgs(initialPrompt string) []string {
+	if initialPrompt == "" {
+		return nil
+	}
+	// The prompt is a positional argument, and it is the last thing on the
+	// command line — so whatever flag precedes it decides whether Claude reads
+	// it as a prompt at all. Several Claude flags take a variable number of
+	// values (--add-dir <directories...>) or an optional one (--debug [filter]),
+	// and such a flag swallows the following bare token. Since a mission can now
+	// carry arbitrary passthrough flags, one of those can land immediately
+	// before the prompt, and the failure is silent: the prompt becomes an extra
+	// allowed directory, Claude starts with no prompt, and nothing errors.
+	//
+	// Ending option parsing first is what makes the prompt unambiguous. It
+	// belongs here rather than at the head of the arg list, because at the head
+	// it would turn the conversation-shape flags that follow (-c, -r <session>)
+	// into positionals instead.
+	return []string{endOfClaudeFlagsSeparator, initialPrompt}
+}
+
 // SpawnClaudeWithPrompt starts claude with an initial prompt as a child process
 // in the given agent directory. Claude always starts in interactive mode; if
 // initialPrompt is non-empty, it is passed as a positional argument to pre-fill
 // the first message. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
 func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, initialPrompt string) (*exec.Cmd, error) {
-	var args []string
-	if initialPrompt != "" {
-		// Pass prompt as positional argument for interactive mode with pre-filled message
-		args = []string{initialPrompt}
-	}
+	args := buildNewConversationArgs(initialPrompt)
 
 	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, extraClaudeArgs, args)
 	if err != nil {
@@ -163,8 +186,13 @@ func buildResumeArgs(sessionID string, initialPrompt string) []string {
 	} else {
 		args = []string{"-c"}
 	}
+	// Separate the positional prompt from the flags, for the reason given in
+	// buildNewConversationArgs. The resume shape happens to be safe already --
+	// the "-c" or "-r <session>" it emits first terminates any variadic flag
+	// behind it -- but that safety is incidental to an argument order nothing
+	// pins, so the prompt carries its own guard rather than borrowing one.
 	if initialPrompt != "" {
-		args = append(args, initialPrompt)
+		args = append(args, endOfClaudeFlagsSeparator, initialPrompt)
 	}
 	return args
 }

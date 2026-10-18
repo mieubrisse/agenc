@@ -1956,6 +1956,15 @@ fi
 # passes. The PID is resolved first and the args read by PID, because the value
 # contains a newline: filtering `ps` output by line would drop everything past
 # it.
+#
+# What this can and cannot show, stated plainly because it is easy to overclaim:
+# `ps -o args=` renders argv space-joined, so it cannot reveal where one element
+# ends and the next begins. What it establishes is that the flag and every part
+# of its value -- including the part after the embedded newline -- reached the
+# command line rather than being truncated or mangled on the way. The stronger
+# claim, that the value arrives as exactly ONE argv element, is pinned by
+# TestBuildClaudeCmdCarriesHostilePassthroughValueIntact in
+# internal/mission/mission_test.go, which compares cmd.Args element by element.
 passthrough_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${passthrough_short_id}';")
 
 find_mission_claude_pid() {
@@ -2008,8 +2017,8 @@ assert_claude_argv_carries_passthrough() {
         failed=$((failed + 1))
         return 0
     fi
-    # The fragment that sits after the newline: present only if the whole
-    # multi-line value survived as a single argv element.
+    # The fragment that sits after the newline: absent if the value were
+    # truncated at the newline on its way to the command line.
     if ! echo "${claude_argv}" | grep -q -- "${passthrough_tail}"; then
         echo "FAIL (Claude argv lost the value past its newline: ${claude_argv})"
         failed=$((failed + 1))
@@ -2053,6 +2062,42 @@ else
     else
         echo "PASS"
         passed=$((passed + 1))
+    fi
+fi
+
+# A passthrough flag that takes a variable number of values (--add-dir
+# <directories...>) or an optional one (--debug [filter]) used to sit
+# immediately before the mission's positional prompt and swallow it. Nothing
+# errored: the prompt became an extra allowed directory and Claude started with
+# no prompt. Measured on claude 2.1.274 -- `claude -p --add-dir /tmp 'Reply with
+# exactly: PROMPTOK'` fails with "Input must be provided either through stdin or
+# as a prompt argument", and the same command with "--" before the prompt
+# answers it.
+#
+# Every cron mission passes --prompt, so this was on the path of all scheduled
+# work. The fix puts a "--" immediately before the prompt. That separator token
+# IS visible in space-joined `ps` output, which is why this assertion can be
+# made here at all.
+prompt_marker="KEV88PROMPT"
+eaten_prompt_short_id=$(create_mission_and_echo_short_id \
+    --blank --headless --no-focus --prompt "${prompt_marker} please reply ok" \
+    -- --add-dir /tmp)
+eaten_prompt_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${eaten_prompt_short_id}';")
+
+total=$((total + 1))
+printf "  %-50s " "a trailing variadic flag cannot eat the prompt..."
+eaten_prompt_claude_pid=$(find_mission_claude_pid "${eaten_prompt_mission_uuid}")
+if [[ -z "${eaten_prompt_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the mission)"
+    skipped=$((skipped + 1))
+else
+    eaten_prompt_argv=$(ps -ww -o args= -p "${eaten_prompt_claude_pid}" 2>/dev/null || true)
+    if echo "${eaten_prompt_argv}" | grep -q -- "-- ${prompt_marker}"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (no '--' separator before the prompt: ${eaten_prompt_argv})"
+        failed=$((failed + 1))
     fi
 fi
 

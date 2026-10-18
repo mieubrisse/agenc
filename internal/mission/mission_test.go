@@ -156,19 +156,19 @@ func TestBuildResumeArgs(t *testing.T) {
 			name:          "session id with prompt",
 			sessionID:     "sess-abc",
 			initialPrompt: "follow up please",
-			want:          []string{"-r", "sess-abc", "follow up please"},
+			want:          []string{"-r", "sess-abc", "--", "follow up please"},
 		},
 		{
 			name:          "no session id with prompt",
 			sessionID:     "",
 			initialPrompt: "follow up please",
-			want:          []string{"-c", "follow up please"},
+			want:          []string{"-c", "--", "follow up please"},
 		},
 		{
 			name:          "prompt with shell metachars preserved literally",
 			sessionID:     "sess-abc",
 			initialPrompt: "$(rm -rf /); echo 'hi'",
-			want:          []string{"-r", "sess-abc", "$(rm -rf /); echo 'hi'"},
+			want:          []string{"-r", "sess-abc", "--", "$(rm -rf /); echo 'hi'"},
 		},
 	}
 

@@ -21,6 +21,10 @@ const (
 
 	// bareClaudeFlag turns off the hooks AgenC tracks mission state with.
 	bareClaudeFlag = "--bare"
+
+	// endOfClaudeFlagsSeparator ends Claude's option parsing, so that what
+	// follows is read as a positional argument whatever precedes it.
+	endOfClaudeFlagsSeparator = "--"
 )
 
 // ForwardedClaudeFlag describes one Claude CLI flag that AgenC forwards from

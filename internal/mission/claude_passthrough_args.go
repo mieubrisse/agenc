@@ -17,7 +17,7 @@ import (
 // emits no signal of its own.
 var claudeFlagsBreakingAgencInvariants = map[string]string{
 	settingsClaudeFlag: "Claude takes only the last --settings, so this one replaces AgenC's operational overlay: " +
-		"mission state tracking, the prime hook, the repo-library guard and the server socket allowlist all stop working for this mission",
+		"mission state tracking, the prime hook, the repo-library guard, the agent-dir allowlist and the server socket allowlist all stop working for this mission",
 	bareClaudeFlag: "--bare skips hooks entirely, so this mission will not report its state back to AgenC",
 }
 
