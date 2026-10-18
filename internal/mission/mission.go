@@ -146,10 +146,16 @@ func buildNewConversationArgs(initialPrompt string) []string {
 	// before the prompt, and the failure is silent: the prompt becomes an extra
 	// allowed directory, Claude starts with no prompt, and nothing errors.
 	//
-	// Ending option parsing first is what makes the prompt unambiguous. It
-	// belongs here rather than at the head of the arg list, because at the head
-	// it would turn the conversation-shape flags that follow (-c, -r <session>)
-	// into positionals instead.
+	// Ending option parsing first is what makes the prompt unambiguous, and it
+	// fixes a second failure in the same position: a prompt beginning with a
+	// dash stops Claude starting at all. Measured on claude 2.1.274,
+	// `claude -p '-Reply with exactly: DASHOK'` exits with
+	// "error: unknown option", and the same command with `--` before the prompt
+	// answers DASHOK.
+	//
+	// The separator belongs here rather than at the head of the arg list,
+	// because at the head it would turn the conversation-shape flags that
+	// follow (-c, -r <session>) into positionals instead.
 	return []string{endOfClaudeFlagsSeparator, initialPrompt}
 }
 

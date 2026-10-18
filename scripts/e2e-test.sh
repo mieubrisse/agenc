@@ -1965,6 +1965,11 @@ fi
 # claim, that the value arrives as exactly ONE argv element, is pinned by
 # TestBuildClaudeCmdCarriesHostilePassthroughValueIntact in
 # internal/mission/mission_test.go, which compares cmd.Args element by element.
+# That is a build-side proof; the gap to the running process is closed by Go's
+# own contract that exec.Command hands Args to execve with no shell and no
+# re-splitting, and was additionally measured out of band during review by
+# reading the live process's KERN_PROCARGS2 (argc 11, the hostile value in a
+# single element).
 passthrough_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${passthrough_short_id}';")
 
 find_mission_claude_pid() {

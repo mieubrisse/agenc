@@ -888,6 +888,24 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 		return nil, stacktrace.Propagate(err, "failed to write operational settings for headless spawn")
 	}
 
+	// The prompt here is a POSITIONAL argument, not a value belonging to -p:
+	// `-p, --print` is a boolean flag (no value placeholder in `claude --help`,
+	// and `claude --print -p 'Reply with exactly: PFLAGOK'` answers PFLAGOK,
+	// which requires reading that string positionally). So this is the same
+	// position mission.buildNewConversationArgs guards with a `--` separator,
+	// and it is NOT structurally safe here.
+	//
+	// It does not bite today for two reasons, neither of them a property of
+	// this code: this function is unreachable (`make check`'s deadcode analysis
+	// lists both it and its only caller, RunHeadless), and `--print`/`-p` are
+	// dash-prefixed so they happen to terminate any variadic passthrough flag
+	// in front of them. That is exactly the "incidental to an argument order
+	// nothing pins" safety that buildResumeArgs refuses to rely on.
+	//
+	// Reviving the headless path means separating this prompt the same way.
+	// Without it, a passthrough flag taking a variable or optional number of
+	// values swallows the prompt silently, and a prompt beginning with a dash
+	// stops Claude starting at all (`error: unknown option`).
 	var args []string
 	if isResume {
 		// Resume with continuation flag and print mode
