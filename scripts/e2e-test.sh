@@ -2107,6 +2107,315 @@ else
 fi
 
 echo ""
+echo "--- Per-mission environment (KEV-96) ---"
+
+# `--env NAME=VALUE` attaches environment variables to one mission, and they
+# reach that mission's Claude process environment. This exists because the only
+# Claude-Code-native way to set a session-scoped variable is
+# `--settings '{"env":{...}}'`, and a passthrough --settings REPLACES AgenC's
+# operational overlay rather than merging with it -- so marking a session that
+# way silently takes out the hooks AgenC tracks mission state with. The
+# acceptance criterion that matters most here is therefore the negative one:
+# using this channel must leave AgenC's own configuration untouched.
+#
+# Two values are used throughout. The marker is space-free, because the only
+# way to read a live process's environment is `ps -E`, which space-joins it the
+# same way it space-joins argv -- a value containing a space could not be
+# distinguished from two variables. The second value is deliberately hostile
+# (spaces, a newline, both quote styles) and is asserted on the stored and
+# displayed paths, where exactness can actually be checked.
+env_marker="KEV96MARKER"
+env_hostile_note="Tonight is for reflection.\"Don't\" open 'work' topics."$'\n'"KEV96TAILAFTERNEWLINE"
+
+env_short_id=$(create_mission_and_echo_short_id \
+    --blank --headless --no-focus \
+    --env "REFLECTION_SESSION=${env_marker}" \
+    --env "REFLECTION_NOTE=${env_hostile_note}")
+
+total=$((total + 1))
+printf "  %-50s " "mission new --env created a mission..."
+if [[ -n "${env_short_id}" ]]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (no mission short ID in create output)"
+    failed=$((failed + 1))
+fi
+
+# Stored as a JSON object, not an array: a process environment holds one value
+# per name, which is the opposite of claude_passthrough_args where order
+# matters and a flag may repeat.
+run_test_output_contains \
+    "the mission environment persists as a JSON object" \
+    '"REFLECTION_SESSION":"'"${env_marker}"'"' \
+    sqlite3 "${claude_args_db_filepath}" "SELECT claude_env FROM missions WHERE short_id='${env_short_id}';"
+
+run_test_output_contains \
+    "mission inspect surfaces the mission environment" \
+    "Environment: " \
+    "${agenc_test}" mission inspect "${env_short_id}"
+
+# The inspect rendering has to stay on one line whatever the value contains:
+# the surrounding output is an aligned block that callers read line by line.
+total=$((total + 1))
+printf "  %-50s " "inspect renders a multi-line value on one line..."
+env_inspect_line_count=$("${agenc_test}" mission inspect "${env_short_id}" 2>&1 \
+    | grep -c "^Environment: " || true)
+if [[ "${env_inspect_line_count}" -eq 1 ]]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (expected exactly 1 'Environment:' line, got ${env_inspect_line_count})"
+    failed=$((failed + 1))
+fi
+
+# A mission given none stores NULL, so "this mission sets no environment
+# variables" has exactly one representation.
+no_env_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
+run_test_output_contains \
+    "a mission created without --env has no environment" \
+    "^$" \
+    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_env, '') FROM missions WHERE short_id='${no_env_short_id}';"
+
+# A name a shell cannot expand is refused at creation. Not pedantry: the only
+# consumer is a hook reading "$NAME", so accepting one would accept something
+# that is delivered to the process and then unreadable.
+run_test "mission new rejects an environment name a shell cannot expand" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "BAD-NAME=1"
+
+run_test "mission new rejects an environment name starting with a digit" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "1BAD=1"
+
+run_test "mission new rejects an assignment with no '='" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "NOTANASSIGNMENT"
+
+# A clone deliberately does NOT inherit the environment, which is the one
+# asymmetry with the two Claude-arg channels. An environment variable marks
+# what a mission is FOR, and the first thing it marks is a session a hook will
+# treat differently -- exempting it from a gate, say. A marker that rode
+# silently into every clone would spread that exemption to missions nobody
+# declared, which is the same fail-open leak that got ambient AGENC_*
+# forwarding rejected when this channel was designed.
+env_clone_short_id=$(create_mission_and_echo_short_id --clone "${env_short_id}" --headless --no-focus)
+run_test_output_contains \
+    "a clone does not inherit the mission environment" \
+    "^$" \
+    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_env, '') FROM missions WHERE short_id='${env_clone_short_id}';"
+
+total=$((total + 1))
+printf "  %-50s " "a clone shows no Environment line at all..."
+if "${agenc_test}" mission inspect "${env_clone_short_id}" 2>&1 | grep -q "^Environment: "; then
+    echo "FAIL (the clone inherited an environment it was not given)"
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
+# ...but a clone given one explicitly does get it: not inheriting is about what
+# travels silently, not about the flag working differently on a clone.
+env_clone_explicit_short_id=$(create_mission_and_echo_short_id \
+    --clone "${env_short_id}" --headless --no-focus --env "CLONE_OWN=KEV96CLONEOWN")
+run_test_output_contains \
+    "an explicit --env on a clone does apply" \
+    '"CLONE_OWN":"KEV96CLONEOWN"' \
+    sqlite3 "${claude_args_db_filepath}" "SELECT claude_env FROM missions WHERE short_id='${env_clone_explicit_short_id}';"
+
+# THE ACCEPTANCE CRITERION THE ISSUE EXISTS FOR: AgenC's own operational
+# settings for a mission must be unaffected by using this channel. That
+# configuration is the op-settings file AgenC delivers via `--settings` -- the
+# state-tracking hooks, the prime hook, the repo-library guard, the agent-dir
+# allowlist and the server-socket allowlist. The direct proof is that the file
+# an --env mission gets is identical to the one a plain mission gets, once the
+# mission UUID (which is legitimately embedded in it) is normalised away.
+env_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${env_short_id}';")
+no_env_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${no_env_short_id}';")
+env_op_settings_filepath="${repo_dirpath}/_test-env/missions/${env_mission_uuid}/agenc-settings.json"
+no_env_op_settings_filepath="${repo_dirpath}/_test-env/missions/${no_env_mission_uuid}/agenc-settings.json"
+
+total=$((total + 1))
+printf "  %-50s " "AgenC's operational overlay is unchanged by --env..."
+if [[ ! -f "${env_op_settings_filepath}" || ! -f "${no_env_op_settings_filepath}" ]]; then
+    # The wrapper writes this file on every spawn, so an absent one means no
+    # spawn happened in this environment (no credentials, no binary). Say so
+    # rather than counting it.
+    echo "SKIP (no operational settings file written for one of the missions)"
+    skipped=$((skipped + 1))
+else
+    env_op_settings_normalized=$(sed "s|${env_mission_uuid}|MISSION_UUID|g" "${env_op_settings_filepath}")
+    no_env_op_settings_normalized=$(sed "s|${no_env_mission_uuid}|MISSION_UUID|g" "${no_env_op_settings_filepath}")
+    if [[ "${env_op_settings_normalized}" == "${no_env_op_settings_normalized}" ]]; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (the operational settings differ between an --env mission and a plain one)"
+        diff <(echo "${no_env_op_settings_normalized}") <(echo "${env_op_settings_normalized}") || true
+        failed=$((failed + 1))
+    fi
+fi
+
+# The containment half: the marker must not have leaked into the overlay at
+# all. A future change that implemented this by writing the variables into the
+# op-settings "env" block would pass the comparison above only by also changing
+# the plain mission, and would fail this.
+total=$((total + 1))
+printf "  %-50s " "the marker never reaches the overlay file..."
+if [[ ! -f "${env_op_settings_filepath}" ]]; then
+    echo "SKIP (no operational settings file written for the mission)"
+    skipped=$((skipped + 1))
+elif grep -q "${env_marker}" "${env_op_settings_filepath}"; then
+    echo "FAIL (the mission environment leaked into AgenC's operational settings)"
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
+# The assertion the stored and displayed paths cannot make: that the variable
+# reaches the real Claude process's environment, and is still there after a
+# reload. Reload is the respawn path for everything -- a config reload, a
+# stash-restore and a server restart all rebuild the resume command from
+# scratch and re-read the mission record -- so verifying reload verifies the
+# class.
+#
+# `ps -E` prints a process's environment on macOS, space-joined after its argv.
+# That is why the marker value is space-free: a value with a space in it could
+# not be told apart from two variables in this output. What this establishes is
+# that the assignment is present in the live process's environment; that it is
+# exactly one entry is pinned by TestBuildClaudeCmdInjectsMissionEnv in
+# internal/mission/mission_test.go, which compares cmd.Env entry by entry.
+assert_claude_env_carries_marker() {
+    local label="${1}"
+    local mission_uuid="${2}"
+    local claude_pid
+    local claude_env
+
+    total=$((total + 1))
+    printf "  %-50s " "${label}"
+
+    claude_pid=$(find_mission_claude_pid "${mission_uuid}")
+    if [[ -z "${claude_pid}" ]]; then
+        echo "SKIP (no Claude process observed for the mission)"
+        skipped=$((skipped + 1))
+        return 0
+    fi
+
+    claude_env=$(ps -Eww -o command= -p "${claude_pid}" 2>/dev/null || true)
+    if [[ -z "${claude_env}" ]]; then
+        echo "SKIP (could not read the Claude process environment)"
+        skipped=$((skipped + 1))
+        return 0
+    fi
+    if echo "${claude_env}" | grep -q -- "REFLECTION_SESSION=${env_marker}"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (Claude process environment lacked REFLECTION_SESSION=${env_marker})"
+        failed=$((failed + 1))
+    fi
+}
+
+assert_claude_env_carries_marker \
+    "spawned Claude carries the mission environment..." \
+    "${env_mission_uuid}"
+
+"${agenc_test}" mission reload "${env_short_id}" >/dev/null 2>&1 || true
+sleep 2
+assert_claude_env_carries_marker \
+    "...and still carries it after mission reload" \
+    "${env_mission_uuid}"
+
+# The per-mission half of the same assertion: a sibling mission's Claude must
+# not have picked the marker up. Checked in the live environment rather than
+# only in the database, because leaking through the wrapper or through an
+# inherited process environment would not show up in the other mission's row.
+total=$((total + 1))
+printf "  %-50s " "a sibling mission's Claude never sees it..."
+env_sibling_claude_pid=$(find_mission_claude_pid "${no_env_mission_uuid}")
+if [[ -z "${env_sibling_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the sibling mission)"
+    skipped=$((skipped + 1))
+else
+    env_sibling_claude_env=$(ps -Eww -o command= -p "${env_sibling_claude_pid}" 2>/dev/null || true)
+    if [[ -z "${env_sibling_claude_env}" ]]; then
+        echo "SKIP (could not read the sibling Claude process environment)"
+        skipped=$((skipped + 1))
+    elif echo "${env_sibling_claude_env}" | grep -q -- "${env_marker}"; then
+        echo "FAIL (sibling Claude carried another mission's marker: ${env_sibling_claude_env})"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+fi
+
+# An AgenC-owned name cannot be hijacked: AgenC appends its own variables after
+# the mission's, and a process resolves a repeated name to the last entry. This
+# is what makes the channel safe without AgenC keeping a list of its own
+# variable names to exclude -- a list that would go stale every time AgenC
+# added one. If the ordering ever inverted, mission state tracking would break
+# for any mission whose caller happened to pass AGENC_MISSION_UUID, silently.
+hijack_short_id=$(create_mission_and_echo_short_id \
+    --blank --headless --no-focus --env "AGENC_MISSION_UUID=KEV96HIJACK")
+hijack_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${hijack_short_id}';")
+
+total=$((total + 1))
+printf "  %-50s " "an AgenC-owned variable cannot be hijacked..."
+hijack_claude_pid=$(find_mission_claude_pid "${hijack_mission_uuid}")
+if [[ -z "${hijack_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the mission)"
+    skipped=$((skipped + 1))
+else
+    hijack_claude_env=$(ps -Eww -o command= -p "${hijack_claude_pid}" 2>/dev/null || true)
+    if [[ -z "${hijack_claude_env}" ]]; then
+        echo "SKIP (could not read the Claude process environment)"
+        skipped=$((skipped + 1))
+    else
+        # Read the LAST occurrence, which is what the process resolves to.
+        hijack_resolved_uuid=$(echo "${hijack_claude_env}" \
+            | tr ' ' '\n' \
+            | grep "^AGENC_MISSION_UUID=" \
+            | tail -1 \
+            | cut -d= -f2)
+        if [[ "${hijack_resolved_uuid}" == "${hijack_mission_uuid}" ]]; then
+            echo "PASS"
+            passed=$((passed + 1))
+        else
+            echo "FAIL (AGENC_MISSION_UUID resolved to '${hijack_resolved_uuid}', want '${hijack_mission_uuid}')"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
+# The other half of "AgenC's operational settings still function": the hooks
+# AgenC delivers through them have to actually fire. A mission whose Claude
+# state is known to AgenC at all is a mission whose state-tracking hooks
+# reported in -- that report is an HTTP POST from a hook in the overlay, so a
+# replaced overlay would leave this empty forever.
+total=$((total + 1))
+printf "  %-50s " "state-tracking hooks still report for an --env mission..."
+env_claude_state=""
+for _ in $(seq 1 30); do
+    env_claude_state=$("${agenc_test}" mission ls --all 2>/dev/null \
+        | grep -- "${env_short_id}" \
+        | grep -oE "IDLE|BUSY|WAITING|QUOTA" \
+        | head -1 || true)
+    if [[ -n "${env_claude_state}" ]]; then
+        break
+    fi
+    sleep 1
+done
+if [[ -z "${env_claude_state}" ]]; then
+    echo "SKIP (no Claude state ever observed; no live Claude in this environment)"
+    skipped=$((skipped + 1))
+else
+    echo "PASS (state '${env_claude_state}' reported through the overlay's hooks)"
+    passed=$((passed + 1))
+fi
+echo ""
 echo "--- No ANSI escapes in command output (agenc-hxr4) ---"
 
 # AgenC command output is consumed overwhelmingly by agents, not read by a
@@ -2182,6 +2491,21 @@ else
     total=$((total + 1))
     printf "  %-50s " "mission inspect with passthrough args emits no ANSI..."
     echo "SKIP (no passthrough mission short ID available)"
+    skipped=$((skipped + 1))
+fi
+
+# Same reasoning for the Environment line: a mission with no environment never
+# renders it, so it needs its own assertion against a mission that does, with
+# the line required in the output so the check cannot pass by inspecting an
+# empty state.
+if [ -n "${env_short_id}" ]; then
+    run_test_output_has_no_ansi "mission inspect with a mission environment emits no ANSI" \
+        "Environment: " \
+        "${agenc_test}" mission inspect "${env_short_id}"
+else
+    total=$((total + 1))
+    printf "  %-50s " "mission inspect with a mission environment emits no ANSI..."
+    echo "SKIP (no --env mission short ID available)"
     skipped=$((skipped + 1))
 fi
 

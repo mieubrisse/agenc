@@ -41,6 +41,16 @@ var missionClaudeArgFlagValues = map[string]*string{}
 // is how every other `mission new` flag is already carried.
 var missionClaudePassthroughArgs []string
 
+// missionEnvAssignmentFlagValues holds the raw NAME=VALUE assignments the user
+// wrote on --env, one entry per occurrence of the flag.
+var missionEnvAssignmentFlagValues []string
+
+// missionEnv is missionEnvAssignmentFlagValues parsed into the map stored on
+// the mission. Resolved once in runMissionNew so a malformed assignment is a
+// parse error before any mission exists, and read from there by every create
+// path, which is how every other `mission new` flag is already carried.
+var missionEnv map[string]string
+
 var missionNewCmd = &cobra.Command{
 	Use: newCmdStr + " [repo] [flags] [-- claude-args...]",
 	// Cobra otherwise appends its own "[flags]" after the whole Use string,
@@ -73,9 +83,26 @@ the "claudeArgs" config chain, so a flag given here outranks the same flag from
 config. Two Claude flags will disable part of AgenC if passed this way, and
 creation warns when it sees them: "--settings" replaces AgenC's own operational
 overlay rather than adding to it, and "--bare" skips hooks altogether. Either
-one stops the mission reporting its state back to AgenC.`,
+one stops the mission reporting its state back to AgenC.
+
+Use --%s to put an environment variable in the mission's Claude process,
+repeating the flag for each one:
+
+  %s %s %s owner/repo --%s REFLECTION_SESSION=1
+
+This is how a session gets marked for a Claude Code hook to recognise. It is a
+separate channel from the passthrough above precisely so that marking a session
+does not need "--settings", which would replace AgenC's operational overlay
+rather than adding to it. Like the passthrough args, these are stored on the
+mission and survive reload and restart, and they apply to that mission alone --
+a clone does not inherit them, so a marker cannot spread to missions nobody
+declared. An AgenC-owned name (anything AgenC sets itself, such as
+AGENC_MISSION_UUID) cannot be overridden this way: AgenC's own value is applied
+last and wins.`,
 		cloneFlagName,
-		agencCmdStr, missionCmdStr, newCmdStr),
+		agencCmdStr, missionCmdStr, newCmdStr,
+		envFlagName,
+		agencCmdStr, missionCmdStr, newCmdStr, envFlagName),
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
@@ -87,6 +114,10 @@ func init() {
 	missionNewCmd.Flags().BoolVar(&adjutantFlag, adjutantFlagName, false, "create an Adjutant mission")
 	missionNewCmd.Flags().BoolVar(&noFocusFlag, noFocusFlagName, false, "don't focus the new mission's tmux window after creation")
 	missionNewCmd.Flags().BoolVar(&headlessFlag, headlessFlagName, false, "run in headless mode (no terminal, outputs to log)")
+	// StringArrayVar rather than StringSliceVar: the slice variant splits each
+	// value on commas, which would silently cut a value that legitimately
+	// contains one (a list, a JSON fragment, a sentence).
+	missionNewCmd.Flags().StringArrayVar(&missionEnvAssignmentFlagValues, envFlagName, nil, "environment variable to set in the mission's Claude process, as NAME=VALUE (repeatable)")
 	missionNewCmd.Flags().StringVar(&sourceFlag, "source", "", "mission source type (internal use)")
 	missionNewCmd.Flags().StringVar(&sourceIDFlag, "source-id", "", "mission source identifier (internal use)")
 	missionNewCmd.Flags().StringVar(&sourceMetadataFlag, "source-metadata", "", "mission source metadata JSON (internal use)")
@@ -168,6 +199,15 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 	args, missionClaudePassthroughArgs = splitAtClaudePassthroughSeparator(args, cmd.ArgsLenAtDash())
 	printClaudePassthroughArgsWarnings()
 
+	// Parse the environment assignments before anything is created, so a
+	// malformed one costs the caller an error message rather than a mission
+	// that exists and cannot carry what they asked for.
+	parsedMissionEnv, err := mission.ParseMissionEnvAssignments(missionEnvAssignmentFlagValues)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read the --%s flags", envFlagName)
+	}
+	missionEnv = parsedMissionEnv
+
 	// Provenance auto-population: when invoked from inside a mission and the
 	// caller didn't explicitly set --source, stamp source="mission" and
 	// source_id=$AGENC_MISSION_UUID. The calling agent cannot forget to
@@ -233,6 +273,7 @@ func runMissionNewWithClone() error {
 		ClaudeArgs:  collectMissionClaudeArgs(),
 
 		ClaudePassthroughArgs: missionClaudePassthroughArgs,
+		ClaudeEnv:             missionEnv,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
@@ -353,6 +394,7 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		ClaudeArgs:  collectMissionClaudeArgs(),
 
 		ClaudePassthroughArgs: missionClaudePassthroughArgs,
+		ClaudeEnv:             missionEnv,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create adjutant mission")
@@ -493,6 +535,7 @@ func createAndLaunchMission(
 		ClaudeArgs:     collectMissionClaudeArgs(),
 
 		ClaudePassthroughArgs: missionClaudePassthroughArgs,
+		ClaudeEnv:             missionEnv,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")

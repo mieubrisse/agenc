@@ -72,6 +72,7 @@ func TestBuildClaudeCmdSeparatesPromptFromTrailingVariadicPassthrough(t *testing
 		agentDirpath,
 		mergedClaudeArgs,
 		buildNewConversationArgs(initialPrompt),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
@@ -121,6 +122,7 @@ func TestBuildClaudeCmdSeparatesResumePromptFromTrailingVariadicPassthrough(t *t
 		agentDirpath,
 		mergedClaudeArgs,
 		buildResumeArgs("sess-abc", initialPrompt),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)

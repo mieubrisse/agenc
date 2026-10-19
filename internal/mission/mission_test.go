@@ -49,7 +49,7 @@ func TestBuildClaudeCmdStateY(t *testing.T) {
 	agentDirpath := t.TempDir()
 	missionID := "test-mission-uuid"
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestBuildClaudeCmdInjectsTokenWhenPresent(t *testing.T) {
 		t.Fatalf("failed to write token: %v", err)
 	}
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestBuildClaudeCmdArgOrder(t *testing.T) {
 		ConfigClaudeArgs:  []string{"--chrome"},
 		MissionClaudeArgs: map[string]string{"model": "opus"},
 	})
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, []string{"-c"})
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, []string{"-c"}, nil)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestBuildClaudeCmdCarriesHostilePassthroughValueIntact(t *testing.T) {
 	mergedClaudeArgs := MergeClaudeArgs(ClaudeArgSources{
 		ClaudePassthroughArgs: []string{"--append-system-prompt", hostileClaudeArgValue},
 	})
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, nil)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
 	}
@@ -253,5 +253,113 @@ func TestBuildClaudeCmdCarriesHostilePassthroughValueIntact(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotArgs, expectedArgs) {
 		t.Fatalf("expected args %v, got %v", expectedArgs, gotArgs)
+	}
+}
+
+// TestBuildClaudeCmdInjectsMissionEnv is the headline assertion of the
+// per-mission environment channel: a variable attached to the mission reaches
+// the Claude process's environment.
+func TestBuildClaudeCmdInjectsMissionEnv(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	missionEnv := map[string]string{
+		"REFLECTION_SESSION": "1",
+		// Hostile on purpose: a value with spaces, newlines and both quote
+		// styles goes into the environment as one entry, because nothing here
+		// crosses a shell.
+		"MARKER_NOTE": hostileClaudeArgValue,
+	}
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, missionEnv)
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd returned error: %v", err)
+	}
+
+	for name, value := range missionEnv {
+		want := name + "=" + value
+		found := false
+		for _, entry := range cmd.Env {
+			if entry == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("cmd.Env missing %q", want)
+		}
+	}
+}
+
+// TestBuildClaudeCmdMissionEnvCannotOverrideAgencOwnVars pins the ordering that
+// makes this channel safe without AgenC keeping a list of its own variable
+// names to exclude. A caller who names an AgenC-owned variable is overridden,
+// not overriding — the last entry for a name is the one a process sees, and
+// AgenC's goes on last.
+//
+// If this inverts, mission state tracking breaks for any mission whose caller
+// happened to pass AGENC_MISSION_UUID, and it breaks silently.
+func TestBuildClaudeCmdMissionEnvCannotOverrideAgencOwnVars(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, map[string]string{
+		config.MissionUUIDEnvVar: "hijacked",
+	})
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd returned error: %v", err)
+	}
+
+	// The last entry for the name is what the process resolves to.
+	resolved := ""
+	for _, entry := range cmd.Env {
+		if strings.HasPrefix(entry, config.MissionUUIDEnvVar+"=") {
+			resolved = entry
+		}
+	}
+	want := config.MissionUUIDEnvVar + "=" + missionID
+	if resolved != want {
+		t.Errorf("resolved %s = %q, want %q", config.MissionUUIDEnvVar, resolved, want)
+	}
+}
+
+// TestBuildClaudeCmdMissionEnvLeavesArgvAlone is the acceptance criterion the
+// whole issue exists for: using the environment channel must not disturb
+// AgenC's own operational configuration. That configuration travels on the
+// command line as `--settings <op-settings file>`, so the proof is that the
+// argv a mission with environment variables produces is identical to the argv
+// the same mission produces without them.
+func TestBuildClaudeCmdMissionEnvLeavesArgvAlone(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	withoutEnv, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, []string{"-c"}, nil)
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd without env returned error: %v", err)
+	}
+	withEnv, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, []string{"-c"}, map[string]string{
+		"REFLECTION_SESSION": "1",
+	})
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd with env returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(withoutEnv.Args, withEnv.Args) {
+		t.Fatalf("setting a mission environment changed the Claude argv: without %v, with %v", withoutEnv.Args, withEnv.Args)
+	}
+
+	// And the marker's name does not leak onto the command line, where a
+	// `ps` listing would expose a value meant for the process environment.
+	for _, arg := range withEnv.Args {
+		if strings.Contains(arg, "REFLECTION_SESSION") {
+			t.Errorf("mission environment name reached the Claude argv in %q", arg)
+		}
 	}
 }

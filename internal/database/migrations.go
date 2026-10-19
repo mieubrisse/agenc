@@ -32,6 +32,7 @@ const (
 	addSourceMetadataColumnSQL         = `ALTER TABLE missions ADD COLUMN source_metadata TEXT;`
 	addClaudeArgsColumnSQL             = `ALTER TABLE missions ADD COLUMN claude_args TEXT;`
 	addClaudePassthroughArgsColumnSQL  = `ALTER TABLE missions ADD COLUMN claude_passthrough_args TEXT;`
+	addClaudeEnvColumnSQL              = `ALTER TABLE missions ADD COLUMN claude_env TEXT;`
 
 	createSessionsTableSQL = `CREATE TABLE IF NOT EXISTS sessions (
 	id TEXT PRIMARY KEY,
@@ -732,5 +733,25 @@ func migrateAddClaudePassthroughArgs(conn *sql.DB) error {
 	}
 
 	_, err = conn.Exec(addClaudePassthroughArgsColumnSQL)
+	return err
+}
+
+// migrateAddClaudeEnv idempotently adds the claude_env column, which holds a
+// JSON object of the environment variables a caller attached to a mission with
+// `agenc mission new --env`. An object rather than an array because a process
+// environment holds one value per name, so a name can appear only once — the
+// opposite of claude_passthrough_args, where order matters and a flag may
+// legitimately repeat.
+func migrateAddClaudeEnv(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+
+	if columns["claude_env"] {
+		return nil
+	}
+
+	_, err = conn.Exec(addClaudeEnvColumnSQL)
 	return err
 }

@@ -49,6 +49,7 @@ func getMigrationSteps() []migrationStep {
 		{migrateAddNotificationsMissionID, "add mission_id column to notifications"},
 		{migrateAddClaudeArgs, "add claude_args column"},
 		{migrateAddClaudePassthroughArgs, "add claude_passthrough_args column"},
+		{migrateAddClaudeEnv, "add claude_env column"},
 		{migrateCreateCronMonitorStateTable, "create cron_monitor_state table"},
 	}
 }

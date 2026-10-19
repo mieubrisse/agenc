@@ -69,11 +69,30 @@ Two flags will quietly disable part of AgenC if passed this way, and `mission ne
 - `--settings` — Claude keeps only the last `--settings`, and AgenC uses that flag itself to deliver the hooks it tracks mission state with. A passthrough `--settings` replaces all of them, so the mission stops reporting its state. There is currently no supported way to give a mission extra settings; say so rather than suggesting this.
 - `--bare` — skips hooks altogether, same consequence.
 
+### Marking a session: environment variables with `--env`
+
+`--env NAME=VALUE` puts an environment variable in that mission's Claude process. Repeat the flag for each one:
+
+```bash
+# Mark a session so a hook can recognise it
+agenc mission new <repo> --env REFLECTION_SESSION=1 --prompt "Let's review my day."
+```
+
+This is the supported way to mark a mission for a Claude Code hook to recognise — a hook reads `$REFLECTION_SESSION` and can behave differently for that session alone. It is a separate channel from the `--` passthrough on purpose: Claude's own way to set a session-scoped variable is `--settings '{"env":{...}}'`, and that would replace AgenC's operational overlay rather than add to it, which is the trap described above. `--env` routes around `--settings` entirely by going into the process environment instead.
+
+What to tell a user about it:
+
+- **The value can be anything.** It never touches a shell, so spaces, quotes and newlines arrive as written. Split on the first `=`, so a value may contain more of them.
+- **The name has to be a shell variable name** — a letter or underscore, then letters, digits and underscores. Anything else is rejected at creation, because a hook could not read it anyway.
+- **It sticks, and it stays put.** The variables live on the mission record, so they survive reload and restart, and they reach that mission's Claude and nothing else.
+- **A clone does not inherit them.** This differs from the two arg channels deliberately: a marker says what a mission is *for*, and a marker that spread silently into clones would exempt missions nobody declared. Pass `--env` on the clone command when a clone needs it.
+- **AgenC's own variables cannot be overridden this way.** AgenC applies its own (`AGENC_MISSION_UUID` and friends) last, so a user naming one gets AgenC's value, not theirs. Do not suggest this as a way to spoof mission identity.
+
 ### Seeing what a mission got
 
-`agenc mission inspect <mission>` shows a `Claude args:` line for the promoted flags and a `Passthrough:` line for everything after `--`. That is how to answer "why is this mission on Opus?" or "where is this mission's system prompt coming from?"
+`agenc mission inspect <mission>` shows a `Claude args:` line for the promoted flags, a `Passthrough:` line for everything after `--`, and an `Environment:` line for the `--env` variables. That is how to answer "why is this mission on Opus?", "where is this mission's system prompt coming from?" or "why is this session exempt from that hook?"
 
-Cloning carries both over: `agenc mission new --clone <mission>` inherits the source mission's model, effort and passthrough args (and says so in its output). Passing an explicit flag, or anything after `--`, replaces that channel on the clone.
+Cloning carries the two arg channels over: `agenc mission new --clone <mission>` inherits the source mission's model, effort and passthrough args (and says so in its output). Passing an explicit flag, or anything after `--`, replaces that channel on the clone. The mission's environment is not inherited, for the reason above.
 
 Tmux Configuration Changes
 --------------------------

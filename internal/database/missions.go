@@ -43,6 +43,13 @@ type Mission struct {
 	// order is meaningful and the same flag may legitimately repeat.
 	ClaudePassthroughArgs []string
 
+	// ClaudeEnv holds the environment variables a caller attached to this
+	// mission with `agenc mission new --env`, injected into the mission's
+	// Claude process environment at every spawn. Nil when the mission was given
+	// none. Stored as a JSON object in the claude_env column — an object rather
+	// than an array because a process environment holds one value per name.
+	ClaudeEnv map[string]string
+
 	TmuxPane    *string
 	PromptCount int
 	CreatedAt   time.Time
@@ -89,6 +96,8 @@ type CreateMissionParams struct {
 	ClaudeArgs     map[string]string
 
 	ClaudePassthroughArgs []string
+
+	ClaudeEnv map[string]string
 }
 
 // ListMissionsParams holds optional parameters for filtering missions.
@@ -109,6 +118,7 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	var configCommit, source, sourceID, sourceMetadata *string
 	var claudeArgs map[string]string
 	var claudePassthroughArgs []string
+	var claudeEnv map[string]string
 	if params != nil {
 		configCommit = params.ConfigCommit
 		source = params.Source
@@ -116,6 +126,7 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		sourceMetadata = params.SourceMetadata
 		claudeArgs = params.ClaudeArgs
 		claudePassthroughArgs = params.ClaudePassthroughArgs
+		claudeEnv = params.ClaudeEnv
 	}
 
 	claudeArgsJSON, err := marshalClaudeArgs(claudeArgs)
@@ -128,9 +139,14 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		return nil, stacktrace.Propagate(err, "failed to serialize Claude passthrough args '%v' for mission '%s'", claudePassthroughArgs, id)
 	}
 
+	claudeEnvJSON, err := marshalClaudeEnv(claudeEnv)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to serialize Claude env '%v' for mission '%s'", claudeEnv, id)
+	}
+
 	_, err = db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, claude_args, claude_passthrough_args, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, claudeArgsJSON, claudePassthroughArgsJSON, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, claude_args, claude_passthrough_args, claude_env, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, claudeArgsJSON, claudePassthroughArgsJSON, claudeEnvJSON, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -148,6 +164,7 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		ClaudeArgs:     claudeArgs,
 
 		ClaudePassthroughArgs: claudePassthroughArgs,
+		ClaudeEnv:             claudeEnv,
 
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
@@ -494,6 +511,34 @@ func marshalClaudePassthroughArgs(claudePassthroughArgs []string) (*string, erro
 	}
 	serializedStr := string(serialized)
 	return &serializedStr, nil
+}
+
+// marshalClaudeEnv renders a mission's environment for storage in the
+// claude_env column. An empty map stores NULL rather than "{}", so "this
+// mission sets no environment variables" has exactly one representation.
+func marshalClaudeEnv(claudeEnv map[string]string) (*string, error) {
+	if len(claudeEnv) == 0 {
+		return nil, nil
+	}
+	serialized, err := json.Marshal(claudeEnv)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to marshal Claude env '%v'", claudeEnv)
+	}
+	serializedStr := string(serialized)
+	return &serializedStr, nil
+}
+
+// unmarshalClaudeEnv parses a stored claude_env column. A NULL or empty column
+// yields nil, meaning the mission sets no environment variables.
+func unmarshalClaudeEnv(stored sql.NullString) (map[string]string, error) {
+	if !stored.Valid || stored.String == "" {
+		return nil, nil
+	}
+	var claudeEnv map[string]string
+	if err := json.Unmarshal([]byte(stored.String), &claudeEnv); err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse stored Claude env '%v'", stored.String)
+	}
+	return claudeEnv, nil
 }
 
 // unmarshalClaudePassthroughArgs parses a stored claude_passthrough_args

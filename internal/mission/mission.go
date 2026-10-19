@@ -58,9 +58,10 @@ func CreateMissionDir(logger *log.Logger, agencDirpath string, missionID string,
 // fallback); absent, Claude uses its native ~/.claude auth.
 //
 // The returned command has its working directory and environment variables
-// (AGENC_MISSION_UUID, conditionally CLAUDE_CODE_OAUTH_TOKEN) set but does NOT
-// set stdin/stdout/stderr — callers should wire those as needed (e.g.
-// interactive mode connects to the terminal, headless mode uses pipes).
+// (the mission's own missionEnv, AGENC_MISSION_UUID, conditionally
+// CLAUDE_CODE_OAUTH_TOKEN) set but does NOT set stdin/stdout/stderr — callers
+// should wire those as needed (e.g. interactive mode connects to the terminal,
+// headless mode uses pipes).
 //
 // Args reach Claude in three groups, in this order: AgenC's --settings overlay,
 // then extraClaudeArgs (the model/config/per-mission args already merged by
@@ -71,7 +72,22 @@ func CreateMissionDir(logger *log.Logger, agencDirpath string, missionID string,
 // "--", since extraClaudeArgs can now end in a flag that would otherwise
 // swallow it; buildNewConversationArgs explains why and buildResumeArgs follows
 // the same rule.
-func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, claudeArgs []string) (*exec.Cmd, error) {
+//
+// missionEnv holds the mission's own environment variables, read off the
+// mission record by the caller. They go into the spawned process's environment
+// rather than onto its command line, which is what keeps AgenC's --settings
+// overlay out of the matter entirely: Claude takes only the last --settings and
+// does not merge, so a caller marking a session through --settings would
+// replace AgenC's hooks, prime hook, repo-library guard, agent-dir allow and
+// server-socket allowlist wholesale while the mission went on looking healthy.
+func BuildClaudeCmd(
+	agencDirpath string,
+	missionID string,
+	agentDirpath string,
+	extraClaudeArgs []string,
+	claudeArgs []string,
+	missionEnv map[string]string,
+) (*exec.Cmd, error) {
 	// Deliver AgenC's operational overlay (hooks, prime, guard, allow/deny,
 	// server socket) via --settings so it applies to every spawn shape
 	// (interactive, resume, headless). --settings unions with the user's own
@@ -113,7 +129,19 @@ func BuildClaudeCmd(agencDirpath string, missionID string, agentDirpath string, 
 	}
 
 	cmd.Dir = agentDirpath
-	cmd.Env = append(os.Environ(),
+
+	// Order is load-bearing. The mission's own variables go on before AgenC's,
+	// so an AgenC-owned name a caller happens to pass is overridden rather than
+	// overriding — Go resolves a duplicated name in cmd.Env to the last value.
+	// That ordering is what makes this channel safe without AgenC maintaining a
+	// list of its own variable names to exclude, which would be a list that
+	// silently goes stale every time AgenC adds a variable.
+	//
+	// They go on after os.Environ() for the opposite reason: a mission that
+	// explicitly sets a variable means it, and should win over whatever the
+	// surrounding shell happened to export.
+	cmd.Env = append(os.Environ(), MissionEnvToAssignments(missionEnv)...)
+	cmd.Env = append(cmd.Env,
 		config.MissionUUIDEnvVar+"="+missionID,
 	)
 
@@ -164,10 +192,10 @@ func buildNewConversationArgs(initialPrompt string) []string {
 // initialPrompt is non-empty, it is passed as a positional argument to pre-fill
 // the first message. Returns the running command. The caller is responsible for
 // calling cmd.Wait().
-func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, initialPrompt string) (*exec.Cmd, error) {
+func SpawnClaudeWithPrompt(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, initialPrompt string, missionEnv map[string]string) (*exec.Cmd, error) {
 	args := buildNewConversationArgs(initialPrompt)
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, extraClaudeArgs, args)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, extraClaudeArgs, args, missionEnv)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude command")
 	}
@@ -209,10 +237,10 @@ func buildResumeArgs(sessionID string, initialPrompt string) []string {
 // argument so claude submits it as the first message after resuming.
 // Returns the running command. The caller is responsible for calling
 // cmd.Wait().
-func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, sessionID string, initialPrompt string) (*exec.Cmd, error) {
+func SpawnClaudeResumeWithSession(agencDirpath string, missionID string, agentDirpath string, extraClaudeArgs []string, sessionID string, initialPrompt string, missionEnv map[string]string) (*exec.Cmd, error) {
 	args := buildResumeArgs(sessionID, initialPrompt)
 
-	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, extraClaudeArgs, args)
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, extraClaudeArgs, args, missionEnv)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to build claude resume command")
 	}

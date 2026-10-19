@@ -154,6 +154,9 @@ func inspectMission(agencDirpath string, missionID string) error {
 	if formattedPassthrough := mission.FormatClaudePassthroughArgs(missionRecord.ClaudePassthroughArgs); formattedPassthrough != "" {
 		fmt.Printf("Passthrough: %s\n", formattedPassthrough)
 	}
+	if formattedEnv := mission.FormatMissionEnv(missionRecord.ClaudeEnv); formattedEnv != "" {
+		fmt.Printf("Environment: %s\n", formattedEnv)
+	}
 	fmt.Printf("Prompt:      %s\n", prompt)
 	fmt.Printf("Directory:   %s\n", missionDirpath)
 	fmt.Printf("Created:     %s\n", missionRecord.CreatedAt.Format("2006-01-02 15:04:05"))

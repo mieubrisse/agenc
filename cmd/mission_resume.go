@@ -124,6 +124,7 @@ func doRunWrapperDirect(missionID string, initialPrompt string) error {
 		initialPrompt,
 		missionRecord.ClaudeArgs,
 		missionRecord.ClaudePassthroughArgs,
+		missionRecord.ClaudeEnv,
 	)
 	return w.Run(hasConversation)
 }

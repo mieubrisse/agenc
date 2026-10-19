@@ -51,6 +51,13 @@ type Wrapper struct {
 	// config must not shift underneath a mission mid-restart.
 	claudeSpawnArgs []string
 
+	// missionEnv is the mission's own environment variables, injected into every
+	// Claude spawn's process environment. Read off the mission record by the
+	// caller, which is what makes them outlive this wrapper: a reload, a
+	// stash-restore or a server restart rebuilds the resume command and reads
+	// the record again.
+	missionEnv map[string]string
+
 	// unknownClaudeArgKeys names per-mission Claude args this build does not
 	// recognize. Only reachable via version skew (a mission created by a newer
 	// AgenC, resumed by an older one). Dropped from the spawn but logged, so a
@@ -111,6 +118,12 @@ type Wrapper struct {
 // by the caller, which is what makes them outlive this wrapper: every spawn in
 // this process, including the restarts the wrapper decides on its own, reuses
 // the args resolved here, and the next wrapper reads the record again.
+//
+// missionEnv is the mission's own environment variables (from
+// `agenc mission new --env`), read off the record the same way and for the same
+// reason. It is a separate parameter rather than another arg source because it
+// does not reach Claude's command line at all — it goes into the spawned
+// process's environment.
 func NewWrapper(
 	agencDirpath string,
 	missionID string,
@@ -118,6 +131,7 @@ func NewWrapper(
 	initialPrompt string,
 	missionClaudeArgs map[string]string,
 	missionClaudePassthroughArgs []string,
+	missionEnv map[string]string,
 ) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
@@ -143,6 +157,7 @@ func NewWrapper(
 			MissionClaudeArgs:     missionClaudeArgs,
 			ClaudePassthroughArgs: missionClaudePassthroughArgs,
 		}),
+		missionEnv:                     missionEnv,
 		unknownClaudeArgKeys:           mission.UnknownClaudeArgKeys(missionClaudeArgs),
 		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:                   config.GetMissionAgentDirpath(agencDirpath, missionID),
@@ -322,12 +337,12 @@ func (w *Wrapper) spawnClaudeDirectly(isResume bool) error {
 	if isResume {
 		sessionID := claudeconfig.GetLastSessionID(w.agencDirpath, w.missionID)
 		if sessionID != "" && claudeconfig.ProjectDirectoryExists(w.agentDirpath) {
-			cmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, sessionID, w.initialPrompt)
+			cmd, err = mission.SpawnClaudeResumeWithSession(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, sessionID, w.initialPrompt, w.missionEnv)
 		} else {
-			cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, w.initialPrompt)
+			cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, w.initialPrompt, w.missionEnv)
 		}
 	} else {
-		cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, w.initialPrompt)
+		cmd, err = mission.SpawnClaudeWithPrompt(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, w.initialPrompt, w.missionEnv)
 	}
 
 	if err != nil {
@@ -915,7 +930,7 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 		args = []string{"--print", "-p", w.initialPrompt}
 	}
 
-	return mission.BuildClaudeCmd(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, args)
+	return mission.BuildClaudeCmd(w.agencDirpath, w.missionID, w.agentDirpath, w.claudeSpawnArgs, args, w.missionEnv)
 }
 
 // gracefulShutdownClaude attempts to gracefully shut down a Claude process.
