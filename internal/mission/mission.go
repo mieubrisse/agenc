@@ -130,16 +130,26 @@ func BuildClaudeCmd(
 
 	cmd.Dir = agentDirpath
 
-	// Order is load-bearing. The mission's own variables go on before AgenC's,
-	// so an AgenC-owned name a caller happens to pass is overridden rather than
+	// Order is load-bearing. The mission's own variables go on before the ones
+	// appended below, so a caller naming one of those is overridden rather than
 	// overriding — Go resolves a duplicated name in cmd.Env to the last value.
 	// That ordering is what makes this channel safe without AgenC maintaining a
 	// list of its own variable names to exclude, which would be a list that
 	// silently goes stale every time AgenC adds a variable.
 	//
-	// They go on after os.Environ() for the opposite reason: a mission that
-	// explicitly sets a variable means it, and should win over whatever the
-	// surrounding shell happened to export.
+	// It protects only what is appended HERE, which today is AGENC_MISSION_UUID
+	// and the OAuth token. AGENC_MISSION_SOURCE and
+	// AGENC_MISSION_SOURCE_METADATA reach Claude by a different route — an
+	// os.Setenv in `mission resume --run-wrapper`, picked up through the
+	// os.Environ() below — so they sit BEFORE the mission's variables and a
+	// caller naming one of those two would override it. Harmless while the only
+	// caller is the machine's own user; moving them to explicit appends here is
+	// what would close it, and belongs with the spawn-path consolidation rather
+	// than with this channel.
+	//
+	// The mission's variables go on after os.Environ() for the opposite reason:
+	// a mission that explicitly sets a variable means it, and should win over
+	// whatever the surrounding shell happened to export.
 	cmd.Env = append(os.Environ(), MissionEnvToAssignments(missionEnv)...)
 	cmd.Env = append(cmd.Env,
 		config.MissionUUIDEnvVar+"="+missionID,

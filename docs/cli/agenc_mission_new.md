@@ -42,9 +42,8 @@ does not need "--settings", which would replace AgenC's operational overlay
 rather than adding to it. Like the passthrough args, these are stored on the
 mission and survive reload and restart, and they apply to that mission alone --
 a clone does not inherit them, so a marker cannot spread to missions nobody
-declared. An AgenC-owned name (anything AgenC sets itself, such as
-AGENC_MISSION_UUID) cannot be overridden this way: AgenC's own value is applied
-last and wins.
+declared. AgenC's own mission identity, AGENC_MISSION_UUID, cannot be
+overridden this way: AgenC applies its own value last and it wins.
 
 ```
 agenc mission new [repo] [flags] [-- claude-args...]
