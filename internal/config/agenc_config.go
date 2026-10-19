@@ -245,6 +245,12 @@ const CallingMissionUUIDEnvVar = "AGENC_CALLING_MISSION_UUID"
 // "which session am I being invoked from?" — primarily attach/detach.
 const CallingSessionNameEnvVar = "AGENC_CALLING_SESSION_NAME"
 
+// CallingPaneIDEnvVar is the environment variable name that carries the pane a
+// palette command was invoked from into that command. Lives here rather than
+// beside its only writer in cmd/ so that it sits with its siblings and inside
+// the set ProtectedEnvVars covers.
+const CallingPaneIDEnvVar = "AGENC_CALLING_PANE_ID"
+
 // ResolvedPaletteCommand is a palette command with all defaults applied and
 // the agenc binary substituted in the command string.
 type ResolvedPaletteCommand struct {

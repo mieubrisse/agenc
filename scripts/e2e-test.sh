@@ -2396,6 +2396,62 @@ run_test "mission new still accepts an ordinary name" \
     0 \
     "${agenc_test}" mission new --blank --headless --no-focus --env "REFLECTION_SESSION=1"
 
+# The guarantee has to hold for a value that never passed validation, which is
+# the whole reason it is a drop at spawn rather than only a refusal at creation.
+# Writing the row by hand is the only way to reach that state, and it is also
+# the state an older client would produce.
+#
+# `mission inspect` must then say the stored value is inert rather than print it
+# as if it applied: the question it answers is what the mission's environment
+# IS, and the acceptance criterion asks for the EFFECTIVE additions.
+handedited_short_id=$(create_mission_and_echo_short_id \
+    --blank --headless --no-focus --env "REFLECTION_SESSION=1")
+handedited_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${handedited_short_id}';")
+sqlite3 "${claude_args_db_filepath}" \
+    "UPDATE missions SET claude_env='{\"AGENC_MISSION_SOURCE\":\"cron\",\"REFLECTION_SESSION\":\"1\"}' WHERE id='${handedited_mission_uuid}';"
+
+run_test_output_contains \
+    "inspect reports only the effective environment" \
+    "Environment: REFLECTION_SESSION=1" \
+    "${agenc_test}" mission inspect "${handedited_short_id}"
+
+run_test_output_contains \
+    "inspect names a stored protected value as inert" \
+    "Ignored env: AGENC_MISSION_SOURCE" \
+    "${agenc_test}" mission inspect "${handedited_short_id}"
+
+# And the smuggled value must not reach the process. AGENC_MISSION_SOURCE=cron
+# is what the night-time gate hook exempts, so this is the assertion that the
+# bypass is closed even when validation never saw the value.
+"${agenc_test}" mission reload "${handedited_short_id}" >/dev/null 2>&1 || true
+sleep 3
+total=$((total + 1))
+printf "  %-50s " "a hand-edited protected value never reaches Claude..."
+handedited_claude_pid=$(find_mission_claude_pid "${handedited_mission_uuid}")
+if [[ -z "${handedited_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the mission)"
+    skipped=$((skipped + 1))
+else
+    handedited_claude_env=$(ps -Eww -o command= -p "${handedited_claude_pid}" 2>/dev/null || true)
+    if [[ -z "${handedited_claude_env}" ]]; then
+        echo "SKIP (could not read the Claude process environment)"
+        skipped=$((skipped + 1))
+    else
+        handedited_resolved_source=$(echo "${handedited_claude_env}" \
+            | tr ' ' '\n' \
+            | grep "^AGENC_MISSION_SOURCE=" \
+            | tail -1 \
+            | cut -d= -f2)
+        if [[ "${handedited_resolved_source}" == "cron" ]]; then
+            echo "FAIL (a hand-edited AGENC_MISSION_SOURCE=cron reached Claude; the night-gate bypass is open)"
+            failed=$((failed + 1))
+        else
+            echo "PASS (resolved to '${handedited_resolved_source:-<absent>}', not 'cron')"
+            passed=$((passed + 1))
+        fi
+    fi
+fi
+
 # The delivery half of the same criterion. The comparison above shows the
 # overlay FILE is unchanged; this shows it is still handed to Claude -- an
 # --env mission's live Claude must carry `--settings <its own overlay file>`

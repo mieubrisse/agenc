@@ -114,15 +114,25 @@ func MissionEnvToAssignments(missionEnv map[string]string) []string {
 	return assignments
 }
 
-// FormatMissionEnv renders a mission's environment as a single display line for
-// `mission inspect`. Returns an empty string when the mission sets none.
+// FormatMissionEnv renders the mission environment that will actually take
+// effect, as a single display line for `mission inspect`. Returns an empty
+// string when the mission sets none that will.
+//
+// Names AgenC owns are excluded, because they will NOT take effect: the spawn
+// path drops them and applies AgenC's own. Showing one here would report a
+// value as this mission's environment when the process will never see it, and
+// the question `mission inspect` answers is what the mission's environment IS.
+// IgnoredMissionEnvNames surfaces them separately so nothing is hidden —
+// normally neither is reachable, since validation refuses these names at
+// creation, but a row written by an older client or edited by hand can carry
+// one and that is exactly when a reader needs the truth.
 //
 // Any assignment that is not a plain token is rendered with Go quoting, which
 // escapes newlines rather than emitting them, for the reason
 // FormatClaudePassthroughArgs gives: the line sits in an aligned block that
 // callers read line by line, and a raw newline in a value would split it in two.
 func FormatMissionEnv(missionEnv map[string]string) string {
-	assignments := MissionEnvToAssignments(missionEnv)
+	assignments := MissionEnvToAssignments(effectiveMissionEnv(missionEnv))
 	rendered := make([]string, 0, len(assignments))
 	for _, assignment := range assignments {
 		if isPlainClaudeArgToken(assignment) {
@@ -143,4 +153,35 @@ func sortedMissionEnvNames(missionEnv map[string]string) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// IgnoredMissionEnvNames returns the names in a mission's stored environment
+// that AgenC owns, and which the spawn path therefore drops. Sorted, and empty
+// in the normal case because validation refuses these names at creation.
+//
+// It exists so `mission inspect` can say a stored value is inert rather than
+// either hiding it or implying it applies. A non-empty result means the row was
+// written by something other than today's validation — an older client, or a
+// hand edit — which is worth seeing on its own.
+func IgnoredMissionEnvNames(missionEnv map[string]string) []string {
+	ignored := make([]string, 0, len(missionEnv))
+	for _, name := range sortedMissionEnvNames(missionEnv) {
+		if config.IsProtectedEnvVar(name) {
+			ignored = append(ignored, name)
+		}
+	}
+	return ignored
+}
+
+// effectiveMissionEnv returns the mission's environment minus the names AgenC
+// owns, which is what the spawned process will actually carry from it.
+func effectiveMissionEnv(missionEnv map[string]string) map[string]string {
+	effective := make(map[string]string, len(missionEnv))
+	for name, value := range missionEnv {
+		if config.IsProtectedEnvVar(name) {
+			continue
+		}
+		effective[name] = value
+	}
+	return effective
 }

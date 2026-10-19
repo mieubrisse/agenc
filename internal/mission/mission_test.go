@@ -482,3 +482,63 @@ func TestBuildClaudeCmdMissionEnvCannotSupplyAnOAuthToken(t *testing.T) {
 		)
 	}
 }
+
+// TestBuildClaudeCmdProtectsIntroduceCaseWithoutInventingValues covers the
+// production shape, which is NOT the override case most of this file assumes.
+//
+// Measured on the real install: a mission's Claude has only
+// AGENC_MISSION_SOURCE and AGENC_MISSION_UUID. AGENC_DIRPATH, AGENC_TEST_ENV
+// and CLAUDE_CONFIG_DIR are absent, because Server.tmuxEnvPrefix returns ""
+// unless the install is namespaced, and the OAuth token is absent because no
+// token file exists under State Y. So for those names `--env` does not override
+// an AgenC value — it INTRODUCES a variable AgenC deliberately leaves unset.
+//
+// Two things therefore have to hold at once, and they pull in opposite
+// directions:
+//
+//  1. The caller's value must not survive. The drop is what does this; nothing
+//     could be appended on top, because there is no AgenC value to append.
+//  2. AgenC must not invent one either. Appending AGENC_DIRPATH=<resolved> to
+//     "protect" it would newly define that variable in every production
+//     mission, where today it is unset and everything falls back to ~/.agenc.
+//     That would be a behaviour change smuggled in as a side effect of a
+//     reorder, so this test pins its absence.
+func TestBuildClaudeCmdProtectsIntroduceCaseWithoutInventingValues(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	// The production shape: these are not in the environment at all.
+	introduceOnlyNames := []string{
+		config.AgencDirpathEnvVarName(),
+		config.TestEnvVar,
+		config.OAuthTokenEnvVar,
+	}
+	missionEnv := map[string]string{}
+	for _, name := range introduceOnlyNames {
+		t.Setenv(name, "placeholder")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("failed to unset %s: %v", name, err)
+		}
+		missionEnv[name] = "introduced-by-the-mission"
+	}
+
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, missionEnv)
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd returned error: %v", err)
+	}
+
+	for _, name := range introduceOnlyNames {
+		resolved, found := resolveEnvEntry(cmd.Env, name)
+		if !found {
+			continue // The correct outcome: absent, exactly as AgenC left it.
+		}
+		if resolved == "introduced-by-the-mission" {
+			t.Errorf("a mission INTRODUCED %s, which AgenC deliberately leaves unset", name)
+			continue
+		}
+		t.Errorf("AgenC invented a value for %s (%q), newly defining a variable production missions do not have", name, resolved)
+	}
+}

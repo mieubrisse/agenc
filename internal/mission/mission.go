@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -162,6 +161,14 @@ func BuildClaudeCmd(
 	// `--env` validation also refuses these names, so a caller normally learns
 	// at creation rather than being silently dropped here. The drop and the
 	// ordering are the guarantee; that refusal is the courtesy.
+	//
+	// One route where the last word is not AgenC's: when a mission has a
+	// 1Password secrets file, Claude runs under `op run` with that file, and
+	// `op` applies the file over the environment it inherited. So a name
+	// appearing in BOTH that file and a mission's own variables resolves to the
+	// file's value. That is the secrets file winning rather than a caller, and
+	// a protected name cannot reach either side of it -- but it does mean the
+	// last-wins resolution on that path belongs to `op`, not to this function.
 	cmd.Env = append(os.Environ(), callerOwnedEnvAssignments(missionEnv)...)
 	cmd.Env = append(cmd.Env, agencOwnedEnvAssignments(missionID)...)
 
@@ -192,15 +199,7 @@ func BuildClaudeCmd(
 // supposed to be a property of the spawn rather than of what validation
 // happened to catch.
 func callerOwnedEnvAssignments(missionEnv map[string]string) []string {
-	assignments := make([]string, 0, len(missionEnv))
-	for _, assignment := range MissionEnvToAssignments(missionEnv) {
-		name, _, _ := strings.Cut(assignment, missionEnvAssignmentSeparator)
-		if config.IsProtectedEnvVar(name) {
-			continue
-		}
-		assignments = append(assignments, assignment)
-	}
-	return assignments
+	return MissionEnvToAssignments(effectiveMissionEnv(missionEnv))
 }
 
 // agencOwnedEnvAssignments returns the environment assignments AgenC applies on

@@ -9,25 +9,80 @@ const OAuthTokenEnvVar = "CLAUDE_CODE_OAUTH_TOKEN"
 // into a mission's Claude process itself. It is the single place this set is
 // written down, and two things read it:
 //
-//   - The spawn path re-applies these AFTER a mission's own `--env` variables,
-//     so AgenC's value wins whatever a caller asked for. That ordering is the
-//     actual guarantee.
+//   - The spawn path DROPS these names from a mission's own `--env` variables
+//     and then re-applies AgenC's own values on top. Both halves are needed.
+//     Re-applying is what beats a value sitting in os.Environ(); dropping is
+//     what handles a variable whose correct state is UNSET, which no appended
+//     value can express. Together they are the actual guarantee, and they hold
+//     however a value reached the mission record.
 //   - `--env` validation refuses a name in this list, so a caller who names one
-//     gets told at creation rather than discovering their value was overridden
-//     at spawn. That is a courtesy, not the guarantee.
+//     gets told at creation rather than discovering their value never took
+//     effect. That is a courtesy, not the guarantee.
 //
-// ADDING AN ENVIRONMENT VARIABLE: if AgenC sets it into a mission's Claude
-// process, add it here too. `TestProtectedEnvVarsCoversEveryAgencEnvVar` scans
-// this package for AGENC_-prefixed names and fails if one is missing, so the
-// list cannot silently fall behind — which is the whole reason it is a list in
-// one place rather than a check scattered across the call sites.
+// MEMBERSHIP IS BY SET-SITE *OR* READ-SITE, not by "AgenC appends it". That
+// distinction is load-bearing and was measured, not assumed. The three
+// AGENC_CALLING_* names are never appended to a mission's Claude environment at
+// all — the tmux palette sets them into a palette command's shell — yet they
+// carry the worst consequence in this list, because the CLI READS them to decide
+// which mission or session a command acts on. `mission rename` with no argument
+// renames whatever AGENC_CALLING_MISSION_UUID names (cmd/mission_rename.go), and
+// detach and stop resolve their target through AGENC_CALLING_SESSION_NAME
+// (getCallingSessionName in cmd/mission_helpers.go). A mission able to set those
+// could reach sideways into a PEER mission's lifecycle, including stopping it.
+// A registry built only from append-sites would have omitted exactly those three.
 //
-// Deliberately NOT included: CLAUDE_CONFIG_DIR. AgenC does not set it (State Y
-// — Claude reads the user's real ~/.claude, or whatever the surrounding
-// environment already set), it only forwards an existing value into the pool
-// window. AgenC's operational overlay travels by absolute path through
-// --settings, so a mission pointing Claude at a different config dir does not
-// cost AgenC its instrumentation.
+// WHICH MECHANISM PROTECTS WHICH NAME differs, because AgenC does not set all of
+// these on every install. Measured on the real production install: a mission's
+// Claude has only AGENC_MISSION_SOURCE and AGENC_MISSION_UUID.
+//
+//   - Override case — AgenC has a value, so the re-application wins it back:
+//     AGENC_MISSION_UUID (from the mission ID), AGENC_MISSION_SOURCE and
+//     AGENC_MISSION_SOURCE_METADATA (os.Setenv in `mission resume
+//     --run-wrapper`). The drop makes it moot but the ordering also holds.
+//   - Introduce case — AgenC has NO value on a default install, so only the
+//     DROP protects: AGENC_DIRPATH, AGENC_TEST_ENV (both exported by
+//     Server.tmuxEnvPrefix, which returns "" unless the install is namespaced),
+//     the three AGENC_CALLING_* names (never in a mission's environment), and
+//     OAuthTokenEnvVar (appended only when a token file exists, which under
+//     State Y it does not). For these there is nothing to append, and "absent"
+//     IS the correct state — so the protection cannot come from ordering.
+//
+// Note what this deliberately does NOT do: it never invents a value. A protected
+// name absent from AgenC's own environment stays absent in the mission's. The
+// tempting "fix" of appending AGENC_DIRPATH=<resolved> would newly define that
+// variable in every production mission, where today it is unset and path
+// construction falls back to ~/.agenc through GetAgencDirpath. That may even be
+// an improvement, but it would be a behaviour change arriving as a side effect of
+// a reorder, so it is left as its own decision.
+// TestBuildClaudeCmdProtectsIntroduceCaseWithoutInventingValues pins both halves.
+//
+// ADDING AN ENVIRONMENT VARIABLE: if AgenC sets OR reads it in a mission's
+// context, add it here too. `TestProtectedEnvVarsCoversEveryAgencEnvVar` scans
+// the whole repository for AGENC_-prefixed names — which catches read-sites as
+// well as set-sites, since reading one requires naming it — and fails naming any
+// that is missing. That is the whole reason this is a list in one place rather
+// than a check scattered across call sites. A non-AGENC_ name is NOT caught by
+// that scan; OAuthTokenEnvVar is the only one today, and a second would need the
+// scan taught about it.
+//
+// DELIBERATELY NOT INCLUDED. Each of these can be set through `--env`, and the
+// line is "AgenC sets it" rather than "AgenC depends on it" — the former is a
+// set that terminates and can be enforced, the latter is open-ended.
+//
+//   - CLAUDE_CONFIG_DIR. AgenC does not set it (State Y — Claude reads the
+//     user's real ~/.claude, or whatever the surrounding environment already
+//     set); it only forwards an existing value into the pool window. AgenC's
+//     operational overlay travels by absolute path through --settings, so a
+//     mission pointing Claude at a different config dir keeps AgenC's
+//     instrumentation. It does change which credentials and which CLAUDE.md
+//     that mission gets.
+//   - PATH, HOME, TMUX, TMUX_PANE and the rest of the base process
+//     environment. A mission can break its own instrumentation through these —
+//     the state hooks invoke a bare `agenc`, resolved via PATH — but they are
+//     the operating system's namespace, not AgenC's, and enumerating
+//     everything a mission depends on has no natural end. Whether AgenC should
+//     refuse them is a separate decision from this channel; it is recorded as
+//     open rather than settled here.
 var ProtectedEnvVars = []string{
 	MissionUUIDEnvVar,
 	MissionSourceEnvVar,
@@ -36,6 +91,7 @@ var ProtectedEnvVars = []string{
 	TestEnvVar,
 	CallingMissionUUIDEnvVar,
 	CallingSessionNameEnvVar,
+	CallingPaneIDEnvVar,
 	OAuthTokenEnvVar,
 }
 
@@ -48,6 +104,15 @@ func buildProtectedEnvVarSet() map[string]bool {
 		set[name] = true
 	}
 	return set
+}
+
+// AgencDirpathEnvVarName returns the name of the variable carrying the AgenC
+// base directory. The constant itself is package-private because path
+// construction is supposed to flow through GetAgencDirpath rather than through
+// the environment; this exposes only the name, for callers reasoning about the
+// protected set.
+func AgencDirpathEnvVarName() string {
+	return agencDirpathEnvVar
 }
 
 // IsProtectedEnvVar reports whether AgenC sets this environment variable

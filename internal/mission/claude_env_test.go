@@ -2,6 +2,7 @@ package mission
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -218,5 +219,44 @@ func TestValidateMissionEnvRefusesEveryProtectedName(t *testing.T) {
 				t.Fatalf("ValidateMissionEnv accepted '%s', which AgenC sets itself", name)
 			}
 		})
+	}
+}
+
+// A stored protected name is reported as ignored rather than as the mission's
+// environment, because the spawn path drops it. Reachable only from a row an
+// older client wrote or a hand edit — which is exactly when a reader needs to
+// be told the value is inert rather than shown it as though it applies.
+func TestFormatMissionEnvExcludesIgnoredNames(t *testing.T) {
+	missionEnv := map[string]string{
+		"REFLECTION_SESSION":            "1",
+		config.MissionSourceEnvVar:      "cron",
+		config.OAuthTokenEnvVar:         "sk-ant-stolen",
+		config.CallingMissionUUIDEnvVar: "some-peer-mission",
+	}
+
+	formatted := FormatMissionEnv(missionEnv)
+	if formatted != "REFLECTION_SESSION=1" {
+		t.Errorf("FormatMissionEnv = %q, want only the name that takes effect", formatted)
+	}
+
+	ignored := IgnoredMissionEnvNames(missionEnv)
+	if len(ignored) != 3 {
+		t.Fatalf("IgnoredMissionEnvNames = %v, want the three protected names", ignored)
+	}
+	for _, name := range ignored {
+		if !config.IsProtectedEnvVar(name) {
+			t.Errorf("IgnoredMissionEnvNames reported '%s', which is not protected", name)
+		}
+	}
+	if !sort.StringsAreSorted(ignored) {
+		t.Errorf("IgnoredMissionEnvNames = %v, want them sorted", ignored)
+	}
+}
+
+// A mission with nothing protected reports nothing ignored, so the extra
+// inspect line never appears in the normal case.
+func TestIgnoredMissionEnvNamesEmptyForOrdinaryNames(t *testing.T) {
+	if ignored := IgnoredMissionEnvNames(map[string]string{"REFLECTION_SESSION": "1"}); len(ignored) != 0 {
+		t.Errorf("IgnoredMissionEnvNames = %v, want none", ignored)
 	}
 }
