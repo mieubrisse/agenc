@@ -2390,30 +2390,37 @@ else
     fi
 fi
 
-# The other half of "AgenC's operational settings still function": the hooks
-# AgenC delivers through them have to actually fire. A mission whose Claude
-# state is known to AgenC at all is a mission whose state-tracking hooks
-# reported in -- that report is an HTTP POST from a hook in the overlay, so a
-# replaced overlay would leave this empty forever.
+# The delivery half of the same criterion. The comparison above shows the
+# overlay FILE is unchanged; this shows it is still handed to Claude -- an
+# --env mission's live Claude must carry `--settings <its own overlay file>`
+# on its command line. Together the two close the acceptance criterion from
+# both ends: the configuration AgenC writes is identical, and it still reaches
+# the process.
+#
+# This is deliberately an argv assertion rather than an observation of the
+# hooks firing. The hooks report state over a unix socket inside the mission
+# directory, and macOS caps socket paths at 104 bytes, which a deep checkout
+# (an AgenC mission clone, for one) overruns -- leaving the wrapper alive but
+# socket-less and every Claude state nil regardless of whether the overlay
+# applied. See the idle-timeout section below, which skips for the same
+# reason. Hook execution for an --env mission was instead verified out of band
+# during review, in an installation with a short enough path: `agenc prime`
+# ran and the mission reported IDLE.
 total=$((total + 1))
-printf "  %-50s " "state-tracking hooks still report for an --env mission..."
-env_claude_state=""
-for _ in $(seq 1 30); do
-    env_claude_state=$("${agenc_test}" mission ls --all 2>/dev/null \
-        | grep -- "${env_short_id}" \
-        | grep -oE "IDLE|BUSY|WAITING|QUOTA" \
-        | head -1 || true)
-    if [[ -n "${env_claude_state}" ]]; then
-        break
-    fi
-    sleep 1
-done
-if [[ -z "${env_claude_state}" ]]; then
-    echo "SKIP (no Claude state ever observed; no live Claude in this environment)"
+printf "  %-50s " "the overlay is still delivered to an --env Claude..."
+env_overlay_claude_pid=$(find_mission_claude_pid "${env_mission_uuid}")
+if [[ -z "${env_overlay_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the mission)"
     skipped=$((skipped + 1))
 else
-    echo "PASS (state '${env_claude_state}' reported through the overlay's hooks)"
-    passed=$((passed + 1))
+    env_overlay_argv=$(ps -ww -o args= -p "${env_overlay_claude_pid}" 2>/dev/null || true)
+    if echo "${env_overlay_argv}" | grep -q -- "--settings ${env_op_settings_filepath}"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (Claude argv lacked '--settings ${env_op_settings_filepath}': ${env_overlay_argv})"
+        failed=$((failed + 1))
+    fi
 fi
 echo ""
 echo "--- No ANSI escapes in command output (agenc-hxr4) ---"
