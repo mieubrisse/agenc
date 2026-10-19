@@ -102,6 +102,13 @@ func TestParseMissionEnvAssignments(t *testing.T) {
 			assignments: []string{config.MissionSourceEnvVar + "=cron"},
 			wantErr:     true,
 		},
+		{
+			// Sharper still: this selects which settings.json, and therefore
+			// which hooks, the session has at all.
+			name:        "redirecting Claude's config directory is an error",
+			assignments: []string{config.ClaudeConfigDirEnvVar + "=/tmp/no-hooks-here"},
+			wantErr:     true,
+		},
 	}
 
 	for _, tt := range tests {

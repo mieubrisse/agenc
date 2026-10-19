@@ -2383,6 +2383,19 @@ run_test "mission new refuses to set the Claude OAuth token" \
     1 \
     "${agenc_test}" mission new --blank --headless --no-focus --env "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-supplied"
 
+# The sharpest one. CLAUDE_CONFIG_DIR selects the directory Claude reads
+# settings.json from, which is where every user-level hook on the machine is
+# registered -- including the night-time gate this whole channel exists to let a
+# session be recognised by. Measured: pointing it at a directory with a
+# settings.json of one's own runs THAT hook and reports "Not logged in", so
+# whoever sets it chooses which hooks exist. A mission able to set it would not
+# masquerade past the machine's guards, it would remove them from itself, while
+# AgenC's own overlay survived (--settings is an absolute path) and the mission
+# went on looking healthy.
+run_test "mission new refuses to redirect Claude's config directory" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "CLAUDE_CONFIG_DIR=/tmp/no-hooks-here"
+
 # The refusal says which names are AgenC's, so a caller can fix it without
 # reading the source.
 run_test_output_contains \

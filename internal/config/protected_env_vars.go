@@ -5,6 +5,23 @@ package config
 // AgenC is what sets it, which is what puts it in the protected set below.
 const OAuthTokenEnvVar = "CLAUDE_CODE_OAUTH_TOKEN"
 
+// ClaudeConfigDirEnvVar selects the directory Claude Code reads its user
+// configuration from, defaulting to ~/.claude. AgenC forwards an existing value
+// into the pool window but never sets one of its own under State Y.
+//
+// It is protected because of what that directory contains: settings.json, where
+// every user-level hook on the machine is registered. Measured 2026-10-19 —
+// running `claude` with this variable pointed at a directory holding a
+// settings.json of my own ran MY SessionStart hook, and reported "Not logged in"
+// because credentials resolve from there too. So whoever sets this chooses which
+// hooks exist for the session. A mission able to set it would not merely
+// masquerade past the machine's guards, it would REMOVE them from itself —
+// including the night-time gate a reflection session is meant to be recognised
+// by, which is the very thing this channel was built to serve. AgenC's own
+// overlay survives, because --settings carries an absolute path, so such a
+// mission would look perfectly healthy to AgenC while running unguarded.
+const ClaudeConfigDirEnvVar = "CLAUDE_CONFIG_DIR"
+
 // ProtectedEnvVars is the canonical list of environment variables AgenC sets
 // into a mission's Claude process itself. It is the single place this set is
 // written down, and two things read it:
@@ -62,20 +79,13 @@ const OAuthTokenEnvVar = "CLAUDE_CODE_OAUTH_TOKEN"
 // well as set-sites, since reading one requires naming it — and fails naming any
 // that is missing. That is the whole reason this is a list in one place rather
 // than a check scattered across call sites. A non-AGENC_ name is NOT caught by
-// that scan; OAuthTokenEnvVar is the only one today, and a second would need the
-// scan taught about it.
+// that scan: OAuthTokenEnvVar and ClaudeConfigDirEnvVar are both outside the
+// AGENC_ prefix and are held only by the entries above, so a third such name
+// would need the scan taught about it.
 //
 // DELIBERATELY NOT INCLUDED. Each of these can be set through `--env`, and the
 // line is "AgenC sets it" rather than "AgenC depends on it" — the former is a
 // set that terminates and can be enforced, the latter is open-ended.
-//
-//   - CLAUDE_CONFIG_DIR. AgenC does not set it (State Y — Claude reads the
-//     user's real ~/.claude, or whatever the surrounding environment already
-//     set); it only forwards an existing value into the pool window. AgenC's
-//     operational overlay travels by absolute path through --settings, so a
-//     mission pointing Claude at a different config dir keeps AgenC's
-//     instrumentation. It does change which credentials and which CLAUDE.md
-//     that mission gets.
 //
 //   - PATH, HOME, TMUX, TMUX_PANE, EDITOR and the rest of the base process
 //     environment. The line is what a name lets a mission reach. The names in
@@ -88,14 +98,22 @@ const OAuthTokenEnvVar = "CLAUDE_CODE_OAUTH_TOKEN"
 //     itself is not a capability `--env` adds, and enumerating everything a
 //     mission depends on has no natural end.
 //
-//     Checked rather than assumed, because the obvious worry is that TMUX or
-//     TMUX_PANE could retarget an operation the way the calling names do. They
+//     TMUX and TMUX_PANE were CHECKED rather than assumed, because the obvious
+//     worry is that they could retarget an operation the way the calling names
+//     do. They
 //     cannot: TMUX is read only as a presence test (`os.Getenv("TMUX") == ""`
 //     in getCurrentTmuxSessionName), and the session it then acts on comes from
 //     asking the tmux server via `tmux display-message`, not from the variable.
 //     TMUX_PANE is read by the wrapper, which is the mission's PARENT process
 //     and does not inherit the mission's `--env`. If a future change makes one
 //     of these choose a target, it belongs in this list.
+//
+//     PATH, HOME and EDITOR are excluded by REASONING, not by measurement, and
+//     the asymmetry is worth keeping visible. CLAUDE_CONFIG_DIR sat on this
+//     list for exactly the same reason and was WRONG: measuring it showed it
+//     selects the machine's hooks rather than just the mission's own
+//     behaviour. Treat this paragraph as a hypothesis not yet falsified, not
+//     as a finding.
 var ProtectedEnvVars = []string{
 	MissionUUIDEnvVar,
 	MissionSourceEnvVar,
@@ -106,6 +124,7 @@ var ProtectedEnvVars = []string{
 	CallingSessionNameEnvVar,
 	CallingPaneIDEnvVar,
 	OAuthTokenEnvVar,
+	ClaudeConfigDirEnvVar,
 }
 
 // protectedEnvVarSet is ProtectedEnvVars keyed for lookup, built once.
