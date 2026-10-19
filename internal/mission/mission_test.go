@@ -293,13 +293,22 @@ func TestBuildClaudeCmdInjectsMissionEnv(t *testing.T) {
 }
 
 // TestBuildClaudeCmdMissionEnvCannotOverrideAgencOwnVars pins the ordering that
-// makes this channel safe without AgenC keeping a list of its own variable
-// names to exclude. A caller who names an AgenC-owned variable is overridden,
-// not overriding — the last entry for a name is the one a process sees, and
-// AgenC's goes on last.
+// IS the protection: AgenC re-applies every variable it owns on top of the
+// mission's own, so a caller naming one is overridden rather than overriding.
+// The last entry for a name is what a process resolves to.
 //
-// If this inverts, mission state tracking breaks for any mission whose caller
-// happened to pass AGENC_MISSION_UUID, and it breaks silently.
+// It runs over config.ProtectedEnvVars rather than a hand-written list, so
+// protecting a new variable is covered here the moment it is added there. The
+// validation in claude_env.go refuses these names before they can ever be
+// stored — this test deliberately bypasses it, because the ordering has to hold
+// for a value that reached the record by some other route (a client written
+// against an older build, a hand-edited row) rather than only for values that
+// passed today's validation.
+//
+// Two of these matter beyond tidiness. If AGENC_MISSION_UUID inverted, mission
+// state tracking would break for that mission, silently. If
+// AGENC_MISSION_SOURCE inverted, a mission could set it to "cron" and win the
+// exemption Kevin's night-time gate hook grants cron-spawned missions.
 func TestBuildClaudeCmdMissionEnvCannotOverrideAgencOwnVars(t *testing.T) {
 	withFakeClaudeOnPath(t)
 
@@ -307,24 +316,94 @@ func TestBuildClaudeCmdMissionEnvCannotOverrideAgencOwnVars(t *testing.T) {
 	agentDirpath := t.TempDir()
 	missionID := "test-mission-uuid"
 
+	const hijackValue = "hijacked"
+
+	// Every protected variable has to be present in the ambient environment for
+	// this to be a real test: the spawn path re-applies them from there, and one
+	// that is absent is skipped rather than emitted empty. Give each a known
+	// AgenC-side value to recover.
+	agencSideValues := map[string]string{}
+	hijackAttempt := map[string]string{}
+	for _, name := range config.ProtectedEnvVars {
+		agencSideValue := "agenc-value-for-" + name
+		agencSideValues[name] = agencSideValue
+		t.Setenv(name, agencSideValue)
+		hijackAttempt[name] = hijackValue
+	}
+
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, hijackAttempt)
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd returned error: %v", err)
+	}
+
+	for _, name := range config.ProtectedEnvVars {
+		// The mission UUID is produced from missionID rather than read from the
+		// ambient environment, so it is the one with a different expectation.
+		want := agencSideValues[name]
+		if name == config.MissionUUIDEnvVar {
+			want = missionID
+		}
+		// The OAuth token is appended only when a token file exists, which it
+		// does not here, so the ambient value is what survives.
+		resolved, found := resolveEnvEntry(cmd.Env, name)
+		if !found {
+			t.Errorf("%s is missing from cmd.Env entirely", name)
+			continue
+		}
+		if resolved == hijackValue {
+			t.Errorf("%s was HIJACKED: a mission's --env value overrode AgenC's own", name)
+			continue
+		}
+		if resolved != want {
+			t.Errorf("%s resolved to %q, want %q", name, resolved, want)
+		}
+	}
+}
+
+// TestBuildClaudeCmdInjectsOAuthTokenAfterMissionEnv covers the one protected
+// variable the test above cannot: the token is read from a file rather than the
+// environment, so it only appears when a token file exists.
+func TestBuildClaudeCmdInjectsOAuthTokenAfterMissionEnv(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	const token = "sk-ant-real-token"
+	if err := config.WriteOAuthToken(agencDirpath, token); err != nil {
+		t.Fatalf("failed to write token: %v", err)
+	}
+
 	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, map[string]string{
-		config.MissionUUIDEnvVar: "hijacked",
+		config.OAuthTokenEnvVar: "stolen",
 	})
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
 	}
 
-	// The last entry for the name is what the process resolves to.
-	resolved := ""
-	for _, entry := range cmd.Env {
-		if strings.HasPrefix(entry, config.MissionUUIDEnvVar+"=") {
-			resolved = entry
+	resolved, found := resolveEnvEntry(cmd.Env, config.OAuthTokenEnvVar)
+	if !found {
+		t.Fatalf("%s is missing from cmd.Env", config.OAuthTokenEnvVar)
+	}
+	if resolved != token {
+		t.Errorf("%s resolved to %q, want the token from disk %q", config.OAuthTokenEnvVar, resolved, token)
+	}
+}
+
+// resolveEnvEntry returns the value a process would see for name, which is the
+// LAST entry carrying it — the resolution rule the ordering above relies on.
+func resolveEnvEntry(env []string, name string) (string, bool) {
+	prefix := name + "="
+	value := ""
+	found := false
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			value = strings.TrimPrefix(entry, prefix)
+			found = true
 		}
 	}
-	want := config.MissionUUIDEnvVar + "=" + missionID
-	if resolved != want {
-		t.Errorf("resolved %s = %q, want %q", config.MissionUUIDEnvVar, resolved, want)
-	}
+	return value, found
 }
 
 // TestBuildClaudeCmdMissionEnvLeavesArgvAlone is the acceptance criterion the
@@ -361,5 +440,45 @@ func TestBuildClaudeCmdMissionEnvLeavesArgvAlone(t *testing.T) {
 		if strings.Contains(arg, "REFLECTION_SESSION") {
 			t.Errorf("mission environment name reached the Claude argv in %q", arg)
 		}
+	}
+}
+
+// TestBuildClaudeCmdMissionEnvCannotSupplyAnOAuthToken is the sharpest case the
+// protected-name drop exists for, and the one an append-after-the-fact ordering
+// could not have covered.
+//
+// Under State Y — the default, and what Kevin's own installation runs — there is
+// no token file, so AgenC injects no CLAUDE_CODE_OAUTH_TOKEN at all and Claude
+// authenticates with its native ~/.claude credentials. "Inject nothing" has no
+// value that can be appended on top of a caller's, so without dropping the name
+// from the mission's own variables a mission could hand Claude a token of its
+// choosing and have it authenticate with that instead.
+func TestBuildClaudeCmdMissionEnvCannotSupplyAnOAuthToken(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	// No token file written, and no ambient token: this is State Y.
+	t.Setenv(config.OAuthTokenEnvVar, "placeholder")
+	if err := os.Unsetenv(config.OAuthTokenEnvVar); err != nil {
+		t.Fatalf("failed to unset %s: %v", config.OAuthTokenEnvVar, err)
+	}
+
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, nil, nil, map[string]string{
+		config.OAuthTokenEnvVar: "sk-ant-attacker-supplied",
+	})
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd returned error: %v", err)
+	}
+
+	if resolved, found := resolveEnvEntry(cmd.Env, config.OAuthTokenEnvVar); found {
+		t.Errorf(
+			"a mission supplied its own %s and it reached the Claude process as %q; "+
+				"under State Y the variable must be absent so Claude uses its native auth",
+			config.OAuthTokenEnvVar,
+			resolved,
+		)
 	}
 }

@@ -3,6 +3,8 @@ package mission
 import (
 	"reflect"
 	"testing"
+
+	"github.com/odyssey/agenc/internal/config"
 )
 
 func TestParseMissionEnvAssignments(t *testing.T) {
@@ -82,6 +84,21 @@ func TestParseMissionEnvAssignments(t *testing.T) {
 		{
 			name:        "name with a space is an error",
 			assignments: []string{"BAD NAME=value"},
+			wantErr:     true,
+		},
+		{
+			// AgenC overrides these at spawn time whatever a caller asks for,
+			// so accepting one would store a value that cannot take effect.
+			name:        "a name AgenC owns is an error",
+			assignments: []string{config.MissionUUIDEnvVar + "=hijacked"},
+			wantErr:     true,
+		},
+		{
+			// The one with teeth: AGENC_MISSION_SOURCE=cron is what Kevin's
+			// night-time gate hook exempts, so this is the self-granted
+			// exemption path.
+			name:        "the mission source AgenC owns is an error",
+			assignments: []string{config.MissionSourceEnvVar + "=cron"},
 			wantErr:     true,
 		},
 	}
@@ -186,6 +203,19 @@ func TestFormatMissionEnv(t *testing.T) {
 			got := FormatMissionEnv(tt.missionEnv)
 			if got != tt.want {
 				t.Errorf("FormatMissionEnv(%v) = %q, want %q", tt.missionEnv, got, tt.want)
+			}
+		})
+	}
+}
+
+// Every name in the registry is refused, so protecting a new variable gets this
+// coverage for free rather than needing a test written for it.
+func TestValidateMissionEnvRefusesEveryProtectedName(t *testing.T) {
+	for _, name := range config.ProtectedEnvVars {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateMissionEnv(map[string]string{name: "whatever"})
+			if err == nil {
+				t.Fatalf("ValidateMissionEnv accepted '%s', which AgenC sets itself", name)
 			}
 		})
 	}

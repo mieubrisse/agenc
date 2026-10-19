@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -130,30 +131,39 @@ func BuildClaudeCmd(
 
 	cmd.Dir = agentDirpath
 
-	// Order is load-bearing. The mission's own variables go on before the ones
-	// appended below, so a caller naming one of those is overridden rather than
-	// overriding — Go resolves a duplicated name in cmd.Env to the last value.
-	// That ordering is what makes this channel safe without AgenC maintaining a
-	// list of its own variable names to exclude, which would be a list that
-	// silently goes stale every time AgenC adds a variable.
+	// Order is load-bearing, in three layers.
 	//
-	// It protects only what is appended HERE, which today is AGENC_MISSION_UUID
-	// and the OAuth token. AGENC_MISSION_SOURCE and
-	// AGENC_MISSION_SOURCE_METADATA reach Claude by a different route — an
-	// os.Setenv in `mission resume --run-wrapper`, picked up through the
-	// os.Environ() below — so they sit BEFORE the mission's variables and a
-	// caller naming one of those two would override it. Harmless while the only
-	// caller is the machine's own user; moving them to explicit appends here is
-	// what would close it, and belongs with the spawn-path consolidation rather
-	// than with this channel.
+	// os.Environ() is the base. The mission's own variables go on top of it,
+	// because a mission that explicitly sets a variable means it and should win
+	// over whatever the surrounding shell happened to export. Then AgenC's own
+	// variables go on top of those, so a caller naming one of them is
+	// overridden rather than overriding — a process resolves a repeated name to
+	// the last entry.
 	//
-	// The mission's variables go on after os.Environ() for the opposite reason:
-	// a mission that explicitly sets a variable means it, and should win over
-	// whatever the surrounding shell happened to export.
-	cmd.Env = append(os.Environ(), MissionEnvToAssignments(missionEnv)...)
-	cmd.Env = append(cmd.Env,
-		config.MissionUUIDEnvVar+"="+missionID,
-	)
+	// The third layer is driven by config.ProtectedEnvVars rather than written
+	// out here, which is what keeps it from going stale: a new AgenC variable is
+	// protected by being added to that one list, with no change at this call
+	// site. Several of these reach AgenC by routes that land inside
+	// os.Environ() — AGENC_MISSION_SOURCE via an os.Setenv in `mission resume
+	// --run-wrapper`, AGENC_DIRPATH via the tmux env prefix — which is exactly
+	// why re-applying them here is necessary: without it they would sit BELOW
+	// the mission's variables and a caller could override them. One of them is
+	// load-bearing for Kevin's own night-time gate, which exempts a mission
+	// whose AGENC_MISSION_SOURCE is "cron".
+	//
+	// A protected name is also DROPPED from the mission's own variables rather
+	// than merely outranked. Appending afterwards is not sufficient on its own:
+	// for CLAUDE_CODE_OAUTH_TOKEN, AgenC's intent when no token file exists is
+	// that the variable be UNSET so Claude uses its native ~/.claude auth, and
+	// there is no value to append that expresses "unset". Without the drop, a
+	// mission on such an install — which is the default — could supply its own
+	// token and have Claude authenticate with it.
+	//
+	// `--env` validation also refuses these names, so a caller normally learns
+	// at creation rather than being silently dropped here. The drop and the
+	// ordering are the guarantee; that refusal is the courtesy.
+	cmd.Env = append(os.Environ(), callerOwnedEnvAssignments(missionEnv)...)
+	cmd.Env = append(cmd.Env, agencOwnedEnvAssignments(missionID)...)
 
 	// Inject the machine OAuth token only when one is configured (the State-X
 	// fallback toggle). When absent, Claude uses its native ~/.claude auth —
@@ -163,10 +173,70 @@ func BuildClaudeCmd(
 		return nil, stacktrace.Propagate(err, "failed to read OAuth token")
 	}
 	if oauthToken != "" {
-		cmd.Env = append(cmd.Env, "CLAUDE_CODE_OAUTH_TOKEN="+oauthToken)
+		cmd.Env = append(cmd.Env, config.OAuthTokenEnvVar+"="+oauthToken)
 	}
 
 	return cmd, nil
+}
+
+// callerOwnedEnvAssignments returns a mission's own environment assignments
+// with every name AgenC owns removed, so that nothing a caller supplied can
+// occupy one of those names in the spawned process. Driven by
+// config.ProtectedEnvVars, so a newly protected variable is dropped here
+// without a change at this call site.
+//
+// Normally a no-op: validation refuses these names at creation, so a stored
+// mission environment should never contain one. It is here for the value that
+// reached the record some other way — a client written against a build that
+// predates the validation, or a hand-edited row — because the protection is
+// supposed to be a property of the spawn rather than of what validation
+// happened to catch.
+func callerOwnedEnvAssignments(missionEnv map[string]string) []string {
+	assignments := make([]string, 0, len(missionEnv))
+	for _, assignment := range MissionEnvToAssignments(missionEnv) {
+		name, _, _ := strings.Cut(assignment, missionEnvAssignmentSeparator)
+		if config.IsProtectedEnvVar(name) {
+			continue
+		}
+		assignments = append(assignments, assignment)
+	}
+	return assignments
+}
+
+// agencOwnedEnvAssignments returns the environment assignments AgenC applies on
+// top of a mission's own, so that AgenC's value for a name it owns wins. The
+// set comes from config.ProtectedEnvVars, so protecting a new variable is a
+// one-line change there rather than a change here.
+//
+// The mission UUID is produced from missionID, which is the authoritative value
+// and the reason this takes a parameter at all. Every other protected variable
+// is re-applied from the ambient environment, because AgenC put it there
+// earlier in the spawn chain (an os.Setenv in `mission resume --run-wrapper`,
+// or the tmux env prefix) and the point is to lift it back above the mission's
+// own variables. One that is absent is skipped rather than emitted empty: an
+// empty assignment is not the same as an unset variable, and a hook testing
+// "${AGENC_MISSION_SOURCE:-}" would read the two differently.
+//
+// The OAuth token is deliberately not here. It is read from disk rather than
+// from the environment and only when a token file exists, so BuildClaudeCmd
+// appends it separately — after this, which keeps it protected.
+func agencOwnedEnvAssignments(missionID string) []string {
+	assignments := make([]string, 0, len(config.ProtectedEnvVars))
+	for _, name := range config.ProtectedEnvVars {
+		if name == config.MissionUUIDEnvVar {
+			assignments = append(assignments, name+"="+missionID)
+			continue
+		}
+		if name == config.OAuthTokenEnvVar {
+			continue
+		}
+		value, found := os.LookupEnv(name)
+		if !found {
+			continue
+		}
+		assignments = append(assignments, name+"="+value)
+	}
+	return assignments
 }
 
 // buildNewConversationArgs returns the claude CLI args for starting a fresh

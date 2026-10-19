@@ -2352,43 +2352,49 @@ else
     fi
 fi
 
-# An AgenC-owned name cannot be hijacked: AgenC appends its own variables after
-# the mission's, and a process resolves a repeated name to the last entry. This
-# is what makes the channel safe without AgenC keeping a list of its own
-# variable names to exclude -- a list that would go stale every time AgenC
-# added one. If the ordering ever inverted, mission state tracking would break
-# for any mission whose caller happened to pass AGENC_MISSION_UUID, silently.
-hijack_short_id=$(create_mission_and_echo_short_id \
-    --blank --headless --no-focus --env "AGENC_MISSION_UUID=KEV96HIJACK")
-hijack_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${hijack_short_id}';")
+# A name AgenC owns is refused outright, which is the courtesy half of the
+# protection -- the caller is told at creation rather than discovering their
+# value was overridden at spawn. The guarantee is the spawn-path ordering, which
+# TestBuildClaudeCmdMissionEnvCannotOverrideAgencOwnVars pins over the whole
+# registry, and which holds even for a value that reached the mission record by
+# some route other than this flag.
+#
+# AGENC_MISSION_SOURCE is called out on its own because it is the one with
+# teeth: Kevin's night-time gate hook exempts a mission whose
+# AGENC_MISSION_SOURCE is "cron", so letting a mission set it would be a
+# self-granted exemption from his own shutdown window.
+run_test "mission new refuses to set AgenC's mission UUID" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "AGENC_MISSION_UUID=hijacked"
 
-total=$((total + 1))
-printf "  %-50s " "an AgenC-owned variable cannot be hijacked..."
-hijack_claude_pid=$(find_mission_claude_pid "${hijack_mission_uuid}")
-if [[ -z "${hijack_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
-else
-    hijack_claude_env=$(ps -Eww -o command= -p "${hijack_claude_pid}" 2>/dev/null || true)
-    if [[ -z "${hijack_claude_env}" ]]; then
-        echo "SKIP (could not read the Claude process environment)"
-        skipped=$((skipped + 1))
-    else
-        # Read the LAST occurrence, which is what the process resolves to.
-        hijack_resolved_uuid=$(echo "${hijack_claude_env}" \
-            | tr ' ' '\n' \
-            | grep "^AGENC_MISSION_UUID=" \
-            | tail -1 \
-            | cut -d= -f2)
-        if [[ "${hijack_resolved_uuid}" == "${hijack_mission_uuid}" ]]; then
-            echo "PASS"
-            passed=$((passed + 1))
-        else
-            echo "FAIL (AGENC_MISSION_UUID resolved to '${hijack_resolved_uuid}', want '${hijack_mission_uuid}')"
-            failed=$((failed + 1))
-        fi
-    fi
-fi
+run_test "mission new refuses to set AgenC's mission source" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "AGENC_MISSION_SOURCE=cron"
+
+run_test "mission new refuses to set AgenC's own dirpath" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "AGENC_DIRPATH=/tmp/elsewhere"
+
+# Not AGENC_-prefixed, but AgenC is what sets it, and under State Y (no token
+# file, which is the default) AgenC sets it to nothing at all so Claude uses its
+# native auth. A mission supplying one would be handing Claude credentials of
+# its choosing.
+run_test "mission new refuses to set the Claude OAuth token" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-supplied"
+
+# The refusal says which names are AgenC's, so a caller can fix it without
+# reading the source.
+run_test_output_contains \
+    "the refusal names the variables AgenC owns" \
+    "AGENC_MISSION_SOURCE" \
+    bash -c "'${agenc_test}' mission new --blank --headless --no-focus --env 'AGENC_DIRPATH=/tmp/x' 2>&1 || true"
+
+# An ordinary caller-chosen name is unaffected by all of the above -- the point
+# is to protect AgenC's namespace, not to narrow the channel.
+run_test "mission new still accepts an ordinary name" \
+    0 \
+    "${agenc_test}" mission new --blank --headless --no-focus --env "REFLECTION_SESSION=1"
 
 # The delivery half of the same criterion. The comparison above shows the
 # overlay FILE is unchanged; this shows it is still handed to Claude -- an

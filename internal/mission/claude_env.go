@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/mieubrisse/stacktrace"
+
+	"github.com/odyssey/agenc/internal/config"
 )
 
 // missionEnvAssignmentSeparator divides a KEY=VALUE assignment as a caller
@@ -68,6 +70,20 @@ func ValidateMissionEnv(missionEnv map[string]string) error {
 				"environment variable name '%v' is not a valid shell variable name "+
 					"(it must start with a letter or underscore and contain only letters, digits and underscores)",
 				name,
+			)
+		}
+		// A name AgenC sets itself would be overridden at spawn time, because
+		// the spawn path re-applies AgenC's own values on top of the mission's.
+		// Refusing it here is the courtesy half of that: the caller is told
+		// now, rather than finding out from a value that silently did not take
+		// effect. The guarantee is the ordering, not this check — a client that
+		// somehow stored one anyway still loses to AgenC at spawn.
+		if config.IsProtectedEnvVar(name) {
+			return stacktrace.NewError(
+				"environment variable '%v' is one AgenC sets itself, so a value given here would be overridden at spawn time and cannot take effect; "+
+					"the names AgenC owns are %v",
+				name,
+				strings.Join(config.ProtectedEnvVars, ", "),
 			)
 		}
 		// A NUL byte cannot be put in a C string, so the exec syscall rejects

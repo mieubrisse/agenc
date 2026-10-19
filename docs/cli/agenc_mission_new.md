@@ -42,8 +42,13 @@ does not need "--settings", which would replace AgenC's operational overlay
 rather than adding to it. Like the passthrough args, these are stored on the
 mission and survive reload and restart, and they apply to that mission alone --
 a clone does not inherit them, so a marker cannot spread to missions nobody
-declared. AgenC's own mission identity, AGENC_MISSION_UUID, cannot be
-overridden this way: AgenC applies its own value last and it wins.
+declared.
+
+The names AgenC sets itself are refused rather than silently overridden, so
+"--env AGENC_MISSION_SOURCE=cron" is an error at creation instead of a mission
+that quietly does not get what it asked for. AgenC also re-applies its own
+values after the mission's at every spawn, so those names are AgenC's whatever
+reaches the mission record.
 
 ```
 agenc mission new [repo] [flags] [-- claude-args...]

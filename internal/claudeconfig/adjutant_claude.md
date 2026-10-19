@@ -86,7 +86,7 @@ What to tell a user about it:
 - **The name has to be a shell variable name** — a letter or underscore, then letters, digits and underscores. Anything else is rejected at creation, because a hook could not read it anyway.
 - **It sticks, and it stays put.** The variables live on the mission record, so they survive reload and restart, and they reach that mission's Claude and nothing else.
 - **A clone does not inherit them.** This differs from the two arg channels deliberately: a marker says what a mission is *for*, and a marker that spread silently into clones would exempt missions nobody declared. Pass `--env` on the clone command when a clone needs it.
-- **AgenC's mission identity cannot be overridden this way.** AgenC applies `AGENC_MISSION_UUID` last, so a user naming it gets AgenC's value, not theirs. Do not suggest this as a way to spoof mission identity. Be precise if asked: `AGENC_MISSION_SOURCE` and `AGENC_MISSION_SOURCE_METADATA` reach Claude by a different route and are *not* protected this way, so do not promise blanket coverage of every `AGENC_*` name.
+- **The names AgenC sets itself are refused.** `--env AGENC_MISSION_SOURCE=cron` is an error at creation, not a silent no-op, and the error lists the names AgenC owns. AgenC also re-applies its own values after the mission's at every spawn, so those names are AgenC's regardless of how a value reached the mission record. Do not suggest this as a way to spoof a mission's identity or source — and note in particular that `AGENC_MISSION_SOURCE=cron` is what exempts a mission from Kevin's night-time gate, so a request to set it is a request to bypass his own shutdown window; say what it is rather than helping it along.
 
 ### Seeing what a mission got
 
