@@ -33,9 +33,21 @@ var sourceMetadataFlag string
 // that supporting a new Claude flag stays a single table entry.
 var missionClaudeArgFlagValues = map[string]*string{}
 
+// missionClaudePassthroughArgs holds the argv the user wrote after the `--`
+// separator, to be handed to the mission's Claude process verbatim. Resolved
+// once in runMissionNew, before the positional args are interpreted as a repo
+// reference, and read from there by every create path. Package-level because
+// the create paths are reached through the fzf picker and take no args, which
+// is how every other `mission new` flag is already carried.
+var missionClaudePassthroughArgs []string
+
 var missionNewCmd = &cobra.Command{
-	Use:   newCmdStr + " [repo]",
-	Short: "Create a new mission and launch claude",
+	Use: newCmdStr + " [repo] [flags] [-- claude-args...]",
+	// Cobra otherwise appends its own "[flags]" after the whole Use string,
+	// which would read as though AgenC flags go after the "--" separator. They
+	// do not: anything after it is Claude's.
+	DisableFlagsInUseLine: true,
+	Short:                 "Create a new mission and launch claude",
 	Long: fmt.Sprintf(`Create a new mission and launch claude.
 
 Without arguments, opens an interactive fzf picker showing your repo library.
@@ -43,8 +55,27 @@ With arguments, accepts a git reference (URL, shorthand like owner/repo, or
 local path).
 
 Use --%s <mission-uuid> to create a new mission with a full copy of an
-existing mission's agent directory.`,
-		cloneFlagName),
+existing mission's agent directory.
+
+Anything after a "--" separator is handed to the mission's Claude process
+verbatim, so any Claude Code flag is reachable per-mission even when AgenC
+has no flag of its own for it:
+
+  %s %s %s owner/repo -- --append-system-prompt "Tonight is for reflection."
+
+The args are stored on the mission, so they survive reload, restart and the
+wrapper's own respawns, and they never touch a shell — a value containing
+spaces, quotes or newlines arrives at Claude exactly as written. They apply to
+that mission alone.
+
+Claude resolves a repeated scalar flag last-wins, and these are appended after
+the "claudeArgs" config chain, so a flag given here outranks the same flag from
+config. Two Claude flags will disable part of AgenC if passed this way, and
+creation warns when it sees them: "--settings" replaces AgenC's own operational
+overlay rather than adding to it, and "--bare" skips hooks altogether. Either
+one stops the mission reporting its state back to AgenC.`,
+		cloneFlagName,
+		agencCmdStr, missionCmdStr, newCmdStr),
 	Args: cobra.ArbitraryArgs,
 	RunE: runMissionNew,
 }
@@ -87,6 +118,37 @@ func collectMissionClaudeArgs() map[string]string {
 	return claudeArgs
 }
 
+// splitAtClaudePassthroughSeparator divides the positional args a caller gave
+// `mission new` into the ones AgenC reads as a repo reference and the ones it
+// passes to Claude verbatim. dashIndex is Cobra's ArgsLenAtDash: the number of
+// args that preceded a "--" separator, or -1 when the caller wrote none.
+//
+// A trailing "--" with nothing after it yields no passthrough args rather than
+// an empty-but-present list, so "the caller passed none" has one representation
+// whether or not they typed a separator.
+func splitAtClaudePassthroughSeparator(args []string, dashIndex int) ([]string, []string) {
+	if dashIndex < 0 {
+		return args, nil
+	}
+	if dashIndex >= len(args) {
+		return args, nil
+	}
+	return args[:dashIndex], args[dashIndex:]
+}
+
+// printClaudePassthroughArgsWarnings says out loud when the passthrough args
+// contain a Claude flag that switches off part of AgenC. It warns rather than
+// refuses: the caller can run `claude` with the same flag directly, so refusing
+// would withhold nothing, and screening the list would defeat a channel whose
+// point is that a new Claude flag needs no AgenC change. What it prevents is
+// the consequence being silent — a mission that runs on while the hooks AgenC
+// tracks its state with are gone looks healthy and reports nothing.
+func printClaudePassthroughArgsWarnings() {
+	for _, warning := range mission.ClaudePassthroughArgsWarnings(missionClaudePassthroughArgs) {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+	}
+}
+
 // repoLibraryEntry represents a single repo discovered in the
 // $AGENC_DIRPATH/repos/ directory tree.
 type repoLibraryEntry struct {
@@ -98,6 +160,13 @@ func runMissionNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	ensureServerRunning()
+
+	// Split the positional args at the "--" separator before anything tries to
+	// read them as a repo reference. Cobra hands everything after the separator
+	// through as positional args without parsing it, which is what lets a
+	// Claude flag AgenC knows nothing about reach the mission untouched.
+	args, missionClaudePassthroughArgs = splitAtClaudePassthroughSeparator(args, cmd.ArgsLenAtDash())
+	printClaudePassthroughArgsWarnings()
 
 	// Provenance auto-population: when invoked from inside a mission and the
 	// caller didn't explicitly set --source, stamp source="mission" and
@@ -162,6 +231,8 @@ func runMissionNewWithClone() error {
 		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
 		ClaudeArgs:  collectMissionClaudeArgs(),
+
+		ClaudePassthroughArgs: missionClaudePassthroughArgs,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")
@@ -174,6 +245,9 @@ func runMissionNewWithClone() error {
 	// surprise worth naming.
 	if collectMissionClaudeArgs() == nil && len(missionRecord.ClaudeArgs) > 0 {
 		fmt.Printf("Inherited Claude args: %s\n", mission.FormatMissionClaudeArgs(missionRecord.ClaudeArgs))
+	}
+	if len(missionClaudePassthroughArgs) == 0 && len(missionRecord.ClaudePassthroughArgs) > 0 {
+		fmt.Printf("Inherited Claude passthrough: %s\n", mission.FormatClaudePassthroughArgs(missionRecord.ClaudePassthroughArgs))
 	}
 	if agencDirpath, err := config.GetAgencDirpath(); err == nil {
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
@@ -277,6 +351,8 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
 		ClaudeArgs:  collectMissionClaudeArgs(),
+
+		ClaudePassthroughArgs: missionClaudePassthroughArgs,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create adjutant mission")
@@ -415,6 +491,8 @@ func createAndLaunchMission(
 		SourceMetadata: sourceMetadataFlag,
 		NoFocus:        noFocusFlag,
 		ClaudeArgs:     collectMissionClaudeArgs(),
+
+		ClaudePassthroughArgs: missionClaudePassthroughArgs,
 	})
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to create mission")

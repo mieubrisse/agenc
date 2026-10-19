@@ -156,19 +156,19 @@ func TestBuildResumeArgs(t *testing.T) {
 			name:          "session id with prompt",
 			sessionID:     "sess-abc",
 			initialPrompt: "follow up please",
-			want:          []string{"-r", "sess-abc", "follow up please"},
+			want:          []string{"-r", "sess-abc", "--", "follow up please"},
 		},
 		{
 			name:          "no session id with prompt",
 			sessionID:     "",
 			initialPrompt: "follow up please",
-			want:          []string{"-c", "follow up please"},
+			want:          []string{"-c", "--", "follow up please"},
 		},
 		{
 			name:          "prompt with shell metachars preserved literally",
 			sessionID:     "sess-abc",
 			initialPrompt: "$(rm -rf /); echo 'hi'",
-			want:          []string{"-r", "sess-abc", "$(rm -rf /); echo 'hi'"},
+			want:          []string{"-r", "sess-abc", "--", "$(rm -rf /); echo 'hi'"},
 		},
 	}
 
@@ -194,7 +194,11 @@ func TestBuildClaudeCmdArgOrder(t *testing.T) {
 	agentDirpath := t.TempDir()
 	missionID := "test-mission-uuid"
 
-	mergedClaudeArgs := MergeClaudeArgs("sonnet", []string{"--chrome"}, map[string]string{"model": "opus"})
+	mergedClaudeArgs := MergeClaudeArgs(ClaudeArgSources{
+		ResolvedModel:     "sonnet",
+		ConfigClaudeArgs:  []string{"--chrome"},
+		MissionClaudeArgs: map[string]string{"model": "opus"},
+	})
 	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, []string{"-c"})
 	if err != nil {
 		t.Fatalf("BuildClaudeCmd returned error: %v", err)
@@ -208,6 +212,44 @@ func TestBuildClaudeCmdArgOrder(t *testing.T) {
 		"--chrome",
 		"--model", "opus",
 		"-c",
+	}
+	if !reflect.DeepEqual(gotArgs, expectedArgs) {
+		t.Fatalf("expected args %v, got %v", expectedArgs, gotArgs)
+	}
+}
+
+// TestBuildClaudeCmdCarriesHostilePassthroughValueIntact is the core assertion
+// behind the passthrough design: a Claude flag value containing spaces, both
+// quote styles and newlines reaches the Claude process as exactly one argv
+// element, byte-for-byte as written.
+//
+// It holds by construction rather than by escaping. BuildClaudeCmd hands a
+// []string to exec.Command, which execs the binary directly and never invokes a
+// shell, and the args reach it from the mission record rather than from a
+// command string — so there is no layer that could mangle a quote and no
+// escaping that could be got wrong. This test is what would notice if a future
+// change routed them through a shell after all.
+func TestBuildClaudeCmdCarriesHostilePassthroughValueIntact(t *testing.T) {
+	withFakeClaudeOnPath(t)
+
+	agencDirpath := t.TempDir()
+	agentDirpath := t.TempDir()
+	missionID := "test-mission-uuid"
+
+	mergedClaudeArgs := MergeClaudeArgs(ClaudeArgSources{
+		ClaudePassthroughArgs: []string{"--append-system-prompt", hostileClaudeArgValue},
+	})
+	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, nil)
+	if err != nil {
+		t.Fatalf("BuildClaudeCmd returned error: %v", err)
+	}
+
+	// cmd.Args[0] is the claude binary path itself.
+	gotArgs := cmd.Args[1:]
+	opSettingsFilepath := config.GetMissionOpSettingsFilepath(agencDirpath, missionID)
+	expectedArgs := []string{
+		"--settings", opSettingsFilepath,
+		"--append-system-prompt", hostileClaudeArgValue,
 	}
 	if !reflect.DeepEqual(gotArgs, expectedArgs) {
 		t.Fatalf("expected args %v, got %v", expectedArgs, gotArgs)

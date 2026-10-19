@@ -28,7 +28,9 @@ agenc mission new --adjutant --prompt "Help with cron setup"
 
 ### Choosing a model or effort level per mission
 
-`agenc mission new` forwards a small allowlist of Claude CLI flags to the mission it launches, scoped to that one mission:
+`agenc mission new` has two ways to set Claude CLI flags on the mission it launches, scoped to that one mission. A couple of flags are promoted to AgenC flags of their own; every other Claude flag goes after a `--` separator.
+
+The promoted ones:
 
 ```bash
 # Run this mission on Opus, whatever the configured default is
@@ -42,11 +44,36 @@ agenc mission new <repo> --model haiku --effort low --prompt "..."
 
 These override the `defaultModel` and `claudeArgs` config for that mission only — nothing shared changes, so there is no setting to remember to change back. Use them when the user wants a one-off stronger or cheaper mission. Reach for `agenc config set defaultModel <value>` (global) or `agenc config repoConfig set <repo> --default-model <value>` (per-repo) only when they want the change to stick for future missions.
 
-The set of forwardable flags is deliberately small: most Claude flags would break AgenC's own plumbing, so `mission new` refuses anything outside the allowlist. Run `agenc mission new --help` for the current list rather than assuming a flag exists.
+Only those two are AgenC flags. Run `agenc mission new --help` for the current list rather than assuming another one exists — but a flag's absence from that list does not mean it is unreachable, because of the next part.
 
-`agenc mission inspect <mission>` shows a `Claude args:` line for any mission that has overrides — that is how to answer "why is this mission on Opus?"
+### Any other Claude flag: the `--` separator
 
-Cloning carries the overrides over: `agenc mission new --clone <mission>` inherits the source mission's model and effort (and says so in its output). Pass an explicit flag on the clone command to replace them.
+Everything a user writes after a `--` separator is handed to that mission's Claude process verbatim:
+
+```bash
+# Give one mission a system prompt it cannot talk its way out of
+agenc mission new <repo> -- --append-system-prompt "Tonight is for reflection, not work."
+
+# Grant one mission access to a directory outside its repo, twice over
+agenc mission new <repo> -- --add-dir /one --add-dir /two
+```
+
+Three things worth telling a user about this:
+
+- **Any Claude flag works, including ones newer than AgenC.** There is no list to be on. If `claude --help` accepts it, this passes it through.
+- **The value can be anything.** It never touches a shell, so spaces, quotes and newlines arrive exactly as written — a whole multi-line system prompt is fine.
+- **It sticks.** The args live on the mission record, so they survive reload, restart, compaction and the wrapper's own respawns, and they apply to that mission and no other.
+
+Two flags will quietly disable part of AgenC if passed this way, and `mission new` prints a warning when it sees them. Do not route around the warning; relay it:
+
+- `--settings` — Claude keeps only the last `--settings`, and AgenC uses that flag itself to deliver the hooks it tracks mission state with. A passthrough `--settings` replaces all of them, so the mission stops reporting its state. There is currently no supported way to give a mission extra settings; say so rather than suggesting this.
+- `--bare` — skips hooks altogether, same consequence.
+
+### Seeing what a mission got
+
+`agenc mission inspect <mission>` shows a `Claude args:` line for the promoted flags and a `Passthrough:` line for everything after `--`. That is how to answer "why is this mission on Opus?" or "where is this mission's system prompt coming from?"
+
+Cloning carries both over: `agenc mission new --clone <mission>` inherits the source mission's model, effort and passthrough args (and says so in its output). Passing an explicit flag, or anything after `--`, replaces that channel on the clone.
 
 Tmux Configuration Changes
 --------------------------

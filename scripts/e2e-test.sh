@@ -1785,11 +1785,12 @@ run_test_output_contains \
     "^$" \
     sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_args, '') FROM missions WHERE short_id='${no_args_short_id}';"
 
-# Only allowlisted Claude flags are reachable. Claude's CLI exposes flags that
-# would break AgenC's invariants (--settings carries the operational overlay,
-# -c/-r are the wrapper's to choose, --bare skips the hooks AgenC tracks state
-# with), so anything off the table must be refused rather than forwarded.
-run_test "mission new rejects a Claude flag that is not forwarded" \
+# A Claude flag is not an AgenC flag: only the promoted ones (--model,
+# --effort) are, so anything else written where an AgenC flag goes is a parse
+# error. That is a usage guardrail, not a restriction -- the same flag reaches
+# the mission fine after a "--" separator, which the passthrough section below
+# exercises.
+run_test "mission new rejects a Claude flag written as an AgenC flag" \
     1 \
     "${agenc_test}" mission new --blank --headless --no-focus --bare
 
@@ -1843,6 +1844,266 @@ elif echo "${claude_argv}" | grep -q -- "--model haiku"; then
 else
     echo "FAIL (Claude argv lacked '--model haiku': ${claude_argv})"
     failed=$((failed + 1))
+fi
+
+echo ""
+echo "--- Per-mission Claude passthrough args (KEV-88) ---"
+
+# Everything after a "--" separator on `mission new` reaches that mission's
+# Claude process verbatim, so any Claude Code flag is usable per-mission
+# without AgenC gaining a flag of its own for it.
+#
+# The value used throughout is deliberately hostile: a marker token, then a
+# space, a newline, and both quote styles. That combination is what an
+# --append-system-prompt value actually looks like, and it is what would break
+# if these args ever travelled through a shell instead of through the mission
+# record. "--add-dir" is passed alongside it as a flag AgenC knows nothing
+# about at all, and twice over, since a repeated flag is something the keyed
+# claude_args channel cannot express.
+passthrough_marker="KEV88MARKER"
+passthrough_tail="TAILAFTERNEWLINE"
+passthrough_prompt="${passthrough_marker} don't open \"work\" topics."$'\n'"${passthrough_tail}"
+
+passthrough_short_id=$(create_mission_and_echo_short_id \
+    --blank --headless --no-focus \
+    -- --append-system-prompt "${passthrough_prompt}" --add-dir /tmp --add-dir /var/tmp)
+
+total=$((total + 1))
+printf "  %-50s " "mission new with passthrough args created a mission..."
+if [[ -n "${passthrough_short_id}" ]]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (no mission short ID in create output)"
+    failed=$((failed + 1))
+fi
+
+# Stored as a JSON array, not an object: order is meaningful and --add-dir
+# repeats, neither of which the keyed claude_args column can represent.
+run_test_output_contains \
+    "passthrough args persist as a JSON array" \
+    '\["--append-system-prompt"' \
+    sqlite3 "${claude_args_db_filepath}" "SELECT claude_passthrough_args FROM missions WHERE short_id='${passthrough_short_id}';"
+
+run_test_output_contains \
+    "the repeated passthrough flag is stored twice" \
+    '"--add-dir","/tmp","--add-dir","/var/tmp"' \
+    sqlite3 "${claude_args_db_filepath}" "SELECT claude_passthrough_args FROM missions WHERE short_id='${passthrough_short_id}';"
+
+run_test_output_contains \
+    "mission inspect surfaces the passthrough args" \
+    "Passthrough: --append-system-prompt" \
+    "${agenc_test}" mission inspect "${passthrough_short_id}"
+
+# The inspect rendering has to stay on one line whatever the value contains:
+# the surrounding output is an aligned block that callers read line by line.
+total=$((total + 1))
+printf "  %-50s " "inspect renders a multi-line value on one line..."
+passthrough_inspect_line_count=$("${agenc_test}" mission inspect "${passthrough_short_id}" 2>&1 \
+    | grep -c "^Passthrough: " || true)
+if [[ "${passthrough_inspect_line_count}" -eq 1 ]]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (expected exactly 1 'Passthrough:' line, got ${passthrough_inspect_line_count})"
+    failed=$((failed + 1))
+fi
+
+# A flag set on one mission must not appear on another. The keyed channel and
+# the passthrough channel are also independent of each other.
+no_passthrough_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus --model=haiku)
+run_test_output_contains \
+    "a mission created without passthrough args has none" \
+    "^$" \
+    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_passthrough_args, '') FROM missions WHERE short_id='${no_passthrough_short_id}';"
+
+run_test_output_contains \
+    "a passthrough mission carries no keyed Claude args" \
+    "^$" \
+    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_args, '') FROM missions WHERE short_id='${passthrough_short_id}';"
+
+# Cloning carries the passthrough list over, and says so.
+run_test_output_contains \
+    "mission new --clone reports inherited passthrough args" \
+    "Inherited Claude passthrough: --append-system-prompt" \
+    "${agenc_test}" mission new --clone "${passthrough_short_id}" --headless --no-focus
+
+# A flag that switches off part of AgenC is passed through anyway -- the caller
+# can run `claude` with it directly, so refusing withholds nothing -- but the
+# consequence is said out loud rather than left silent.
+total=$((total + 1))
+printf "  %-50s " "passthrough --settings warns without refusing..."
+settings_warning_output=$("${agenc_test}" mission new --blank --headless --no-focus \
+    -- --settings '{"env":{"KEV88":"1"}}' 2>&1) || true
+if echo "${settings_warning_output}" | grep -q "Warning: --settings" \
+    && echo "${settings_warning_output}" | grep -q "^Created mission:"; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (expected both a --settings warning and a created mission: ${settings_warning_output})"
+    failed=$((failed + 1))
+fi
+
+# The assertions the rest of this section cannot make: that the hostile value
+# reaches the real Claude command line intact, and that it is still there after
+# the mission is reloaded. Reload is the respawn path for everything -- the
+# wrapper has no in-process restart, so a config reload, a stash-restore and a
+# server restart all rebuild the resume command from scratch and re-read the
+# mission record (see reloadMissionInTmux). Verifying reload therefore verifies
+# the class.
+#
+# Matched on the mission UUID, which appears in the --settings path AgenC
+# passes. The PID is resolved first and the args read by PID, because the value
+# contains a newline: filtering `ps` output by line would drop everything past
+# it.
+#
+# What this can and cannot show, stated plainly because it is easy to overclaim:
+# `ps -o args=` renders argv space-joined, so it cannot reveal where one element
+# ends and the next begins. What it establishes is that the flag and every part
+# of its value -- including the part after the embedded newline -- reached the
+# command line rather than being truncated or mangled on the way. The stronger
+# claim, that the value arrives as exactly ONE argv element, is pinned by
+# TestBuildClaudeCmdCarriesHostilePassthroughValueIntact in
+# internal/mission/mission_test.go, which compares cmd.Args element by element.
+# That is a build-side proof; the gap to the running process is closed by Go's
+# own contract that exec.Command hands Args to execve with no shell and no
+# re-splitting, and was additionally measured out of band during review by
+# reading the live process's KERN_PROCARGS2 (argc 11, the hostile value in a
+# single element).
+passthrough_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${passthrough_short_id}';")
+
+find_mission_claude_pid() {
+    local mission_uuid="${1}"
+    local attempt
+    local pid
+    for attempt in $(seq 1 20); do
+        pid=$(ps -eo pid=,args= 2>/dev/null \
+            | grep -- "${mission_uuid}" \
+            | grep "bin/claude" \
+            | grep -v grep \
+            | awk '{print $1}' \
+            | head -1 || true)
+        if [[ -n "${pid}" ]]; then
+            echo "${pid}"
+            return 0
+        fi
+        sleep 1
+    done
+    return 0
+}
+
+# Echoes PASS/FAIL/SKIP for one argv assertion against a mission's live Claude.
+assert_claude_argv_carries_passthrough() {
+    local label="${1}"
+    local mission_uuid="${2}"
+    local claude_pid
+    local claude_argv
+
+    total=$((total + 1))
+    printf "  %-50s " "${label}"
+
+    claude_pid=$(find_mission_claude_pid "${mission_uuid}")
+    if [[ -z "${claude_pid}" ]]; then
+        # Not a pass and not a failure: this environment never brought a Claude
+        # process up (no credentials, no binary). Say so rather than counting it.
+        echo "SKIP (no Claude process observed for the mission)"
+        skipped=$((skipped + 1))
+        return 0
+    fi
+
+    claude_argv=$(ps -ww -o args= -p "${claude_pid}" 2>/dev/null || true)
+    if ! echo "${claude_argv}" | grep -q -- "--append-system-prompt"; then
+        echo "FAIL (Claude argv lacked --append-system-prompt: ${claude_argv})"
+        failed=$((failed + 1))
+        return 0
+    fi
+    if ! echo "${claude_argv}" | grep -q -- "${passthrough_marker}"; then
+        echo "FAIL (Claude argv lacked the value marker: ${claude_argv})"
+        failed=$((failed + 1))
+        return 0
+    fi
+    # The fragment that sits after the newline: absent if the value were
+    # truncated at the newline on its way to the command line.
+    if ! echo "${claude_argv}" | grep -q -- "${passthrough_tail}"; then
+        echo "FAIL (Claude argv lost the value past its newline: ${claude_argv})"
+        failed=$((failed + 1))
+        return 0
+    fi
+    if ! echo "${claude_argv}" | grep -q -- "--add-dir"; then
+        echo "FAIL (Claude argv lacked the flag AgenC has no flag of its own for: ${claude_argv})"
+        failed=$((failed + 1))
+        return 0
+    fi
+    echo "PASS"
+    passed=$((passed + 1))
+}
+
+assert_claude_argv_carries_passthrough \
+    "spawned Claude carries the hostile passthrough..." \
+    "${passthrough_mission_uuid}"
+
+"${agenc_test}" mission reload "${passthrough_short_id}" >/dev/null 2>&1 || true
+sleep 2
+assert_claude_argv_carries_passthrough \
+    "...and still carries it after mission reload" \
+    "${passthrough_mission_uuid}"
+
+# The containment half of the same assertion: a sibling mission's Claude must
+# not have picked the value up. Checked in argv rather than only in the
+# database, because leaking through the config chain or through a shared
+# wrapper would not show up in the other mission's row.
+no_passthrough_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${no_passthrough_short_id}';")
+total=$((total + 1))
+printf "  %-50s " "a sibling mission's Claude never sees it..."
+sibling_claude_pid=$(find_mission_claude_pid "${no_passthrough_mission_uuid}")
+if [[ -z "${sibling_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the sibling mission)"
+    skipped=$((skipped + 1))
+else
+    sibling_claude_argv=$(ps -ww -o args= -p "${sibling_claude_pid}" 2>/dev/null || true)
+    if echo "${sibling_claude_argv}" | grep -q -- "${passthrough_marker}"; then
+        echo "FAIL (sibling Claude argv carried another mission's value: ${sibling_claude_argv})"
+        failed=$((failed + 1))
+    else
+        echo "PASS"
+        passed=$((passed + 1))
+    fi
+fi
+
+# A passthrough flag that takes a variable number of values (--add-dir
+# <directories...>) or an optional one (--debug [filter]) used to sit
+# immediately before the mission's positional prompt and swallow it. Nothing
+# errored: the prompt became an extra allowed directory and Claude started with
+# no prompt. Measured on claude 2.1.274 -- `claude -p --add-dir /tmp 'Reply with
+# exactly: PROMPTOK'` fails with "Input must be provided either through stdin or
+# as a prompt argument", and the same command with "--" before the prompt
+# answers it.
+#
+# Every cron mission passes --prompt, so this was on the path of all scheduled
+# work. The fix puts a "--" immediately before the prompt. That separator token
+# IS visible in space-joined `ps` output, which is why this assertion can be
+# made here at all.
+prompt_marker="KEV88PROMPT"
+eaten_prompt_short_id=$(create_mission_and_echo_short_id \
+    --blank --headless --no-focus --prompt "${prompt_marker} please reply ok" \
+    -- --add-dir /tmp)
+eaten_prompt_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${eaten_prompt_short_id}';")
+
+total=$((total + 1))
+printf "  %-50s " "a trailing variadic flag cannot eat the prompt..."
+eaten_prompt_claude_pid=$(find_mission_claude_pid "${eaten_prompt_mission_uuid}")
+if [[ -z "${eaten_prompt_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the mission)"
+    skipped=$((skipped + 1))
+else
+    eaten_prompt_argv=$(ps -ww -o args= -p "${eaten_prompt_claude_pid}" 2>/dev/null || true)
+    if echo "${eaten_prompt_argv}" | grep -q -- "-- ${prompt_marker}"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (no '--' separator before the prompt: ${eaten_prompt_argv})"
+        failed=$((failed + 1))
+    fi
 fi
 
 echo ""
@@ -1906,6 +2167,21 @@ else
     total=$((total + 1))
     printf "  %-50s " "mission inspect emits no ANSI..."
     echo "SKIP (no mission short ID available)"
+    skipped=$((skipped + 1))
+fi
+
+# Inspecting a mission that has no passthrough args never renders the
+# Passthrough line, so the check above proves nothing about it. Pin it against
+# a mission that does, and require the line in the output so the assertion
+# cannot pass by inspecting an empty state.
+if [ -n "${passthrough_short_id}" ]; then
+    run_test_output_has_no_ansi "mission inspect with passthrough args emits no ANSI" \
+        "Passthrough: " \
+        "${agenc_test}" mission inspect "${passthrough_short_id}"
+else
+    total=$((total + 1))
+    printf "  %-50s " "mission inspect with passthrough args emits no ANSI..."
+    echo "SKIP (no passthrough mission short ID available)"
     skipped=$((skipped + 1))
 fi
 

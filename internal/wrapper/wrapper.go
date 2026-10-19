@@ -45,10 +45,10 @@ type Wrapper struct {
 	logger         *slog.Logger
 	tmuxPaneID     string // numeric pane ID from $TMUX_PANE (%-prefix stripped); empty for headless
 
-	// claudeSpawnArgs is the model/config/per-mission arg list handed to every
-	// Claude spawn, already merged by mission.MergeClaudeArgs at construction
-	// time. Resolved once because the merge reads config, and config must not
-	// shift underneath a mission mid-restart.
+	// claudeSpawnArgs is the model/config/per-mission/passthrough arg list
+	// handed to every Claude spawn, already merged by mission.MergeClaudeArgs
+	// at construction time. Resolved once because the merge reads config, and
+	// config must not shift underneath a mission mid-restart.
 	claudeSpawnArgs []string
 
 	// unknownClaudeArgKeys names per-mission Claude args this build does not
@@ -103,10 +103,22 @@ type Wrapper struct {
 
 // NewWrapper creates a new Wrapper for the given mission. The initialPrompt
 // parameter is optional; if non-empty, it will be passed to Claude when
-// starting a new conversation (not used for resumes). missionClaudeArgs holds
-// the mission's own Claude CLI overrides (from `agenc mission new --model` and
-// friends); it outranks the defaultModel and claudeArgs config chains.
-func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initialPrompt string, missionClaudeArgs map[string]string) *Wrapper {
+// starting a new conversation (not used for resumes).
+//
+// missionClaudeArgs holds the mission's own keyed Claude CLI overrides (from
+// `agenc mission new --model` and friends) and missionClaudePassthroughArgs the
+// verbatim argv it was given after `--`. Both are read from the mission record
+// by the caller, which is what makes them outlive this wrapper: every spawn in
+// this process, including the restarts the wrapper decides on its own, reuses
+// the args resolved here, and the next wrapper reads the record again.
+func NewWrapper(
+	agencDirpath string,
+	missionID string,
+	gitRepoName string,
+	initialPrompt string,
+	missionClaudeArgs map[string]string,
+	missionClaudePassthroughArgs []string,
+) *Wrapper {
 	// Load window coloring config from config.yml
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
 	var titleCfg *config.TmuxWindowTitleConfig
@@ -121,11 +133,16 @@ func NewWrapper(agencDirpath string, missionID string, gitRepoName string, initi
 	}
 
 	return &Wrapper{
-		agencDirpath:                   agencDirpath,
-		missionID:                      missionID,
-		gitRepoName:                    gitRepoName,
-		initialPrompt:                  initialPrompt,
-		claudeSpawnArgs:                mission.MergeClaudeArgs(defaultModel, configClaudeArgs, missionClaudeArgs),
+		agencDirpath:  agencDirpath,
+		missionID:     missionID,
+		gitRepoName:   gitRepoName,
+		initialPrompt: initialPrompt,
+		claudeSpawnArgs: mission.MergeClaudeArgs(mission.ClaudeArgSources{
+			ResolvedModel:         defaultModel,
+			ConfigClaudeArgs:      configClaudeArgs,
+			MissionClaudeArgs:     missionClaudeArgs,
+			ClaudePassthroughArgs: missionClaudePassthroughArgs,
+		}),
 		unknownClaudeArgKeys:           mission.UnknownClaudeArgKeys(missionClaudeArgs),
 		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:                   config.GetMissionAgentDirpath(agencDirpath, missionID),
@@ -871,6 +888,24 @@ func (w *Wrapper) buildHeadlessClaudeCmd(isResume bool) (*exec.Cmd, error) {
 		return nil, stacktrace.Propagate(err, "failed to write operational settings for headless spawn")
 	}
 
+	// The prompt here is a POSITIONAL argument, not a value belonging to -p:
+	// `-p, --print` is a boolean flag (no value placeholder in `claude --help`,
+	// and `claude --print -p 'Reply with exactly: PFLAGOK'` answers PFLAGOK,
+	// which requires reading that string positionally). So this is the same
+	// position mission.buildNewConversationArgs guards with a `--` separator,
+	// and it is NOT structurally safe here.
+	//
+	// It does not bite today for two reasons, neither of them a property of
+	// this code: this function is unreachable (`make check`'s deadcode analysis
+	// lists both it and its only caller, RunHeadless), and `--print`/`-p` are
+	// dash-prefixed so they happen to terminate any variadic passthrough flag
+	// in front of them. That is exactly the "incidental to an argument order
+	// nothing pins" safety that buildResumeArgs refuses to rely on.
+	//
+	// Reviving the headless path means separating this prompt the same way.
+	// Without it, a passthrough flag taking a variable or optional number of
+	// values swallows the prompt silently, and a prompt beginning with a dash
+	// stops Claude starting at all (`error: unknown option`).
 	var args []string
 	if isResume {
 		// Resume with continuation flag and print mode

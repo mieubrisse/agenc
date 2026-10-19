@@ -47,6 +47,11 @@ type MissionResponse struct {
 	// defaultModel/claudeArgs config chains for this mission only.
 	ClaudeArgs map[string]string `json:"claude_args"`
 
+	// ClaudePassthroughArgs is the verbatim Claude CLI argv the mission was
+	// created with after the `--` separator, appended after everything the
+	// config chains contribute.
+	ClaudePassthroughArgs []string `json:"claude_passthrough_args"`
+
 	// ResolvedSessionTitle is derived from the active session's title chain:
 	// custom_title > agenc_custom_title > auto_summary. Empty if no session exists.
 	ResolvedSessionTitle string `json:"resolved_session_title"`
@@ -76,58 +81,60 @@ type MissionResponse struct {
 // ToMission converts a MissionResponse to a database.Mission.
 func (mr *MissionResponse) ToMission() *database.Mission {
 	return &database.Mission{
-		ID:                   mr.ID,
-		ShortID:              mr.ShortID,
-		Prompt:               mr.Prompt,
-		Status:               mr.Status,
-		GitRepo:              mr.GitRepo,
-		LastHeartbeat:        mr.LastHeartbeat,
-		LastUserPromptAt:     mr.LastUserPromptAt,
-		SessionName:          mr.SessionName,
-		SessionNameUpdatedAt: mr.SessionNameUpdatedAt,
-		Source:               mr.Source,
-		SourceID:             mr.SourceID,
-		SourceMetadata:       mr.SourceMetadata,
-		ConfigCommit:         mr.ConfigCommit,
-		TmuxPane:             mr.TmuxPane,
-		PromptCount:          mr.PromptCount,
-		CreatedAt:            mr.CreatedAt,
-		UpdatedAt:            mr.UpdatedAt,
-		ClaudeArgs:           mr.ClaudeArgs,
-		ResolvedSessionTitle: mr.ResolvedSessionTitle,
-		IsAdjutant:           mr.IsAdjutant,
-		ClaudeState:          mr.ClaudeState,
-		IsAttached:           mr.IsAttached,
-		PeerName:             mr.PeerName,
-		PeerTmuxTarget:       mr.PeerTmuxTarget,
+		ID:                    mr.ID,
+		ShortID:               mr.ShortID,
+		Prompt:                mr.Prompt,
+		Status:                mr.Status,
+		GitRepo:               mr.GitRepo,
+		LastHeartbeat:         mr.LastHeartbeat,
+		LastUserPromptAt:      mr.LastUserPromptAt,
+		SessionName:           mr.SessionName,
+		SessionNameUpdatedAt:  mr.SessionNameUpdatedAt,
+		Source:                mr.Source,
+		SourceID:              mr.SourceID,
+		SourceMetadata:        mr.SourceMetadata,
+		ConfigCommit:          mr.ConfigCommit,
+		TmuxPane:              mr.TmuxPane,
+		PromptCount:           mr.PromptCount,
+		CreatedAt:             mr.CreatedAt,
+		UpdatedAt:             mr.UpdatedAt,
+		ClaudeArgs:            mr.ClaudeArgs,
+		ClaudePassthroughArgs: mr.ClaudePassthroughArgs,
+		ResolvedSessionTitle:  mr.ResolvedSessionTitle,
+		IsAdjutant:            mr.IsAdjutant,
+		ClaudeState:           mr.ClaudeState,
+		IsAttached:            mr.IsAttached,
+		PeerName:              mr.PeerName,
+		PeerTmuxTarget:        mr.PeerTmuxTarget,
 	}
 }
 
 func toMissionResponse(m *database.Mission) MissionResponse {
 	return MissionResponse{
-		ID:                   m.ID,
-		ShortID:              m.ShortID,
-		Prompt:               m.Prompt,
-		Status:               m.Status,
-		GitRepo:              m.GitRepo,
-		LastHeartbeat:        m.LastHeartbeat,
-		LastUserPromptAt:     m.LastUserPromptAt,
-		SessionName:          m.SessionName,
-		SessionNameUpdatedAt: m.SessionNameUpdatedAt,
-		Source:               m.Source,
-		SourceID:             m.SourceID,
-		SourceMetadata:       m.SourceMetadata,
-		ConfigCommit:         m.ConfigCommit,
-		TmuxPane:             m.TmuxPane,
-		PromptCount:          m.PromptCount,
-		CreatedAt:            m.CreatedAt,
-		UpdatedAt:            m.UpdatedAt,
-		ClaudeArgs:           m.ClaudeArgs,
-		ResolvedSessionTitle: m.ResolvedSessionTitle,
-		IsAdjutant:           m.IsAdjutant,
-		IsAttached:           m.IsAttached,
-		PeerName:             m.PeerName,
-		PeerTmuxTarget:       m.PeerTmuxTarget,
+		ID:                    m.ID,
+		ShortID:               m.ShortID,
+		Prompt:                m.Prompt,
+		Status:                m.Status,
+		GitRepo:               m.GitRepo,
+		LastHeartbeat:         m.LastHeartbeat,
+		LastUserPromptAt:      m.LastUserPromptAt,
+		SessionName:           m.SessionName,
+		SessionNameUpdatedAt:  m.SessionNameUpdatedAt,
+		Source:                m.Source,
+		SourceID:              m.SourceID,
+		SourceMetadata:        m.SourceMetadata,
+		ConfigCommit:          m.ConfigCommit,
+		TmuxPane:              m.TmuxPane,
+		PromptCount:           m.PromptCount,
+		CreatedAt:             m.CreatedAt,
+		UpdatedAt:             m.UpdatedAt,
+		ClaudeArgs:            m.ClaudeArgs,
+		ClaudePassthroughArgs: m.ClaudePassthroughArgs,
+		ResolvedSessionTitle:  m.ResolvedSessionTitle,
+		IsAdjutant:            m.IsAdjutant,
+		IsAttached:            m.IsAttached,
+		PeerName:              m.PeerName,
+		PeerTmuxTarget:        m.PeerTmuxTarget,
 		// ClaudeState intentionally omitted — it is set post-conversion by
 		// enrichMissionResponse; database.Mission.ClaudeState is always nil here.
 	}
@@ -410,6 +417,14 @@ type CreateMissionRequest struct {
 	// HTTP API is reachable by clients that never went through the CLI's
 	// flag parsing.
 	ClaudeArgs map[string]string `json:"claude_args"`
+
+	// ClaudePassthroughArgs is Claude CLI argv to hand to this mission's Claude
+	// process verbatim, appended after everything the config chains and
+	// ClaudeArgs contribute. Not validated against anything: `agenc mission new`
+	// is a trusted-caller surface (the caller can run `claude` with any flag
+	// directly), and screening the list would defeat the point of a channel that
+	// supports a new Claude flag without an AgenC change.
+	ClaudePassthroughArgs []string `json:"claude_passthrough_args"`
 }
 
 // resolveTrustedMcpServers reads the MCP trust configuration for a repo from
@@ -464,7 +479,10 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 	}
 
 	// Build creation params
-	createParams := &database.CreateMissionParams{ClaudeArgs: req.ClaudeArgs}
+	createParams := &database.CreateMissionParams{
+		ClaudeArgs:            req.ClaudeArgs,
+		ClaudePassthroughArgs: req.ClaudePassthroughArgs,
+	}
 	if req.Source != "" {
 		createParams.Source = &req.Source
 	}
@@ -665,6 +683,16 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	// and the CLI reports what was inherited so it is never a silent choice.
 	if len(createParams.ClaudeArgs) == 0 {
 		createParams.ClaudeArgs = sourceMission.ClaudeArgs
+	}
+
+	// The passthrough args carry over on the same reasoning, and independently:
+	// a clone that inherits the source's system prompt but not its model (or the
+	// reverse) is neither "another one of these" nor anything the caller asked
+	// for. Passing anything after `--` on the clone command replaces the
+	// inherited list wholesale, since the two lists cannot be merged without
+	// knowing which of their flags are scalar.
+	if len(createParams.ClaudePassthroughArgs) == 0 {
+		createParams.ClaudePassthroughArgs = sourceMission.ClaudePassthroughArgs
 	}
 
 	missionRecord, err := s.db.CreateMission(sourceMission.GitRepo, createParams)
