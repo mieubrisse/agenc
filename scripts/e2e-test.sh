@@ -2396,6 +2396,52 @@ run_test "mission new refuses to redirect Claude's config directory" \
     1 \
     "${agenc_test}" mission new --blank --headless --no-focus --env "CLAUDE_CONFIG_DIR=/tmp/no-hooks-here"
 
+# The one case where this change could break something and still look fine.
+# This test environment DOES set CLAUDE_CONFIG_DIR, for isolation from the real
+# ~/.claude, and AgenC forwards it through the tmux env prefix. So the two
+# halves of the protection have to do opposite things to the same name here:
+# the drop has to kill a caller's value (asserted by the refusal above), and the
+# re-application has to preserve the environment's (asserted here).
+#
+# A green suite does not distinguish "both halves work" from "the drop silently
+# did nothing in this environment", because a mission that fell back to the real
+# ~/.claude would still function -- that is production behaviour. Only reading
+# the live process settles it. The unit test pins the same property
+# deterministically for every name in the registry, but it exercises only
+# BuildClaudeCmd; this covers the whole forwarding chain from tmuxEnvPrefix down.
+total=$((total + 1))
+printf "  %-50s " "the environment's own CLAUDE_CONFIG_DIR survives..."
+configdir_claude_pid=$(find_mission_claude_pid "${env_mission_uuid}")
+if [[ -z "${configdir_claude_pid}" ]]; then
+    echo "SKIP (no Claude process observed for the mission)"
+    skipped=$((skipped + 1))
+else
+    configdir_claude_env=$(ps -Eww -o command= -p "${configdir_claude_pid}" 2>/dev/null || true)
+    if [[ -z "${configdir_claude_env}" ]]; then
+        echo "SKIP (could not read the Claude process environment)"
+        skipped=$((skipped + 1))
+    else
+        configdir_resolved=$(echo "${configdir_claude_env}" \
+            | tr ' ' '\n' \
+            | grep "^CLAUDE_CONFIG_DIR=" \
+            | tail -1 \
+            | cut -d= -f2 || true)
+        # Matched on the suffix rather than the full path: the wrapper script
+        # resolves AGENC_DIRPATH with its own `cd && pwd`, so a symlink
+        # anywhere above the repo could render the same directory by a
+        # different string. The suffix is enough for the property being
+        # asserted -- that the value is the test environment's own, rather than
+        # a caller's or absent.
+        if [[ "${configdir_resolved}" == */_test-env/claude-config ]]; then
+            echo "PASS"
+            passed=$((passed + 1))
+        else
+            echo "FAIL (CLAUDE_CONFIG_DIR resolved to '${configdir_resolved:-<absent>}', want the test environment's own)"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 # The refusal says which names are AgenC's, so a caller can fix it without
 # reading the source.
 run_test_output_contains \
