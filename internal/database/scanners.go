@@ -29,9 +29,9 @@ func scanMissions(rows *sql.Rows) ([]*Mission, error) {
 // of columns together tripped the cyclomatic-complexity limit.
 func scanMissionFromRows(rows *sql.Rows) (*Mission, error) {
 	var m Mission
-	var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane, source, sourceID, sourceMetadata, claudeArgs, claudePassthroughArgs sql.NullString
+	var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane, source, sourceID, sourceMetadata, claudeArgs, claudePassthroughArgs, claudeEnv sql.NullString
 	var createdAt, updatedAt string
-	if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt, &source, &sourceID, &sourceMetadata, &claudeArgs, &claudePassthroughArgs); err != nil {
+	if err := rows.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt, &source, &sourceID, &sourceMetadata, &claudeArgs, &claudePassthroughArgs, &claudeEnv); err != nil {
 		return nil, stacktrace.Propagate(err, "failed to scan mission row")
 	}
 	if lastHeartbeat.Valid {
@@ -86,6 +86,11 @@ func scanMissionFromRows(rows *sql.Rows) (*Mission, error) {
 		return nil, stacktrace.Propagate(err, "failed to parse Claude passthrough args for mission '%s'", m.ID)
 	}
 	m.ClaudePassthroughArgs = parsedClaudePassthroughArgs
+	parsedClaudeEnv, err := unmarshalClaudeEnv(claudeEnv)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse Claude env for mission '%s'", m.ID)
+	}
+	m.ClaudeEnv = parsedClaudeEnv
 	m.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse created_at timestamp")
@@ -171,9 +176,9 @@ func populateNotificationFields(n *Notification, sourceRepo, missionID sql.NullS
 // scanMission scans a single mission row from a query result.
 func scanMission(row *sql.Row) (*Mission, error) {
 	var m Mission
-	var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane, source, sourceID, sourceMetadata, claudeArgs, claudePassthroughArgs sql.NullString
+	var lastHeartbeat, lastUserPromptAt, sessionNameUpdatedAt, cronID, cronName, configCommit, tmuxPane, source, sourceID, sourceMetadata, claudeArgs, claudePassthroughArgs, claudeEnv sql.NullString
 	var createdAt, updatedAt string
-	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt, &source, &sourceID, &sourceMetadata, &claudeArgs, &claudePassthroughArgs); err != nil {
+	if err := row.Scan(&m.ID, &m.ShortID, &m.Prompt, &m.Status, &m.GitRepo, &lastHeartbeat, &lastUserPromptAt, &m.SessionName, &sessionNameUpdatedAt, &cronID, &cronName, &configCommit, &tmuxPane, &m.PromptCount, &createdAt, &updatedAt, &source, &sourceID, &sourceMetadata, &claudeArgs, &claudePassthroughArgs, &claudeEnv); err != nil {
 		return nil, err
 	}
 	if lastHeartbeat.Valid {
@@ -228,6 +233,11 @@ func scanMission(row *sql.Row) (*Mission, error) {
 		return nil, stacktrace.Propagate(err, "failed to parse Claude passthrough args for mission '%s'", m.ID)
 	}
 	m.ClaudePassthroughArgs = parsedClaudePassthroughArgs
+	parsedClaudeEnv, err := unmarshalClaudeEnv(claudeEnv)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to parse Claude env for mission '%s'", m.ID)
+	}
+	m.ClaudeEnv = parsedClaudeEnv
 	m.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to parse created_at timestamp")

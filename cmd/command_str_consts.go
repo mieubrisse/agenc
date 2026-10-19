@@ -108,6 +108,7 @@ const (
 	blankFlagName    = "blank"
 	adjutantFlagName = "adjutant"
 	noFocusFlagName  = "no-focus"
+	envFlagName      = "env"
 
 	// mission reload flags
 	asyncFlagName = "async"

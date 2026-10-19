@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/mieubrisse/stacktrace"
+
+	"github.com/odyssey/agenc/internal/config"
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/server"
@@ -42,10 +44,10 @@ func runMissionRename(cmd *cobra.Command, args []string) error {
 	if len(args) >= 1 {
 		missionID = args[0]
 	} else {
-		missionID = os.Getenv("AGENC_CALLING_MISSION_UUID")
+		missionID = os.Getenv(config.CallingMissionUUIDEnvVar)
 	}
 	if missionID == "" {
-		return stacktrace.NewError("no mission ID provided; pass a mission ID or set $AGENC_CALLING_MISSION_UUID")
+		return stacktrace.NewError("no mission ID provided; pass a mission ID or set $%s", config.CallingMissionUUIDEnvVar)
 	}
 
 	// Resolve the active session

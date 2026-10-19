@@ -270,11 +270,11 @@ func buildPaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMis
 		}
 	}
 
-	callingPane := os.Getenv("AGENC_CALLING_PANE_ID")
+	callingPane := os.Getenv(config.CallingPaneIDEnvVar)
 	if callingPane != "" {
-		envPrefix += fmt.Sprintf("export AGENC_CALLING_PANE_ID=%s; ", callingPane)
+		envPrefix += fmt.Sprintf("export %s=%s; ", config.CallingPaneIDEnvVar, callingPane)
 	}
-	callingSession := os.Getenv("AGENC_CALLING_SESSION_NAME")
+	callingSession := os.Getenv(config.CallingSessionNameEnvVar)
 	if callingSession != "" {
 		envPrefix += fmt.Sprintf("export AGENC_CALLING_SESSION_NAME=%s; ", callingSession)
 	}
@@ -290,7 +290,7 @@ func buildPaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMis
 	if strings.Contains(fullCommand, "display-popup") {
 		var popupEnv string
 		if callingPane != "" {
-			popupEnv += fmt.Sprintf(" -e AGENC_CALLING_PANE_ID=%s", callingPane)
+			popupEnv += fmt.Sprintf(" -e %s=%s", config.CallingPaneIDEnvVar, callingPane)
 		}
 		if callingSession != "" {
 			popupEnv += fmt.Sprintf(" -e AGENC_CALLING_SESSION_NAME=%s", callingSession)

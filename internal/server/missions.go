@@ -52,6 +52,10 @@ type MissionResponse struct {
 	// config chains contribute.
 	ClaudePassthroughArgs []string `json:"claude_passthrough_args"`
 
+	// ClaudeEnv holds the environment variables the mission was created with,
+	// injected into its Claude process environment at every spawn.
+	ClaudeEnv map[string]string `json:"claude_env"`
+
 	// ResolvedSessionTitle is derived from the active session's title chain:
 	// custom_title > agenc_custom_title > auto_summary. Empty if no session exists.
 	ResolvedSessionTitle string `json:"resolved_session_title"`
@@ -100,6 +104,7 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		UpdatedAt:             mr.UpdatedAt,
 		ClaudeArgs:            mr.ClaudeArgs,
 		ClaudePassthroughArgs: mr.ClaudePassthroughArgs,
+		ClaudeEnv:             mr.ClaudeEnv,
 		ResolvedSessionTitle:  mr.ResolvedSessionTitle,
 		IsAdjutant:            mr.IsAdjutant,
 		ClaudeState:           mr.ClaudeState,
@@ -130,6 +135,7 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		UpdatedAt:             m.UpdatedAt,
 		ClaudeArgs:            m.ClaudeArgs,
 		ClaudePassthroughArgs: m.ClaudePassthroughArgs,
+		ClaudeEnv:             m.ClaudeEnv,
 		ResolvedSessionTitle:  m.ResolvedSessionTitle,
 		IsAdjutant:            m.IsAdjutant,
 		IsAttached:            m.IsAttached,
@@ -425,6 +431,13 @@ type CreateMissionRequest struct {
 	// directly), and screening the list would defeat the point of a channel that
 	// supports a new Claude flag without an AgenC change.
 	ClaudePassthroughArgs []string `json:"claude_passthrough_args"`
+
+	// ClaudeEnv holds environment variables to inject into this mission's Claude
+	// process environment, and nothing else's. Validated before anything is
+	// persisted: a name a shell cannot expand would be delivered to the process
+	// and then be unreadable by the hook that is the only consumer, and the HTTP
+	// API is reachable by clients that never went through the CLI's parsing.
+	ClaudeEnv map[string]string `json:"claude_env"`
 }
 
 // resolveTrustedMcpServers reads the MCP trust configuration for a repo from
@@ -455,6 +468,41 @@ func (s *Server) seedMissionTrustBestEffort(agentDirpath, gitRepoName, shortID s
 	}
 }
 
+// validateCreateMissionClaudeInputs checks the parts of a create request that
+// are handed on to Claude. The CLI's own flag parsing already rejects a
+// malformed one, so this is the guard for the HTTP API, which any client can
+// reach. Returns an HTTP 400 error, ready to return from a handler.
+func validateCreateMissionClaudeInputs(req CreateMissionRequest) error {
+	if err := mission.ValidateMissionClaudeArgs(req.ClaudeArgs); err != nil {
+		return newHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if err := mission.ValidateMissionEnv(req.ClaudeEnv); err != nil {
+		return newHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return nil
+}
+
+// buildCreateMissionParams translates a create request into the database
+// creation params. The optional string fields are pointers on the row, so an
+// unset one must stay nil rather than become an empty string.
+func buildCreateMissionParams(req CreateMissionRequest) *database.CreateMissionParams {
+	createParams := &database.CreateMissionParams{
+		ClaudeArgs:            req.ClaudeArgs,
+		ClaudePassthroughArgs: req.ClaudePassthroughArgs,
+		ClaudeEnv:             req.ClaudeEnv,
+	}
+	if req.Source != "" {
+		createParams.Source = &req.Source
+	}
+	if req.SourceID != "" {
+		createParams.SourceID = &req.SourceID
+	}
+	if req.SourceMetadata != "" {
+		createParams.SourceMetadata = &req.SourceMetadata
+	}
+	return createParams
+}
+
 // handleCreateMission handles POST /missions.
 // Creates a mission record, sets up the mission directory, and spawns the
 // wrapper process in the caller's tmux session (or headless).
@@ -474,24 +522,11 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
-	if err := mission.ValidateMissionClaudeArgs(req.ClaudeArgs); err != nil {
-		return newHTTPError(http.StatusBadRequest, err.Error())
+	if err := validateCreateMissionClaudeInputs(req); err != nil {
+		return err
 	}
 
-	// Build creation params
-	createParams := &database.CreateMissionParams{
-		ClaudeArgs:            req.ClaudeArgs,
-		ClaudePassthroughArgs: req.ClaudePassthroughArgs,
-	}
-	if req.Source != "" {
-		createParams.Source = &req.Source
-	}
-	if req.SourceID != "" {
-		createParams.SourceID = &req.SourceID
-	}
-	if req.SourceMetadata != "" {
-		createParams.SourceMetadata = &req.SourceMetadata
-	}
+	createParams := buildCreateMissionParams(req)
 	// Handle clone-from request
 	if req.CloneFrom != "" {
 		return s.handleCreateClonedMission(w, req, createParams)
@@ -694,6 +729,17 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 	if len(createParams.ClaudePassthroughArgs) == 0 {
 		createParams.ClaudePassthroughArgs = sourceMission.ClaudePassthroughArgs
 	}
+
+	// The mission's environment deliberately does NOT carry over, which is the
+	// one asymmetry in this function. The two arg channels describe how a
+	// mission runs, so "another one of these" means another one run the same
+	// way. An environment variable is a marker of what a mission is FOR, and
+	// the first thing it marks is a session a Claude Code hook will treat
+	// differently — exempting it from a gate, say. A marker that rode silently
+	// into every clone is the fail-open leak that got ambient AGENC_*
+	// forwarding rejected when this channel was designed: the exemption spreads
+	// to missions nobody declared. A clone that needs the marker is given it
+	// explicitly, which is one flag and leaves a record on its own row.
 
 	missionRecord, err := s.db.CreateMission(sourceMission.GitRepo, createParams)
 	if err != nil {
