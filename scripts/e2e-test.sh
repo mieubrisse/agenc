@@ -2437,11 +2437,15 @@ else
         echo "SKIP (could not read the Claude process environment)"
         skipped=$((skipped + 1))
     else
+        # "|| true" because absent is a legitimate PASS here: after the drop,
+        # AgenC re-applies this variable only if it has one of its own, and on
+        # a default install it does not. Without it, grep exits 1 on the
+        # success case and `set -o pipefail` kills the whole script.
         handedited_resolved_source=$(echo "${handedited_claude_env}" \
             | tr ' ' '\n' \
             | grep "^AGENC_MISSION_SOURCE=" \
             | tail -1 \
-            | cut -d= -f2)
+            | cut -d= -f2 || true)
         if [[ "${handedited_resolved_source}" == "cron" ]]; then
             echo "FAIL (a hand-edited AGENC_MISSION_SOURCE=cron reached Claude; the night-gate bypass is open)"
             failed=$((failed + 1))

@@ -76,13 +76,26 @@ const OAuthTokenEnvVar = "CLAUDE_CODE_OAUTH_TOKEN"
 //     mission pointing Claude at a different config dir keeps AgenC's
 //     instrumentation. It does change which credentials and which CLAUDE.md
 //     that mission gets.
-//   - PATH, HOME, TMUX, TMUX_PANE and the rest of the base process
-//     environment. A mission can break its own instrumentation through these —
-//     the state hooks invoke a bare `agenc`, resolved via PATH — but they are
-//     the operating system's namespace, not AgenC's, and enumerating
-//     everything a mission depends on has no natural end. Whether AgenC should
-//     refuse them is a separate decision from this channel; it is recorded as
-//     open rather than settled here.
+//
+//   - PATH, HOME, TMUX, TMUX_PANE, EDITOR and the rest of the base process
+//     environment. The line is what a name lets a mission reach. The names in
+//     this list let a mission either masquerade to AgenC's own gates
+//     (AGENC_MISSION_SOURCE) or aim an AgenC command at a DIFFERENT mission
+//     (the AGENC_CALLING_* names) — both cross a boundary out of the mission.
+//     The base-environment names only let a mission damage ITSELF: a bad PATH
+//     breaks its own state hooks, a bad EDITOR misruns its own `mission draft`.
+//     A mission's Claude can already run arbitrary commands, so affecting
+//     itself is not a capability `--env` adds, and enumerating everything a
+//     mission depends on has no natural end.
+//
+//     Checked rather than assumed, because the obvious worry is that TMUX or
+//     TMUX_PANE could retarget an operation the way the calling names do. They
+//     cannot: TMUX is read only as a presence test (`os.Getenv("TMUX") == ""`
+//     in getCurrentTmuxSessionName), and the session it then acts on comes from
+//     asking the tmux server via `tmux display-message`, not from the variable.
+//     TMUX_PANE is read by the wrapper, which is the mission's PARENT process
+//     and does not inherit the mission's `--env`. If a future change makes one
+//     of these choose a target, it belongs in this list.
 var ProtectedEnvVars = []string{
 	MissionUUIDEnvVar,
 	MissionSourceEnvVar,
