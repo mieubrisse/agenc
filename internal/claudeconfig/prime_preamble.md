@@ -11,7 +11,15 @@ Your mission has its own directory at `$AGENC_DIRPATH/missions/$AGENC_MISSION_UU
 Configuration Source of Truth
 -----------------------------
 
-AgenC config lives canonically at `~/.claude/`. Missions run plain `claude` against the real `~/.claude` — `CLAUDE_CONFIG_DIR` is **not set**. Edits to `~/.claude/` (CLAUDE.md, skills, hooks, settings) take effect on the mission's next Claude spawn or reload; no rebuild step is needed.
+AgenC config lives canonically at `~/.claude/`. Missions run plain `claude` against the real `~/.claude` — `CLAUDE_CONFIG_DIR` is **not set**, and there is no rebuild step. Whether an edit reaches a *running* mission depends on which surface you edited:
+
+- **Skills** under `~/.claude/skills/` and **settings files** (`~/.claude/settings.json`, including the `permissions` and `hooks` they declare) are watched on disk, so the edit lands in a running mission with no reload. Skills take a few seconds to register — if you write one and the `Skill` tool answers `Unknown skill`, you were early; retry before concluding skills are not live.
+- **CLAUDE.md** is injected at session start, and no watcher for it is documented or has been observed. A running mission keeps the copy it started with, so treat a CLAUDE.md edit as reaching the next spawn. Claude Code re-reads the *project-root* CLAUDE.md after a compaction; whether `~/.claude/CLAUDE.md` is re-read then is **undetermined** — the docs name only the project-root file, and this was not tested.
+- Two carve-outs. `model`, `effortLevel` and `modelSettings` are read once at session start, so editing them mid-mission changes nothing. Hooks, agents and MCP servers supplied by a **plugin** need `/reload-plugins`; only hooks declared in a settings file are watched.
+
+A reload after a config change therefore usually buys nothing. The case that still needs one is a mission that must act on a `CLAUDE.md` change another session made while it was running.
+
+*Per-surface behaviour established 2026-10-21 against Claude Code 2.1.274 (KEV-145), by experiment in a live mission plus Claude Code's own documentation. This describes another tool's behaviour and will drift — re-check it rather than trusting it against a much later version.*
 
 AgenC layers its own operational plumbing (state-tracking hooks, the `agenc prime` SessionStart hook, repo-library guard, agent-dir allow, server-socket allowlist) per-invocation via a machine-generated `op-settings.json` file passed as `--settings`. This file is regenerated on every spawn and is not user-editable; edit `~/.claude/` to change what missions see.
 

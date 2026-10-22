@@ -1428,6 +1428,24 @@ run_test_output_contains \
     "Self-Reload Requires" \
     "${agenc_test}" prime
 
+# The per-surface config-pickup framing is the load-bearing bug-fix from
+# KEV-145. The old wording made one blanket claim — edits "take effect on the
+# mission's next Claude spawn or reload" — which is wrong for skills, settings
+# and hooks, all of which Claude Code picks up live. Agents built rules on top
+# of the wrong claim and offered reloads that bought nothing.
+run_test_output_contains \
+    "agenc prime says skills and settings are watched live" \
+    "are watched on disk" \
+    "${agenc_test}" prime
+
+# The honest "we did not establish this" marker. A future edit that resolves
+# the open question should replace this with the answer, not drop the marker
+# and leave a confident guess behind — a confident guess is what KEV-145 fixed.
+run_test_output_contains \
+    "agenc prime marks the undetermined CLAUDE.md-at-compaction case" \
+    "undetermined" \
+    "${agenc_test}" prime
+
 # Regression guard against reintroducing the old Layer 1 CLAUDE.md prepend
 # title. If this string ever shows up in 'agenc prime' output, someone re-added
 # the old agent_instructions.md content under a new name.
