@@ -1446,6 +1446,15 @@ run_test_output_contains \
     "undetermined" \
     "${agenc_test}" prime
 
+# The symlink caveat is the half of KEV-145 that bites on this machine: every
+# path under ~/.claude/ is a symlink into the dotfiles repo, and the canonical
+# edit lands on the target. Without this line the preceding bullet reads as a
+# promise that config edits reach running missions, which they do not here.
+run_test_output_contains \
+    "agenc prime carries the symlink caveat" \
+    "does not follow a symlink out of the watched tree" \
+    "${agenc_test}" prime
+
 # Regression guard against reintroducing the old Layer 1 CLAUDE.md prepend
 # title. If this string ever shows up in 'agenc prime' output, someone re-added
 # the old agent_instructions.md content under a new name.
