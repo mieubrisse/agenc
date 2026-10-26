@@ -41,11 +41,12 @@ func TestGetPrimeContent(t *testing.T) {
 			"are watched on disk",
 			// The honest "we did not establish this" marker, likewise.
 			"**undetermined**",
-			// The symlink caveat is the half that bites on a dotfiles-symlinked
-			// ~/.claude: the watcher does not follow a symlink out of the watched
-			// tree, so a write to the target never reaches a running mission.
-			// Without this, the bullet above over-promises.
-			"does not follow a symlink out of the watched tree",
+			// The symlink caveat. ~/.claude/ is symlinked into a dotfiles repo on
+			// the machine this ships to, so the bullet above over-promises without
+			// it. Edits through the skills *directory* symlink were observed
+			// arriving live; a symlink met inside a watched tree was not followed,
+			// and the settings.json case is still open.
+			"Symlinked config",
 			// Auto-generated CLI command groups
 			"agenc mission",
 			"agenc repo",
