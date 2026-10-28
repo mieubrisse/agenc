@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odyssey/agenc/internal/config"
+	agentmux "github.com/odyssey/agenc/internal/tmux"
 )
 
 var tmuxAttachCmd = &cobra.Command{
@@ -16,6 +17,11 @@ var tmuxAttachCmd = &cobra.Command{
 	Short: "Attach to the AgenC tmux session, creating it if needed",
 	Long: `Attach to the AgenC tmux session. If the session doesn't exist, it is
 created with 'agenc mission new' as the initial command.
+
+A tmux server must already be running. AgenC will not start one, because on
+macOS whichever process creates the tmux server becomes the privacy identity
+for every pane inside it, including your own shells. Run 'tmux' in a terminal
+window first.
 
 The session propagates AGENC_DIRPATH so all windows
 share the same agenc configuration.`,
@@ -95,12 +101,17 @@ func createTmuxSession(agencBinaryPath string, sessionName string) error {
 	}
 	initialCmd += agencBinaryPath + " " + missionCmdStr + " " + newCmdStr
 
-	newSessionCmd := exec.Command("tmux",
-		"new-session",
+	// Refuses when no tmux server is running rather than starting one. The
+	// user runs `tmux` first; see internal/tmux/server_ownership.go for why
+	// AgenC must not be the process that creates the server.
+	newSessionCmd, err := agentmux.NewSessionCommand(
 		"-d",
 		"-s", sessionName,
 		initialCmd,
 	)
+	if err != nil {
+		return stacktrace.Propagate(err, "cannot create the '%v' tmux session", sessionName)
+	}
 	if err := newSessionCmd.Run(); err != nil {
 		return stacktrace.Propagate(err, "failed to create tmux session")
 	}

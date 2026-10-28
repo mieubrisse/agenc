@@ -10,6 +10,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/tmux"
 )
 
 // getPoolSessionName returns the pool tmux session name for this server's
@@ -21,13 +22,22 @@ func (s *Server) getPoolSessionName() string {
 // ensurePoolSession creates the pool tmux session if it doesn't already exist.
 // The session is created detached with a single placeholder window that is
 // destroyed once real mission windows are added.
+//
+// This is the path that made AgenC the privacy identity of the user's own
+// shells for six weeks: with no tmux server running, creating the pool session
+// created the server too, and macOS then attributed every pane in it — the
+// user's sessions included — to the agenc binary. It now refuses instead.
+// See internal/tmux/server_ownership.go.
 func (s *Server) ensurePoolSession() error {
 	poolName := s.getPoolSessionName()
 	if tmuxSessionExists(poolName) {
 		return nil
 	}
 
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", poolName, "-x", "200", "-y", "50")
+	cmd, err := tmux.NewSessionCommand("-d", "-s", poolName, "-x", "200", "-y", "50")
+	if err != nil {
+		return stacktrace.Propagate(err, "cannot create the tmux pool session '%v'", poolName)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return stacktrace.NewError("failed to create pool session: %v (output: %s)", err, string(output))
