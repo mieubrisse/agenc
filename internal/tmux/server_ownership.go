@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"os/exec"
-	"sync"
 
 	"github.com/mieubrisse/stacktrace"
 )
@@ -131,34 +130,43 @@ func RequireRunningServer() error {
 	return nil
 }
 
-var (
-	noStartServerFlagSupportOnce sync.Once
-	noStartServerFlagSupportErr  error
-)
-
 // checkNoStartServerFlagSupported reports whether the installed tmux
-// understands the no-start flag. The answer cannot change inside one process,
-// so it is resolved once rather than paying a `tmux -V` on every guarded call.
+// understands the no-start flag.
+//
+// This deliberately re-runs `tmux -V` on every call rather than caching the
+// answer, and the caching version of it was a bug worth remembering. The
+// obvious reading — "the installed tmux cannot change inside one process, so
+// resolve it once" — is false here, because the process doing the asking is a
+// daemon that runs for days. Cache the failure and a user who does exactly
+// what this error tells them to do, upgrade tmux, meets the identical error
+// afterwards; cache a one-off `tmux -V` failure (tmux not yet on the daemon's
+// PATH, a transient fork failure) and the daemon refuses every mission create
+// for the rest of its life. Both are the shape of failure this whole file
+// exists to prevent: a confident error whose stated remedy leads nowhere.
+//
+// The cost of not caching is one extra `tmux -V` on paths that already fork
+// tmux several times, which is noise.
 func checkNoStartServerFlagSupported() error {
-	noStartServerFlagSupportOnce.Do(func() {
-		major, minor, err := DetectVersion()
-		if err != nil {
-			noStartServerFlagSupportErr = stacktrace.Propagate(err, "cannot determine the installed tmux version, which AgenC needs in order to use tmux safely")
-			return
-		}
-		isSupported := major > noStartServerFlagMajorVersion ||
-			(major == noStartServerFlagMajorVersion && minor >= noStartServerFlagMinorVersion)
-		if !isSupported {
-			noStartServerFlagSupportErr = stacktrace.NewError(
-				"tmux %d.%d is installed, but AgenC requires tmux >= %d.%d: it uses tmux's '%s' flag to guarantee it never creates the tmux server, and that flag was added in tmux %d.%d. Upgrade tmux.",
-				major, minor,
-				noStartServerFlagMajorVersion, noStartServerFlagMinorVersion,
-				noStartServerFlag,
-				noStartServerFlagMajorVersion, noStartServerFlagMinorVersion,
-			)
-		}
-	})
-	return noStartServerFlagSupportErr
+	major, minor, err := DetectVersion()
+	if err != nil {
+		return stacktrace.Propagate(err, "cannot determine the installed tmux version, which AgenC needs in order to use tmux safely")
+	}
+	isSupported := major > noStartServerFlagMajorVersion ||
+		(major == noStartServerFlagMajorVersion && minor >= noStartServerFlagMinorVersion)
+	if isSupported {
+		return nil
+	}
+	// "reports major.minor" rather than "tmux X.Y is installed", because
+	// ParseVersion drops a point-release suffix: tmux 3.1c parses as 3.1, and
+	// a diagnostic whose job is to be believed should not print a version
+	// string that differs from what the reader's own `tmux -V` says.
+	return stacktrace.NewError(
+		"the installed tmux reports major.minor %d.%d, but AgenC requires tmux >= %d.%d: it uses tmux's top-level '%s' flag to guarantee it never creates the tmux server, and that flag was added in tmux %d.%d. Upgrade tmux.",
+		major, minor,
+		noStartServerFlagMajorVersion, noStartServerFlagMinorVersion,
+		noStartServerFlag,
+		noStartServerFlagMajorVersion, noStartServerFlagMinorVersion,
+	)
 }
 
 // NewSessionCommand builds a `tmux new-session` command with the given

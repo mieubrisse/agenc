@@ -3259,7 +3259,11 @@ fi
 # documented recipe for handing the tmux server back to the terminal, where
 # running it a moment too early is the obvious mistake -- so the stash surviving
 # is the assertion that matters, not just the exit code.
-tmux_guard_push_output="$(agenc_test_without_tmux_server stash push 2>&1 || true)"
+# --force so the push does not depend on the mission reading idle. Without it,
+# an environment where Claude actually starts (one with an OAuth token, unlike
+# CI) gets a 409 conflict here and the three assertions below fail for a reason
+# that has nothing to do with what they test.
+tmux_guard_push_output="$(agenc_test_without_tmux_server stash push --force 2>&1 || true)"
 
 # `stash push` answers the CLI as soon as the stash file is written and then
 # stops the wrappers in the background, holding an in-progress flag that makes
@@ -3326,7 +3330,16 @@ total=$((total + 1))
 printf "  %-50s " "the same stash pops once a server is back..."
 tmux_guard_repop_exit=0
 tmux_guard_repop_output="$(agenc_test_without_tmux_server stash pop 2>&1)" || tmux_guard_repop_exit=$?
-if [ "${tmux_guard_repop_exit}" -eq 0 ] && [[ "${tmux_guard_repop_output}" == *"Restored"* ]]; then
+# The count has to be non-zero, not merely present. The CLI prints
+# "Restored %d mission(s)." for any count, so matching the bare word would have
+# passed on "Restored 0" -- an assertion satisfied by restoring nothing, under a
+# name claiming the opposite, which is the green-but-blind shape this suite has
+# been bitten by before. Pinning an exact count would be wrong in the other
+# direction: `stash push` stashes every running mission, so the number depends
+# on how many earlier sections left running.
+if [ "${tmux_guard_repop_exit}" -eq 0 ] \
+    && [[ "${tmux_guard_repop_output}" == *"Restored "* ]] \
+    && [[ "${tmux_guard_repop_output}" != *"Restored 0 mission(s)"* ]]; then
     echo "PASS"
     passed=$((passed + 1))
 else

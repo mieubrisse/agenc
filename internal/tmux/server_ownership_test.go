@@ -238,3 +238,48 @@ func TestIsServerRunningDoesNotCreateAServer(t *testing.T) {
 func tmuxSocketSubdirname() string {
 	return "tmux-" + strconv.Itoa(os.Getuid())
 }
+
+// TestNoStartServerFlagSupportIsNotCachedAcrossAnUpgrade pins the absence of a
+// cache in checkNoStartServerFlagSupported, which is the kind of absence that
+// gets optimised away by a well-meaning future change.
+//
+// Caching looks obviously right — the installed tmux cannot change inside one
+// process — and is wrong here, because the process asking is a daemon that
+// runs for days. A cached "too old" answer means a user who does exactly what
+// the error tells them to do, upgrade tmux, meets the identical error
+// afterwards, forever. That is a confident error whose stated remedy leads
+// nowhere, which is the failure this file exists to prevent.
+func TestNoStartServerFlagSupportIsNotCachedAcrossAnUpgrade(t *testing.T) {
+	fakeTmuxDirpath := t.TempDir()
+	fakeTmuxVersionFilepath := filepath.Join(fakeTmuxDirpath, "version")
+	fakeTmuxFilepath := filepath.Join(fakeTmuxDirpath, "tmux")
+
+	fakeTmuxScript := "#!/bin/sh\ncat " + fakeTmuxVersionFilepath + "\n"
+	if err := os.WriteFile(fakeTmuxFilepath, []byte(fakeTmuxScript), 0o755); err != nil {
+		t.Fatalf("failed to write the fake tmux: %v", err)
+	}
+	t.Setenv("PATH", fakeTmuxDirpath+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	writeFakeTmuxVersion := func(version string) {
+		if err := os.WriteFile(fakeTmuxVersionFilepath, []byte(version+"\n"), 0o644); err != nil {
+			t.Fatalf("failed to set the fake tmux version to %v: %v", version, err)
+		}
+	}
+
+	// A point release below the floor, deliberately: 3.1c parses as 3.1, and
+	// the installed-version half of the message must not claim otherwise.
+	writeFakeTmuxVersion("tmux 3.1c")
+	tooOldErr := checkNoStartServerFlagSupported()
+	if tooOldErr == nil {
+		t.Fatal("tmux 3.1c was accepted, but it does not have the no-start flag")
+	}
+	if strings.Contains(tooOldErr.Error(), "tmux 3.1 is installed") {
+		t.Errorf("the error claims to echo the installed version but drops the point release, which will not match the reader's own 'tmux -V': %v", tooOldErr)
+	}
+
+	// The upgrade the error asks for, in the same process.
+	writeFakeTmuxVersion("tmux 3.6a")
+	if err := checkNoStartServerFlagSupported(); err != nil {
+		t.Errorf("after upgrading tmux in the same process the check still refuses, so the answer is cached: %v", err)
+	}
+}
