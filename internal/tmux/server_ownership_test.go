@@ -1,6 +1,9 @@
 package tmux
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,13 +15,23 @@ import (
 )
 
 // serverCreatingTmuxCommandRegexp finds a tmux command that starts the tmux
-// server, written as a Go string literal. The quote characters are part of the
-// pattern so prose that merely names the command does not match.
-var serverCreatingTmuxCommandRegexp = regexp.MustCompile(`"(new-session|start-server)"`)
+// server. It is applied to the CONTENTS of Go string literals rather than to
+// raw source text, which is what lets it look for the command as a word
+// anywhere inside a string -- `"new-session"` passed as its own argument, and
+// equally `"tmux new-session -d"` embedded in a shell command string, which is
+// the form tmux keybinding and palette commands are built in. Matching raw
+// source would instead flag every comment that names the command, including
+// the ones in server_ownership.go explaining why it is forbidden.
+var serverCreatingTmuxCommandRegexp = regexp.MustCompile(`\b(new-session|start-server)\b`)
 
-// serverOwnershipSourceFilename is the one file allowed to build a
-// server-creating tmux command. Everything else goes through NewSessionCommand.
+// serverOwnershipSourceFilename is the one file allowed to name a
+// server-creating tmux command in a string. Everything else goes through
+// NewSessionCommand.
 const serverOwnershipSourceFilename = "server_ownership.go"
+
+// serverOwnershipTestFilename is this file, which names both commands in its
+// own regex and in its probes, and so must exempt itself from its own scan.
+const serverOwnershipTestFilename = "server_ownership_test.go"
 
 // skippedScanDirnames are directories the repository scan does not descend
 // into: build output, the isolated test environment, and vendored code.
@@ -32,26 +45,32 @@ var skippedScanDirnames = map[string]bool{
 
 // TestOnlyServerOwnershipBuildsServerCreatingCommands is what makes "AgenC
 // never creates the tmux server" an enforced invariant rather than a comment
-// someone has to find and believe. It scans the WHOLE REPOSITORY for a tmux
-// command that starts the server, written as a Go string literal, and fails if
-// one appears outside server_ownership.go.
+// someone has to find and believe. It parses every Go file in the WHOLE
+// REPOSITORY and fails if any string literal outside server_ownership.go names
+// a tmux command that starts the server.
 //
 // The invariant needs mechanical enforcement specifically because violating it
 // is silent. Creating the tmux server makes the creating process the macOS TCC
-// "responsible process" for every pane in it — including the user's own shells
-// — for the life of the server. Nothing errors at that moment. The damage
-// surfaces weeks later as unrelated permission failures in the user's own
-// terminal, under AgenC's name. See server_ownership.go for the full rationale.
+// "responsible process" for every pane in it -- including the user's own
+// shells -- for the life of the server. Nothing errors at that moment. The
+// damage surfaces weeks later as unrelated permission failures in the user's
+// own terminal, under AgenC's name. See server_ownership.go for the full
+// rationale.
 //
-// So a future `exec.Command("tmux", "new-session", ...)` added in good faith
-// anywhere in this codebase has to fail a test, not merely contradict a
-// comment. The fix for a failure here is to call NewSessionCommand, which
-// refuses with an explanation when no server is running.
+// Of the sixteen tmux subcommands AgenC invokes, `new-session` is the only one
+// that starts a server when none is running -- measured, not assumed. The scan
+// covers `start-server` as well because those are the two commands tmux's own
+// -N flag documentation names, so they are the set to defend even though
+// AgenC does not currently call the second.
+//
+// The fix for a failure here is to call NewSessionCommand, which refuses with
+// an explanation when no server is running.
 func TestOnlyServerOwnershipBuildsServerCreatingCommands(t *testing.T) {
 	repoRootDirpath := "../.."
 
-	offendingFilepaths := map[string][]string{}
+	offendingLiterals := map[string][]string{}
 	allowedFileMatchCount := 0
+	scannedFileCount := 0
 
 	err := filepath.WalkDir(repoRootDirpath, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -67,40 +86,39 @@ func TestOnlyServerOwnershipBuildsServerCreatingCommands(t *testing.T) {
 			return nil
 		}
 
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		matches := serverCreatingTmuxCommandRegexp.FindAllStringSubmatch(string(contents), -1)
-		if len(matches) == 0 {
-			return nil
-		}
-
-		// This test file names both commands in its own regex, and the helper
-		// is the one place allowed to build them.
 		filename := filepath.Base(path)
-		if filename == serverOwnershipSourceFilename {
-			allowedFileMatchCount += len(matches)
-			return nil
-		}
 		if filename == serverOwnershipTestFilename {
 			return nil
 		}
+		scannedFileCount++
 
-		for _, match := range matches {
-			offendingFilepaths[filepath.ToSlash(path)] = append(offendingFilepaths[filepath.ToSlash(path)], match[1])
+		matchedLiterals, err := findServerCreatingTmuxCommandLiterals(path)
+		if err != nil {
+			return err
 		}
+		if len(matchedLiterals) == 0 {
+			return nil
+		}
+		if filename == serverOwnershipSourceFilename {
+			allowedFileMatchCount += len(matchedLiterals)
+			return nil
+		}
+		offendingLiterals[filepath.ToSlash(path)] = matchedLiterals
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("failed to scan the repository for server-creating tmux commands: %v", err)
 	}
 
-	// A scan that finds nothing at all in the one file that is supposed to
-	// contain these commands is a broken scan reporting green, not a clean
-	// repository. The repo has been bitten by exactly that before: an e2e
-	// check whose command printed an empty-state string inspected nothing and
-	// passed while colour was injected right past it.
+	// A scan that parsed almost nothing, or that found no match in the one
+	// file that is supposed to contain these commands, is a broken scan
+	// reporting green rather than a clean repository. This repo has been
+	// bitten by exactly that: an e2e check whose command printed an
+	// empty-state string inspected nothing and passed while colour was
+	// injected right past it.
+	if scannedFileCount < 50 {
+		t.Fatalf("only %d Go files were scanned; the walk is broken, not the code", scannedFileCount)
+	}
 	if allowedFileMatchCount == 0 {
 		t.Fatalf(
 			"found no server-creating tmux command in %v; the scan is broken, not the code",
@@ -108,28 +126,55 @@ func TestOnlyServerOwnershipBuildsServerCreatingCommands(t *testing.T) {
 		)
 	}
 
-	if len(offendingFilepaths) == 0 {
+	if len(offendingLiterals) == 0 {
 		return
 	}
 
 	var sortedFilepaths []string
-	for offendingFilepath := range offendingFilepaths {
+	for offendingFilepath := range offendingLiterals {
 		sortedFilepaths = append(sortedFilepaths, offendingFilepath)
 	}
 	sort.Strings(sortedFilepaths)
 
 	for _, offendingFilepath := range sortedFilepaths {
 		t.Errorf(
-			"%v builds the server-creating tmux command(s) %v directly. AgenC must never create the tmux server: whichever process creates it becomes the macOS privacy identity for every pane in it, including the user's own shells, silently and for weeks. Call tmux.NewSessionCommand instead, which refuses with an explanation when no server is running. See internal/tmux/server_ownership.go.",
+			"%v names a server-creating tmux command in the string(s) %v. AgenC must never create the tmux server: whichever process creates it becomes the macOS privacy identity for every pane in it, including the user's own shells, silently and for weeks. Call tmux.NewSessionCommand instead, which refuses with an explanation when no server is running. See internal/tmux/server_ownership.go.",
 			offendingFilepath,
-			strings.Join(offendingFilepaths[offendingFilepath], ", "),
+			strings.Join(offendingLiterals[offendingFilepath], ", "),
 		)
 	}
 }
 
-// serverOwnershipTestFilename is this file, which names both commands in its
-// own regex and so must exempt itself from its own scan.
-const serverOwnershipTestFilename = "server_ownership_test.go"
+// findServerCreatingTmuxCommandLiterals returns the string literals in a Go
+// file whose contents name a tmux command that starts the server. Parsing the
+// file rather than grepping it is what separates a real command from a comment
+// describing one.
+func findServerCreatingTmuxCommandLiterals(goFilepath string) ([]string, error) {
+	fileSet := token.NewFileSet()
+	parsedFile, err := parser.ParseFile(fileSet, goFilepath, nil, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+
+	var matchedLiterals []string
+	ast.Inspect(parsedFile, func(node ast.Node) bool {
+		literal, isLiteral := node.(*ast.BasicLit)
+		if !isLiteral || literal.Kind != token.STRING {
+			return true
+		}
+		literalValue, err := strconv.Unquote(literal.Value)
+		if err != nil {
+			// A literal that will not unquote is not something this scan can
+			// reason about; the compiler will have its own opinion.
+			return true
+		}
+		if serverCreatingTmuxCommandRegexp.MatchString(literalValue) {
+			matchedLiterals = append(matchedLiterals, strconv.Quote(literalValue))
+		}
+		return true
+	})
+	return matchedLiterals, nil
+}
 
 // TestIsServerRunningDoesNotCreateAServer pins the half of the guard that is
 // easy to get wrong by accident: the probe itself must not start the thing it
@@ -139,7 +184,8 @@ func TestIsServerRunningDoesNotCreateAServer(t *testing.T) {
 	// A tmux socket path lives in a unix-domain address, which is limited to
 	// around 104 bytes on macOS, so the directory has to be short. t.TempDir()
 	// under the default Go test temp root is comfortably too long and fails
-	// with "File name too long" rather than reporting no server.
+	// with "File name too long" rather than reporting no server -- which would
+	// look like a pass while testing nothing.
 	isolatedSocketDirpath, err := os.MkdirTemp("/tmp", "agenc-tmuxprobe-")
 	if err != nil {
 		t.Fatalf("failed to create an isolated tmux socket directory: %v", err)
