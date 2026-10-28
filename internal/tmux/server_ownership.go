@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"os/exec"
+	"sync"
 
 	"github.com/mieubrisse/stacktrace"
 )
@@ -58,8 +59,15 @@ import (
 // check and the call, and silently acquiring a weeks-long misattribution is
 // precisely the failure this guard exists to prevent.
 //
-// Added in tmux 3.1, which is why cmd/tmux_helpers.go requires that version.
+// Added in tmux 3.2 ("Add -N flag to never start server even if command would
+// normally do so", CHANGES FROM 3.1c TO 3.2), which is why
+// cmd/tmux_helpers.go requires that version.
 const noStartServerFlag = "-N"
+
+const (
+	noStartServerFlagMajorVersion = 3
+	noStartServerFlagMinorVersion = 2
+)
 
 // noTmuxServerErrorMessage is shown to the user when AgenC refuses to create
 // the server. It has to carry the cause, because the refusal otherwise looks
@@ -103,25 +111,93 @@ func IsServerRunning() bool {
 	return exec.Command("tmux", noStartServerFlag, "start-server").Run() == nil
 }
 
+// RequireRunningServer returns nil when AgenC may go ahead and use the tmux
+// server, and otherwise the error to show the user.
+//
+// It checks the tmux version before checking for the server, and the order is
+// the whole point. On a tmux without the no-start flag, every command carrying
+// it fails as an unknown option, so IsServerRunning answers false no matter how
+// healthy the server is — and the refusal would then name a cause that is
+// false and a remedy that cannot work. Diagnosing a correct-looking error with
+// the wrong cause in it is what cost six weeks the first time, so a version
+// problem has to say it is a version problem.
+func RequireRunningServer() error {
+	if err := checkNoStartServerFlagSupported(); err != nil {
+		return err
+	}
+	if !IsServerRunning() {
+		return stacktrace.NewError("%s", noTmuxServerErrorMessage)
+	}
+	return nil
+}
+
+var (
+	noStartServerFlagSupportOnce sync.Once
+	noStartServerFlagSupportErr  error
+)
+
+// checkNoStartServerFlagSupported reports whether the installed tmux
+// understands the no-start flag. The answer cannot change inside one process,
+// so it is resolved once rather than paying a `tmux -V` on every guarded call.
+func checkNoStartServerFlagSupported() error {
+	noStartServerFlagSupportOnce.Do(func() {
+		major, minor, err := DetectVersion()
+		if err != nil {
+			noStartServerFlagSupportErr = stacktrace.Propagate(err, "cannot determine the installed tmux version, which AgenC needs in order to use tmux safely")
+			return
+		}
+		isSupported := major > noStartServerFlagMajorVersion ||
+			(major == noStartServerFlagMajorVersion && minor >= noStartServerFlagMinorVersion)
+		if !isSupported {
+			noStartServerFlagSupportErr = stacktrace.NewError(
+				"tmux %d.%d is installed, but AgenC requires tmux >= %d.%d: it uses tmux's '%s' flag to guarantee it never creates the tmux server, and that flag was added in tmux %d.%d. Upgrade tmux.",
+				major, minor,
+				noStartServerFlagMajorVersion, noStartServerFlagMinorVersion,
+				noStartServerFlag,
+				noStartServerFlagMajorVersion, noStartServerFlagMinorVersion,
+			)
+		}
+	})
+	return noStartServerFlagSupportErr
+}
+
 // NewSessionCommand builds a `tmux new-session` command with the given
 // arguments, refusing with an explanatory error when no tmux server is running.
 //
 // Every `tmux new-session` in AgenC goes through here. Callers pass only the
 // arguments after "new-session" (e.g. "-d", "-s", name).
 func NewSessionCommand(newSessionArgs ...string) (*exec.Cmd, error) {
-	if !IsServerRunning() {
-		return nil, stacktrace.NewError("%s", noTmuxServerErrorMessage)
+	if err := RequireRunningServer(); err != nil {
+		return nil, err
 	}
-
-	tmuxArgs := make([]string, 0, len(newSessionArgs)+2)
-	tmuxArgs = append(tmuxArgs, noStartServerFlag, "new-session")
-	tmuxArgs = append(tmuxArgs, newSessionArgs...)
-	return exec.Command("tmux", tmuxArgs...), nil
+	return noStartServerCommand(append([]string{"new-session"}, newSessionArgs...)...), nil
 }
 
-// NoServerErrorMessage returns the user-facing explanation for a refusal, for
-// callers that need to put it somewhere other than an error return — the
-// notification a cron-triggered mission writes, for instance.
-func NoServerErrorMessage() string {
-	return noTmuxServerErrorMessage
+// AttachSessionCommand builds a `tmux attach-session` command that cannot
+// start a server.
+//
+// attach-session belongs in this file, which is easy to miss: it is not
+// obviously server-creating, and with tmux's default `exit-empty on` the
+// server it starts exits again immediately, so the behaviour reads as
+// harmless. It is not. Under `exit-empty off` that server stays, owned by
+// whichever process invoked attach — AgenC, in the one place AgenC attaches.
+// Measured in an isolated socket directory: with no server running,
+// `tmux attach-session -t =nosuch` creates one whose argv is the attach
+// command itself.
+//
+// Unlike NewSessionCommand this does not refuse up front: its caller reaches
+// it having already established that the session exists, so the flag is a
+// backstop against the server dying in between rather than the gate.
+func AttachSessionCommand(attachSessionArgs ...string) *exec.Cmd {
+	return noStartServerCommand(append([]string{"attach-session"}, attachSessionArgs...)...)
+}
+
+// noStartServerCommand builds a tmux command carrying the no-start flag. It is
+// unexported so that naming a server-creating tmux command stays confined to
+// this file, which is what the repository scan in the test enforces.
+func noStartServerCommand(tmuxArgs ...string) *exec.Cmd {
+	argsWithFlag := make([]string, 0, len(tmuxArgs)+1)
+	argsWithFlag = append(argsWithFlag, noStartServerFlag)
+	argsWithFlag = append(argsWithFlag, tmuxArgs...)
+	return exec.Command("tmux", argsWithFlag...)
 }

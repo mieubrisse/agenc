@@ -62,7 +62,11 @@ func runTmuxAttach(cmd *cobra.Command, args []string) error {
 
 	// Attach to the session. If the session was destroyed (e.g. user cancelled
 	// the picker before we attached), exit cleanly.
-	attachCmd := exec.Command("tmux", "attach-session", "-t", "="+sessionName)
+	//
+	// attach-session carries the no-start flag because it, too, starts a
+	// server when none is running -- easy to miss, since tmux's default
+	// exit-empty makes that server vanish again immediately.
+	attachCmd := agentmux.AttachSessionCommand("-t", "="+sessionName)
 	attachCmd.Stdin = os.Stdin
 	attachCmd.Stdout = os.Stdout
 	attachCmd.Stderr = os.Stderr

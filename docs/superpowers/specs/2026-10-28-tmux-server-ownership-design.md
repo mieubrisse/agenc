@@ -61,11 +61,28 @@ Verified 2026-10-28 on tmux 3.6a, in an isolated tmux world
    is created normally, exit 0. Documented in `man tmux`: "Do not start the
    server even if the command would normally do so (for example new-session or
    start-server)."
-2. `-N` was added in **tmux 3.1** ("Add -N flag to never start server even if
-   command would normally do so", CHANGES FROM 3.0a TO 3.1). AgenC's floor is
-   currently tmux 3.0 (`cmd/tmux_helpers.go`), so the floor moves to 3.1.
-3. `tmux has-session` and `tmux list-sessions` do not create a server either, so
-   either is a safe probe.
+2. `-N` was added in **tmux 3.2** — "Add -N flag to never start server even if
+   command would normally do so", at line 1282 of tmux's `CHANGES`, under the
+   header `CHANGES FROM 3.1c TO 3.2` at line 1238. AgenC's floor was tmux 3.0
+   (`cmd/tmux_helpers.go`), so the floor moves to 3.2.
+
+   A first pass of this document said 3.1, on the strength of a summarising
+   fetch of the same file rather than the file itself. The independent verifier
+   caught it, and the line numbers above are from `grep -n` on the primary
+   source. A wrong floor here is not cosmetic: it would admit tmux 3.1, where
+   every `-N` command fails as an unknown option, so AgenC would refuse
+   everything while reporting "no tmux server is running" with a healthy server
+   in front of the user.
+3. Exactly **three** of the tmux subcommands AgenC invokes start a server:
+   `new-session`, `start-server`, and `attach-session`. The other twenty exit
+   non-zero without creating one.
+
+   `attach-session` needs the right experiment to see, and the obvious one is
+   wrong. Under tmux's default `exit-empty on`, the server it starts exits
+   again before a check can observe it, so a sweep that looks afterwards
+   reports it harmless — which is what a first pass of this work concluded.
+   Re-run with `exit-empty off` the server persists, and its argv is the attach
+   command itself. Found by the verifier; confirmed directly.
 4. `tmux start-server` does **not** leave a server standing: `exit-empty` defaults
    to `on`, so a server with no sessions exits immediately. The remedy text must
    therefore say `tmux`, not `tmux start-server`.
@@ -95,10 +112,18 @@ Two layers, because they do different jobs:
   this issue is about, and `-N` closes it in the kernel rather than in our
   reasoning.
 
-Raising the tmux floor from 3.0 to 3.1 buys that atomicity unconditionally
+Raising the tmux floor from 3.0 to 3.2 buys that atomicity unconditionally
 instead of leaving the weaker guarantee on the configurations nobody runs.
-tmux 3.1 shipped in April 2020. **This is a user-facing requirement change and
-is called out for review.**
+tmux 3.2 shipped in 2021, Homebrew ships 3.6a, and the repo already treats 3.2
+as the floor for the command palette (`display-popup` is skipped below it), so
+the practical surface is small. **It is still a user-facing requirement change
+and is called out for review.**
+
+Because that floor is only checked by one CLI command, `RequireRunningServer`
+re-checks it on the daemon paths. Without that, a user on tmux 3.0 or 3.1 would
+meet a permanent, confident "no tmux server is running" with a running server in
+front of them, and a remedy that cannot work — the same shape of
+correct-looking-but-false diagnosis that cost six weeks in the first place.
 
 ### Mechanical enforcement, matching the repo's own idiom
 
@@ -119,10 +144,14 @@ string literals catches both forms, while parsing is what keeps comments that
 merely name the command — including the ones in `server_ownership.go` explaining
 why it is forbidden — from tripping the test.
 
-Scope was measured rather than assumed: of the sixteen tmux subcommands AgenC
-invokes, `new-session` is the only one that starts a server when none is running.
-`start-server` is covered anyway because those are the two commands tmux's own
-`-N` documentation names, so they are the pair to defend.
+Scope is the three commands measured in finding 3 — `new-session`,
+`start-server` and `attach-session`. All three are confined to the helper, and
+`attach-session` gets its own named builder rather than a generic one precisely
+so the scan can stay strict about where the command may be named.
+
+It does not catch a command assembled from pieces (`"new-"+"session"`). That is
+deliberate-evasion territory, and the mistake being defended against is a
+future caller writing the command the ordinary way.
 
 This is the answer to "a future change must not silently reintroduce it".
 A comment asking people to be careful is not.
@@ -141,13 +170,31 @@ KEV-168 left this open. Failing wins:
 ### Precondition check before anything is created
 
 `handleCreateMission` checks for a running server before it writes the mission
-row, so a refusal leaves nothing half-created. Today a `spawnWrapper` failure is
-swallowed — the mission row is created and the error only logged — which would
-have turned this refusal into a mission with no pane and no explanation.
+row, so a refusal leaves nothing half-created. Without that, the refusal would
+have landed in `spawnWrapper`, whose failures are logged and discarded while the
+handler still returns 201 — a mission with no pane and no explanation.
 
 The site guard in `ensurePoolSession` stays regardless: that is where the
 invariant actually lives, and the precondition check is an ergonomic early exit,
 not the enforcement.
+
+**This narrows that swallow rather than closing it**, and the distinction is
+worth stating plainly because the first draft of this document overclaimed it.
+If the tmux server dies in the window between the precondition and
+`createPoolWindow`, the mission row exists, `spawnWrapper`'s error is logged and
+dropped, and the caller still gets a 201. That swallow is pre-existing and
+untouched here; making `spawnWrapper` failures surface to the caller is a larger
+change than this issue, and is left as follow-up work rather than quietly
+counted as done.
+
+`handlePopStash` gets the same precondition, and there it is load-bearing rather
+than ergonomic. A restore deletes the stash file when it finishes regardless of
+how many missions came back, so a restore into a serverless world printed
+"Restored 0 mission(s)", exited 0, and destroyed the stash — with the cause
+visible only in the daemon log. That is both a regression this change would have
+introduced and a trap in step 4 of the remediation recipe below. The residual
+wart — the stash file being deleted even when nothing was restored, for reasons
+other than a missing tmux server — is also pre-existing and also left alone.
 
 ### Cron visibility
 

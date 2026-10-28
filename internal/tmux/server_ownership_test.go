@@ -22,7 +22,7 @@ import (
 // the form tmux keybinding and palette commands are built in. Matching raw
 // source would instead flag every comment that names the command, including
 // the ones in server_ownership.go explaining why it is forbidden.
-var serverCreatingTmuxCommandRegexp = regexp.MustCompile(`\b(new-session|start-server)\b`)
+var serverCreatingTmuxCommandRegexp = regexp.MustCompile(`\b(new-session|start-server|attach-session)\b`)
 
 // serverOwnershipSourceFilename is the one file allowed to name a
 // server-creating tmux command in a string. Everything else goes through
@@ -57,14 +57,21 @@ var skippedScanDirnames = map[string]bool{
 // own terminal, under AgenC's name. See server_ownership.go for the full
 // rationale.
 //
-// Of the sixteen tmux subcommands AgenC invokes, `new-session` is the only one
-// that starts a server when none is running -- measured, not assumed. The scan
-// covers `start-server` as well because those are the two commands tmux's own
-// -N flag documentation names, so they are the set to defend even though
-// AgenC does not currently call the second.
+// The three commands scanned for are the three that start a server, measured
+// across every tmux subcommand AgenC invokes: `new-session`, `start-server`
+// and `attach-session`. Measuring this needs the right condition, and the
+// obvious one is wrong: under tmux's default `exit-empty on`, the server
+// `attach-session` starts exits again before a check can see it, so a sweep
+// that looks afterwards reports it as harmless. Re-run under `exit-empty off`
+// it is plainly server-creating, and the server keeps the attach command's
+// own argv. If you extend this list, use that condition.
 //
-// The fix for a failure here is to call NewSessionCommand, which refuses with
-// an explanation when no server is running.
+// The fix for a failure here is to call NewSessionCommand (which refuses with
+// an explanation when no server is running) or AttachSessionCommand.
+//
+// One honest limit: this catches a command named in a string, not one assembled
+// from pieces -- `"new-"+"session"` passes. Deliberate evasion is not the threat
+// model; a future caller writing the command the ordinary way is.
 func TestOnlyServerOwnershipBuildsServerCreatingCommands(t *testing.T) {
 	repoRootDirpath := "../.."
 
