@@ -31,11 +31,12 @@ const tmuxNoServerNotificationKind = "tmux.no-server"
 // holding a mission slot, which is the same invisible failure mode this whole
 // guard exists to eliminate. A refusal is a signal; a stall is not.
 func (s *Server) requireTmuxServerForMissionCreate(req CreateMissionRequest) error {
-	if tmux.IsServerRunning() {
+	tmuxErr := tmux.RequireRunningServer()
+	if tmuxErr == nil {
 		return nil
 	}
 
-	s.logger.Printf("Refusing to create a mission: no tmux server is running, and AgenC does not create one")
+	s.logger.Printf("Refusing to create a mission: %v", tmuxErr)
 
 	// A cron fires from launchd, where stderr lands in a log file nobody
 	// reads, so the only way the user learns a scheduled run never started is
@@ -46,17 +47,17 @@ func (s *Server) requireTmuxServerForMissionCreate(req CreateMissionRequest) err
 	// not start at all is a different class of event. Being seen is the entire
 	// point of this one.
 	if req.Source == cronMissionSource {
-		s.createNoTmuxServerNotification(req)
+		s.createNoTmuxServerNotification(req, tmuxErr.Error())
 	}
 
-	return newHTTPError(http.StatusServiceUnavailable, tmux.NoServerErrorMessage())
+	return newHTTPError(http.StatusServiceUnavailable, tmuxErr.Error())
 }
 
 // createNoTmuxServerNotification records a cron-triggered mission that could
 // not start. Best-effort: a failure to write the notification is logged and
 // never propagated, because the caller is already returning an error and
 // replacing it with a database error would hide the real cause.
-func (s *Server) createNoTmuxServerNotification(req CreateMissionRequest) {
+func (s *Server) createNoTmuxServerNotification(req CreateMissionRequest, refusalExplanation string) {
 	cronName, _ := parseCronSourceMetadata(req.SourceMetadata)
 	titleSubject := cronName
 	if titleSubject == "" {
@@ -69,7 +70,7 @@ func (s *Server) createNoTmuxServerNotification(req CreateMissionRequest) {
 		Title: sanitizeNotificationLine("Cron could not start (no tmux server): " + titleSubject),
 		BodyMarkdown: "A scheduled mission could not be created, so this cron did not run. " +
 			"It will be retried at its next scheduled time.\n\n" +
-			tmux.NoServerErrorMessage(),
+			refusalExplanation,
 	}
 	if err := s.db.CreateNotification(notification); err != nil {
 		s.logger.Printf("failed to create no-tmux-server notification for cron %s: %v", req.SourceID, err)

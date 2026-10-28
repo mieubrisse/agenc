@@ -3252,6 +3252,89 @@ else
     failed=$((failed + 1))
 fi
 
+# Stash restore is the path where a swallowed refusal does real damage, because
+# the restore deletes the stash file when it finishes regardless of how many
+# missions came back. Refused without this guard, it printed "Restored 0
+# mission(s)", exited 0, and destroyed the stash. It is also step 4 of the
+# documented recipe for handing the tmux server back to the terminal, where
+# running it a moment too early is the obvious mistake -- so the stash surviving
+# is the assertion that matters, not just the exit code.
+tmux_guard_push_output="$(agenc_test_without_tmux_server stash push 2>&1 || true)"
+
+# `stash push` answers the CLI as soon as the stash file is written and then
+# stops the wrappers in the background, holding an in-progress flag that makes
+# every mutating mission request fail with "stash operation in progress" until
+# it clears. Killing the tmux server inside that window is both unrepresentative
+# and flaky -- the pop then gets refused for the wrong reason. So wait for the
+# stashed mission to actually reach STOPPED before taking the server away.
+tmux_guard_stashed_short_id="$(printf '%s' "${tmux_guard_success_output}" | sed -n 's/^Created mission: \([0-9a-f]*\).*/\1/p' | head -1)"
+if [ -n "${tmux_guard_stashed_short_id}" ]; then
+    for _ in $(seq 1 30); do
+        tmux_guard_stashed_status="$(agenc_test_without_tmux_server mission inspect "${tmux_guard_stashed_short_id}" 2>&1 || true)"
+        if [[ "${tmux_guard_stashed_status}" == *"STOPPED"* ]]; then
+            break
+        fi
+        sleep 1
+    done
+fi
+
+tmux_in_guard_universe kill-server >/dev/null 2>&1 || true
+
+total=$((total + 1))
+printf "  %-50s " "stash pop refuses when no tmux server runs..."
+tmux_guard_pop_exit=0
+tmux_guard_pop_output=""
+# Retry past the in-progress flag if the wait above was not enough, so a
+# concurrency guard cannot masquerade as the refusal under test.
+for _ in $(seq 1 20); do
+    tmux_guard_pop_exit=0
+    tmux_guard_pop_output="$(agenc_test_without_tmux_server stash pop 2>&1)" || tmux_guard_pop_exit=$?
+    if [[ "${tmux_guard_pop_output}" != *"stash operation in progress"* ]]; then
+        break
+    fi
+    sleep 1
+done
+if [ "${tmux_guard_pop_exit}" -eq 0 ]; then
+    echo "FAIL (stash pop reported success with no tmux server running)"
+    echo "    Push output: ${tmux_guard_push_output}" | head -3
+    failed=$((failed + 1))
+elif [[ "${tmux_guard_pop_output}" != *"will not start one"* ]]; then
+    echo "FAIL (refused without naming the cause)"
+    echo "    Output: ${tmux_guard_pop_output}" | head -5
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
+total=$((total + 1))
+printf "  %-50s " "the refused pop did not eat the stash..."
+tmux_guard_stash_list="$(agenc_test_without_tmux_server stash ls 2>&1 || true)"
+if [[ "${tmux_guard_stash_list}" == *"No stashed workspaces"* ]]; then
+    echo "FAIL (the stash was deleted by a pop that restored nothing)"
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
+# And the stash is still usable, which is what makes the refusal a pause rather
+# than a loss: bring a terminal-created server back and the same pop succeeds.
+tmux_in_guard_universe new-session -d -s "agenc-e2e-terminal-stand-in-2" -x 80 -y 24
+
+total=$((total + 1))
+printf "  %-50s " "the same stash pops once a server is back..."
+tmux_guard_repop_exit=0
+tmux_guard_repop_output="$(agenc_test_without_tmux_server stash pop 2>&1)" || tmux_guard_repop_exit=$?
+if [ "${tmux_guard_repop_exit}" -eq 0 ] && [[ "${tmux_guard_repop_output}" == *"Restored"* ]]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (exit ${tmux_guard_repop_exit} restoring a stash with a server running)"
+    echo "    Output: ${tmux_guard_repop_output}" | head -5
+    failed=$((failed + 1))
+fi
+
 # Teardown has to happen here rather than in `make test-env-clean`: that target
 # kills sessions in the default socket directory and knows nothing about this
 # isolated universe, so anything left here would outlive the suite. Stopping
