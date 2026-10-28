@@ -3178,7 +3178,7 @@ elif [[ "${tmux_guard_output}" != *"will not start one"* ]]; then
     echo "FAIL (refused without naming the cause)"
     echo "    Output: ${tmux_guard_output}" | head -5
     failed=$((failed + 1))
-elif [[ "${tmux_guard_output}" != *"Run 'tmux' in a terminal window"* ]]; then
+elif [[ "${tmux_guard_output}" != *"Open a terminal window and run"* ]]; then
     echo "FAIL (refused without naming the remedy)"
     echo "    Output: ${tmux_guard_output}" | head -5
     failed=$((failed + 1))

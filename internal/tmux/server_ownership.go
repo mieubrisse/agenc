@@ -65,9 +65,16 @@ const noStartServerFlag = "-N"
 // the server. It has to carry the cause, because the refusal otherwise looks
 // like a bug, and the remedy, because the fix is not guessable.
 //
-// `tmux start-server` is deliberately NOT the suggested remedy: exit-empty
-// defaults to on, so a server with no sessions exits immediately and the next
-// AgenC command fails all over again.
+// Two things about the remedy wording, both of which were wrong in a draft:
+//
+//   - `tmux start-server` is NOT the suggested command. exit-empty defaults to
+//     on, so a server with no sessions exits immediately and the next AgenC
+//     command fails all over again. `tmux` leaves a session, and so a server,
+//     standing.
+//   - It does not promise that re-running the same command will now work,
+//     because for `agenc attach` that is false: having run `tmux`, the user is
+//     now inside tmux, and attach declines from there. Each caller adds its own
+//     next step; this message stops at the thing that is true everywhere.
 const noTmuxServerErrorMessage = `no tmux server is running, and AgenC will not start one.
 
 AgenC refuses to create the tmux server on purpose. On macOS, whichever process
@@ -78,8 +85,8 @@ the agenc binary, which cannot hold a lasting permission grant, and commands
 like 'ls ~/Downloads' would start failing with "Operation not permitted" in your
 own terminal weeks later for no visible reason.
 
-Starting the server is your terminal's job. Run 'tmux' in a terminal window,
-then re-run this command.`
+Starting the server is your terminal's job. Open a terminal window and run
+'tmux'; AgenC works normally once a tmux server exists.`
 
 // IsServerRunning reports whether a tmux server is currently running.
 //
