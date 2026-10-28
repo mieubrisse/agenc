@@ -67,9 +67,9 @@ func (s *Server) createNoTmuxServerNotification(req CreateMissionRequest) {
 		ID:    uuid.New().String(),
 		Kind:  tmuxNoServerNotificationKind,
 		Title: sanitizeNotificationLine("Cron could not start (no tmux server): " + titleSubject),
-		BodyMarkdown: "A scheduled mission could not be created because no tmux server was running.\n\n" +
-			tmux.NoServerErrorMessage() +
-			"\n\nThe cron did not run. It will be retried at its next scheduled time.",
+		BodyMarkdown: "A scheduled mission could not be created, so this cron did not run. " +
+			"It will be retried at its next scheduled time.\n\n" +
+			tmux.NoServerErrorMessage(),
 	}
 	if err := s.db.CreateNotification(notification); err != nil {
 		s.logger.Printf("failed to create no-tmux-server notification for cron %s: %v", req.SourceID, err)

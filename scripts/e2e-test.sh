@@ -3117,6 +3117,150 @@ fi
 
 echo ""
 
+echo ""
+echo "--- AgenC refuses to create the tmux server (KEV-168) ---"
+# AgenC must never be the process that creates the tmux server: on macOS
+# whichever process does becomes the TCC "responsible process" for every pane
+# inside it -- the user's own shells included -- for the life of that server,
+# and AgenC is ad-hoc signed so it cannot hold a grant under that identity. The
+# visible damage is the user's own `ls ~/Downloads` failing weeks later.
+#
+# Testing this needs a world with NO tmux server in it, and `tmux kill-server`
+# is emphatically not how to get one: this suite runs inside the real server,
+# alongside the developer's own sessions and every other running mission. tmux
+# finds its server through $TMUX when inside a session and through its socket
+# directory otherwise, so clearing TMUX and pointing TMUX_TMPDIR at a fresh
+# empty directory gives a disposable tmux universe that cannot see or touch the
+# real one.
+#
+# The socket directory must be SHORT. A tmux socket path lives in a unix-domain
+# address, capped near 104 bytes on macOS, and an over-long one fails with
+# "File name too long" -- which looks like a passing refusal while actually
+# testing nothing.
+tmux_guard_socket_dirpath="$(mktemp -d /tmp/agenc-e2e-tmuxguard.XXXXXX)"
+tmux_guard_socket_subdirpath="${tmux_guard_socket_dirpath}/tmux-$(id -u)"
+
+# The daemon, not the CLI, is what creates the pool session, so the isolated
+# environment has to reach IT. `ForkServer` passes no explicit Env, so the
+# daemon inherits the environment of whichever CLI invocation forks it --
+# meaning the running test daemon must be stopped first so the next command
+# forks a fresh one inside the isolated tmux universe.
+"${agenc_test}" server stop >/dev/null 2>&1 || true
+
+agenc_test_without_tmux_server() {
+    env -u TMUX TMUX_TMPDIR="${tmux_guard_socket_dirpath}" "${agenc_test}" "$@"
+}
+
+tmux_in_guard_universe() {
+    env -u TMUX TMUX_TMPDIR="${tmux_guard_socket_dirpath}" tmux "$@"
+}
+
+# Substring checks here use bash pattern matching rather than a pipe into
+# `grep -q`, which is unsafe under this script's `set -o pipefail`: grep exits
+# the moment it matches, the upstream command dies of SIGPIPE, and pipefail
+# reports the pipeline as failed even though the pattern was found. The bug
+# only appears once the output is long enough that the writer has not finished
+# first, so it reads as a flaky test rather than a broken assertion -- measured
+# at 141 for a long input matching on its first line.
+#
+# Both halves of the assertion matter and they fail independently: the command
+# has to refuse WITH AN EXPLANATION (a bare non-zero exit teaches the user
+# nothing, and the remedy is not guessable), and it has to leave no server
+# behind (a loud message over a server it created anyway is the actual bug).
+total=$((total + 1))
+printf "  %-50s " "mission new refuses when no tmux server runs..."
+tmux_guard_exit=0
+tmux_guard_output="$(agenc_test_without_tmux_server mission new --blank --headless 2>&1)" || tmux_guard_exit=$?
+if [ "${tmux_guard_exit}" -eq 0 ]; then
+    echo "FAIL (mission new succeeded with no tmux server running)"
+    failed=$((failed + 1))
+elif [[ "${tmux_guard_output}" != *"will not start one"* ]]; then
+    echo "FAIL (refused without naming the cause)"
+    echo "    Output: ${tmux_guard_output}" | head -5
+    failed=$((failed + 1))
+elif [[ "${tmux_guard_output}" != *"Run 'tmux' in a terminal window"* ]]; then
+    echo "FAIL (refused without naming the remedy)"
+    echo "    Output: ${tmux_guard_output}" | head -5
+    failed=$((failed + 1))
+else
+    echo "PASS"
+    passed=$((passed + 1))
+fi
+
+# Inspect the socket directory rather than asking tmux. A socket file is the
+# artifact a server leaves behind, and asking tmux whether a server is running
+# is the very thing under test.
+total=$((total + 1))
+printf "  %-50s " "the refused command created no tmux server..."
+tmux_guard_leftover_sockets="$(ls -A "${tmux_guard_socket_subdirpath}" 2>/dev/null || true)"
+if [ -z "${tmux_guard_leftover_sockets}" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (socket left in ${tmux_guard_socket_subdirpath}: ${tmux_guard_leftover_sockets})"
+    failed=$((failed + 1))
+fi
+
+# A cron cannot read stderr -- launchd sends it to a log file nobody opens --
+# so a scheduled run that never started has to leave a notification behind.
+total=$((total + 1))
+printf "  %-50s " "a refused cron mission leaves a notification..."
+agenc_test_without_tmux_server mission new --blank --headless \
+    --source=cron --source-id="tmux-guard-fixture-cron" >/dev/null 2>&1 || true
+tmux_guard_notifications="$(agenc_test_without_tmux_server notification ls --all --kind=tmux.no-server 2>&1 || true)"
+if [[ "${tmux_guard_notifications}" == *"tmux-guard-fixture-cron"* ]]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (no tmux.no-server notification after a refused cron mission)"
+    echo "    Output: ${tmux_guard_notifications}" | head -5
+    failed=$((failed + 1))
+fi
+
+# The other half of the contract: with a server the terminal created, nothing
+# changes. This session stands in for the one a terminal would have made --
+# note it is created by plain `tmux`, which is exactly the point. AgenC does
+# not refuse because a server is unwelcome; it refuses because creating one is
+# not its job.
+tmux_in_guard_universe new-session -d -s "agenc-e2e-terminal-stand-in" -x 80 -y 24
+
+total=$((total + 1))
+printf "  %-50s " "mission new works once a server exists..."
+tmux_guard_success_exit=0
+tmux_guard_success_output="$(agenc_test_without_tmux_server mission new --blank --headless --no-focus 2>&1)" || tmux_guard_success_exit=$?
+if [ "${tmux_guard_success_exit}" -eq 0 ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (exit ${tmux_guard_success_exit} with a tmux server running)"
+    echo "    Output: ${tmux_guard_success_output}" | head -5
+    failed=$((failed + 1))
+fi
+
+# And the mission really got a window in that server, rather than the create
+# merely returning without one. Pool creation happens inside createPoolWindow,
+# so this is the assertion that the normal path is intact.
+total=$((total + 1))
+printf "  %-50s " "the pool session lands in that server..."
+tmux_guard_session_names="$(tmux_in_guard_universe list-sessions -F "#{session_name}" 2>&1 || true)"
+if [[ "${tmux_guard_session_names}" == *"-pool"* ]]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (no pool session in the stand-in server)"
+    echo "    Sessions: ${tmux_guard_session_names}" | head -5
+    failed=$((failed + 1))
+fi
+
+# Teardown has to happen here rather than in `make test-env-clean`: that target
+# kills sessions in the default socket directory and knows nothing about this
+# isolated universe, so anything left here would outlive the suite. Stopping
+# the daemon too is what stops a later command talking to a server that still
+# believes it lives in a tmux world that no longer exists.
+agenc_test_without_tmux_server server stop >/dev/null 2>&1 || true
+tmux_in_guard_universe kill-server >/dev/null 2>&1 || true
+rm -rf "${tmux_guard_socket_dirpath}"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
