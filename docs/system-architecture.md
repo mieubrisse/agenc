@@ -217,6 +217,23 @@ The `agenc-pool` tmux session is a background session that holds all wrapper win
 - `link-window` / `unlink-window` are used to show/hide missions in the user's tmux session
 - Pool windows are auto-cleaned when wrappers exit or are stopped
 
+Sharing the user's tmux server is load-bearing rather than incidental: `link-window` cannot link a window across servers, so giving AgenC its own socket would break missions-as-windows. The pool session therefore lives in whichever server the user's terminal created.
+
+### AgenC never creates the tmux server
+
+`tmux new-session` starts the tmux server when none is running, and the invoking client process *becomes* that server. On macOS the kernel then fixes the TCC "responsible process" for every pane inside that server — the user's own interactive shells included — to whatever created it, for the life of the server. If AgenC creates it, the user's own terminal work is attributed to the `agenc` binary, which is ad-hoc/linker-signed and so cannot hold a permission grant across a rebuild; the visible result is the user's own `ls ~/Downloads` failing with `Operation not permitted`. The right owner is the terminal emulator, which is Developer ID signed with a stable designated requirement.
+
+What makes this worth a dedicated architectural rule is that violating it is **silent**. Nothing errors at the moment the wrong owner is taken, the server persists across weeks of uptime, and the damage surfaces later in unrelated work under another process's name. The instance that produced this rule took six weeks to notice and presented as two unrelated mysteries.
+
+So AgenC refuses instead, and says why:
+
+- `internal/tmux/server_ownership.go` is the only place in the codebase that builds a server-creating tmux command, and carries the full rationale. It passes tmux's top-level `-N` flag (never start the server), which is why the required tmux version is 3.1 rather than 3.0 — the flag makes the refusal atomic instead of leaving a window between checking and creating.
+- `TestOnlyServerOwnershipBuildsServerCreatingCommands` scans the whole repository for `"new-session"` or `"start-server"` written as a Go string literal and fails if one appears elsewhere. The rule is enforced rather than documented, for the same reason `TestProtectedEnvVarsCoversEveryAgencEnvVar` exists: a convention nobody can see being broken is not a convention.
+- Mission creation checks for a running server before writing anything (`internal/server/tmux_server_precondition.go`), so a refusal leaves no half-created mission. When the request came from a cron, it also writes a `tmux.no-server` notification — a cron's stderr goes to a launchd log file, so a notification is the only surface the user actually sees.
+- The server-startup call to `ensurePoolSession()` stays a logged warning. The daemon still comes up and serves everything that does not need a pane; the pool session gets created later by `createPoolWindow` once a terminal-owned server exists.
+
+Guaranteeing a terminal-owned server exists after a reboot is the user's environment to arrange (a terminal startup command, a login item), not AgenC's to do. AgenC's responsibility ends at refusing loudly.
+
 ### Wrapper
 
 The wrapper is a per-mission foreground process that supervises a Claude child process. One wrapper runs per active mission. It communicates with the server via an HTTP client over the unix socket for all database operations (heartbeats, prompt tracking, pane registration, window title updates).
@@ -525,10 +542,11 @@ Decides whether a cron has stopped happening. Pure judgment with no I/O: the cal
 
 ### `internal/tmux/`
 
-Tmux keybindings generation and version detection, shared by the CLI (`tmux inject`) and server.
+Tmux keybindings generation, version detection, and the tmux-server-ownership guard, shared by the CLI (`tmux inject`) and server.
 
 - `keybindings.go` — `GenerateKeybindingsContent`, `WriteKeybindingsFile`, `SourceKeybindings`, `BuildKeybindingsFromCommands`, `RefreshKeybindings`. Commands are self-contained strings that include their own tmux primitives (e.g. `tmux display-popup ...`, `tmux split-window ...`) when needed. Both keybinding generation and the palette dispatch commands via `tmux run-shell`. Mission-scoped commands (those containing `$AGENC_CALLING_MISSION_UUID`) get a UUID-resolution preamble in keybindings; the palette instead prepends `export` statements. Commands containing `display-popup` are skipped on tmux < 3.2. The hardcoded key table entry (`prefix + a`) and palette popup remain fixed; all other keybindings are driven by the resolved palette commands.
 - `version.go` — `ParseVersion` (parses `tmux -V` output), `DetectVersion` (runs `tmux -V` and parses the result). Used by keybindings generation, the server, and the CLI to detect the installed tmux version.
+- `server_ownership.go` — `IsServerRunning`, `NewSessionCommand`, `NoServerErrorMessage`. The only place a server-creating tmux command is built; see "AgenC never creates the tmux server" above.
 
 ### `internal/wrapper/`
 

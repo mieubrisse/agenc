@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/tmux"
 )
 
 // ============================================================================
@@ -383,13 +383,18 @@ func (s *Server) ensureTmuxSessionsForRestore(missions []StashMission) {
 		}
 	}
 	for sessionName := range neededSessions {
-		if !tmuxSessionExists(sessionName) {
-			createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
-			if output, err := createCmd.CombinedOutput(); err != nil {
-				s.logger.Printf("Warning: failed to create tmux session %s: %v (output: %s)", sessionName, err, string(output))
-			} else {
-				s.logger.Printf("Created tmux session %s for stash restore", sessionName)
-			}
+		if tmuxSessionExists(sessionName) {
+			continue
+		}
+		createCmd, err := tmux.NewSessionCommand("-d", "-s", sessionName)
+		if err != nil {
+			s.logger.Printf("Warning: cannot create tmux session %s for stash restore: %v", sessionName, err)
+			continue
+		}
+		if output, err := createCmd.CombinedOutput(); err != nil {
+			s.logger.Printf("Warning: failed to create tmux session %s: %v (output: %s)", sessionName, err, string(output))
+		} else {
+			s.logger.Printf("Created tmux session %s for stash restore", sessionName)
 		}
 	}
 }
