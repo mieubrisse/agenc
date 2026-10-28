@@ -102,13 +102,27 @@ is called out for review.**
 
 ### Mechanical enforcement, matching the repo's own idiom
 
-A repo-wide source scan test (`internal/tmux/server_ownership_test.go`) fails if
-any `.go` file outside the helper writes `"new-session"` or `"start-server"` as a
-string literal. This is the same enforcement pattern the repo already uses for
+A repo-wide scan test (`internal/tmux/server_ownership_test.go`) parses every
+Go file and fails if a string literal outside the helper names `new-session` or
+`start-server`. This is the same enforcement pattern the repo already uses for
 things that must not drift — `internal/config/protected_env_vars_test.go`,
 `cmd/help_text_drift_test.go`, the ANSI function-name tests — and it runs under
-`make check`, which the pre-commit hook enforces. Prose comments do not match,
-because the pattern includes the quote characters.
+`make check`, which the pre-commit hook enforces.
+
+It parses rather than greps for a specific reason. Grepping for the quoted token
+`"new-session"` catches the argument form and misses `"tmux new-session -d"`
+embedded in a shell command string — and that is the form tmux keybinding and
+palette commands are built in, which the architecture doc describes as
+"self-contained strings that include their own tmux primitives". So the miss is a
+plausible future change rather than a hypothetical one. Scanning the contents of
+string literals catches both forms, while parsing is what keeps comments that
+merely name the command — including the ones in `server_ownership.go` explaining
+why it is forbidden — from tripping the test.
+
+Scope was measured rather than assumed: of the sixteen tmux subcommands AgenC
+invokes, `new-session` is the only one that starts a server when none is running.
+`start-server` is covered anyway because those are the two commands tmux's own
+`-N` documentation names, so they are the pair to defend.
 
 This is the answer to "a future change must not silently reintroduce it".
 A comment asking people to be careful is not.
