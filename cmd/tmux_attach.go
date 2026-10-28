@@ -20,7 +20,7 @@ created with 'agenc mission new' as the initial command.
 
 A tmux server must already be running. AgenC will not start one, because on
 macOS whichever process creates the tmux server becomes the privacy identity
-for every pane inside it, including your own shells. Run 'tmux' in a terminal
+for every pane inside it, including your own shells. Start one from a terminal
 window first.
 
 The session propagates AGENC_DIRPATH so all windows
@@ -110,7 +110,14 @@ func createTmuxSession(agencBinaryPath string, sessionName string) error {
 		initialCmd,
 	)
 	if err != nil {
-		return stacktrace.Propagate(err, "cannot create the '%v' tmux session", sessionName)
+		// The generic remedy stops short of "re-run this command" because for
+		// this path it would be wrong: having run 'tmux', the caller is inside
+		// a session, and attach declines from there. So say what to do next.
+		return stacktrace.Propagate(
+			err,
+			"cannot create the '%v' tmux session. Once a tmux server is running, either run this command from a terminal window that is not itself inside a tmux session, or use the AgenC command palette from inside tmux",
+			sessionName,
+		)
 	}
 	if err := newSessionCmd.Run(); err != nil {
 		return stacktrace.Propagate(err, "failed to create tmux session")
