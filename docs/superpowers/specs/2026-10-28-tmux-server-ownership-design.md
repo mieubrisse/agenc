@@ -193,9 +193,19 @@ Two things this PR deliberately does not do:
 
 1. **Remediate the live machine.** The misattributed server (pid 78205,
    `tmux new-session -d -s agenc-pool`, created 2026-09-15 00:30:02) persists
-   until it is killed. Recipe: stash running missions (`agenc mission stash`),
-   `tmux kill-server`, start tmux from the terminal emulator, restore the stash.
-   Until that happens the symptom stays, with or without this change.
+   until it is killed, so the symptom stays with or without this change. The
+   recipe, in this order:
+
+   1. `agenc stash push` — snapshots every running mission and stops it.
+   2. From a shell **outside** tmux, `tmux kill-server`. Run from inside a pane
+      it kills the shell issuing it, and it closes every terminal window
+      attached to that server either way.
+   3. Open a terminal window and run `tmux`. This is the step that puts the
+      terminal, not AgenC, in the server's responsible-process slot.
+   4. `agenc stash pop` — restores the missions into the new server.
+
+   Step 4 depends on step 3: with this change, a restore into a world with no
+   tmux server refuses rather than quietly creating one.
 2. **Guarantee a terminal-owned server after reboot.** This belongs in dotfiles,
    not in AgenC: a Ghostty startup command or shell init that ensures a server
    exists means autonomous crons find one waiting. AgenC's job is to refuse
