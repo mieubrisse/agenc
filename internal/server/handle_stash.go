@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/odyssey/agenc/internal/config"
 	"github.com/odyssey/agenc/internal/database"
+	"github.com/odyssey/agenc/internal/tmux"
 )
 
 // ============================================================================
@@ -327,6 +327,22 @@ func (s *Server) handlePopStash(w http.ResponseWriter, r *http.Request) error {
 		return newHTTPError(http.StatusBadRequest, "invalid request body: "+err.Error())
 	}
 
+	// Before resolving anything: a restore puts missions back into tmux
+	// windows, so with no tmux server there is nothing to restore into. AgenC
+	// will not create one (internal/tmux/server_ownership.go), and without
+	// this check the restore "succeeded" with zero missions restored and then
+	// deleted the stash file, leaving the user a cheerful "Restored 0
+	// mission(s)." and no way to try again. The only account of what happened
+	// went to the daemon log.
+	//
+	// That matters especially here, because the documented way to hand the
+	// tmux server back to the terminal is: stash push, kill the server, start
+	// tmux, stash pop. Refusing the pop is exactly the step that has to not
+	// eat the stash when it is run a moment too early.
+	if err := tmux.RequireRunningServer(); err != nil {
+		return newHTTPErrorf(http.StatusServiceUnavailable, "cannot restore missions: %s", err.Error())
+	}
+
 	stashID, stashFilepath, stashFile, err := s.resolveStash(req.StashID)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to resolve stash")
@@ -383,13 +399,18 @@ func (s *Server) ensureTmuxSessionsForRestore(missions []StashMission) {
 		}
 	}
 	for sessionName := range neededSessions {
-		if !tmuxSessionExists(sessionName) {
-			createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
-			if output, err := createCmd.CombinedOutput(); err != nil {
-				s.logger.Printf("Warning: failed to create tmux session %s: %v (output: %s)", sessionName, err, string(output))
-			} else {
-				s.logger.Printf("Created tmux session %s for stash restore", sessionName)
-			}
+		if tmuxSessionExists(sessionName) {
+			continue
+		}
+		createCmd, err := tmux.NewSessionCommand("-d", "-s", sessionName)
+		if err != nil {
+			s.logger.Printf("Warning: cannot create tmux session %s for stash restore: %v", sessionName, err)
+			continue
+		}
+		if output, err := createCmd.CombinedOutput(); err != nil {
+			s.logger.Printf("Warning: failed to create tmux session %s: %v (output: %s)", sessionName, err, string(output))
+		} else {
+			s.logger.Printf("Created tmux session %s for stash restore", sessionName)
 		}
 	}
 }

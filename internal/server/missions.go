@@ -526,6 +526,13 @@ func (s *Server) handleCreateMission(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
+	// Also before any state mutation, and before the clone-from branch below,
+	// so both paths are covered: a mission needs a tmux pane to live in, and
+	// AgenC does not create the tmux server itself.
+	if err := s.requireTmuxServerForMissionCreate(req); err != nil {
+		return err
+	}
+
 	createParams := buildCreateMissionParams(req)
 	// Handle clone-from request
 	if req.CloneFrom != "" {

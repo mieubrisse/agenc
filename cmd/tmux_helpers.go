@@ -14,9 +14,18 @@ const (
 	// Environment variable propagated to tmux sessions so all windows share the same agenc configuration.
 	agencDirpathEnvVar = "AGENC_DIRPATH"
 
-	// Minimum tmux version required (new-window -e flag).
+	// Minimum tmux version required. 3.0 for the new-window -e flag, and 3.2
+	// for the top-level -N flag, which is how AgenC makes "never create the
+	// tmux server" an atomic guarantee rather than a check with a race in it
+	// (see internal/tmux/server_ownership.go).
+	//
+	// This check only covers the one command that calls it. The daemon paths
+	// that depend on -N check for themselves, in
+	// tmux.RequireRunningServer, because an unsupported flag there would
+	// otherwise present as a permanent "no tmux server is running" with a
+	// healthy server in front of the user.
 	minTmuxMajor = 3
-	minTmuxMinor = 0
+	minTmuxMinor = 2
 )
 
 // getTmuxSessionName resolves the agenc tmux session name for this installation.
@@ -37,7 +46,7 @@ func checkTmuxVersion() error {
 	}
 
 	if major < minTmuxMajor || (major == minTmuxMajor && minor < minTmuxMinor) {
-		return stacktrace.NewError("tmux %d.%d found but >= %d.%d is required (needed for new-window -e flag)", major, minor, minTmuxMajor, minTmuxMinor)
+		return stacktrace.NewError("tmux %d.%d found but >= %d.%d is required (needed for the 'new-window -e' flag and for tmux's top-level '-N' flag)", major, minor, minTmuxMajor, minTmuxMinor)
 	}
 
 	return nil
