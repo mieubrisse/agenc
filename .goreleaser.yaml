@@ -97,4 +97,4 @@ brews:
 
         agenc server restart
     test: |
-      system "#{bin}/agenc", "--version"
+      system "#{bin}/agenc", "version"
