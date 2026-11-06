@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -33,17 +34,32 @@ func runTmuxResolveMission(cmd *cobra.Command, args []string) error {
 	// but tmux format variables like #{pane_id} omit it (42). The database
 	// stores just the number.
 	paneID := strings.TrimPrefix(args[0], "%")
+	if paneID == "" {
+		// An empty pane ID isn't a lookup miss — it's not a lookup at all.
+		// Without this guard it falls through to the /missions?tmux_pane=
+		// server handler's `if tmuxPane != ""` check, which treats an empty
+		// value as "no pane filter" and returns the general mission list
+		// instead of an empty one; this command would then print
+		// responses[0].ID — some unrelated mission — instead of nothing.
+		return nil
+	}
 
 	dirpath, err := config.GetAgencDirpath()
 	if err != nil {
 		return nil // silently exit — no mission
 	}
 
-	// Try the server first
+	// Try the server first. The pane ID must be URL-escaped, not
+	// concatenated raw: a caller that accidentally passes an unexpanded
+	// tmux format placeholder (e.g. the literal string "#{pane_id}") would
+	// otherwise have everything from "#" onward parsed as a URL fragment
+	// and silently dropped before the request is even sent — the server
+	// would then see an empty tmux_pane, hit the same empty-value fallback
+	// as above, and this command would print an unrelated mission's ID.
 	socketFilepath := config.GetServerSocketFilepath(dirpath)
 	client := server.NewClient(socketFilepath)
 	var responses []server.MissionResponse
-	if err := client.Get("/missions?tmux_pane="+paneID, &responses); err == nil {
+	if err := client.Get("/missions?tmux_pane="+url.QueryEscape(paneID), &responses); err == nil {
 		if len(responses) > 0 {
 			fmt.Print(responses[0].ID)
 		}
