@@ -789,6 +789,14 @@ func TestReconcile_AuthFailurePauses(t *testing.T) {
 func newWriteableCopyTestServer(t *testing.T, repoName, repoDirpath string, gc GitCommander) *Server {
 	t.Helper()
 
+	return newWriteableCopyTestServerForRepos(t, map[string]string{repoName: repoDirpath}, gc)
+}
+
+// newWriteableCopyTestServerForRepos is the same for more than one writeable
+// copy, which is what proves per-repo state really is per repo.
+func newWriteableCopyTestServerForRepos(t *testing.T, repos map[string]string, gc GitCommander) *Server {
+	t.Helper()
+
 	tmpDir := t.TempDir()
 	db, err := database.Open(filepath.Join(tmpDir, "database.sqlite"))
 	if err != nil {
@@ -803,11 +811,11 @@ func newWriteableCopyTestServer(t *testing.T, repoName, repoDirpath string, gc G
 		gitCommander:             gc,
 		writeableCopyReconcileCh: make(chan writeableCopyReconcileRequest, writeableCopyReconcileChannelSize),
 	}
-	srv.cachedConfig.Store(&config.AgencConfig{
-		RepoConfigs: map[string]config.RepoConfig{
-			repoName: {WriteableCopy: repoDirpath},
-		},
-	})
+	repoConfigs := make(map[string]config.RepoConfig, len(repos))
+	for repoName, repoDirpath := range repos {
+		repoConfigs[repoName] = config.RepoConfig{WriteableCopy: repoDirpath}
+	}
+	srv.cachedConfig.Store(&config.AgencConfig{RepoConfigs: repoConfigs})
 	return srv
 }
 
@@ -969,6 +977,145 @@ func TestSweep_PushesARepoLeftAheadByATransientFailure(t *testing.T) {
 	if pause := currentPause(t, srv, repoName); pause != nil {
 		t.Errorf("expected no pause to be posted, got '%s'", pause.PausedReason)
 	}
+}
+
+// ----- Standing-refusal tests -----
+
+// newRefusingRemoteFake builds a repo that is one commit ahead with a remote
+// that refuses the push — and keeps refusing it on the retry, since the retry
+// is what makes a refusal countable.
+func newRefusingRemoteFake() *fakeGit {
+	return &fakeGit{
+		statusClean:    true,
+		headValue:      "local",
+		defaultBranch:  "main",
+		currentBranch:  "main",
+		revParseValues: map[string]string{"origin/main": "remote"},
+		mergeBaseValue: "remote", // the remote is an ancestor: the push is lossless
+		pushResult:     pushResult{Rejected: true, Output: gitHookDeclineOutput},
+		pushErr:        errors.New("git push failed"),
+	}
+}
+
+// A refusal the retry cannot clear is transient only for as long as it might
+// still be a collision. A remote that refuses a lossless push over and over is
+// refusing it for a reason of its own — a repository rule, branch protection,
+// secret scanning — and retrying that forever once a minute is the silent
+// failure this whole change set exists to remove. The fifth refusal says so.
+func TestStandingRefusal_PausesOnTheFifthConsecutiveRefusal(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := newRefusingRemoteFake()
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+
+	for refusal := 1; refusal < maxConsecutivePushRefusals; refusal++ {
+		runSweepAndTick(t, srv, repoName)
+		if pause := currentPause(t, srv, repoName); pause != nil {
+			t.Fatalf("paused after only %d refusals, with reason '%s'", refusal, pause.PausedReason)
+		}
+	}
+
+	runSweepAndTick(t, srv, repoName)
+
+	pause := currentPause(t, srv, repoName)
+	if pause == nil {
+		t.Fatalf("expected a pause on refusal %d", maxConsecutivePushRefusals)
+	}
+	if pause.PausedReason != pauseReasonPushRefused {
+		t.Errorf("expected reason '%s', got '%s'", pauseReasonPushRefused, pause.PausedReason)
+	}
+
+	body := notificationBody(t, srv, pause.NotificationID)
+	if !strings.Contains(body, "GH013") {
+		t.Errorf("expected the notification to quote git's own output, got:\n%s", body)
+	}
+	if !strings.Contains(body, fmt.Sprintf("%d times in a row", maxConsecutivePushRefusals)) {
+		t.Errorf("expected the notification to say how many refusals there were, got:\n%s", body)
+	}
+	if !strings.Contains(body, "keeps committing") {
+		t.Errorf("expected the notification to say that committing continues, got:\n%s", body)
+	}
+}
+
+// The counter means "in a row", so anything the remote accepts ends the run.
+// Without the reset, a repo that hits an occasional collision would eventually
+// accumulate five of them and pause for a condition that was never standing.
+func TestStandingRefusal_ASuccessfulPushResetsTheCount(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := newRefusingRemoteFake()
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+
+	for refusal := 1; refusal < maxConsecutivePushRefusals; refusal++ {
+		runSweepAndTick(t, srv, repoName)
+	}
+	if pause := currentPause(t, srv, repoName); pause != nil {
+		t.Fatalf("paused before the threshold, with reason '%s'", pause.PausedReason)
+	}
+
+	// The remote accepts one push, which ends the run.
+	gc.pushResult = pushResult{}
+	gc.pushErr = nil
+	runSweepAndTick(t, srv, repoName)
+
+	// Four more refusals must not be enough, because the count started over.
+	gc.pushResult = pushResult{Rejected: true, Output: gitHookDeclineOutput}
+	gc.pushErr = errors.New("git push failed")
+	for refusal := 1; refusal < maxConsecutivePushRefusals; refusal++ {
+		runSweepAndTick(t, srv, repoName)
+	}
+
+	if pause := currentPause(t, srv, repoName); pause != nil {
+		t.Errorf("expected the successful push to reset the count, but it paused with '%s'", pause.PausedReason)
+	}
+}
+
+// Each writeable copy has its own remote and its own rules, so refusals are
+// counted per repo. A shared counter would pause both repos here — after five
+// ticks between them — while neither had been refused five times.
+func TestStandingRefusal_IsCountedPerRepo(t *testing.T) {
+	const firstRepo = "github.com/o/first"
+	const secondRepo = "github.com/o/second"
+	gc := newRefusingRemoteFake()
+	srv := newWriteableCopyTestServerForRepos(t, map[string]string{
+		firstRepo:  t.TempDir(),
+		secondRepo: t.TempDir(),
+	}, gc)
+
+	for refusal := 1; refusal < maxConsecutivePushRefusals; refusal++ {
+		tickRepo(t, srv, firstRepo)
+		tickRepo(t, srv, secondRepo)
+	}
+
+	for _, repoName := range []string{firstRepo, secondRepo} {
+		if pause := currentPause(t, srv, repoName); pause != nil {
+			t.Errorf("'%s' paused after %d of its own refusals, with reason '%s'",
+				repoName, maxConsecutivePushRefusals-1, pause.PausedReason)
+		}
+	}
+}
+
+// tickRepo runs one tick for a named repo, bypassing the sweep so a test can
+// interleave repos deterministically.
+func tickRepo(t *testing.T, srv *Server, repoName string) {
+	t.Helper()
+
+	if err := srv.runWriteableCopyTick(context.Background(), repoName); err != nil {
+		t.Fatalf("tick for '%s' failed: %v", repoName, err)
+	}
+}
+
+func notificationBody(t *testing.T, srv *Server, notificationID string) string {
+	t.Helper()
+
+	notification, err := srv.db.GetNotification(notificationID)
+	if err != nil {
+		t.Fatalf("failed to read notification '%s': %v", notificationID, err)
+	}
+	if notification == nil {
+		t.Fatalf("notification '%s' does not exist", notificationID)
+	}
+	return notification.BodyMarkdown
 }
 
 func currentPause(t *testing.T, srv *Server, repoName string) *database.WriteableCopyPause {

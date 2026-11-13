@@ -379,18 +379,21 @@ the conflict is resolved; the notification body explains what to do.
 Common pause kinds:
 
 - `writeable_copy.rebase_conflict` — rebase conflict between local auto-commits and remote
+- `writeable_copy.push_refused` — the remote refused the same push five times running, each time after a fetch had confirmed the push could not discard anything on the remote. Nothing about the local branch is wrong; something on the remote is refusing the ref update, usually a repository rule, branch protection, or push protection such as secret scanning. The notification quotes git's own message, which names the cause
 - `writeable_copy.auth_failure` — git push failed authentication
 - `writeable_copy.wrong_branch` — the writeable copy is on a non-default branch
 - `writeable_copy.origin_drift` — origin URL doesn't match expected
 - `writeable_copy.path_missing` — the writeable-copy path no longer exists
 - `writeable_copy.git_corrupt` — git operations are failing in the copy
 
-A rejected push is **not** one of these. The loop re-fetches after any refused
-push and pushes again when `origin/<branch>` turns out to be an ancestor of
-local HEAD, and when the remote has instead moved it lets the next tick
-fast-forward or rebase. Neither needs anyone, so neither posts a notification.
-`writeable_copy.non_ff_reject` rows written before that change still exist in
-the notification history; they do not mean a force-push happened.
+A single rejected push is **not** one of these. The loop re-fetches after any
+refused push and pushes again when `origin/<branch>` turns out to be an
+ancestor of local HEAD, and when the remote has instead moved it lets the next
+tick fast-forward or rebase. Neither needs anyone, so neither posts a
+notification — only a refusal that repeats five times becomes
+`writeable_copy.push_refused` above. `writeable_copy.non_ff_reject` rows
+written before that change still exist in the notification history; they do not
+mean a force-push happened.
 
 **A pause stops the exchange with the remote, not the committing.** The loop
 keeps auto-committing local changes in a paused writeable copy, so work on disk

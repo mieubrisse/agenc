@@ -26,6 +26,10 @@ const (
 	// stays so that pause rows and notifications written before that change
 	// still render a title rather than falling through to the generic one.
 	pauseReasonNonFFReject = "non_ff_reject"
+	// pauseReasonPushRefused is posted when the remote has refused the same
+	// lossless push maxConsecutivePushRefusals times running — a standing
+	// refusal rather than the transient kind the retry exists for.
+	pauseReasonPushRefused = "push_refused"
 	pauseReasonAuthFailure = "auth_failure"
 	pauseReasonWrongBranch = "wrong_branch"
 	pauseReasonOriginDrift = "origin_drift"
@@ -37,6 +41,22 @@ const (
 // carries. The last lines are the ones that say what happened; the leading ones
 // are progress chatter.
 const maxGitOutputLinesInPauseDetail = 20
+
+// maxConsecutivePushRefusals is how many refusals in a row of a push that a
+// fetch proved lossless are tolerated before the loop pauses and says so.
+//
+// The retry exists because a single refusal is usually transient — a remote
+// ref-lock collision, the daemon racing its own previous push. But a repository
+// rule, branch protection or a secret-scanning block refuses the identical push
+// every time, and retrying one of those once a minute forever would be the
+// silent failure this whole change set exists to remove. Counting is the only
+// way to tell the two apart, because at the moment of failure they look
+// identical: git's wording is not a reliable discriminator, which is the
+// lesson of the three KEV-230 incidents.
+//
+// Five, against the sweep's one-minute cadence, surfaces a standing refusal in
+// roughly five minutes while leaving ample room for a flapping remote.
+const maxConsecutivePushRefusals = 5
 
 // notificationKindForPauseReason maps a pause reason to its notification kind.
 // The kind is namespaced under "writeable_copy." for filtering.
@@ -180,6 +200,12 @@ type reconcileResult struct {
 	PauseReason string
 	// PauseDetail is the human-readable detail accompanying PauseReason.
 	PauseDetail string
+	// RefusedPushOutput is set, alongside a transient error, when the remote
+	// refused a push and refused it again after a fetch had shown the remote
+	// to be an ancestor of local HEAD — a refusal of a push that cannot lose
+	// anything. It carries git's output from the second refusal, and its
+	// presence is what the caller counts towards maxConsecutivePushRefusals.
+	RefusedPushOutput string
 }
 
 // reconcileWithRemote runs a single fetch + reconcile cycle. The repo is
@@ -215,7 +241,9 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 		// Local is ahead of remote → push.
 		failure, err := pushWithRejectionRetry(gc, repoDirpath, defaultBranch)
 		if err != nil {
-			return reconcileResult{}, err
+			// failure, not a zero result: it may carry RefusedPushOutput,
+			// which the caller counts.
+			return failure, err
 		}
 		if failure.PauseReason != "" {
 			return failure, nil
@@ -240,7 +268,9 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 		}
 		failure, err := pushWithRejectionRetry(gc, repoDirpath, defaultBranch)
 		if err != nil {
-			return reconcileResult{}, err
+			// failure, not a zero result: it may carry RefusedPushOutput,
+			// which the caller counts.
+			return failure, err
 		}
 		if failure.PauseReason != "" {
 			failure.Outcome = "diverged"
@@ -322,9 +352,12 @@ func pushWithRejectionRetry(gc GitCommander, repoDirpath, defaultBranch string) 
 		return classifyPushFailure(retryResult, retryErr, repoDirpath)
 	}
 	// Refused twice while the remote is still an ancestor: the remote is
-	// refusing a push that cannot lose anything. Staying transient keeps the
-	// loop running, and the sweep brings it back within the minute.
-	return reconcileResult{}, stacktrace.Propagate(retryErr, "git push was rejected twice in '%v' even though %v is an ancestor of local HEAD; git said: %s", repoDirpath, remoteRef, trimGitOutputTail(retryResult.Output))
+	// refusing a push that cannot lose anything. Still transient on its own —
+	// the sweep brings it back within the minute — but reported upward so the
+	// caller can count it, because a refusal that never stops is a different
+	// condition from one that does.
+	return reconcileResult{RefusedPushOutput: retryResult.Output},
+		stacktrace.Propagate(retryErr, "git push was rejected twice in '%v' even though %v is an ancestor of local HEAD; git said: %s", repoDirpath, remoteRef, trimGitOutputTail(retryResult.Output))
 }
 
 // classifyPushFailure decides what a push failure that was *not* a refusal of
@@ -346,6 +379,53 @@ func classifyPushFailure(result pushResult, pushErr error, repoDirpath string) (
 	// Generic push failure — propagate as a transient error so a later tick
 	// retries without pausing.
 	return reconcileResult{}, stacktrace.Propagate(pushErr, "git push failed in '%v'", repoDirpath)
+}
+
+// recordPushRefusal counts one refusal against a repo and returns the running
+// total. Counts are per repo: a refusal on one writeable copy says nothing
+// about any other, since each has its own remote and its own rules.
+func (s *Server) recordPushRefusal(repoName string) int {
+	s.consecutivePushRefusalsMu.Lock()
+	defer s.consecutivePushRefusalsMu.Unlock()
+	if s.consecutivePushRefusals == nil {
+		s.consecutivePushRefusals = map[string]int{}
+	}
+	s.consecutivePushRefusals[repoName]++
+	return s.consecutivePushRefusals[repoName]
+}
+
+// forgetPushRefusals clears a repo's refusal count. Called whenever the remote
+// accepts what the tick had for it — the count means "in a row", so anything
+// landing ends the run.
+func (s *Server) forgetPushRefusals(repoName string) {
+	s.consecutivePushRefusalsMu.Lock()
+	defer s.consecutivePushRefusalsMu.Unlock()
+	delete(s.consecutivePushRefusals, repoName)
+}
+
+// buildPushRefusedDetail describes a refusal that has stopped looking
+// transient. It states the count plainly, because "the remote refused this
+// five times running" is the fact that rules out the race the retry exists for
+// and points at the remote's own configuration instead.
+func buildPushRefusedDetail(repoDirpath, defaultBranch string, refusals int, pushOutput string) string {
+	var sb strings.Builder
+	sb.WriteString("# The remote keeps refusing this push\n\n")
+	sb.WriteString(fmt.Sprintf("**Path:** %s\n\n", repoDirpath))
+	sb.WriteString(fmt.Sprintf(
+		"The remote has refused the same push %d times in a row, and each time a fetch first confirmed that `origin/%s` "+
+			"was an ancestor of local HEAD — so the push would not have discarded anything, and nothing about the local "+
+			"branch is the problem. That rules out the transient collision a retry clears. Something on the remote is "+
+			"refusing this ref update: a repository rule, branch protection, or push protection such as secret scanning "+
+			"are the usual causes.\n\n",
+		refusals, defaultBranch,
+	))
+	sb.WriteString("## What git said\n\n```\n")
+	sb.WriteString(trimGitOutputTail(pushOutput))
+	sb.WriteString("\n```\n\n")
+	sb.WriteString("Act on whatever git names above — it is the remote's own account of why. ")
+	sb.WriteString("Once the remote accepts a push again, the pause clears on its next tick.\n\n")
+	sb.WriteString(pausedStillCommittingNote)
+	return sb.String()
 }
 
 // pausedStillCommittingNote closes every pause notification.
@@ -471,6 +551,17 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return stacktrace.Propagate(err, "failed to read default branch for '%v'", repoName)
 	}
 	result, err := reconcileWithRemote(gc, repoDirpath, defaultBranch)
+	if result.RefusedPushOutput != "" {
+		refusals := s.recordPushRefusal(repoName)
+		s.logger.Printf("Writeable-copy '%s': the remote refused a lossless push (%d in a row)", repoName, refusals)
+		if refusals >= maxConsecutivePushRefusals {
+			// Standing refusal, not a flapping one. Forget the count so that a
+			// repo resuming after this is fixed starts over.
+			s.forgetPushRefusals(repoName)
+			return s.postWriteableCopyPause(gc, repoName, repoDirpath, pauseReasonPushRefused,
+				buildPushRefusedDetail(repoDirpath, defaultBranch, refusals, result.RefusedPushOutput))
+		}
+	}
 	if err != nil {
 		s.logger.Printf("Writeable-copy reconcile transient error for '%s': %v", repoName, err)
 		return nil // transient; retry
@@ -478,6 +569,9 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 	if result.PauseReason != "" {
 		return s.postWriteableCopyPause(gc, repoName, repoDirpath, result.PauseReason, result.PauseDetail)
 	}
+	// The remote accepted whatever this tick had for it, so any earlier refusals
+	// were transient after all.
+	s.forgetPushRefusals(repoName)
 	if result.Action != "" && result.Action != "noop" {
 		s.logger.Printf("Writeable-copy '%s': %s (%s)", repoName, result.Action, result.Outcome)
 	}
@@ -547,6 +641,8 @@ func titleForPauseReason(reason, repoName string) string {
 		// No longer posted; kept so pause rows written before the retry
 		// landed still read as something.
 		return "Push rejected (non-FF) on " + repoName
+	case pauseReasonPushRefused:
+		return "Remote keeps refusing the push on " + repoName
 	case pauseReasonAuthFailure:
 		return "Push auth failure on " + repoName
 	case pauseReasonWrongBranch:
