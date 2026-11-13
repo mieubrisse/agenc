@@ -52,9 +52,10 @@ type GitCommander interface {
 	// MergeFFOnly fast-forwards the current branch to the named ref. Fails
 	// with a non-FF error when fast-forward is not possible.
 	MergeFFOnly(repoDirpath, ref string) error
-	// Push pushes the current branch to origin. The returned flags indicate
-	// whether the push was rejected as non-FF or failed authentication; both
-	// require user intervention and are surfaced as their own pause kinds.
+	// Push pushes the current branch to origin. On failure the returned
+	// pushResult classifies why and carries git's own output, which the
+	// reconcile logic uses both to decide whether a retry could help and to
+	// record what actually happened in the pause it posts.
 	Push(repoDirpath string) (pushResult, error)
 	// Clone clones url into dir.
 	Clone(url, dir string) error
@@ -73,8 +74,19 @@ type GitCommander interface {
 
 // pushResult captures the disposition of a push attempt.
 type pushResult struct {
+	// NonFFRejected means the remote refused the push because the local branch
+	// is not a fast-forward of the remote ref. This is the only rejection a
+	// retry can clear, and only when a fetch proves the remote is an ancestor.
 	NonFFRejected bool
+	// OtherRejected means the remote refused the push for a reason it did not
+	// attribute to fast-forwarding — a repository rule, a protected branch, a
+	// secret-scanning block. No retry can clear these.
+	OtherRejected bool
 	AuthFailure   bool
+	// Output is git's combined stdout+stderr from the failed push. Without it
+	// a pause records only a guess at what went wrong, which is what made the
+	// three KEV-230 incidents unattributable after the fact.
+	Output string
 }
 
 // realGit is the production GitCommander implementation backed by the git CLI.
@@ -200,15 +212,33 @@ func (g realGit) Push(repoDirpath string) (pushResult, error) {
 	if err == nil {
 		return pushResult{}, nil
 	}
+	return classifyPushOutput(out), err
+}
+
+// classifyPushOutput reads git's own account of a failed push.
+//
+// Separating fast-forward rejections from every other kind matters because
+// they are handled differently: a non-fast-forward rejection may be the daemon
+// racing its own previous push, which a fetch-and-retry clears, while a
+// repository-rule or protected-branch decline will be refused identically
+// forever. Matching the bare word "rejected" collapsed the two, which is how a
+// transient race came to be reported as "the remote was likely rewritten".
+//
+// Both phrasings git uses for a fast-forward refusal are matched: it says
+// "fetch first" when the local ref has not seen the remote move, and
+// "non-fast-forward" when it has.
+func classifyPushOutput(out string) pushResult {
 	lower := strings.ToLower(out)
-	result := pushResult{}
+	result := pushResult{Output: out}
 	switch {
-	case strings.Contains(lower, "non-fast-forward") || strings.Contains(lower, "rejected"):
+	case strings.Contains(lower, "non-fast-forward") || strings.Contains(lower, "fetch first"):
 		result.NonFFRejected = true
 	case strings.Contains(lower, "authentication") || strings.Contains(lower, "permission denied") || strings.Contains(lower, "could not read") && strings.Contains(lower, "username"):
 		result.AuthFailure = true
+	case strings.Contains(lower, "rejected"):
+		result.OtherRejected = true
 	}
-	return result, err
+	return result
 }
 
 func (realGit) Clone(url, dir string) error {

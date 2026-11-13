@@ -19,12 +19,18 @@ import (
 const (
 	pauseReasonRebaseConflict = "rebase_conflict"
 	pauseReasonNonFFReject    = "non_ff_reject"
+	pauseReasonPushRejected   = "push_rejected"
 	pauseReasonAuthFailure    = "auth_failure"
 	pauseReasonWrongBranch    = "wrong_branch"
 	pauseReasonOriginDrift    = "origin_drift"
 	pauseReasonPathMissing    = "path_missing"
 	pauseReasonGitCorrupt     = "git_corrupt"
 )
+
+// maxGitOutputLinesInPauseDetail bounds how much of git's output a pause
+// carries. The last lines are the ones that say what happened; the leading ones
+// are progress chatter.
+const maxGitOutputLinesInPauseDetail = 20
 
 // notificationKindForPauseReason maps a pause reason to its notification kind.
 // The kind is namespaced under "writeable_copy." for filtering.
@@ -201,9 +207,12 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 	switch {
 	case mergeBase == remoteHead:
 		// Local is ahead of remote → push.
-		result, pushErr := gc.Push(repoDirpath)
-		if pushErr != nil {
-			return classifyPushFailure(result, pushErr, defaultBranch, repoDirpath)
+		failure, err := pushHandlingRejections(gc, repoDirpath, defaultBranch)
+		if err != nil {
+			return reconcileResult{}, err
+		}
+		if failure.PauseReason != "" {
+			return failure, nil
 		}
 		return reconcileResult{Outcome: "ahead", Action: "push"}, nil
 	case mergeBase == localHead:
@@ -223,24 +232,104 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 				PauseDetail: buildRebaseConflictDetail(repoDirpath, conflicted, localHead, remoteHead),
 			}, nil
 		}
-		result, pushErr := gc.Push(repoDirpath)
-		if pushErr != nil {
-			return classifyPushFailure(result, pushErr, defaultBranch, repoDirpath)
+		failure, err := pushHandlingRejections(gc, repoDirpath, defaultBranch)
+		if err != nil {
+			return reconcileResult{}, err
+		}
+		if failure.PauseReason != "" {
+			failure.Outcome = "diverged"
+			return failure, nil
 		}
 		return reconcileResult{Outcome: "diverged", Action: "rebase-and-push"}, nil
 	}
 }
 
-func classifyPushFailure(result pushResult, pushErr error, defaultBranch, repoDirpath string) (reconcileResult, error) {
-	switch {
-	case result.NonFFRejected:
+// pushHandlingRejections pushes, and decides what a failure means.
+//
+// Its three answers: a zero result with a nil error means the push landed; a
+// result carrying a PauseReason means the failure needs a human; a non-nil
+// error means the failure is transient and the next tick should try again.
+//
+// The retry is why this exists. A `git push` can be rejected as
+// non-fast-forward purely because the daemon is racing its own previous push —
+// this happened three times in one day on an actively-edited checkout, and each
+// time the identical commits pushed fine minutes later. So a rejection is
+// re-examined against a fresh fetch rather than believed: if the remote tip is
+// an ancestor of local HEAD, nothing on the remote would be lost by pushing
+// again, and the push is retried once. A pause is posted only when the remote
+// genuinely holds commits the local branch does not, which is the case where
+// pushing past the rejection would destroy someone's work.
+func pushHandlingRejections(gc GitCommander, repoDirpath, defaultBranch string) (reconcileResult, error) {
+	result, pushErr := gc.Push(repoDirpath)
+	if pushErr == nil {
+		return reconcileResult{}, nil
+	}
+	if !result.NonFFRejected {
+		return classifyPushFailure(result, pushErr, repoDirpath)
+	}
+
+	if err := gc.Fetch(repoDirpath); err != nil {
+		// Without a fresh view of the remote there is no way to tell a race
+		// from a rewrite, and guessing in either direction is worse than
+		// coming back next tick.
+		return reconcileResult{}, stacktrace.Propagate(err, "git fetch after a rejected push failed in '%v'", repoDirpath)
+	}
+	localHead, err := gc.HEAD(repoDirpath)
+	if err != nil {
+		return reconcileResult{}, stacktrace.Propagate(err, "failed to read local HEAD after a rejected push in '%v'", repoDirpath)
+	}
+	remoteRef := "origin/" + defaultBranch
+	remoteHead, err := gc.RevParse(repoDirpath, remoteRef)
+	if err != nil {
+		return reconcileResult{}, stacktrace.Propagate(err, "failed to read %v after a rejected push in '%v'", remoteRef, repoDirpath)
+	}
+	if localHead == remoteHead {
+		// The push landed and only the client saw an error. Nothing to retry
+		// and nothing to pause over.
+		return reconcileResult{}, nil
+	}
+	mergeBase, err := gc.MergeBase(repoDirpath, localHead, remoteHead)
+	if err != nil {
+		return reconcileResult{}, stacktrace.Propagate(err, "failed to compute merge-base after a rejected push in '%v'", repoDirpath)
+	}
+	if mergeBase != remoteHead {
+		// The remote holds commits this checkout does not. That is the
+		// rejection the pause exists for.
 		return reconcileResult{
 			PauseReason: pauseReasonNonFFReject,
+			PauseDetail: buildNonFFRejectDetail(repoDirpath, defaultBranch, localHead, remoteHead, result.Output),
+		}, nil
+	}
+
+	retryResult, retryErr := gc.Push(repoDirpath)
+	if retryErr == nil {
+		return reconcileResult{}, nil
+	}
+	if !retryResult.NonFFRejected {
+		return classifyPushFailure(retryResult, retryErr, repoDirpath)
+	}
+	// Rejected again while the remote is still an ancestor: something is
+	// flapping rather than diverging. Staying transient keeps the loop alive
+	// instead of parking it until someone notices.
+	return reconcileResult{}, stacktrace.Propagate(retryErr, "git push was rejected twice in '%v' even though %v is an ancestor of local HEAD; git said: %s", repoDirpath, remoteRef, trimGitOutputTail(retryResult.Output))
+}
+
+// classifyPushFailure decides what a push failure that is *not* a
+// fast-forward rejection means. Fast-forward rejections never reach here:
+// pushHandlingRejections re-checks those against a fresh fetch, because they
+// are the only kind a retry can clear.
+func classifyPushFailure(result pushResult, pushErr error, repoDirpath string) (reconcileResult, error) {
+	switch {
+	case result.OtherRejected:
+		return reconcileResult{
+			PauseReason: pauseReasonPushRejected,
 			PauseDetail: fmt.Sprintf(
-				"the remote rejected the push as non-fast-forward — the remote was likely rewritten under us (force-pushed). "+
-					"Investigate manually: cd %s && git fetch origin && git log HEAD..origin/%s --oneline. "+
-					"This pause clears automatically once HEAD has moved and the working tree is clean.",
-				repoDirpath, defaultBranch,
+				"The remote refused the push, and not because of fast-forwarding — a repository rule, a protected branch, "+
+					"or a secret-scanning block will all look like this, and no retry will clear any of them.\n\n"+
+					"**Path:** %s\n\n"+
+					"## What git said\n\n```\n%s\n```\n\n"+
+					"Act on whatever git names above. The sync loop resumes once HEAD has moved and the working tree is clean.",
+				repoDirpath, trimGitOutputTail(result.Output),
 			),
 		}, nil
 	case result.AuthFailure:
@@ -248,8 +337,9 @@ func classifyPushFailure(result pushResult, pushErr error, defaultBranch, repoDi
 			PauseReason: pauseReasonAuthFailure,
 			PauseDetail: fmt.Sprintf(
 				"git push failed authentication. Refresh your credentials (e.g. `gh auth login` or update your SSH key) and retry. "+
-					"The pause clears once a successful push lands. Detail: %v",
-				pushErr,
+					"The pause clears once a successful push lands.\n\n"+
+					"## What git said\n\n```\n%s\n```",
+				trimGitOutputTail(result.Output),
 			),
 		}, nil
 	default:
@@ -257,6 +347,45 @@ func classifyPushFailure(result pushResult, pushErr error, defaultBranch, repoDi
 		// can retry on the next trigger without pausing.
 		return reconcileResult{}, stacktrace.Propagate(pushErr, "git push failed in '%v'", repoDirpath)
 	}
+}
+
+// buildNonFFRejectDetail reports what was measured rather than what it might
+// mean. The previous wording asserted the remote "was likely rewritten under
+// us (force-pushed)", which was wrong in all three KEV-230 incidents and sent
+// the investigation after a force-push that had never happened.
+func buildNonFFRejectDetail(repoDirpath, defaultBranch, localHead, remoteHead, pushOutput string) string {
+	var sb strings.Builder
+	sb.WriteString("# Push rejected in writeable copy\n\n")
+	sb.WriteString(fmt.Sprintf("**Path:** %s\n\n", repoDirpath))
+	sb.WriteString("The push was rejected, and the fetch that followed showed the remote holding commits this checkout does not have. ")
+	sb.WriteString("Pushing past that would discard them, so the sync loop stopped.\n\n")
+	sb.WriteString(fmt.Sprintf("**Local HEAD:** `%s`\n", abbrevSHA(localHead)))
+	sb.WriteString(fmt.Sprintf("**origin/%s after fetching:** `%s`\n\n", defaultBranch, abbrevSHA(remoteHead)))
+	sb.WriteString("## What git said\n\n```\n")
+	sb.WriteString(trimGitOutputTail(pushOutput))
+	sb.WriteString("\n```\n\n")
+	sb.WriteString("## How to investigate\n\n")
+	sb.WriteString("```sh\n")
+	sb.WriteString(fmt.Sprintf("cd %s\n", repoDirpath))
+	sb.WriteString("git fetch origin\n")
+	sb.WriteString(fmt.Sprintf("git log HEAD..origin/%s --oneline   # what the remote has that you don't\n", defaultBranch))
+	sb.WriteString("```\n\n")
+	sb.WriteString("The sync loop is paused for this repo. It resumes on its own once `git status` is clean and HEAD has moved past where it was when the pause was taken — including when nothing touches a file, because paused repos are re-probed on a timer.\n")
+	return sb.String()
+}
+
+// trimGitOutputTail keeps the last few lines of a git invocation's output, which
+// is where git puts the reason, and drops the progress chatter above them.
+func trimGitOutputTail(out string) string {
+	trimmed := strings.TrimRight(out, "\n")
+	if trimmed == "" {
+		return "(git produced no output)"
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) > maxGitOutputLinesInPauseDetail {
+		lines = lines[len(lines)-maxGitOutputLinesInPauseDetail:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func buildRebaseConflictDetail(repoDirpath string, conflicted []string, localHead, remoteHead string) string {
@@ -422,6 +551,8 @@ func titleForPauseReason(reason, repoName string) string {
 		return "Rebase conflict on " + repoName
 	case pauseReasonNonFFReject:
 		return "Push rejected (non-FF) on " + repoName
+	case pauseReasonPushRejected:
+		return "Push refused by the remote on " + repoName
 	case pauseReasonAuthFailure:
 		return "Push auth failure on " + repoName
 	case pauseReasonWrongBranch:
@@ -466,6 +597,51 @@ func (s *Server) runWriteableCopyReconcileWorker(ctx context.Context) {
 				s.logger.Printf("Writeable-copy reconcile failed for '%s': %v", req.repoName, err)
 			}
 		}
+	}
+}
+
+// writeableCopyPauseResumeInterval is how often paused writeable copies are
+// re-probed. Each pass is one small database query plus, for paused repos only,
+// a tick that stops at the resume check — cheap enough that a short interval
+// costs nothing and keeps a recovered repo's backlog from aging.
+const writeableCopyPauseResumeInterval = 1 * time.Minute
+
+// runWriteableCopyPauseResumeLoop re-probes paused writeable copies on a timer.
+//
+// Without it a pause can only clear on a filesystem event in the working tree,
+// and the one act that satisfies the resume condition — a commit, which makes
+// the tree clean and moves HEAD — touches only `.git/`, which the watcher
+// ignores. So the pause outlived its own cause: the repo was pushable, the tree
+// was clean, and nothing was left to wake the probe. Clearing it by hand meant
+// rewriting a tracked file with identical bytes purely to produce an event.
+func (s *Server) runWriteableCopyPauseResumeLoop(ctx context.Context) {
+	ticker := time.NewTicker(writeableCopyPauseResumeInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.runWriteableCopyPauseResumeCycle()
+		}
+	}
+}
+
+// runWriteableCopyPauseResumeCycle enqueues one reconcile per paused repo.
+//
+// It enqueues rather than ticking directly: the reconcile worker is the only
+// thing serializing ticks across all writeable copies, and a second path into
+// the tick would make "two reconciles in flight" possible — one of the
+// candidate causes of the rejections this whole change is about.
+func (s *Server) runWriteableCopyPauseResumeCycle() {
+	pauses, err := s.db.ListPauses()
+	if err != nil {
+		s.logger.Printf("Writeable-copy pause resume: failed to list pauses: %v", err)
+		return
+	}
+	for _, pause := range pauses {
+		s.enqueueReconcileForRepo(pause.RepoName)
 	}
 }
 

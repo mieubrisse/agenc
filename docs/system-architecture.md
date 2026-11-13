@@ -188,13 +188,19 @@ The server runs twelve concurrent background goroutines:
 
 **11. Writeable-copy reconcile worker** (`internal/server/writeable_copies.go`)
 - Drains a buffered channel of reconcile requests, one tick per request
-- Three trigger sources feed the channel: working-tree fsnotify (debounced) per writeable copy, library worker fan-out after a successful library update, and a server-startup boot sweep
+- Four trigger sources feed the channel: working-tree fsnotify (debounced) per writeable copy, library worker fan-out after a successful library update, a server-startup boot sweep, and the pause-resume loop below
 - Per tick: resume probe (if paused), sanity checks, commit-if-dirty, fetch+reconcile (equal/ahead/behind/diverged) — each step backed by a `GitCommander` interface that the production code wires to the `git` CLI and tests mock with a fake
-- On rebase conflict, non-FF push reject, auth failure, wrong branch, origin URL drift, missing path, or git corruption: atomically inserts a pause row in `writeable_copy_pauses` and a notification in `notifications`. The pause is checked at the start of every subsequent tick; the loop auto-resumes when `git status` is clean and HEAD has moved past `local_head_at_pause`
+- A push rejected as non-fast-forward is re-examined rather than believed: the loop fetches, and retries the push once when the remote tip is an ancestor of local HEAD, because the daemon racing its own previous push produces exactly that rejection. Only a remote holding commits the local branch lacks pauses the loop; a rejection the remote attributes to anything else (repository rule, protected branch, secret scanning) pauses under its own `push_rejected` reason, since no retry clears those
+- On rebase conflict, non-FF push reject, other push rejection, auth failure, wrong branch, origin URL drift, missing path, or git corruption: atomically inserts a pause row in `writeable_copy_pauses` and a notification in `notifications`, carrying git's own output so the pause records what happened rather than a guess. The pause is checked at the start of every subsequent tick; the loop auto-resumes when `git status` is clean and HEAD has moved past `local_head_at_pause`
 - Notifications are append-only (only mutation: mark-as-read). Pauses are deleted on auto-resume; the linked notification stays in history
 - Per-writeable-copy fsnotify watchers are managed by `writeableCopyWatchers` (`internal/server/writeable_copies_watcher.go`): one watcher on the working tree (excluding `.git/`) and one on `.git/refs/remotes/origin/<default-branch>`. The latter triggers an existing-machinery library push-event refresh when the writeable copy successfully pushes to origin
 
-**12. Cron health loop** (`internal/server/cron_health_loop.go`)
+**12. Writeable-copy pause-resume loop** (`internal/server/writeable_copies.go`)
+- Runs every minute, enqueueing a reconcile request for each repo with a row in `writeable_copy_pauses` so the tick's resume probe gets a chance to run
+- Exists because the reconcile worker's only other trigger is a filesystem event in the working tree, and the one act that satisfies the resume condition — a commit, which both cleans the tree and moves HEAD — writes only to `.git/`, which the watcher ignores. Without the timer a pause could outlive its cause indefinitely, and clearing it by hand meant rewriting a tracked file with identical bytes purely to produce an event
+- Enqueues rather than ticking directly: the reconcile worker is the only thing serializing ticks across writeable copies, and a second path into the tick would allow two reconciles in flight
+
+**13. Cron health loop** (`internal/server/cron_health_loop.go`)
 - Runs on a fixed 1-minute interval, after a startup delay that lets launchd replay any cron fires deferred across sleep
 - Per cycle: reads enabled crons from cached config, reads the latest `source=cron` mission per cron ID, and asks `internal/cronhealth` which crons have produced nothing for longer than twice their own scheduled cadence
 - Posts one `cron.quiet` notification naming every cron that has newly gone quiet — one note per cycle rather than one per cron, because the outage this loop exists for took six crons at once
