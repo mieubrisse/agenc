@@ -57,6 +57,11 @@ type fakeGit struct {
 	pullConflicted []string
 	pullErr        error
 
+	// rebaseMovesHeadTo, when set, makes a successful PullRebaseAutostash
+	// advance HEAD the way a real rebase does. Without it a post-rebase test
+	// would assert against a HEAD the rebase should have replaced.
+	rebaseMovesHeadTo string
+
 	rebaseAbortErr error
 
 	mergeFFErr error
@@ -149,7 +154,13 @@ func (f *fakeGit) Commit(string, string) error {
 
 func (f *fakeGit) PullRebaseAutostash(string) ([]string, error) {
 	f.pullCalls++
-	return f.pullConflicted, f.pullErr
+	if f.pullErr != nil {
+		return f.pullConflicted, f.pullErr
+	}
+	if f.rebaseMovesHeadTo != "" {
+		f.headValue = f.rebaseMovesHeadTo
+	}
+	return nil, nil
 }
 
 func (f *fakeGit) RebaseAbort(string) error {
@@ -614,24 +625,26 @@ func TestReconcile_RejectedRetryStaysTransientRatherThanPausing(t *testing.T) {
 	}
 }
 
-// The rejection that happens after a rebase is the same race as the one on the
-// plain-ahead path, so it gets the same retry.
+// A refusal of the push that follows a rebase is the same situation as one on
+// the plain-ahead path, so it gets the same ancestry check and the same retry.
+//
+// The rebase is modelled as actually moving HEAD, because the ancestry check
+// reads HEAD after it: a fixture that left HEAD at its pre-rebase value would
+// pass on the merge-base alone and prove less than it looks like it does.
 func TestReconcile_RejectedPushAfterRebaseAlsoRetries(t *testing.T) {
 	gc := &fakeGit{
-		headValue:      "local",
-		revParseValues: map[string]string{"origin/main": "remote"},
-		mergeBaseValue: "ancestor", // diverged → rebase-and-push path
+		headValue:         "local",
+		revParseValues:    map[string]string{"origin/main": "remote"},
+		mergeBaseValue:    "ancestor", // diverged → rebase-and-push path
+		rebaseMovesHeadTo: "localRebasedOntoRemote",
+		// Pre-rebase local and the remote share only an older ancestor; the
+		// rebased HEAD contains the remote tip, which is what makes the retry
+		// safe.
+		mergeBaseValueByRef: map[string]string{"localRebasedOntoRemote": "remote"},
 		pushOutcomes: []fakePushOutcome{
-			{result: pushResult{Rejected: true, Output: gitFetchFirstRejectOutput}, err: errors.New("git push failed")},
+			{result: pushResult{Rejected: true, Output: gitRefLockRejectOutput}, err: errors.New("git push failed")},
 			{},
 		},
-	}
-	// After the rebase the local branch contains the remote tip.
-	gc.onFetch = func(f *fakeGit) {
-		if f.fetchCalls < 2 {
-			return
-		}
-		f.mergeBaseValue = "remote"
 	}
 	got, err := reconcileWithRemote(gc, "/tmp", "main")
 	if err != nil {
@@ -639,6 +652,12 @@ func TestReconcile_RejectedPushAfterRebaseAlsoRetries(t *testing.T) {
 	}
 	if got.PauseReason != "" {
 		t.Errorf("expected no pause when the post-rebase retry succeeds, got %+v", got)
+	}
+	if got.Action != "rebase-and-push" {
+		t.Errorf("expected rebase-and-push, got %+v", got)
+	}
+	if gc.pullCalls != 1 {
+		t.Errorf("expected exactly one rebase, got %d", gc.pullCalls)
 	}
 	if gc.pushCalls != 2 {
 		t.Errorf("expected exactly 2 push attempts, got %d", gc.pushCalls)
