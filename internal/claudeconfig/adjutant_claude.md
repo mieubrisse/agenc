@@ -378,14 +378,24 @@ the conflict is resolved; the notification body explains what to do.
 
 Common pause kinds:
 
-- `writeable_copy.conflict` — rebase conflict between local auto-commits and remote
-- `writeable_copy.non_ff_reject` — the push was rejected and a fetch confirmed the remote holds commits the local checkout does not. A rejection that a retry could clear never reaches this notification: the loop re-fetches after every rejection and pushes again when the remote tip is an ancestor of local HEAD, so by the time this is posted the divergence is real. Do not assume a force-push — the notification quotes git's own output, which is the thing to read
-- `writeable_copy.push_rejected` — the remote refused the push for a reason unrelated to fast-forwarding: a repository rule, a protected branch, a secret-scanning block. No retry clears these; the notification carries git's message
+- `writeable_copy.rebase_conflict` — rebase conflict between local auto-commits and remote
 - `writeable_copy.auth_failure` — git push failed authentication
 - `writeable_copy.wrong_branch` — the writeable copy is on a non-default branch
 - `writeable_copy.origin_drift` — origin URL doesn't match expected
 - `writeable_copy.path_missing` — the writeable-copy path no longer exists
 - `writeable_copy.git_corrupt` — git operations are failing in the copy
+
+A rejected push is **not** one of these. The loop re-fetches after any refused
+push and pushes again when `origin/<branch>` turns out to be an ancestor of
+local HEAD, and when the remote has instead moved it lets the next tick
+fast-forward or rebase. Neither needs anyone, so neither posts a notification.
+`writeable_copy.non_ff_reject` rows written before that change still exist in
+the notification history; they do not mean a force-push happened.
+
+**A pause stops the exchange with the remote, not the committing.** The loop
+keeps auto-committing local changes in a paused writeable copy, so work on disk
+is still being captured in git — tell the user that when they ask whether a
+pause puts their work at risk.
 
 To help the user resolve a writeable-copy conflict:
 
@@ -395,10 +405,11 @@ To help the user resolve a writeable-copy conflict:
    commands the recipe shows.
 3. Help the user edit any conflicted files.
 4. After they push successfully, the sync loop **auto-resumes** once HEAD has
-   moved and the working tree is clean. Paused repos are re-probed on a
-   one-minute timer as well as on working-tree activity, so a repo that has
-   been committed recovers on its own without anyone touching a file. Marking
-   the notification as read is purely cosmetic — it does not control the loop.
+   moved and the working tree is clean. Every writeable copy is reconciled on
+   a one-minute timer as well as on working-tree activity, and the loop commits
+   a dirty tree even while paused — so a paused repo satisfies its own resume
+   condition and recovers without anyone touching a file. Marking the
+   notification as read is purely cosmetic — it does not control the loop.
 
 ### What writeable copies are for
 

@@ -111,7 +111,7 @@ Current endpoints:
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 ### Background loops
 
-The server runs twelve concurrent background goroutines:
+The server runs thirteen concurrent background goroutines:
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs on a fixed interval
@@ -188,16 +188,17 @@ The server runs twelve concurrent background goroutines:
 
 **11. Writeable-copy reconcile worker** (`internal/server/writeable_copies.go`)
 - Drains a buffered channel of reconcile requests, one tick per request
-- Four trigger sources feed the channel: working-tree fsnotify (debounced) per writeable copy, library worker fan-out after a successful library update, a server-startup boot sweep, and the pause-resume loop below
-- Per tick: resume probe (if paused), sanity checks, commit-if-dirty, fetch+reconcile (equal/ahead/behind/diverged) — each step backed by a `GitCommander` interface that the production code wires to the `git` CLI and tests mock with a fake
-- A push rejected as non-fast-forward is re-examined rather than believed: the loop fetches, and retries the push once when the remote tip is an ancestor of local HEAD, because the daemon racing its own previous push produces exactly that rejection. Only a remote holding commits the local branch lacks pauses the loop; a rejection the remote attributes to anything else (repository rule, protected branch, secret scanning) pauses under its own `push_rejected` reason, since no retry clears those
-- On rebase conflict, non-FF push reject, other push rejection, auth failure, wrong branch, origin URL drift, missing path, or git corruption: atomically inserts a pause row in `writeable_copy_pauses` and a notification in `notifications`, carrying git's own output so the pause records what happened rather than a guess. The pause is checked at the start of every subsequent tick; the loop auto-resumes when `git status` is clean and HEAD has moved past `local_head_at_pause`
+- Four trigger sources feed the channel: working-tree fsnotify (debounced) per writeable copy, library worker fan-out after a successful library update, a server-startup boot sweep, and the unconditional sweep loop below
+- Per tick: sanity checks, commit-if-dirty, resume probe (if paused), fetch+reconcile (equal/ahead/behind/diverged) — each step backed by a `GitCommander` interface that the production code wires to the `git` CLI and tests mock with a fake
+- **Committing runs before the resume probe, and runs while paused.** A pause means "stop exchanging with the remote", never "stop capturing local work", and the ordering is what keeps a pause escapable: the resume probe wants a clean tree and a moved HEAD, and on a checkout that missions are writing to, the loop's own commit is the only thing that produces either. With the probe first, a paused repo in use could never satisfy its own resume condition
+- **A refused push is decided by ancestry, not by git's wording.** Any rejected push is re-checked against a fresh fetch: when `origin/<branch>` is an ancestor of local HEAD the push cannot discard anything, so it is retried once; when the remote already holds local HEAD the push had landed; when the remote has moved, the tick returns a transient error and the next one fast-forwards or rebases. None of those pause. Classifying from the message is what produced the KEV-230 incidents — the likely text was a remote ref-lock collision, which git reports as `! [remote rejected] … (failed to update ref)`, wording no reader would call retryable, while the reflog showed the remote was an ancestor every time
+- On rebase conflict, auth failure, wrong branch, origin URL drift, missing path, or git corruption: atomically inserts a pause row in `writeable_copy_pauses` and a notification in `notifications`, carrying git's own output so the pause records what happened rather than a guess. The pause is checked on every subsequent tick; the loop auto-resumes when `git status` is clean and HEAD has moved past `local_head_at_pause`. `non_ff_reject` is no longer posted by any path; the constant survives so older rows still render
 - Notifications are append-only (only mutation: mark-as-read). Pauses are deleted on auto-resume; the linked notification stays in history
 - Per-writeable-copy fsnotify watchers are managed by `writeableCopyWatchers` (`internal/server/writeable_copies_watcher.go`): one watcher on the working tree (excluding `.git/`) and one on `.git/refs/remotes/origin/<default-branch>`. The latter triggers an existing-machinery library push-event refresh when the writeable copy successfully pushes to origin
 
-**12. Writeable-copy pause-resume loop** (`internal/server/writeable_copies.go`)
-- Runs every minute, enqueueing a reconcile request for each repo with a row in `writeable_copy_pauses` so the tick's resume probe gets a chance to run
-- Exists because the reconcile worker's only other trigger is a filesystem event in the working tree, and the one act that satisfies the resume condition — a commit, which both cleans the tree and moves HEAD — writes only to `.git/`, which the watcher ignores. Without the timer a pause could outlive its cause indefinitely, and clearing it by hand meant rewriting a tracked file with identical bytes purely to produce an event
+**12. Writeable-copy sweep loop** (`internal/server/writeable_copies.go`)
+- Runs every minute, enqueueing a reconcile request for **every** configured writeable copy, whether or not anything happened to it. A tick on a clean in-sync repo is a status, a fetch and a merge-base resolving to a noop
+- The backstop under the conditional triggers, all of which leave states nothing re-enters: the working-tree watcher skips `.git/`, so the commit that satisfies the resume condition produces no tick at all; the library fan-out fires only on a library HEAD change; the boot sweep fires once. So a repo left with local commits unpushed after a transient failure, or a pause whose cause has since cleared, could sit indefinitely while every surface check looked healthy — and clearing one by hand meant rewriting a tracked file with identical bytes to manufacture a watcher event. This pass is what makes every "come back next tick" in the package true
 - Enqueues rather than ticking directly: the reconcile worker is the only thing serializing ticks across writeable copies, and a second path into the tick would allow two reconciles in flight
 
 **13. Cron health loop** (`internal/server/cron_health_loop.go`)

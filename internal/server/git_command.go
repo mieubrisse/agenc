@@ -74,18 +74,19 @@ type GitCommander interface {
 
 // pushResult captures the disposition of a push attempt.
 type pushResult struct {
-	// NonFFRejected means the remote refused the push because the local branch
-	// is not a fast-forward of the remote ref. This is the only rejection a
-	// retry can clear, and only when a fetch proves the remote is an ancestor.
-	NonFFRejected bool
-	// OtherRejected means the remote refused the push for a reason it did not
-	// attribute to fast-forwarding — a repository rule, a protected branch, a
-	// secret-scanning block. No retry can clear these.
-	OtherRejected bool
-	AuthFailure   bool
+	// Rejected means the remote refused to update the ref. Why it refused is
+	// deliberately not split out, because the reason git gives is not a safe
+	// basis for deciding whether to try again. A ref-lock collision
+	// ("cannot lock ref", "failed to update ref") and a genuine
+	// non-fast-forward are both refusals, and only a fetch can tell which
+	// state the remote is actually in — see pushWithRejectionRetry.
+	Rejected bool
+	// AuthFailure is kept separate because no retry or fetch can clear it; it
+	// is the one push failure that still pauses the loop.
+	AuthFailure bool
 	// Output is git's combined stdout+stderr from the failed push. Without it
-	// a pause records only a guess at what went wrong, which is what made the
-	// three KEV-230 incidents unattributable after the fact.
+	// a pause or a retry records only a guess at what went wrong, which is
+	// what made the three KEV-230 incidents unattributable after the fact.
 	Output string
 }
 
@@ -215,28 +216,40 @@ func (g realGit) Push(repoDirpath string) (pushResult, error) {
 	return classifyPushOutput(out), err
 }
 
-// classifyPushOutput reads git's own account of a failed push.
+// classifyPushOutput reads git's own account of a failed push, and does so as
+// coarsely as it safely can.
 //
-// Separating fast-forward rejections from every other kind matters because
-// they are handled differently: a non-fast-forward rejection may be the daemon
-// racing its own previous push, which a fetch-and-retry clears, while a
-// repository-rule or protected-branch decline will be refused identically
-// forever. Matching the bare word "rejected" collapsed the two, which is how a
-// transient race came to be reported as "the remote was likely rewritten".
+// It deliberately does NOT try to tell a retryable refusal from a permanent
+// one. Reading the three KEV-230 incidents against the reflog showed why: the
+// last change to origin/main before each pause was this checkout's own push,
+// 9 to 17 seconds earlier, so the remote was an ancestor every time and a true
+// non-fast-forward was mechanically impossible. The likely text was a remote
+// ref-lock collision, whose actual wording (captured from git on 2026-11-13)
+// is `! [remote rejected] main -> main (failed to update ref)` — a phrase no
+// reasonable reader classifies as "retry this". Deciding from the message
+// would have paused the loop on all three. The decision belongs to
+// pushWithRejectionRetry, which asks the remote instead of reading prose.
 //
-// Both phrasings git uses for a fast-forward refusal are matched: it says
-// "fetch first" when the local ref has not seen the remote move, and
-// "non-fast-forward" when it has.
+// The phrases matched here are therefore just "the remote refused the ref
+// update", in every wording git is known to use for one.
+//
+// Authentication is checked first and kept apart: it is the one failure where
+// neither a fetch nor a retry can help, and its wording ("permission denied")
+// can appear inside a refusal.
 func classifyPushOutput(out string) pushResult {
 	lower := strings.ToLower(out)
 	result := pushResult{Output: out}
 	switch {
-	case strings.Contains(lower, "non-fast-forward") || strings.Contains(lower, "fetch first"):
-		result.NonFFRejected = true
-	case strings.Contains(lower, "authentication") || strings.Contains(lower, "permission denied") || strings.Contains(lower, "could not read") && strings.Contains(lower, "username"):
+	case strings.Contains(lower, "authentication") ||
+		strings.Contains(lower, "permission denied") ||
+		(strings.Contains(lower, "could not read") && strings.Contains(lower, "username")):
 		result.AuthFailure = true
-	case strings.Contains(lower, "rejected"):
-		result.OtherRejected = true
+	case strings.Contains(lower, "rejected") ||
+		strings.Contains(lower, "non-fast-forward") ||
+		strings.Contains(lower, "fetch first") ||
+		strings.Contains(lower, "failed to update ref") ||
+		strings.Contains(lower, "cannot lock ref"):
+		result.Rejected = true
 	}
 	return result
 }
