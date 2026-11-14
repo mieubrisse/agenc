@@ -125,20 +125,26 @@ func TestUpsertPauseAndNotification_ConcurrentAtomic(t *testing.T) {
 	}
 }
 
-// The sync loop re-records its own commits against a pause so that they are
-// not mistaken for the "something changed, try again" signal. Only that one
-// column moves; the reason and the linked notification stay put.
-func TestUpdatePauseHead_MovesOnlyTheHead(t *testing.T) {
+// When a repo's failure turns into a different failure, the one row follows it
+// and a fresh notification is posted — escalation on change, where repetition
+// writes nothing.
+func TestReplacePauseAndNotification_RepointsTheRowAndNotifies(t *testing.T) {
 	db := openTestDB(t)
 
-	n := &Notification{ID: "33333333-0000-0000-0000-000000000009", Kind: "k", Title: "x", BodyMarkdown: "x"}
-	p := &WriteableCopyPause{RepoName: "github.com/o/r", PausedReason: "auth_failure", LocalHeadAtPause: "headAtPause", NotificationID: n.ID}
-	if _, err := db.UpsertPauseAndNotification(p, n); err != nil {
+	first := &Notification{ID: "33333333-0000-0000-0000-000000000009", Kind: "k", Title: "x", BodyMarkdown: "x"}
+	p := &WriteableCopyPause{RepoName: "github.com/o/r", PausedReason: "auth_failure", LocalHeadAtPause: "h1", NotificationID: first.ID}
+	if _, err := db.UpsertPauseAndNotification(p, first); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := db.UpdatePauseHead(p.RepoName, "headAfterAutoCommit"); err != nil {
+	second := &Notification{ID: "33333333-0000-0000-0000-00000000000a", Kind: "k2", Title: "y", BodyMarkdown: "y"}
+	replaced := &WriteableCopyPause{RepoName: p.RepoName, PausedReason: "push_refused", LocalHeadAtPause: "h2", NotificationID: second.ID}
+	ok, err := db.ReplacePauseAndNotification(replaced, second)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected the replacement to find the existing row")
 	}
 
 	got, err := db.GetPause(p.RepoName)
@@ -148,14 +154,44 @@ func TestUpdatePauseHead_MovesOnlyTheHead(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected the pause to still exist")
 	}
-	if got.LocalHeadAtPause != "headAfterAutoCommit" {
-		t.Errorf("expected the head to move, got '%s'", got.LocalHeadAtPause)
+	if got.PausedReason != "push_refused" {
+		t.Errorf("expected the reason to follow the new failure, got '%s'", got.PausedReason)
 	}
-	if got.PausedReason != "auth_failure" {
-		t.Errorf("expected the reason to be untouched, got '%s'", got.PausedReason)
+	if got.NotificationID != second.ID {
+		t.Errorf("expected the row to point at the new notification, got '%s'", got.NotificationID)
 	}
-	if got.NotificationID != n.ID {
-		t.Errorf("expected the linked notification to be untouched, got '%s'", got.NotificationID)
+
+	pauses, err := db.ListPauses()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pauses) != 1 {
+		t.Errorf("expected exactly one pause row, got %d", len(pauses))
+	}
+	for _, id := range []string{first.ID, second.ID} {
+		notification, err := db.GetNotification(id)
+		if err != nil || notification == nil {
+			t.Errorf("expected notification '%s' to survive, got %v (err %v)", id, notification, err)
+		}
+	}
+}
+
+// Nothing to repoint means nothing is written, so the caller can insert.
+func TestReplacePauseAndNotification_NoRowIsNotAnError(t *testing.T) {
+	db := openTestDB(t)
+
+	n := &Notification{ID: "33333333-0000-0000-0000-00000000000b", Kind: "k", Title: "x", BodyMarkdown: "x"}
+	p := &WriteableCopyPause{RepoName: "github.com/o/absent", PausedReason: "auth_failure", LocalHeadAtPause: "h", NotificationID: n.ID}
+
+	ok, err := db.ReplacePauseAndNotification(p, n)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("expected false when there is no row to replace")
+	}
+	if notification, _ := db.GetNotification(n.ID); notification != nil {
+		t.Error("expected no notification to be written when there was no row")
 	}
 }
 

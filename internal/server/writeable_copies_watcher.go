@@ -320,5 +320,5 @@ func (s *Server) postWriteableCopyEnsureFailureNotification(repoName, path strin
 		gc = newRealGit()
 	}
 	body := fmt.Sprintf("# Cannot start writeable copy\n\n**Repo:** %s\n\n**Path:** %s\n\n**Error:** %v\n\nFix the underlying issue and run `agenc repo writeable-copy set %s %s` to retry.", repoName, path, err, repoName, path)
-	_ = s.postWriteableCopyPause(gc, repoName, path, pauseReasonPathMissing, body)
+	_ = s.recordWriteableCopyFailure(gc, repoName, path, pauseReasonPathMissing, body)
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -49,9 +50,9 @@ type fakeGit struct {
 	commitErr error
 
 	// commitMovesHeadTo, when set, makes Commit behave like a real one: the
-	// working tree goes clean and HEAD advances to this value. Needed to test
-	// the resume path, whose whole condition is "the tree is clean and HEAD has
-	// moved" — a static fake can express the before or the after, not the act.
+	// working tree goes clean and HEAD advances to this value. A static fake can
+	// express the state before a commit or the state after, not the act, and
+	// what a tick does to a repo being actively written to turns on the act.
 	commitMovesHeadTo string
 
 	pullConflicted []string
@@ -106,6 +107,11 @@ type fakePushOutcome struct {
 	result pushResult
 	err    error
 }
+
+// alwaysRebase is the rebase policy for tests about reconcile itself, which are
+// not about when a rebase is allowed. The policy's own rules are exercised by
+// TestShouldAttemptRebase and the deferral test.
+func alwaysRebase(string) bool { return true }
 
 func (f *fakeGit) Status(string) (bool, []string, error) {
 	return f.statusClean, f.statusConflicted, f.statusErr
@@ -350,7 +356,7 @@ func TestReconcile_Equal(t *testing.T) {
 		headValue:      "abc",
 		revParseValues: map[string]string{"origin/main": "abc"},
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +371,7 @@ func TestReconcile_AheadPushes(t *testing.T) {
 		revParseValues: map[string]string{"origin/main": "remote"},
 		mergeBaseValue: "remote", // local has the remote tip in its history → ahead
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +386,7 @@ func TestReconcile_BehindFastForwards(t *testing.T) {
 		revParseValues: map[string]string{"origin/main": "remote"},
 		mergeBaseValue: "local", // remote contains local → behind
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +401,7 @@ func TestReconcile_DivergedRebaseSucceeds(t *testing.T) {
 		revParseValues: map[string]string{"origin/main": "remote"},
 		mergeBaseValue: "ancestor", // diverged
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +418,7 @@ func TestReconcile_RebaseConflictPauses(t *testing.T) {
 		pullConflicted: []string{"a.txt", "b.txt"},
 		pullErr:        errors.New("CONFLICT (content): Merge conflict in a.txt"),
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +483,7 @@ func TestReconcile_RejectedPushRetriesWhenRemoteIsAncestorOfLocal(t *testing.T) 
 			{},
 		},
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,7 +515,7 @@ func TestReconcile_RefLockRejectionRetriesDespiteItsWording(t *testing.T) {
 			{},
 		},
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +540,7 @@ func TestReconcile_HookDeclinedPushRetriesOnAncestryNotWording(t *testing.T) {
 			{},
 		},
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +574,7 @@ func TestReconcile_RejectedPushWithMovedRemoteDefersToTheRebasePath(t *testing.T
 		f.mergeBaseValue = "ancestor"
 	}
 
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err == nil {
 		t.Fatalf("expected a transient error when the remote moved, got result %+v", got)
 	}
@@ -590,7 +596,7 @@ func TestReconcile_RejectedPushWithMovedRemoteDefersToTheRebasePath(t *testing.T
 	gc.onFetch = nil
 	gc.pushResult = pushResult{}
 	gc.pushErr = nil
-	next, err := reconcileWithRemote(gc, "/tmp", "main")
+	next, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatalf("expected the follow-up tick to resolve the divergence, got %v", err)
 	}
@@ -613,7 +619,7 @@ func TestReconcile_RejectedRetryStaysTransientRatherThanPausing(t *testing.T) {
 		pushResult:     pushResult{Rejected: true, Output: gitRefLockRejectOutput},
 		pushErr:        errors.New("git push failed"),
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err == nil {
 		t.Fatalf("expected a transient error when both pushes are rejected, got result %+v", got)
 	}
@@ -646,7 +652,7 @@ func TestReconcile_RejectedPushAfterRebaseAlsoRetries(t *testing.T) {
 			{},
 		},
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +687,7 @@ func TestReconcile_RejectedPushThatAlreadyLandedIsNotAPause(t *testing.T) {
 		}
 		f.revParseValues["origin/main"] = "local"
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,7 +773,7 @@ func TestReconcile_AuthFailurePauses(t *testing.T) {
 		pushResult:     pushResult{AuthFailure: true},
 		pushErr:        errors.New("authentication failed"),
 	}
-	got, err := reconcileWithRemote(gc, "/tmp", "main")
+	got, err := reconcileWithRemote(gc, "/tmp", "main", alwaysRebase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -870,10 +876,10 @@ func runSweepAndTick(t *testing.T, srv *Server, repoName string) {
 	}
 }
 
-// A pause whose tree has since gone clean and whose HEAD has moved cannot
-// resume on watcher events alone, because the commit that satisfies both
-// conditions writes only to .git/, which the watcher skips. The sweep is what
-// breaks that, so the repo recovers with nobody touching a file.
+// A repo whose recorded failure is over recovers on the sweep alone, with
+// nobody touching a file. The watcher skips `.git/` and would never fire here,
+// which is why clearing one of these by hand used to mean rewriting a tracked
+// file with identical bytes just to manufacture an event.
 func TestSweep_ResumesAPauseWithoutAWorkingTreeEvent(t *testing.T) {
 	const repoName = "github.com/o/r"
 	repoDirpath := t.TempDir()
@@ -894,105 +900,64 @@ func TestSweep_ResumesAPauseWithoutAWorkingTreeEvent(t *testing.T) {
 	}
 }
 
-// The half of the KEV-230 deadlock that committing-while-paused fixes: a repo
-// that missions keep writing to now gets its work captured in git even while
-// the push is stopped.
+// The shape the KEV-230 incidents had, run forward five minutes: a push that
+// keeps failing on a checkout missions are writing to.
 //
-// And the trap that comes with it. The loop's own commit moves HEAD, so if the
-// resume probe treated any HEAD move as the signal, a pause whose cause still
-// holds would resume every tick, fail, and post a fresh pause row and
-// notification — once a minute into an append-only list. So the loop records
-// its own commits against the pause row, and the pause stands.
-func TestSweep_CommitsWhilePausedWithoutResumingOrRenotifying(t *testing.T) {
+// Three things must all hold at once, and the previous two designs each got one
+// of them wrong. The work keeps being committed, because a failing push is no
+// reason to stop capturing it. The loop keeps trying, because the fix may be
+// entirely remote-side. And the user is told once, because a row that already
+// describes this failure is what suppresses the next sixty notifications.
+func TestSweep_APersistingFailureCommitsRetriesAndNotifiesOnce(t *testing.T) {
 	const repoName = "github.com/o/r"
 	const ticks = 5
 	repoDirpath := t.TempDir()
 	gc := &fakeGit{
-		statusClean:    false, // a mission is mid-write, as in all three incidents
-		headValue:      "headAtPause",
+		statusClean:    true,
+		headValue:      "local",
 		defaultBranch:  "main",
 		currentBranch:  "main",
-		revParseValues: map[string]string{"origin/main": "headAtPause"},
+		revParseValues: map[string]string{"origin/main": "remote"},
+		mergeBaseValue: "remote", // local is ahead: there is always something to push
+		pushResult:     pushResult{AuthFailure: true, Output: "fatal: Authentication failed"},
+		pushErr:        errors.New("authentication failed"),
 	}
 	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
-	pauseRepo(t, srv, repoName, "headAtPause")
 
 	for tick := 1; tick <= ticks; tick++ {
-		// Each tick finds fresh edits and commits them, as a real one would.
-		gc.statusClean = false
-		gc.commitMovesHeadTo = fmt.Sprintf("headAfterAutoCommit%d", tick)
+		gc.statusClean = false // fresh edits land between ticks
+		gc.commitMovesHeadTo = fmt.Sprintf("localAfterAutoCommit%d", tick)
 		runSweepAndTick(t, srv, repoName)
 
 		pause := currentPause(t, srv, repoName)
 		if pause == nil {
-			t.Fatalf("tick %d: the pause cleared on the loop's own commit", tick)
+			t.Fatalf("tick %d: expected the failure to still be recorded", tick)
 		}
-		if pause.LocalHeadAtPause != gc.commitMovesHeadTo {
-			t.Errorf("tick %d: expected the pause to record its own commit %s, recorded %s",
-				tick, gc.commitMovesHeadTo, pause.LocalHeadAtPause)
+		if pause.PausedReason != pauseReasonAuthFailure {
+			t.Fatalf("tick %d: expected auth_failure, got '%s'", tick, pause.PausedReason)
 		}
 	}
 
 	if gc.commitCalls != ticks {
-		t.Errorf("expected %d commits while paused, got %d", ticks, gc.commitCalls)
+		t.Errorf("expected the loop to commit on every tick, got %d commits in %d ticks", gc.commitCalls, ticks)
 	}
-	if gc.pushCalls != 0 {
-		t.Errorf("expected no push attempts while paused, got %d", gc.pushCalls)
+	if gc.pushCalls != ticks {
+		t.Errorf("expected the loop to keep retrying the push, got %d attempts in %d ticks", gc.pushCalls, ticks)
 	}
 	if n := countNotifications(t, srv, repoName); n != 1 {
-		t.Errorf("expected the pause to have notified exactly once across %d ticks, got %d notifications", ticks, n)
+		t.Errorf("expected one notification for the episode, got %d across %d ticks", n, ticks)
 	}
 }
 
-// What does clear a pause: a HEAD move the loop did not make — a human commit,
-// a pull, a checkout. Here the cause has also gone away, so the repo resumes
-// and pushes.
-func TestSweep_ResumesOnAHeadMoveTheLoopDidNotMake(t *testing.T) {
-	const repoName = "github.com/o/r"
-	repoDirpath := t.TempDir()
-	gc := &fakeGit{
-		statusClean:    false,
-		headValue:      "headAtPause",
-		defaultBranch:  "main",
-		currentBranch:  "main",
-		revParseValues: map[string]string{"origin/main": "remote"},
-		mergeBaseValue: "remote", // once resumed, local is ahead and pushable
-	}
-	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
-	pauseRepo(t, srv, repoName, "headAtPause")
-
-	gc.commitMovesHeadTo = "headAfterAutoCommit"
-	runSweepAndTick(t, srv, repoName)
-	if currentPause(t, srv, repoName) == nil {
-		t.Fatal("the pause cleared on the loop's own commit")
-	}
-
-	// Someone else moves HEAD — a human commit, a pull, a checkout.
-	gc.commitMovesHeadTo = ""
-	gc.statusClean = true
-	gc.headValue = "headFromOutsideTheLoop"
-	runSweepAndTick(t, srv, repoName)
-
-	if pause := currentPause(t, srv, repoName); pause != nil {
-		t.Errorf("expected a HEAD move the loop did not make to resume, still paused with '%s'", pause.PausedReason)
-	}
-	if gc.pushCalls != 1 {
-		t.Errorf("expected the resumed tick to push, got %d push attempts", gc.pushCalls)
-	}
-}
-
-// The churn the head-recording prevents, measured from the outside and in the
-// shape it was measured in: an auth failure on a checkout that is being
-// written to, so every tick commits. One genuine new pause costs exactly one
-// new notification; the ticks after it cost none. Without the recording this
-// was six notifications in six ticks, around 1440 a day into an append-only
-// list.
-func TestSweep_ARefailingPauseNotifiesOncePerPauseNotPerTick(t *testing.T) {
+// What ends an episode: a tick that gets all the way through. Nobody has to
+// commit anything, which matters because the fix for an auth failure or a
+// repository rule happens entirely on the remote side.
+func TestSweep_ResumesWhenTheRemoteAcceptsAPushAgain(t *testing.T) {
 	const repoName = "github.com/o/r"
 	repoDirpath := t.TempDir()
 	gc := &fakeGit{
 		statusClean:    true,
-		headValue:      "headAtPause",
+		headValue:      "local",
 		defaultBranch:  "main",
 		currentBranch:  "main",
 		revParseValues: map[string]string{"origin/main": "remote"},
@@ -1001,31 +966,181 @@ func TestSweep_ARefailingPauseNotifiesOncePerPauseNotPerTick(t *testing.T) {
 		pushErr:        errors.New("authentication failed"),
 	}
 	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
-	pauseRepo(t, srv, repoName, "headAtPause")
 
-	// An outside HEAD move resumes it; the push fails again, so it re-pauses.
-	gc.headValue = "headFromOutsideTheLoop"
 	runSweepAndTick(t, srv, repoName)
 	if currentPause(t, srv, repoName) == nil {
-		t.Fatal("expected the repo to be paused again after the push failed")
-	}
-	if n := countNotifications(t, srv, repoName); n != 2 {
-		t.Fatalf("expected exactly one new notification for the new pause, got %d in total", n)
+		t.Fatal("expected the auth failure to be recorded")
 	}
 
-	// Five more ticks, each with fresh edits so each one commits — the state
-	// the churn was measured in. Nothing about the auth failure has changed, so
-	// none of them should notify.
-	for tick := 1; tick <= 5; tick++ {
-		gc.statusClean = false
-		gc.commitMovesHeadTo = fmt.Sprintf("headAfterAutoCommit%d", tick)
+	// Credentials refreshed. Nothing in the working tree changes.
+	gc.pushResult = pushResult{}
+	gc.pushErr = nil
+	runSweepAndTick(t, srv, repoName)
+
+	if pause := currentPause(t, srv, repoName); pause != nil {
+		t.Errorf("expected the accepted push to clear the failure, still recorded as '%s'", pause.PausedReason)
+	}
+	if n := countNotifications(t, srv, repoName); n != 1 {
+		t.Errorf("expected clearing to be quiet, got %d notifications", n)
+	}
+}
+
+// A failure that turns into a different failure is news, and gets said once
+// more. Repetition is not news; a change is.
+func TestSweep_AChangedFailureNotifiesAgainAndRepointsTheRow(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := &fakeGit{
+		statusClean:    true,
+		headValue:      "local",
+		defaultBranch:  "main",
+		currentBranch:  "main",
+		revParseValues: map[string]string{"origin/main": "remote"},
+		mergeBaseValue: "remote",
+		pushResult:     pushResult{AuthFailure: true, Output: "fatal: Authentication failed"},
+		pushErr:        errors.New("authentication failed"),
+	}
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+
+	runSweepAndTick(t, srv, repoName)
+	if pause := currentPause(t, srv, repoName); pause == nil || pause.PausedReason != pauseReasonAuthFailure {
+		t.Fatalf("expected an auth_failure to be recorded, got %+v", pause)
+	}
+
+	// The credentials are fixed, but now the remote refuses the push outright.
+	gc.pushResult = pushResult{Rejected: true, Output: gitHookDeclineOutput}
+	gc.pushErr = errors.New("git push failed")
+	for refusal := 1; refusal <= maxConsecutivePushRefusals; refusal++ {
 		runSweepAndTick(t, srv, repoName)
 	}
-	if gc.commitCalls != 5 {
-		t.Errorf("expected the loop to keep committing while paused, got %d commits", gc.commitCalls)
+
+	pause := currentPause(t, srv, repoName)
+	if pause == nil {
+		t.Fatal("expected a failure to still be recorded")
+	}
+	if pause.PausedReason != pauseReasonPushRefused {
+		t.Errorf("expected the row to follow the new failure, got '%s'", pause.PausedReason)
 	}
 	if n := countNotifications(t, srv, repoName); n != 2 {
-		t.Errorf("expected the notification count to stay at 2 across 5 committing ticks, got %d", n)
+		t.Errorf("expected exactly one further notification for the changed failure, got %d in total", n)
+	}
+}
+
+// A sanity failure is fixed by fixing the condition — no commit, no push, no
+// command to run. The next tick finds it healthy and clears the record.
+func TestSweep_ASanityFailureClearsWhenTheConditionIsFixed(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := &fakeGit{
+		statusClean:    true,
+		headValue:      "local",
+		defaultBranch:  "main",
+		currentBranch:  "some-feature-branch", // the wrong branch
+		revParseValues: map[string]string{"origin/main": "local"},
+	}
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+
+	runSweepAndTick(t, srv, repoName)
+	pause := currentPause(t, srv, repoName)
+	if pause == nil || pause.PausedReason != pauseReasonWrongBranch {
+		t.Fatalf("expected a wrong_branch failure to be recorded, got %+v", pause)
+	}
+	if gc.commitCalls != 0 {
+		t.Errorf("expected no commit while on the wrong branch, got %d", gc.commitCalls)
+	}
+	body := notificationBody(t, srv, pause.NotificationID)
+	if !strings.Contains(body, "Nothing is being committed or pushed") {
+		t.Errorf("expected the notification to say that committing has stopped too, got:\n%s", body)
+	}
+
+	// Someone checks the default branch back out.
+	gc.currentBranch = "main"
+	runSweepAndTick(t, srv, repoName)
+
+	if pause := currentPause(t, srv, repoName); pause != nil {
+		t.Errorf("expected the fixed condition to clear the record, still '%s'", pause.PausedReason)
+	}
+}
+
+// A rebase is the one operation too expensive to repeat every minute: it runs
+// against a tree being written to, and a conflict leaves an abort that can
+// itself fail. So a divergence onto a remote tip already attempted is deferred
+// rather than retried, and the recorded failure stands.
+func TestSweep_DefersARebaseOntoAnAlreadyAttemptedRemoteTip(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := &fakeGit{
+		statusClean:    true,
+		headValue:      "local",
+		defaultBranch:  "main",
+		currentBranch:  "main",
+		revParseValues: map[string]string{"origin/main": "remote"},
+		mergeBaseValue: "ancestor", // diverged
+		pullConflicted: []string{"a.txt"},
+		pullErr:        errors.New("CONFLICT (content): Merge conflict in a.txt"),
+	}
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+
+	runSweepAndTick(t, srv, repoName)
+	if pause := currentPause(t, srv, repoName); pause == nil || pause.PausedReason != pauseReasonRebaseConflict {
+		t.Fatalf("expected a rebase_conflict to be recorded, got %+v", pause)
+	}
+	if gc.pullCalls != 1 {
+		t.Fatalf("expected one rebase attempt, got %d", gc.pullCalls)
+	}
+
+	// Four more minutes of ticks against the same remote tip.
+	for tick := 0; tick < 4; tick++ {
+		runSweepAndTick(t, srv, repoName)
+	}
+	if gc.pullCalls != 1 {
+		t.Errorf("expected no further rebase attempts onto the same tip, got %d in total", gc.pullCalls)
+	}
+	if n := countNotifications(t, srv, repoName); n != 1 {
+		t.Errorf("expected one notification for the episode, got %d", n)
+	}
+
+	// The conflict is resolved: the branches are no longer diverged.
+	gc.mergeBaseValue = "remote"
+	runSweepAndTick(t, srv, repoName)
+
+	if pause := currentPause(t, srv, repoName); pause != nil {
+		t.Errorf("expected a resolved conflict to clear the record, still '%s'", pause.PausedReason)
+	}
+}
+
+// The rebase policy's own rules, with the clock as an argument.
+func TestShouldAttemptRebase(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name       string
+		last       rebaseAttempt
+		remoteHead string
+		want       bool
+	}{
+		{
+			name:       "same tip, long ago — still the same conflict",
+			last:       rebaseAttempt{remoteHead: "remote", at: now.Add(-24 * time.Hour)},
+			remoteHead: "remote",
+			want:       false,
+		},
+		{
+			name:       "new tip, but a minute ago",
+			last:       rebaseAttempt{remoteHead: "remote", at: now.Add(-1 * time.Minute)},
+			remoteHead: "remote2",
+			want:       false,
+		},
+		{
+			name:       "new tip, past the interval",
+			last:       rebaseAttempt{remoteHead: "remote", at: now.Add(-rebaseRetryInterval - time.Second)},
+			remoteHead: "remote2",
+			want:       true,
+		},
+	}
+	for _, c := range cases {
+		if got := shouldAttemptRebase(c.last, c.remoteHead, now); got != c.want {
+			t.Errorf("%s: shouldAttemptRebase() = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 
@@ -1037,30 +1152,6 @@ func countNotifications(t *testing.T, srv *Server, repoName string) int {
 		t.Fatalf("failed to list notifications: %v", err)
 	}
 	return len(notifications)
-}
-
-// The sweep must not resume a repo whose state still warrants the pause.
-func TestSweep_LeavesAPauseWhoseConditionStillHolds(t *testing.T) {
-	const repoName = "github.com/o/r"
-	repoDirpath := t.TempDir()
-	gc := &fakeGit{
-		statusClean:    true,
-		headValue:      "headAtPause", // nothing has changed since the pause
-		defaultBranch:  "main",
-		currentBranch:  "main",
-		revParseValues: map[string]string{"origin/main": "headAtPause"},
-	}
-	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
-	pauseRepo(t, srv, repoName, "headAtPause")
-
-	runSweepAndTick(t, srv, repoName)
-
-	if pause := currentPause(t, srv, repoName); pause == nil {
-		t.Error("expected the repo to stay paused while HEAD has not moved")
-	}
-	if gc.pushCalls != 0 {
-		t.Errorf("expected no push while still paused, got %d push attempts", gc.pushCalls)
-	}
 }
 
 // The stall the sweep exists for on the unpaused side: a repo left with local

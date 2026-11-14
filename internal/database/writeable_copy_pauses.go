@@ -7,10 +7,14 @@ import (
 	"github.com/mieubrisse/stacktrace"
 )
 
-// WriteableCopyPause records that a writeable-copy sync loop is paused for a
-// repo, typically because a sync operation failed (rebase conflict, push
-// rejection, auth failure, etc.). The row is deleted when the loop
-// auto-resumes after the user resolves the underlying issue.
+// WriteableCopyPause records that a writeable copy has an unresolved failure
+// the user has already been told about — a rebase conflict, a refused push, an
+// auth failure, a broken git state.
+//
+// The row does not stop the sync loop, which goes on retrying on every trigger.
+// What it does is suppress repeat notifications for a failure already reported,
+// and carry the reason so that a *different* failure can be told apart from the
+// same one recurring. It is deleted the first time a tick reconciles fully.
 type WriteableCopyPause struct {
 	RepoName         string
 	PausedAt         time.Time
@@ -127,22 +131,68 @@ func (db *DB) ListPauses() ([]*WriteableCopyPause, error) {
 	return pauses, nil
 }
 
-// UpdatePauseHead moves a pause's local_head_at_pause to a new commit.
+// ReplacePauseAndNotification repoints an existing pause row at a new reason
+// and a new notification, in one transaction.
 //
-// The sync loop calls this after auto-committing in a paused writeable copy.
-// The resume probe treats a HEAD that has moved past local_head_at_pause as
-// "something changed, try again", so without re-recording it the loop's own
-// commit would read as that signal — resuming a pause whose cause still holds,
-// failing, and posting a fresh pause and notification every tick.
-func (db *DB) UpdatePauseHead(repoName, localHeadAtPause string) error {
-	_, err := db.conn.Exec(
-		"UPDATE writeable_copy_pauses SET local_head_at_pause = ? WHERE repo_name = ?",
-		localHeadAtPause, repoName,
-	)
+// This is what makes a writeable copy's failure notifications escalate on
+// change rather than on repetition. A repo whose failure is still the one
+// already reported writes nothing (UpsertPauseAndNotification is a no-op while
+// a row exists, so the episode keeps its single notification); a repo whose
+// failure has turned into a different one gets a fresh notification through
+// here, and the row follows it.
+//
+// Returns (false, nil) when no pause row exists, so the caller can insert one
+// with UpsertPauseAndNotification instead.
+func (db *DB) ReplacePauseAndNotification(p *WriteableCopyPause, n *Notification) (bool, error) {
+	tx, err := db.conn.Begin()
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to update the paused head for repo '%v' to '%v'", repoName, localHeadAtPause)
+		return false, stacktrace.Propagate(err, "failed to begin transaction for repo '%v'", p.RepoName)
 	}
-	return nil
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var existing string
+	err = tx.QueryRow("SELECT repo_name FROM writeable_copy_pauses WHERE repo_name = ?", p.RepoName).Scan(&existing)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, stacktrace.Propagate(err, "failed to check for an existing pause for repo '%v'", p.RepoName)
+	}
+
+	if n.CreatedAt.IsZero() {
+		n.CreatedAt = time.Now().UTC()
+	}
+	var sourceRepo sql.NullString
+	if n.SourceRepo != "" {
+		sourceRepo = sql.NullString{String: n.SourceRepo, Valid: true}
+	}
+	if _, err := tx.Exec(
+		"INSERT INTO notifications (id, kind, source_repo, title, body_markdown, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
+		n.ID, n.Kind, sourceRepo, n.Title, n.BodyMarkdown, n.CreatedAt.UTC().Format(time.RFC3339),
+	); err != nil {
+		return false, stacktrace.Propagate(err, "failed to insert notification for repo '%v'", p.RepoName)
+	}
+
+	if p.PausedAt.IsZero() {
+		p.PausedAt = time.Now().UTC()
+	}
+	if _, err := tx.Exec(
+		"UPDATE writeable_copy_pauses SET paused_at = ?, paused_reason = ?, local_head_at_pause = ?, notification_id = ? WHERE repo_name = ?",
+		p.PausedAt.UTC().Format(time.RFC3339), p.PausedReason, p.LocalHeadAtPause, p.NotificationID, p.RepoName,
+	); err != nil {
+		return false, stacktrace.Propagate(err, "failed to update pause for repo '%v'", p.RepoName)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, stacktrace.Propagate(err, "failed to commit pause-replacement transaction for repo '%v'", p.RepoName)
+	}
+	committed = true
+	return true, nil
 }
 
 // DeletePause removes the pause for a repo. Idempotent: deleting a non-existent

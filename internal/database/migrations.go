@@ -678,7 +678,8 @@ func migrateAddNotificationsMissionID(conn *sql.DB) error {
 
 // migrateCreateWriteableCopyPausesTable idempotently creates the
 // writeable_copy_pauses table. A row exists only while a writeable copy's
-// sync loop is paused; rows are deleted on auto-resume.
+// sync loop has an unresolved failure it has already notified about; rows are
+// deleted once a tick reconciles the copy fully.
 func migrateCreateWriteableCopyPausesTable(conn *sql.DB) error {
 	if _, err := conn.Exec(createWriteableCopyPausesTableSQL); err != nil {
 		return stacktrace.Propagate(err, "failed to create writeable_copy_pauses table")

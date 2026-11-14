@@ -59,6 +59,14 @@ type Server struct {
 	consecutivePushRefusalsMu sync.Mutex
 	consecutivePushRefusals   map[string]int
 
+	// lastRebaseAttempts records, per writeable copy, when a rebase was last
+	// attempted and against which remote tip. The sweep ticks every minute and
+	// a rebase is the one operation here too expensive to repeat at that rate —
+	// see rebaseGateFor. In-memory for the same reason as the refusal count: a
+	// restart costs one extra attempt, which is self-limiting.
+	lastRebaseAttemptsMu sync.Mutex
+	lastRebaseAttempts   map[string]rebaseAttempt
+
 	// stashInProgress is set while a stash push or pop is running.
 	// Mutating mission endpoints return 503 while this is true.
 	stashInProgress atomic.Bool

@@ -79,6 +79,17 @@ type sanityResult struct {
 	PauseDetail string
 }
 
+// newSanityPause builds a sanity-stage failure with its resolution note
+// attached. Every sanity failure goes through here so that exactly one piece of
+// text has to be right about what the loop does for this class: it stops before
+// the auto-commit, so nothing is being captured until the condition is fixed.
+func newSanityPause(reason, detail string) sanityResult {
+	return sanityResult{
+		PauseReason: reason,
+		PauseDetail: detail + "\n\n" + pauseResolutionNote(reason),
+	}
+}
+
 // runWriteableCopySanityCheck examines the writeable copy's directory and git
 // state. It returns one of three outcomes:
 //   - all-zero result → sanity passed; proceed with the tick
@@ -86,10 +97,7 @@ type sanityResult struct {
 //   - PauseReason non-empty → pause + notify
 func runWriteableCopySanityCheck(gc GitCommander, repoDirpath, expectedOriginURL string) sanityResult {
 	if _, err := os.Stat(repoDirpath); err != nil {
-		return sanityResult{
-			PauseReason: pauseReasonPathMissing,
-			PauseDetail: fmt.Sprintf("the writeable-copy path '%s' does not exist (was it deleted manually?)", repoDirpath),
-		}
+		return newSanityPause(pauseReasonPathMissing, fmt.Sprintf("the writeable-copy path '%s' does not exist (was it deleted manually?)", repoDirpath))
 	}
 	if gc.IndexLockExists(repoDirpath) {
 		return sanityResult{SkipSilently: true}
@@ -99,32 +107,20 @@ func runWriteableCopySanityCheck(gc GitCommander, repoDirpath, expectedOriginURL
 	}
 	defaultBranch, err := gc.DefaultBranch(repoDirpath)
 	if err != nil {
-		return sanityResult{
-			PauseReason: pauseReasonGitCorrupt,
-			PauseDetail: fmt.Sprintf("could not read default branch from origin/HEAD in '%s': %v", repoDirpath, err),
-		}
+		return newSanityPause(pauseReasonGitCorrupt, fmt.Sprintf("could not read default branch from origin/HEAD in '%s': %v", repoDirpath, err))
 	}
 	currentBranch, err := gc.CurrentBranch(repoDirpath)
 	if err != nil {
-		return sanityResult{
-			PauseReason: pauseReasonGitCorrupt,
-			PauseDetail: fmt.Sprintf("could not determine current branch in '%s': %v", repoDirpath, err),
-		}
+		return newSanityPause(pauseReasonGitCorrupt, fmt.Sprintf("could not determine current branch in '%s': %v", repoDirpath, err))
 	}
 	if currentBranch != defaultBranch {
-		return sanityResult{
-			PauseReason: pauseReasonWrongBranch,
-			PauseDetail: fmt.Sprintf("the writeable copy is on branch '%s'; the sync loop only operates on the default branch '%s'. Switch back with: git -C %s checkout %s", currentBranch, defaultBranch, repoDirpath, defaultBranch),
-		}
+		return newSanityPause(pauseReasonWrongBranch, fmt.Sprintf("the writeable copy is on branch '%s'; the sync loop only operates on the default branch '%s'. Switch back with: git -C %s checkout %s", currentBranch, defaultBranch, repoDirpath, defaultBranch))
 	}
 	// Tree may have conflicts from a manual merge — refuse silently in that
 	// case so we don't blow away the user's in-progress resolution.
 	_, conflicted, err := gc.Status(repoDirpath)
 	if err != nil {
-		return sanityResult{
-			PauseReason: pauseReasonGitCorrupt,
-			PauseDetail: fmt.Sprintf("git status failed in '%s': %v", repoDirpath, err),
-		}
+		return newSanityPause(pauseReasonGitCorrupt, fmt.Sprintf("git status failed in '%s': %v", repoDirpath, err))
 	}
 	if len(conflicted) > 0 {
 		return sanityResult{SkipSilently: true}
@@ -132,16 +128,10 @@ func runWriteableCopySanityCheck(gc GitCommander, repoDirpath, expectedOriginURL
 	if expectedOriginURL != "" {
 		actual, err := gc.OriginURL(repoDirpath)
 		if err != nil {
-			return sanityResult{
-				PauseReason: pauseReasonGitCorrupt,
-				PauseDetail: fmt.Sprintf("could not read origin URL in '%s': %v", repoDirpath, err),
-			}
+			return newSanityPause(pauseReasonGitCorrupt, fmt.Sprintf("could not read origin URL in '%s': %v", repoDirpath, err))
 		}
 		if !originURLMatches(actual, expectedOriginURL) {
-			return sanityResult{
-				PauseReason: pauseReasonOriginDrift,
-				PauseDetail: fmt.Sprintf("the writeable copy's origin URL '%s' does not match the expected URL '%s'. Restore it with: git -C %s remote set-url origin %s", actual, expectedOriginURL, repoDirpath, expectedOriginURL),
-			}
+			return newSanityPause(pauseReasonOriginDrift, fmt.Sprintf("the writeable copy's origin URL '%s' does not match the expected URL '%s'. Restore it with: git -C %s remote set-url origin %s", actual, expectedOriginURL, repoDirpath, expectedOriginURL))
 		}
 	}
 	return sanityResult{}
@@ -189,11 +179,21 @@ func commitIfDirty(gc GitCommander, repoDirpath string) (bool, error) {
 	return true, nil
 }
 
+// Actions a reconcile can take. The first four mean the writeable copy ended
+// the tick in agreement with the remote; actionRebaseDeferred does not.
+const (
+	actionNoop           = "noop"
+	actionPush           = "push"
+	actionFastForward    = "ff"
+	actionRebaseAndPush  = "rebase-and-push"
+	actionRebaseDeferred = "rebase-deferred"
+)
+
 // reconcileResult describes the disposition of a fetch+reconcile cycle.
 type reconcileResult struct {
 	// Outcome is one of: "equal", "ahead", "behind", "diverged".
 	Outcome string
-	// Action describes the action taken: "noop", "push", "ff", "rebase-and-push".
+	// Action describes what was done; see the action constants above.
 	Action string
 	// PauseReason is set when reconcile failed in a way that requires user
 	// intervention: a rebase conflict, an auth failure, or a push the remote
@@ -211,7 +211,14 @@ type reconcileResult struct {
 
 // reconcileWithRemote runs a single fetch + reconcile cycle. The repo is
 // expected to already pass sanity checks.
-func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (reconcileResult, error) {
+//
+// mayRebase is asked, with the freshly-fetched remote tip, whether a rebase
+// should be attempted when the branches have diverged. It exists because the
+// sweep ticks every minute and a rebase is the one operation here that is not
+// cheap to repeat: it runs against a tree missions are writing to, and each
+// attempt is another chance to land in the state where the rebase cannot be
+// aborted and every later tick skips the repo in silence.
+func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string, mayRebase func(remoteHead string) bool) (reconcileResult, error) {
 	if err := gc.Fetch(repoDirpath); err != nil {
 		// Treat fetch failure as transient at this layer; caller decides how
 		// to track repeated failures over time.
@@ -228,7 +235,7 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 	}
 
 	if localHead == remoteHead {
-		return reconcileResult{Outcome: "equal", Action: "noop"}, nil
+		return reconcileResult{Outcome: "equal", Action: actionNoop}, nil
 	}
 
 	// Determine ahead / behind / diverged via merge-base.
@@ -249,15 +256,19 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 		if failure.PauseReason != "" {
 			return failure, nil
 		}
-		return reconcileResult{Outcome: "ahead", Action: "push"}, nil
+		return reconcileResult{Outcome: "ahead", Action: actionPush}, nil
 	case mergeBase == localHead:
 		// Remote is ahead of local → fast-forward.
 		if err := gc.MergeFFOnly(repoDirpath, remoteRef); err != nil {
 			return reconcileResult{}, stacktrace.Propagate(err, "fast-forward to '%v' failed in '%v'", remoteRef, repoDirpath)
 		}
-		return reconcileResult{Outcome: "behind", Action: "ff"}, nil
+		return reconcileResult{Outcome: "behind", Action: actionFastForward}, nil
 	default:
-		// Diverged → rebase-and-push.
+		// Diverged → rebase-and-push, if the caller's policy allows another
+		// attempt right now.
+		if !mayRebase(remoteHead) {
+			return reconcileResult{Outcome: "diverged", Action: actionRebaseDeferred}, nil
+		}
 		conflicted, rebaseErr := gc.PullRebaseAutostash(repoDirpath)
 		if rebaseErr != nil {
 			// A failed abort is worth saying out loud: it leaves the rebase
@@ -280,7 +291,7 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 			failure.Outcome = "diverged"
 			return failure, nil
 		}
-		return reconcileResult{Outcome: "diverged", Action: "rebase-and-push"}, nil
+		return reconcileResult{Outcome: "diverged", Action: actionRebaseAndPush}, nil
 	}
 }
 
@@ -373,16 +384,78 @@ func classifyPushFailure(result pushResult, pushErr error, repoDirpath string) (
 		return reconcileResult{
 			PauseReason: pauseReasonAuthFailure,
 			PauseDetail: fmt.Sprintf(
-				"git push failed authentication. Refresh your credentials (e.g. `gh auth login` or update your SSH key); "+
-					"the pause clears once a successful push lands.\n\n"+
+				"git push failed authentication. Refresh your credentials — `gh auth login`, or update the SSH key "+
+					"this checkout's remote uses.\n\n"+
 					"## What git said\n\n```\n%s\n```\n\n%s",
-				trimGitOutputTail(result.Output), pausedStillCommittingNote,
+				trimGitOutputTail(result.Output), pauseResolutionNote(pauseReasonAuthFailure),
 			),
 		}, nil
 	}
 	// Generic push failure — propagate as a transient error so a later tick
 	// retries without pausing.
 	return reconcileResult{}, stacktrace.Propagate(pushErr, "git push failed in '%v'", repoDirpath)
+}
+
+// rebaseRetryInterval is the shortest gap between two rebase attempts on the
+// same writeable copy.
+//
+// Every other operation in a tick is cheap to repeat once a minute. A rebase is
+// not: it runs `pull --rebase --autostash` against a working tree that missions
+// are actively writing to, and a conflict leaves an abort that can itself fail,
+// after which the rebase stays in progress and every later tick skips the repo
+// in silence. Fifteen minutes keeps that exposure to four attempts an hour
+// instead of sixty.
+const rebaseRetryInterval = 15 * time.Minute
+
+// rebaseAttempt is what the loop remembers about its last rebase on a repo.
+type rebaseAttempt struct {
+	remoteHead string
+	at         time.Time
+}
+
+// rebaseGateFor builds the policy reconcileWithRemote asks before rebasing.
+//
+// Two conditions, both required. The remote tip must have moved since the last
+// attempt, because a rebase onto an unchanged tip is the same rebase and will
+// conflict the same way. And rebaseRetryInterval must have passed, which bounds
+// the damage when the remote is busy enough to keep producing new tips.
+//
+// Nothing here blocks the resolution path: a person who resolves the conflict
+// leaves the branches no longer diverged, so the next tick takes the ordinary
+// ahead-or-equal route, succeeds, and clears the recorded failure.
+func (s *Server) rebaseGateFor(repoName string) func(remoteHead string) bool {
+	return func(remoteHead string) bool {
+		s.lastRebaseAttemptsMu.Lock()
+		defer s.lastRebaseAttemptsMu.Unlock()
+
+		last, attempted := s.lastRebaseAttempts[repoName]
+		if attempted && !shouldAttemptRebase(last, remoteHead, time.Now()) {
+			return false
+		}
+		if s.lastRebaseAttempts == nil {
+			s.lastRebaseAttempts = map[string]rebaseAttempt{}
+		}
+		s.lastRebaseAttempts[repoName] = rebaseAttempt{remoteHead: remoteHead, at: time.Now()}
+		return true
+	}
+}
+
+// shouldAttemptRebase holds the policy as a pure function so the clock is an
+// argument rather than a dependency.
+func shouldAttemptRebase(last rebaseAttempt, remoteHead string, now time.Time) bool {
+	if last.remoteHead == remoteHead {
+		return false
+	}
+	return now.Sub(last.at) >= rebaseRetryInterval
+}
+
+// forgetRebaseAttempt clears a repo's rebase memory once it has reconciled
+// fully, so a later divergence is judged fresh rather than against a situation
+// that is over.
+func (s *Server) forgetRebaseAttempt(repoName string) {
+	s.lastRebaseAttemptsMu.Lock()
+	defer s.lastRebaseAttemptsMu.Unlock()
+	delete(s.lastRebaseAttempts, repoName)
 }
 
 // recordPushRefusal counts one refusal against a repo and returns the running
@@ -426,20 +499,49 @@ func buildPushRefusedDetail(repoDirpath, defaultBranch string, refusals int, pus
 	sb.WriteString("## What git said\n\n```\n")
 	sb.WriteString(trimGitOutputTail(pushOutput))
 	sb.WriteString("\n```\n\n")
-	sb.WriteString("Act on whatever git names above — it is the remote's own account of why. ")
-	sb.WriteString("Once the remote accepts a push again, the pause clears on its next tick.\n\n")
-	sb.WriteString(pausedStillCommittingNote)
+	sb.WriteString("Act on whatever git names above — it is the remote's own account of why.\n\n")
+	sb.WriteString(pauseResolutionNote(pauseReasonPushRefused))
 	return sb.String()
 }
 
-// pausedStillCommittingNote closes every pause notification.
+// pauseResolutionNote closes every failure notification by saying what the
+// loop is still doing and what will end the episode.
 //
-// A pause used to be read as "the daemon has stopped", which was half right
-// and the dangerous half: it stops exchanging with the remote, and it keeps
-// committing local work. Saying so is what makes a pause safe to leave alone
-// for a while — and the commit is also what clears the pause, since it is what
-// moves HEAD and cleans the tree.
-const pausedStillCommittingNote = "While paused, the sync loop **keeps committing** local changes — only the exchange with the remote stops, so work on disk is still being captured in git. The pause clears on its own once the working tree is clean and HEAD has moved past where it was when the pause was taken, and every writeable copy is re-checked once a minute, so no file has to be touched to wake it.\n"
+// It is per reason because the honest answer differs by reason, and the
+// previous single note was wrong twice over: it promised that committing
+// continues even for the failures found before the commit, and it explained
+// resumption by a mechanism — "once the tree is clean and HEAD has moved" —
+// that described the implementation rather than anything the reader can act
+// on. Every branch below is checkable against the tick: what it does, how
+// often, and what ends it.
+func pauseResolutionNote(reason string) string {
+	const oneNotificationPerEpisode = "This is the only notification you will get for this episode. " +
+		"A new one arrives only if the failure turns into a different one; when it clears, it clears quietly.\n"
+
+	switch reason {
+	case pauseReasonAuthFailure, pauseReasonPushRefused, pauseReasonNonFFReject:
+		return "The loop **keeps committing** local changes, so work on disk is still being captured in git — only the push is failing. " +
+			"It retries roughly once a minute, so this resolves itself as soon as the remote accepts a push again: " +
+			"fix the credentials or the remote-side rule and nothing further is needed here.\n\n" +
+			oneNotificationPerEpisode
+
+	case pauseReasonRebaseConflict:
+		return "The loop **keeps committing** local changes, so nothing on disk is at risk — but it will not re-attempt the rebase " +
+			"more than once every 15 minutes, and not at all until the remote moves, because retrying a conflicting rebase against " +
+			"a working tree that is being edited is how a half-finished rebase gets left behind. **This one needs a person**: resolve it " +
+			"as above, and once the branches are no longer diverged the next tick reconciles normally and clears this.\n\n" +
+			oneNotificationPerEpisode
+
+	default:
+		// The sanity-stage failures: wrong branch, missing path, origin drift,
+		// git corruption. The tick stops before the commit for these.
+		return "**Nothing is being committed or pushed for this repo while this holds.** The loop stops before its auto-commit here, " +
+			"deliberately — committing onto the wrong branch, or into a repo whose git state is broken, would make the situation worse — " +
+			"so any uncommitted work is sitting on disk with nothing capturing it. Treat this as the urgent kind. " +
+			"The loop re-checks about once a minute, so fixing the condition above clears this within a minute, with nothing else to do.\n\n" +
+			oneNotificationPerEpisode
+	}
+}
 
 // trimGitOutputTail keeps the last few lines of a git invocation's output, which
 // is where git puts the reason, and drops the progress chatter above them.
@@ -462,8 +564,9 @@ func buildRebaseConflictDetail(repoDirpath string, conflicted []string, localHea
 		sb.WriteString(fmt.Sprintf(
 			"**The rebase could not be aborted, so it is still in progress.** Until it is cleared by hand "+
 				"(`git -C %s rebase --abort`), every later tick will skip this repo silently — nothing further will "+
-				"be committed or pushed, and no new notification will say so. Abort error: %v\n\n",
-			repoDirpath, abortErr,
+				"be committed or pushed, and no new notification will say so.\n\n"+
+				"## Why the abort failed\n\n```\n%s\n```\n\n",
+			repoDirpath, trimGitOutputTail(abortErr.Error()),
 		))
 	}
 	sb.WriteString(fmt.Sprintf("**Path:** %s\n\n", repoDirpath))
@@ -487,7 +590,7 @@ func buildRebaseConflictDetail(repoDirpath string, conflicted []string, localHea
 	sb.WriteString("```\n\n")
 	sb.WriteString("Marking this notification as read is purely cosmetic — it does not control the loop.\n\n")
 	if abortErr == nil {
-		sb.WriteString(pausedStillCommittingNote)
+		sb.WriteString(pauseResolutionNote(pauseReasonRebaseConflict))
 	}
 	return sb.String()
 }
@@ -507,10 +610,14 @@ type writeableCopyReconcileRequest struct {
 
 const writeableCopyReconcileChannelSize = 16
 
-// runWriteableCopyTick executes one full tick for a writeable copy: pause
-// resume probe, sanity, commit-if-dirty, fetch+reconcile, atomic pause+notify
-// on failure. This is the entry point used by the reconcile worker goroutine
-// and by the boot sweep.
+// runWriteableCopyTick executes one full tick for a writeable copy: sanity,
+// commit-if-dirty, fetch+reconcile, and then either recording a failure or
+// clearing the one on record. This is the entry point used by the reconcile
+// worker goroutine, the sweep and the boot pass.
+//
+// A recorded failure never short-circuits a tick. The loop keeps trying on
+// every trigger; the row exists so that an unresolved failure is reported once
+// rather than once a minute.
 func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) error {
 	gc := s.gitCommander
 	if gc == nil {
@@ -522,6 +629,9 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return nil // no longer configured; quietly exit
 	}
 
+	// A pause row does not stop this tick. It records that the user has already
+	// been told about a failure that is still unresolved; the loop goes on
+	// trying, and the row is what keeps one episode to one notification.
 	pause, err := s.db.GetPause(repoName)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read pause for '%v'", repoName)
@@ -533,50 +643,33 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return nil
 	}
 	if sanity.PauseReason != "" {
-		return s.postWriteableCopyPause(gc, repoName, repoDirpath, sanity.PauseReason, sanity.PauseDetail)
+		return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, sanity.PauseReason, sanity.PauseDetail)
 	}
 
-	// HEAD is read before the auto-commit because the resume probe below needs
-	// to know where it stood independently of anything this tick does to it.
-	headBeforeAutoCommit, err := gc.HEAD(repoDirpath)
-	if err != nil {
-		return stacktrace.Propagate(err, "failed to read HEAD for '%v'", repoName)
-	}
-
-	// Committing runs even while paused. A pause means "stop exchanging with
-	// the remote", never "stop capturing local work" — a commit is safe
-	// whatever state the remote is in — and on a checkout that missions are
-	// writing to, this commit is the only thing that ever makes the tree clean.
-	// Gating it behind the pause is what made the KEV-230 deadlock permanent.
-	committed, err := commitIfDirty(gc, repoDirpath)
-	if err != nil {
+	// Committing runs whether or not there is an unresolved failure. A pause
+	// means "something about the remote is unresolved", never "stop capturing
+	// local work" — a commit is safe whatever state the remote is in — and on
+	// a checkout that missions are writing to, this commit is the only thing
+	// that ever makes the tree clean. Gating it behind the pause is what made
+	// the KEV-230 deadlock permanent.
+	if _, err := commitIfDirty(gc, repoDirpath); err != nil {
 		s.logger.Printf("Writeable-copy auto-commit failed for '%s': %v", repoName, err)
 		return nil // transient; retry next trigger
-	}
-
-	if pause != nil {
-		resumed, err := s.tryResumeFromPause(gc, pause, repoDirpath, headBeforeAutoCommit, committed)
-		if err != nil {
-			return stacktrace.Propagate(err, "resume probe failed for '%v'", repoName)
-		}
-		if !resumed {
-			return nil // still paused; local work is committed either way
-		}
 	}
 
 	defaultBranch, err := gc.DefaultBranch(repoDirpath)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read default branch for '%v'", repoName)
 	}
-	result, err := reconcileWithRemote(gc, repoDirpath, defaultBranch)
+	result, err := reconcileWithRemote(gc, repoDirpath, defaultBranch, s.rebaseGateFor(repoName))
 	if result.RefusedPushOutput != "" {
 		refusals := s.recordPushRefusal(repoName)
 		s.logger.Printf("Writeable-copy '%s': the remote refused a lossless push (%d in a row)", repoName, refusals)
 		if refusals >= maxConsecutivePushRefusals {
 			// Standing refusal, not a flapping one. Forget the count so that a
-			// repo resuming after this is fixed starts over.
+			// repo that clears this starts over.
 			s.forgetPushRefusals(repoName)
-			return s.postWriteableCopyPause(gc, repoName, repoDirpath, pauseReasonPushRefused,
+			return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, pauseReasonPushRefused,
 				buildPushRefusedDetail(repoDirpath, defaultBranch, refusals, result.RefusedPushOutput))
 		}
 	}
@@ -585,69 +678,71 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return nil // transient; retry
 	}
 	if result.PauseReason != "" {
-		return s.postWriteableCopyPause(gc, repoName, repoDirpath, result.PauseReason, result.PauseDetail)
+		return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, result.PauseReason, result.PauseDetail)
 	}
-	// The remote accepted whatever this tick had for it, so any earlier refusals
-	// were transient after all.
+	if !isFullyReconciled(result) {
+		return nil // nothing failed, but nothing was settled either
+	}
+
+	// Everything this tick had for the remote is now on it. Anything recorded
+	// against this repo described a situation that no longer exists.
 	s.forgetPushRefusals(repoName)
-	if result.Action != "" && result.Action != "noop" {
+	s.forgetRebaseAttempt(repoName)
+	if pause != nil {
+		if err := s.db.DeletePause(repoName); err != nil {
+			return stacktrace.Propagate(err, "failed to clear the pause for '%v'", repoName)
+		}
+		s.logger.Printf("Writeable-copy '%s': resumed — a full reconcile succeeded, clearing the %s failure", repoName, pause.PausedReason)
+	}
+	if result.Action != "" && result.Action != actionNoop {
 		s.logger.Printf("Writeable-copy '%s': %s (%s)", repoName, result.Action, result.Outcome)
 	}
 	return nil
 }
 
-// tryResumeFromPause decides whether a pause has anything left to clear it.
-//
-// The condition is a HEAD move **this loop did not make** — a human commit, a
-// pull, a checkout — which is the signal that something about the situation
-// changed and the remote is worth trying again. headBeforeAutoCommit is
-// therefore judged rather than current HEAD: the loop commits in a paused
-// writeable copy, and counting its own commit as the signal makes the probe
-// unable to discriminate at all. A pause whose cause still holds would resume
-// every tick, fail, and post a fresh pause row and notification — once a
-// minute, forever, into an append-only list. Measured at the previous head of
-// this branch: six notifications in six ticks for one auth failure.
-//
-// So when this loop is the one that moved HEAD, the pause row's recorded head
-// is advanced to match and the pause stands. The tree's cleanliness is not
-// part of the condition: the auto-commit immediately above guarantees it, and
-// requiring it here is what let a repo under active editing never resume.
-func (s *Server) tryResumeFromPause(gc GitCommander, pause *database.WriteableCopyPause, repoDirpath, headBeforeAutoCommit string, committed bool) (bool, error) {
-	if headBeforeAutoCommit == pause.LocalHeadAtPause {
-		if !committed {
-			return false, nil
-		}
-		// Our own commit. Record it so it is not mistaken for the signal.
-		currentHead, err := gc.HEAD(repoDirpath)
-		if err != nil {
-			return false, stacktrace.Propagate(err, "failed to read HEAD after auto-committing in paused '%v'", pause.RepoName)
-		}
-		if err := s.db.UpdatePauseHead(pause.RepoName, currentHead); err != nil {
-			return false, stacktrace.Propagate(err, "failed to re-record the paused head for '%v'", pause.RepoName)
-		}
-		pause.LocalHeadAtPause = currentHead
-		s.logger.Printf("Writeable-copy '%s': still paused (%s); auto-committed %s while paused", pause.RepoName, pause.PausedReason, abbrevSHA(currentHead))
-		return false, nil
+// isFullyReconciled reports whether a tick got the writeable copy all the way
+// into agreement with the remote — the only outcome that clears a recorded
+// failure. Everything the tick had for the remote is on it: either a push was
+// accepted, or there was nothing to push.
+func isFullyReconciled(result reconcileResult) bool {
+	switch result.Action {
+	case actionNoop, actionPush, actionFastForward, actionRebaseAndPush:
+		return true
+	default:
+		// Includes actionRebaseDeferred: a real divergence left unresolved.
+		return false
 	}
-
-	if err := s.db.DeletePause(pause.RepoName); err != nil {
-		return false, stacktrace.Propagate(err, "failed to clear pause for '%v'", pause.RepoName)
-	}
-	s.logger.Printf("Writeable-copy '%s': resumed (HEAD moved from %s to %s by something other than the sync loop)", pause.RepoName, abbrevSHA(pause.LocalHeadAtPause), abbrevSHA(headBeforeAutoCommit))
-	return true, nil
 }
 
-// postWriteableCopyPause atomically inserts a pause row and a linked
-// notification. If a pause already exists for the repo, this is a no-op
-// (preserves append-only deduplication across server restarts).
-func (s *Server) postWriteableCopyPause(gc GitCommander, repoName, repoDirpath, reason, detail string) error {
+// recordWriteableCopyFailure records that a writeable copy has a failure the
+// user should know about, and notifies — but only when the news is new.
+//
+// Three cases. No existing row: insert one and post a notification. An existing
+// row for the same reason: write nothing at all. That is what keeps an episode
+// to a single notification however long it lasts, and it is the whole reason
+// the row outlives the tick, because the loop retries every minute and will
+// meet the same failure sixty times an hour. An existing row for a *different*
+// reason: repoint the row and post a fresh notification, so a situation that
+// changes gets said once more rather than going quiet.
+//
+// local_head_at_pause is still written, as a record of where the repo stood
+// when the episode opened. Nothing reads it to make a decision any more.
+func (s *Server) recordWriteableCopyFailure(gc GitCommander, repoName, repoDirpath, reason, detail string) error {
+	existing, err := s.db.GetPause(repoName)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read the recorded failure for '%v'", repoName)
+	}
+	if existing != nil && existing.PausedReason == reason {
+		return nil // already reported, and nothing about it has changed
+	}
+
 	localHead, err := gc.HEAD(repoDirpath)
 	if err != nil {
-		// HEAD might be unreadable (e.g. corrupt repo). Use a sentinel so the
-		// pause row is still well-formed.
+		// HEAD might be unreadable (e.g. corrupt repo, missing path). Use a
+		// sentinel so the row is still well-formed.
 		localHead = "unknown"
 	}
-	notif := &database.Notification{
+	notification := &database.Notification{
 		ID:           uuid.New().String(),
 		Kind:         notificationKindForPauseReason(reason),
 		SourceRepo:   repoName,
@@ -658,14 +753,27 @@ func (s *Server) postWriteableCopyPause(gc GitCommander, repoName, repoDirpath, 
 		RepoName:         repoName,
 		PausedReason:     reason,
 		LocalHeadAtPause: localHead,
-		NotificationID:   notif.ID,
+		NotificationID:   notification.ID,
 	}
-	inserted, err := s.db.UpsertPauseAndNotification(pause, notif)
+
+	if existing != nil {
+		replaced, err := s.db.ReplacePauseAndNotification(pause, notification)
+		if err != nil {
+			return stacktrace.Propagate(err, "failed to re-record the failure for '%v'", repoName)
+		}
+		if replaced {
+			s.logger.Printf("Writeable-copy '%s': failure changed from %s to %s — notification %s posted", repoName, existing.PausedReason, reason, abbrevSHA(notification.ID))
+			return nil
+		}
+		// The row went away underneath us; fall through and insert.
+	}
+
+	inserted, err := s.db.UpsertPauseAndNotification(pause, notification)
 	if err != nil {
-		return stacktrace.Propagate(err, "failed to upsert pause for '%v'", repoName)
+		return stacktrace.Propagate(err, "failed to record the failure for '%v'", repoName)
 	}
 	if inserted {
-		s.logger.Printf("Writeable-copy '%s': PAUSED (%s) — notification %s posted", repoName, reason, abbrevSHA(notif.ID))
+		s.logger.Printf("Writeable-copy '%s': PAUSED (%s) — notification %s posted", repoName, reason, abbrevSHA(notification.ID))
 	}
 	return nil
 }
@@ -740,15 +848,15 @@ const writeableCopySweepInterval = 1 * time.Minute
 // nothing re-enters:
 //
 //   - the working-tree watcher fires on filesystem events but skips `.git/`, so
-//     a commit — the one act that both cleans the tree and moves HEAD, which is
-//     exactly the resume condition — produces no tick at all;
+//     nothing git does on its own produces a tick;
 //   - the library fan-out fires only when the library clone's HEAD changes;
 //   - the boot sweep fires once, at startup.
 //
-// So a repo left with local commits unpushed after a transient failure, or a
-// pause whose cause has since cleared, could sit indefinitely while every
-// surface check looked healthy. Clearing one by hand meant rewriting a tracked
-// file with identical bytes purely to manufacture a watcher event. An
+// So a repo left with local commits unpushed after a transient failure, or one
+// whose recorded failure has since been fixed on the remote side, could sit
+// indefinitely while every surface check looked healthy. Clearing one by hand
+// meant rewriting a tracked file with identical bytes purely to manufacture a
+// watcher event. An
 // unconditional pass is the thing that makes every "come back next tick" in
 // this package true.
 func (s *Server) runWriteableCopySweepLoop(ctx context.Context) {

@@ -395,6 +395,20 @@ notification — only a refusal that repeats five times becomes
 written before that change still exist in the notification history; they do not
 mean a force-push happened.
 
+**A pause does not stop the sync loop.** The loop runs the full cycle on that
+repo on every trigger — about once a minute. A pause row means "this repo's
+last failure is unresolved, and the user has been told". It is deleted the
+moment a tick gets all the way through, so an auth failure or a repository-rule
+block clears by itself once the remote accepts a push, and a wrong-branch or
+broken-path failure clears once the condition is fixed. Nobody has to run
+anything, and there is no second notification announcing the recovery — the
+`agenc repo writeable-copy ls` row simply stops saying ⚠ paused.
+
+**One notification per episode.** A failure that keeps happening is not
+re-reported; a failure that *changes* into a different one is, once. So if the
+user says they only saw one notice, that is the design working, not a lost
+message.
+
 **Most pauses stop the exchange with the remote, not the committing — but not
 all of them, and the difference is what the user needs to hear.**
 
@@ -421,12 +435,14 @@ To help the user resolve a writeable-copy conflict:
 2. Offer to walk through the steps with the user. You can run the same
    commands the recipe shows.
 3. Help the user edit any conflicted files.
-4. After they push successfully, the sync loop **auto-resumes** once HEAD has
-   moved and the working tree is clean. Every writeable copy is reconciled on
-   a one-minute timer as well as on working-tree activity, and the loop commits
-   a dirty tree even while paused — so a paused repo satisfies its own resume
-   condition and recovers without anyone touching a file. Marking the
-   notification as read is purely cosmetic — it does not control the loop.
+4. Once the conflict is resolved, the branches are no longer diverged, so the
+   next tick reconciles normally and clears the record — within a minute, with
+   nothing else to run. A rebase conflict is the one failure that genuinely
+   needs a person: the loop will not re-attempt a rebase more often than once
+   every 15 minutes, and not at all until the remote tip moves, because
+   retrying a conflicting rebase against a tree that is being edited is how a
+   half-finished rebase gets left behind. Marking the notification as read is
+   purely cosmetic — it does not control the loop.
 
 ### What writeable copies are for
 
