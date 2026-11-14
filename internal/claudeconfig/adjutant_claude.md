@@ -371,12 +371,18 @@ unread state is a deliberate signal.
 
 ### Writeable-copy conflict notifications
 
-The most common notification kind. Posted when AgenC's sync loop encounters
-a rebase conflict, push rejection, auth failure, or other state that needs
-the user's attention. The sync loop is paused for that writeable copy until
-the conflict is resolved; the notification body explains what to do.
+The most common notification kind. Posted when AgenC's sync loop hits a
+failure the user should know about and cannot resolve on its own — a rebase
+conflict, a remote that keeps refusing the push, an auth failure, or a broken
+checkout. The notification body explains what to do.
 
-Common pause kinds:
+**It does not mean the loop has stopped.** A pause row records that this
+repo's last failure is unresolved and has already been reported; the loop goes
+on running the full cycle about once a minute, and for every kind except the
+sanity four below it goes on committing local changes too. The row is deleted
+the moment a tick gets all the way through.
+
+The kinds:
 
 - `writeable_copy.rebase_conflict` — rebase conflict between local auto-commits and remote
 - `writeable_copy.push_refused` — the remote refused the same push five times running, each time after a fetch had confirmed the push could not discard anything on the remote. Nothing about the local branch is wrong; something on the remote is refusing the ref update, usually a repository rule, branch protection, or push protection such as secret scanning. The notification quotes git's own message, which names the cause

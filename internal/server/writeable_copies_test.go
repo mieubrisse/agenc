@@ -462,6 +462,20 @@ To /tmp/remote.git
  ! [remote rejected] main -> main (failed to update ref)
 error: failed to push some refs to '/tmp/remote.git'`
 
+// gitSSHPermissionDeniedOutput is how GitHub refuses a push over SSH when the
+// key is not authorized for the repository. The second line was captured from
+// git on 2026-11-14 by pushing to a remote that does not exist; the first is
+// GitHub's own wording.
+//
+// Worth reading closely: it contains neither "permission denied" nor
+// "authentication", which is why a classifier built from those two words alone
+// let this retry forever in silence.
+const gitSSHPermissionDeniedOutput = `ERROR: Permission to mieubrisse/exobrain.git denied to some-user.
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.`
+
 // gitHookDeclineOutput is a server-side decline — a repository rule or
 // push-protection block. Captured from the same probe, with a pre-receive hook
 // standing in for GitHub's rule engine.
@@ -726,8 +740,24 @@ func TestClassifyPushOutput(t *testing.T) {
 			want: pushResult{Rejected: true},
 		},
 		{
-			name: "authentication failure",
+			name: "authentication failure over https",
 			out:  "remote: Invalid username or password.\nfatal: Authentication failed for 'https://github.com/o/r.git/'",
+			want: pushResult{AuthFailure: true},
+		},
+		{
+			// The likeliest real auth failure on Kevin's machines, and the one
+			// that used to fall through to the generic transient branch and be
+			// retried forever in silence: it says neither "permission denied"
+			// nor "authentication".
+			name: "github ssh authorization failure",
+			out:  gitSSHPermissionDeniedOutput,
+			want: pushResult{AuthFailure: true},
+		},
+		{
+			// Same phrase, different cause. Mislabelled as auth, but surfaced
+			// rather than retried in silence, with git's own text in the body.
+			name: "unreachable or deleted remote",
+			out:  "fatal: '/tmp/gone.git' does not appear to be a git repository\nfatal: Could not read from remote repository.",
 			want: pushResult{AuthFailure: true},
 		},
 		{

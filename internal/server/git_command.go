@@ -235,13 +235,30 @@ func (g realGit) Push(repoDirpath string) (pushResult, error) {
 //
 // Authentication is checked first and kept apart: it is the one failure where
 // neither a fetch nor a retry can help, and its wording ("permission denied")
-// can appear inside a refusal.
+// can appear inside a refusal. A rejection that says "permission denied" is
+// therefore read as auth, which is the right way round to be wrong — it still
+// surfaces, with git's own text in the notification.
+//
+// The phrases are more than the obvious ones because the obvious ones miss the
+// most likely real case. GitHub's SSH authorization failure says
+// `ERROR: Permission to owner/repo.git denied to user.` followed by
+// `fatal: Could not read from remote repository.` — which contains neither
+// "permission denied" nor "authentication", so before these matches it fell
+// through to the generic transient branch and was retried forever in silence,
+// with no counter and no notification.
+//
+// "could not read from remote repository" also covers an unreachable host and
+// a deleted remote. Both land here as auth failures, which mislabels them but
+// surfaces them, and the notification quotes git saying what it really was.
 func classifyPushOutput(out string) pushResult {
 	lower := strings.ToLower(out)
 	result := pushResult{Output: out}
 	switch {
-	case strings.Contains(lower, "authentication") ||
+	case strings.Contains(lower, "authentication") || // covers "Authentication failed"
 		strings.Contains(lower, "permission denied") ||
+		(strings.Contains(lower, "permission to ") && strings.Contains(lower, " denied to ")) ||
+		strings.Contains(lower, "could not read from remote repository") ||
+		strings.Contains(lower, "invalid username or token") ||
 		(strings.Contains(lower, "could not read") && strings.Contains(lower, "username")):
 		result.AuthFailure = true
 	case strings.Contains(lower, "rejected") ||
