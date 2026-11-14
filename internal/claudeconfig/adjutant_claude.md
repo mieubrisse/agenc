@@ -460,8 +460,11 @@ continuously synced with the same git remote as the repo library:
   shortly after edits settle
 - Remote changes are pulled and rebased whenever the library copy fetches
   them (fan-out from the existing library worker)
-- On any sync failure (rebase conflict, push rejection, etc.) the loop
-  pauses and posts a notification
+- On a sync failure it cannot resolve itself (a rebase conflict, a remote
+  that keeps refusing the push, an auth failure, a broken checkout) it posts
+  one notification and records the failure against the repo. It does not stop:
+  it keeps retrying about once a minute, and keeps committing local changes
+  for everything except the four sanity failures below
 
 The classic use case is **dotfiles**: the user has a dotfiles repo in the
 library, but symlinks like `~/.claude/CLAUDE.md` need to point at a writable
@@ -479,7 +482,14 @@ synchronize via origin.
 
 Status legend:
 - `✅ ok` — the sync loop is healthy
-- `⚠ paused` — a notification was posted; the loop is paused until resolved
+- `⚠ paused` — a notification was posted for a failure that has not cleared
+  yet. The name is misleading: the loop has **not** stopped. It still runs the
+  full cycle about once a minute, and still commits local changes for every
+  kind except the four sanity ones (`wrong_branch`, `path_missing`,
+  `origin_drift`, `git_corrupt`), where it deliberately stops before the
+  commit. The row clears by itself on the first tick that reconciles fully —
+  so an auth failure or a refused push clears when the remote accepts a push,
+  and a sanity failure clears when its condition is fixed
 - `❌ missing` — the configured path doesn't exist on disk (deleted manually)
 
 ### Configuring a writeable copy (the set workflow)
