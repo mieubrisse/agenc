@@ -52,9 +52,10 @@ type GitCommander interface {
 	// MergeFFOnly fast-forwards the current branch to the named ref. Fails
 	// with a non-FF error when fast-forward is not possible.
 	MergeFFOnly(repoDirpath, ref string) error
-	// Push pushes the current branch to origin. The returned flags indicate
-	// whether the push was rejected as non-FF or failed authentication; both
-	// require user intervention and are surfaced as their own pause kinds.
+	// Push pushes the current branch to origin. On failure the returned
+	// pushResult classifies why and carries git's own output, which the
+	// reconcile logic uses both to decide whether a retry could help and to
+	// record what actually happened in the pause it posts.
 	Push(repoDirpath string) (pushResult, error)
 	// Clone clones url into dir.
 	Clone(url, dir string) error
@@ -73,8 +74,20 @@ type GitCommander interface {
 
 // pushResult captures the disposition of a push attempt.
 type pushResult struct {
-	NonFFRejected bool
-	AuthFailure   bool
+	// Rejected means the remote refused to update the ref. Why it refused is
+	// deliberately not split out, because the reason git gives is not a safe
+	// basis for deciding whether to try again. A ref-lock collision
+	// ("cannot lock ref", "failed to update ref") and a genuine
+	// non-fast-forward are both refusals, and only a fetch can tell which
+	// state the remote is actually in — see pushWithRejectionRetry.
+	Rejected bool
+	// AuthFailure is kept separate because no retry or fetch can clear it; it
+	// is the one push failure that still pauses the loop.
+	AuthFailure bool
+	// Output is git's combined stdout+stderr from the failed push. Without it
+	// a pause or a retry records only a guess at what went wrong, which is
+	// what made the three KEV-230 incidents unattributable after the fact.
+	Output string
 }
 
 // realGit is the production GitCommander implementation backed by the git CLI.
@@ -200,15 +213,65 @@ func (g realGit) Push(repoDirpath string) (pushResult, error) {
 	if err == nil {
 		return pushResult{}, nil
 	}
+	return classifyPushOutput(out), err
+}
+
+// classifyPushOutput reads git's own account of a failed push, and does so as
+// coarsely as it safely can.
+//
+// It deliberately does NOT try to tell a retryable refusal from a permanent
+// one. Reading the three KEV-230 incidents against the reflog showed why: the
+// last change to origin/main before each pause was this checkout's own push,
+// 9 to 17 seconds earlier, so the remote was an ancestor every time and a true
+// non-fast-forward was mechanically impossible. The likely text was a remote
+// ref-lock collision, whose actual wording (captured from git on 2026-11-13)
+// is `! [remote rejected] main -> main (failed to update ref)` — a phrase no
+// reasonable reader classifies as "retry this". Deciding from the message
+// would have paused the loop on all three. The decision belongs to
+// pushWithRejectionRetry, which asks the remote instead of reading prose.
+//
+// The phrases matched here are therefore just "the remote refused the ref
+// update", in every wording git is known to use for one.
+//
+// Authentication is checked first and kept apart: it is the one failure where
+// neither a fetch nor a retry can help, and its wording ("permission denied")
+// can appear inside a refusal. A rejection that says "permission denied" is
+// therefore read as auth, which is the right way round to be wrong — it still
+// surfaces, with git's own text in the notification.
+//
+// The phrases are more than the obvious ones because the obvious ones miss the
+// most likely real case. GitHub's SSH authorization failure says
+// `ERROR: Permission to owner/repo.git denied to user.` followed by
+// `fatal: Could not read from remote repository.` — which contains neither
+// "permission denied" nor "authentication", so before the first of those
+// matches it fell through to the generic transient branch and was retried
+// forever in silence, with no counter and no notification.
+//
+// The second of its lines is deliberately NOT matched. "could not read from
+// remote repository" is also what git prints when the host is simply
+// unreachable, and this daemon runs on a laptop that sleeps, travels and loses
+// wifi — matching it would turn every network blip into an auth notification
+// telling Kevin to check credentials that are fine. An unreachable remote stays
+// transient here; "unreachable for N minutes running" is a different condition
+// and wants its own count and its own honest label (KEV-230 follow-up).
+func classifyPushOutput(out string) pushResult {
 	lower := strings.ToLower(out)
-	result := pushResult{}
+	result := pushResult{Output: out}
 	switch {
-	case strings.Contains(lower, "non-fast-forward") || strings.Contains(lower, "rejected"):
-		result.NonFFRejected = true
-	case strings.Contains(lower, "authentication") || strings.Contains(lower, "permission denied") || strings.Contains(lower, "could not read") && strings.Contains(lower, "username"):
+	case strings.Contains(lower, "authentication") || // covers "Authentication failed"
+		strings.Contains(lower, "permission denied") ||
+		(strings.Contains(lower, "permission to ") && strings.Contains(lower, " denied to ")) ||
+		strings.Contains(lower, "invalid username or token") ||
+		(strings.Contains(lower, "could not read") && strings.Contains(lower, "username")):
 		result.AuthFailure = true
+	case strings.Contains(lower, "rejected") ||
+		strings.Contains(lower, "non-fast-forward") ||
+		strings.Contains(lower, "fetch first") ||
+		strings.Contains(lower, "failed to update ref") ||
+		strings.Contains(lower, "cannot lock ref"):
+		result.Rejected = true
 	}
-	return result, err
+	return result
 }
 
 func (realGit) Clone(url, dir string) error {

@@ -371,20 +371,68 @@ unread state is a deliberate signal.
 
 ### Writeable-copy conflict notifications
 
-The most common notification kind. Posted when AgenC's sync loop encounters
-a rebase conflict, push rejection, auth failure, or other state that needs
-the user's attention. The sync loop is paused for that writeable copy until
-the conflict is resolved; the notification body explains what to do.
+The most common notification kind. Posted when AgenC's sync loop hits a
+failure the user should know about and cannot resolve on its own — a rebase
+conflict, a remote that keeps refusing the push, an auth failure, or a broken
+checkout. The notification body explains what to do.
 
-Common pause kinds:
+**It does not mean the loop has stopped.** A pause row records that this
+repo's last failure is unresolved and has already been reported; the loop goes
+on running the full cycle about once a minute, and for every kind except the
+sanity four below it goes on committing local changes too. The row is deleted
+the moment a tick gets all the way through.
 
-- `writeable_copy.conflict` — rebase conflict between local auto-commits and remote
-- `writeable_copy.non_ff_reject` — remote rejected the push (was rewritten)
+The kinds:
+
+- `writeable_copy.rebase_conflict` — rebase conflict between local auto-commits and remote
+- `writeable_copy.push_refused` — the remote refused the same push five times running, each time after a fetch had confirmed the push could not discard anything on the remote. Nothing about the local branch is wrong; something on the remote is refusing the ref update, usually a repository rule, branch protection, or push protection such as secret scanning. The notification quotes git's own message, which names the cause
 - `writeable_copy.auth_failure` — git push failed authentication
 - `writeable_copy.wrong_branch` — the writeable copy is on a non-default branch
 - `writeable_copy.origin_drift` — origin URL doesn't match expected
 - `writeable_copy.path_missing` — the writeable-copy path no longer exists
 - `writeable_copy.git_corrupt` — git operations are failing in the copy
+
+A single rejected push is **not** one of these. The loop re-fetches after any
+refused push and pushes again when `origin/<branch>` turns out to be an
+ancestor of local HEAD, and when the remote has instead moved it lets the next
+tick fast-forward or rebase. Neither needs anyone, so neither posts a
+notification — only a refusal that repeats five times becomes
+`writeable_copy.push_refused` above. `writeable_copy.non_ff_reject` rows
+written before that change still exist in the notification history; they do not
+mean a force-push happened.
+
+**A pause does not stop the sync loop.** The loop runs the full cycle on that
+repo on every trigger — about once a minute. A pause row means "this repo's
+last failure is unresolved, and the user has been told". It is deleted the
+moment a tick gets all the way through, so an auth failure or a repository-rule
+block clears by itself once the remote accepts a push, and a wrong-branch or
+broken-path failure clears once the condition is fixed. Nobody has to run
+anything, and there is no second notification announcing the recovery — the
+`agenc repo writeable-copy ls` row simply stops saying ⚠ paused.
+
+**One notification per episode.** A failure that keeps happening is not
+re-reported; a failure that *changes* into a different one is, once. So if the
+user says they only saw one notice, that is the design working, not a lost
+message.
+
+**Most pauses stop the exchange with the remote, not the committing — but not
+all of them, and the difference is what the user needs to hear.**
+
+- `rebase_conflict`, `push_refused` and `auth_failure` are reached after the
+  tick has already committed, and it keeps committing on every later tick. Work
+  on disk is still being captured in git; only the push is stopped. Their
+  notification bodies say so.
+- `wrong_branch`, `path_missing`, `origin_drift` and `git_corrupt` are found
+  before the commit, and the tick stops there, so **nothing is being committed
+  either**. That is deliberate — committing onto the wrong branch, or into a
+  repo whose git state is broken, would make the mess worse — but it means the
+  user's uncommitted work is sitting on disk with nothing capturing it, and
+  these should be treated as the more urgent kind. Their notification bodies
+  deliberately omit the keeps-committing reassurance; do not add it.
+
+A repo whose rebase could not be aborted is a third case: the rebase stays in
+progress, so every later tick skips the repo silently and nothing is committed
+or pushed. The rebase-conflict notification says so when that has happened.
 
 To help the user resolve a writeable-copy conflict:
 
@@ -393,9 +441,14 @@ To help the user resolve a writeable-copy conflict:
 2. Offer to walk through the steps with the user. You can run the same
    commands the recipe shows.
 3. Help the user edit any conflicted files.
-4. After they push successfully, the sync loop **auto-resumes** on its next
-   tick once HEAD has moved and the working tree is clean. Marking the
-   notification as read is purely cosmetic — it does not control the loop.
+4. Once the conflict is resolved, the branches are no longer diverged, so the
+   next tick reconciles normally and clears the record — within a minute, with
+   nothing else to run. A rebase conflict is the one failure that genuinely
+   needs a person: the loop will not re-attempt a rebase more often than once
+   every 15 minutes, and not at all until the remote tip moves, because
+   retrying a conflicting rebase against a tree that is being edited is how a
+   half-finished rebase gets left behind. Marking the notification as read is
+   purely cosmetic — it does not control the loop.
 
 ### What writeable copies are for
 
@@ -407,8 +460,11 @@ continuously synced with the same git remote as the repo library:
   shortly after edits settle
 - Remote changes are pulled and rebased whenever the library copy fetches
   them (fan-out from the existing library worker)
-- On any sync failure (rebase conflict, push rejection, etc.) the loop
-  pauses and posts a notification
+- On a sync failure it cannot resolve itself (a rebase conflict, a remote
+  that keeps refusing the push, an auth failure, a broken checkout) it posts
+  one notification and records the failure against the repo. It does not stop:
+  it keeps retrying about once a minute, and keeps committing local changes
+  for everything except the four sanity failures below
 
 The classic use case is **dotfiles**: the user has a dotfiles repo in the
 library, but symlinks like `~/.claude/CLAUDE.md` need to point at a writable
@@ -426,7 +482,14 @@ synchronize via origin.
 
 Status legend:
 - `✅ ok` — the sync loop is healthy
-- `⚠ paused` — a notification was posted; the loop is paused until resolved
+- `⚠ paused` — a notification was posted for a failure that has not cleared
+  yet. The name is misleading: the loop has **not** stopped. It still runs the
+  full cycle about once a minute, and still commits local changes for every
+  kind except the four sanity ones (`wrong_branch`, `path_missing`,
+  `origin_drift`, `git_corrupt`), where it deliberately stops before the
+  commit. The row clears by itself on the first tick that reconciles fully —
+  so an auth failure or a refused push clears when the remote accepts a push,
+  and a sanity failure clears when its condition is fixed
 - `❌ missing` — the configured path doesn't exist on disk (deleted manually)
 
 ### Configuring a writeable copy (the set workflow)

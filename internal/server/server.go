@@ -50,6 +50,23 @@ type Server struct {
 	// writeableCopyWatchers tracks per-repo watcher goroutines.
 	writeableCopyWatchers *writeableCopyWatchers
 
+	// consecutivePushRefusals counts, per writeable copy, how many times in a
+	// row the remote has refused a push that a fetch proved was lossless to
+	// retry. It is what separates a transient refusal from a standing one — see
+	// maxConsecutivePushRefusals. Deliberately in-memory: a server restart
+	// re-establishes the count within minutes, and persisting it would outlive
+	// the condition it describes.
+	consecutivePushRefusalsMu sync.Mutex
+	consecutivePushRefusals   map[string]int
+
+	// lastRebaseAttempts records, per writeable copy, when a rebase was last
+	// attempted and against which remote tip. The sweep ticks every minute and
+	// a rebase is the one operation here too expensive to repeat at that rate —
+	// see rebaseGateFor. In-memory for the same reason as the refusal count: a
+	// restart costs one extra attempt, which is self-limiting.
+	lastRebaseAttemptsMu sync.Mutex
+	lastRebaseAttempts   map[string]rebaseAttempt
+
 	// stashInProgress is set while a stash push or pop is running.
 	// Mutating mission endpoints return 503 while this is true.
 	stashInProgress atomic.Bool
@@ -227,6 +244,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("auto-summary", &wg, ctx, s.runAutoSummaryLoop)
 	go s.runLoop("search-indexer", &wg, ctx, s.runSearchIndexerLoop)
 	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
+	go s.runLoop("writeable-copy-sweep", &wg, ctx, s.runWriteableCopySweepLoop)
 	go s.runLoop("cron-health", &wg, ctx, s.runCronHealthLoop)
 
 	// Bootstrap writeable copies: clone if missing, install watchers, and
