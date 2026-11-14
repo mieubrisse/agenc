@@ -127,6 +127,24 @@ func (db *DB) ListPauses() ([]*WriteableCopyPause, error) {
 	return pauses, nil
 }
 
+// UpdatePauseHead moves a pause's local_head_at_pause to a new commit.
+//
+// The sync loop calls this after auto-committing in a paused writeable copy.
+// The resume probe treats a HEAD that has moved past local_head_at_pause as
+// "something changed, try again", so without re-recording it the loop's own
+// commit would read as that signal — resuming a pause whose cause still holds,
+// failing, and posting a fresh pause and notification every tick.
+func (db *DB) UpdatePauseHead(repoName, localHeadAtPause string) error {
+	_, err := db.conn.Exec(
+		"UPDATE writeable_copy_pauses SET local_head_at_pause = ? WHERE repo_name = ?",
+		localHeadAtPause, repoName,
+	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to update the paused head for repo '%v' to '%v'", repoName, localHeadAtPause)
+	}
+	return nil
+}
+
 // DeletePause removes the pause for a repo. Idempotent: deleting a non-existent
 // pause is not an error.
 func (db *DB) DeletePause(repoName string) error {

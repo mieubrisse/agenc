@@ -125,6 +125,40 @@ func TestUpsertPauseAndNotification_ConcurrentAtomic(t *testing.T) {
 	}
 }
 
+// The sync loop re-records its own commits against a pause so that they are
+// not mistaken for the "something changed, try again" signal. Only that one
+// column moves; the reason and the linked notification stay put.
+func TestUpdatePauseHead_MovesOnlyTheHead(t *testing.T) {
+	db := openTestDB(t)
+
+	n := &Notification{ID: "33333333-0000-0000-0000-000000000009", Kind: "k", Title: "x", BodyMarkdown: "x"}
+	p := &WriteableCopyPause{RepoName: "github.com/o/r", PausedReason: "auth_failure", LocalHeadAtPause: "headAtPause", NotificationID: n.ID}
+	if _, err := db.UpsertPauseAndNotification(p, n); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.UpdatePauseHead(p.RepoName, "headAfterAutoCommit"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetPause(p.RepoName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("expected the pause to still exist")
+	}
+	if got.LocalHeadAtPause != "headAfterAutoCommit" {
+		t.Errorf("expected the head to move, got '%s'", got.LocalHeadAtPause)
+	}
+	if got.PausedReason != "auth_failure" {
+		t.Errorf("expected the reason to be untouched, got '%s'", got.PausedReason)
+	}
+	if got.NotificationID != n.ID {
+		t.Errorf("expected the linked notification to be untouched, got '%s'", got.NotificationID)
+	}
+}
+
 func TestDeletePause_LeavesNotification(t *testing.T) {
 	db := openTestDB(t)
 

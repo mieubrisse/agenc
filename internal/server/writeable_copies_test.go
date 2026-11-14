@@ -894,37 +894,149 @@ func TestSweep_ResumesAPauseWithoutAWorkingTreeEvent(t *testing.T) {
 	}
 }
 
-// The deadlock KEV-230 names. A pause taken while missions are writing to the
-// checkout used to be permanent: the resume probe wants a clean tree, the only
-// thing that cleans it is the loop's own commit, and the commit sat behind the
-// pause. Committing before the probe is what resolves it — in one tick, with
-// nobody intervening.
-func TestSweep_CommitsADirtyTreeWhilePausedAndThenResumes(t *testing.T) {
+// The half of the KEV-230 deadlock that committing-while-paused fixes: a repo
+// that missions keep writing to now gets its work captured in git even while
+// the push is stopped.
+//
+// And the trap that comes with it. The loop's own commit moves HEAD, so if the
+// resume probe treated any HEAD move as the signal, a pause whose cause still
+// holds would resume every tick, fail, and post a fresh pause row and
+// notification — once a minute into an append-only list. So the loop records
+// its own commits against the pause row, and the pause stands.
+func TestSweep_CommitsWhilePausedWithoutResumingOrRenotifying(t *testing.T) {
 	const repoName = "github.com/o/r"
+	const ticks = 5
 	repoDirpath := t.TempDir()
 	gc := &fakeGit{
-		statusClean:         false, // a mission is mid-write, as in all three incidents
-		headValue:           "headAtPause",
-		commitMovesHeadTo:   "headAfterAutoCommit",
-		defaultBranch:       "main",
-		currentBranch:       "main",
-		revParseValues:      map[string]string{"origin/main": "headAtPause"},
-		mergeBaseValueByRef: map[string]string{"headAfterAutoCommit": "headAtPause"},
+		statusClean:    false, // a mission is mid-write, as in all three incidents
+		headValue:      "headAtPause",
+		defaultBranch:  "main",
+		currentBranch:  "main",
+		revParseValues: map[string]string{"origin/main": "headAtPause"},
 	}
 	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
 	pauseRepo(t, srv, repoName, "headAtPause")
 
+	for tick := 1; tick <= ticks; tick++ {
+		// Each tick finds fresh edits and commits them, as a real one would.
+		gc.statusClean = false
+		gc.commitMovesHeadTo = fmt.Sprintf("headAfterAutoCommit%d", tick)
+		runSweepAndTick(t, srv, repoName)
+
+		pause := currentPause(t, srv, repoName)
+		if pause == nil {
+			t.Fatalf("tick %d: the pause cleared on the loop's own commit", tick)
+		}
+		if pause.LocalHeadAtPause != gc.commitMovesHeadTo {
+			t.Errorf("tick %d: expected the pause to record its own commit %s, recorded %s",
+				tick, gc.commitMovesHeadTo, pause.LocalHeadAtPause)
+		}
+	}
+
+	if gc.commitCalls != ticks {
+		t.Errorf("expected %d commits while paused, got %d", ticks, gc.commitCalls)
+	}
+	if gc.pushCalls != 0 {
+		t.Errorf("expected no push attempts while paused, got %d", gc.pushCalls)
+	}
+	if n := countNotifications(t, srv, repoName); n != 1 {
+		t.Errorf("expected the pause to have notified exactly once across %d ticks, got %d notifications", ticks, n)
+	}
+}
+
+// What does clear a pause: a HEAD move the loop did not make — a human commit,
+// a pull, a checkout. Here the cause has also gone away, so the repo resumes
+// and pushes.
+func TestSweep_ResumesOnAHeadMoveTheLoopDidNotMake(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := &fakeGit{
+		statusClean:    false,
+		headValue:      "headAtPause",
+		defaultBranch:  "main",
+		currentBranch:  "main",
+		revParseValues: map[string]string{"origin/main": "remote"},
+		mergeBaseValue: "remote", // once resumed, local is ahead and pushable
+	}
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+	pauseRepo(t, srv, repoName, "headAtPause")
+
+	gc.commitMovesHeadTo = "headAfterAutoCommit"
+	runSweepAndTick(t, srv, repoName)
+	if currentPause(t, srv, repoName) == nil {
+		t.Fatal("the pause cleared on the loop's own commit")
+	}
+
+	// Someone else moves HEAD — a human commit, a pull, a checkout.
+	gc.commitMovesHeadTo = ""
+	gc.statusClean = true
+	gc.headValue = "headFromOutsideTheLoop"
 	runSweepAndTick(t, srv, repoName)
 
-	if gc.commitCalls != 1 {
-		t.Errorf("expected the dirty tree to be committed while paused, got %d commits", gc.commitCalls)
-	}
 	if pause := currentPause(t, srv, repoName); pause != nil {
-		t.Errorf("expected the pause to clear once the commit moved HEAD, still paused with reason '%s'", pause.PausedReason)
+		t.Errorf("expected a HEAD move the loop did not make to resume, still paused with '%s'", pause.PausedReason)
 	}
 	if gc.pushCalls != 1 {
-		t.Errorf("expected the resumed tick to push the committed work, got %d push attempts", gc.pushCalls)
+		t.Errorf("expected the resumed tick to push, got %d push attempts", gc.pushCalls)
 	}
+}
+
+// The churn the head-recording prevents, measured from the outside and in the
+// shape it was measured in: an auth failure on a checkout that is being
+// written to, so every tick commits. One genuine new pause costs exactly one
+// new notification; the ticks after it cost none. Without the recording this
+// was six notifications in six ticks, around 1440 a day into an append-only
+// list.
+func TestSweep_ARefailingPauseNotifiesOncePerPauseNotPerTick(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := &fakeGit{
+		statusClean:    true,
+		headValue:      "headAtPause",
+		defaultBranch:  "main",
+		currentBranch:  "main",
+		revParseValues: map[string]string{"origin/main": "remote"},
+		mergeBaseValue: "remote",
+		pushResult:     pushResult{AuthFailure: true, Output: "fatal: Authentication failed"},
+		pushErr:        errors.New("authentication failed"),
+	}
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+	pauseRepo(t, srv, repoName, "headAtPause")
+
+	// An outside HEAD move resumes it; the push fails again, so it re-pauses.
+	gc.headValue = "headFromOutsideTheLoop"
+	runSweepAndTick(t, srv, repoName)
+	if currentPause(t, srv, repoName) == nil {
+		t.Fatal("expected the repo to be paused again after the push failed")
+	}
+	if n := countNotifications(t, srv, repoName); n != 2 {
+		t.Fatalf("expected exactly one new notification for the new pause, got %d in total", n)
+	}
+
+	// Five more ticks, each with fresh edits so each one commits — the state
+	// the churn was measured in. Nothing about the auth failure has changed, so
+	// none of them should notify.
+	for tick := 1; tick <= 5; tick++ {
+		gc.statusClean = false
+		gc.commitMovesHeadTo = fmt.Sprintf("headAfterAutoCommit%d", tick)
+		runSweepAndTick(t, srv, repoName)
+	}
+	if gc.commitCalls != 5 {
+		t.Errorf("expected the loop to keep committing while paused, got %d commits", gc.commitCalls)
+	}
+	if n := countNotifications(t, srv, repoName); n != 2 {
+		t.Errorf("expected the notification count to stay at 2 across 5 committing ticks, got %d", n)
+	}
+}
+
+func countNotifications(t *testing.T, srv *Server, repoName string) int {
+	t.Helper()
+
+	notifications, err := srv.db.ListNotifications(database.ListNotificationsParams{SourceRepo: repoName})
+	if err != nil {
+		t.Fatalf("failed to list notifications: %v", err)
+	}
+	return len(notifications)
 }
 
 // The sweep must not resume a repo whose state still warrants the pause.

@@ -196,7 +196,8 @@ type reconcileResult struct {
 	// Action describes the action taken: "noop", "push", "ff", "rebase-and-push".
 	Action string
 	// PauseReason is set when reconcile failed in a way that requires user
-	// intervention (rebase conflict, non-FF reject, auth failure).
+	// intervention: a rebase conflict, an auth failure, or a push the remote
+	// has refused maxConsecutivePushRefusals times running.
 	PauseReason string
 	// PauseDetail is the human-readable detail accompanying PauseReason.
 	PauseDetail string
@@ -259,11 +260,14 @@ func reconcileWithRemote(gc GitCommander, repoDirpath, defaultBranch string) (re
 		// Diverged → rebase-and-push.
 		conflicted, rebaseErr := gc.PullRebaseAutostash(repoDirpath)
 		if rebaseErr != nil {
-			_ = gc.RebaseAbort(repoDirpath)
+			// A failed abort is worth saying out loud: it leaves the rebase
+			// in progress, which makes every later sanity check skip the repo
+			// silently, so the sync would stop with nothing explaining why.
+			abortErr := gc.RebaseAbort(repoDirpath)
 			return reconcileResult{
 				Outcome:     "diverged",
 				PauseReason: pauseReasonRebaseConflict,
-				PauseDetail: buildRebaseConflictDetail(repoDirpath, conflicted, localHead, remoteHead),
+				PauseDetail: buildRebaseConflictDetail(repoDirpath, conflicted, localHead, remoteHead, abortErr),
 			}, nil
 		}
 		failure, err := pushWithRejectionRetry(gc, repoDirpath, defaultBranch)
@@ -451,9 +455,17 @@ func trimGitOutputTail(out string) string {
 	return strings.Join(lines, "\n")
 }
 
-func buildRebaseConflictDetail(repoDirpath string, conflicted []string, localHead, remoteHead string) string {
+func buildRebaseConflictDetail(repoDirpath string, conflicted []string, localHead, remoteHead string, abortErr error) string {
 	var sb strings.Builder
 	sb.WriteString("# Rebase conflict in writeable copy\n\n")
+	if abortErr != nil {
+		sb.WriteString(fmt.Sprintf(
+			"**The rebase could not be aborted, so it is still in progress.** Until it is cleared by hand "+
+				"(`git -C %s rebase --abort`), every later tick will skip this repo silently — nothing further will "+
+				"be committed or pushed, and no new notification will say so. Abort error: %v\n\n",
+			repoDirpath, abortErr,
+		))
+	}
 	sb.WriteString(fmt.Sprintf("**Path:** %s\n\n", repoDirpath))
 	sb.WriteString(fmt.Sprintf("**Local HEAD:** `%s`\n", abbrevSHA(localHead)))
 	sb.WriteString(fmt.Sprintf("**Remote HEAD (origin):** `%s`\n\n", abbrevSHA(remoteHead)))
@@ -474,7 +486,9 @@ func buildRebaseConflictDetail(repoDirpath string, conflicted []string, localHea
 	sb.WriteString("git push\n")
 	sb.WriteString("```\n\n")
 	sb.WriteString("Marking this notification as read is purely cosmetic — it does not control the loop.\n\n")
-	sb.WriteString(pausedStillCommittingNote)
+	if abortErr == nil {
+		sb.WriteString(pausedStillCommittingNote)
+	}
 	return sb.String()
 }
 
@@ -522,22 +536,26 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return s.postWriteableCopyPause(gc, repoName, repoDirpath, sanity.PauseReason, sanity.PauseDetail)
 	}
 
-	// Committing runs even while paused, and before the resume probe. A pause
-	// means "stop exchanging with the remote", never "stop capturing local
-	// work" — a commit is safe whatever state the remote is in. Ordering it
-	// first is also what breaks the deadlock KEV-230 names: the resume probe
-	// wants a clean tree and a moved HEAD, and on a checkout that missions are
-	// writing to, the only thing that produces either is this commit. With the
-	// probe first, a paused repo in use could never satisfy its own resume
-	// condition, because the work that would satisfy it was gated behind the
-	// pause.
-	if _, err := commitIfDirty(gc, repoDirpath); err != nil {
+	// HEAD is read before the auto-commit because the resume probe below needs
+	// to know where it stood independently of anything this tick does to it.
+	headBeforeAutoCommit, err := gc.HEAD(repoDirpath)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to read HEAD for '%v'", repoName)
+	}
+
+	// Committing runs even while paused. A pause means "stop exchanging with
+	// the remote", never "stop capturing local work" — a commit is safe
+	// whatever state the remote is in — and on a checkout that missions are
+	// writing to, this commit is the only thing that ever makes the tree clean.
+	// Gating it behind the pause is what made the KEV-230 deadlock permanent.
+	committed, err := commitIfDirty(gc, repoDirpath)
+	if err != nil {
 		s.logger.Printf("Writeable-copy auto-commit failed for '%s': %v", repoName, err)
 		return nil // transient; retry next trigger
 	}
 
 	if pause != nil {
-		resumed, err := s.tryResumeFromPause(gc, pause, repoDirpath)
+		resumed, err := s.tryResumeFromPause(gc, pause, repoDirpath, headBeforeAutoCommit, committed)
 		if err != nil {
 			return stacktrace.Propagate(err, "resume probe failed for '%v'", repoName)
 		}
@@ -578,25 +596,44 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 	return nil
 }
 
-func (s *Server) tryResumeFromPause(gc GitCommander, pause *database.WriteableCopyPause, repoDirpath string) (bool, error) {
-	clean, _, err := gc.Status(repoDirpath)
-	if err != nil {
-		return false, err
-	}
-	if !clean {
+// tryResumeFromPause decides whether a pause has anything left to clear it.
+//
+// The condition is a HEAD move **this loop did not make** — a human commit, a
+// pull, a checkout — which is the signal that something about the situation
+// changed and the remote is worth trying again. headBeforeAutoCommit is
+// therefore judged rather than current HEAD: the loop commits in a paused
+// writeable copy, and counting its own commit as the signal makes the probe
+// unable to discriminate at all. A pause whose cause still holds would resume
+// every tick, fail, and post a fresh pause row and notification — once a
+// minute, forever, into an append-only list. Measured at the previous head of
+// this branch: six notifications in six ticks for one auth failure.
+//
+// So when this loop is the one that moved HEAD, the pause row's recorded head
+// is advanced to match and the pause stands. The tree's cleanliness is not
+// part of the condition: the auto-commit immediately above guarantees it, and
+// requiring it here is what let a repo under active editing never resume.
+func (s *Server) tryResumeFromPause(gc GitCommander, pause *database.WriteableCopyPause, repoDirpath, headBeforeAutoCommit string, committed bool) (bool, error) {
+	if headBeforeAutoCommit == pause.LocalHeadAtPause {
+		if !committed {
+			return false, nil
+		}
+		// Our own commit. Record it so it is not mistaken for the signal.
+		currentHead, err := gc.HEAD(repoDirpath)
+		if err != nil {
+			return false, stacktrace.Propagate(err, "failed to read HEAD after auto-committing in paused '%v'", pause.RepoName)
+		}
+		if err := s.db.UpdatePauseHead(pause.RepoName, currentHead); err != nil {
+			return false, stacktrace.Propagate(err, "failed to re-record the paused head for '%v'", pause.RepoName)
+		}
+		pause.LocalHeadAtPause = currentHead
+		s.logger.Printf("Writeable-copy '%s': still paused (%s); auto-committed %s while paused", pause.RepoName, pause.PausedReason, abbrevSHA(currentHead))
 		return false, nil
 	}
-	currentHead, err := gc.HEAD(repoDirpath)
-	if err != nil {
-		return false, err
-	}
-	if currentHead == pause.LocalHeadAtPause {
-		return false, nil
-	}
+
 	if err := s.db.DeletePause(pause.RepoName); err != nil {
 		return false, stacktrace.Propagate(err, "failed to clear pause for '%v'", pause.RepoName)
 	}
-	s.logger.Printf("Writeable-copy '%s': resumed (HEAD moved from %s to %s)", pause.RepoName, abbrevSHA(pause.LocalHeadAtPause), abbrevSHA(currentHead))
+	s.logger.Printf("Writeable-copy '%s': resumed (HEAD moved from %s to %s by something other than the sync loop)", pause.RepoName, abbrevSHA(pause.LocalHeadAtPause), abbrevSHA(headBeforeAutoCommit))
 	return true, nil
 }
 

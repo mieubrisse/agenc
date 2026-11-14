@@ -395,10 +395,24 @@ notification — only a refusal that repeats five times becomes
 written before that change still exist in the notification history; they do not
 mean a force-push happened.
 
-**A pause stops the exchange with the remote, not the committing.** The loop
-keeps auto-committing local changes in a paused writeable copy, so work on disk
-is still being captured in git — tell the user that when they ask whether a
-pause puts their work at risk.
+**Most pauses stop the exchange with the remote, not the committing — but not
+all of them, and the difference is what the user needs to hear.**
+
+- `rebase_conflict`, `push_refused` and `auth_failure` are reached after the
+  tick has already committed, and it keeps committing on every later tick. Work
+  on disk is still being captured in git; only the push is stopped. Their
+  notification bodies say so.
+- `wrong_branch`, `path_missing`, `origin_drift` and `git_corrupt` are found
+  before the commit, and the tick stops there, so **nothing is being committed
+  either**. That is deliberate — committing onto the wrong branch, or into a
+  repo whose git state is broken, would make the mess worse — but it means the
+  user's uncommitted work is sitting on disk with nothing capturing it, and
+  these should be treated as the more urgent kind. Their notification bodies
+  deliberately omit the keeps-committing reassurance; do not add it.
+
+A repo whose rebase could not be aborted is a third case: the rebase stays in
+progress, so every later tick skips the repo silently and nothing is committed
+or pushed. The rebase-conflict notification says so when that has happened.
 
 To help the user resolve a writeable-copy conflict:
 
