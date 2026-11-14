@@ -754,11 +754,14 @@ func TestClassifyPushOutput(t *testing.T) {
 			want: pushResult{AuthFailure: true},
 		},
 		{
-			// Same phrase, different cause. Mislabelled as auth, but surfaced
-			// rather than retried in silence, with git's own text in the body.
-			name: "unreachable or deleted remote",
+			// Shares its second line with the SSH failure above, and must NOT
+			// be read as auth because of it: this is also what a laptop that
+			// has lost wifi sees, and calling that an auth failure would send
+			// Kevin to check credentials that are fine. Stays transient until
+			// something counts how long it has been going on.
+			name: "unreachable or deleted remote is transient, not auth",
 			out:  "fatal: '/tmp/gone.git' does not appear to be a git repository\nfatal: Could not read from remote repository.",
-			want: pushResult{AuthFailure: true},
+			want: pushResult{},
 		},
 		{
 			name: "network failure is neither a rejection nor an auth problem",

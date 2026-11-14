@@ -243,13 +243,17 @@ func (g realGit) Push(repoDirpath string) (pushResult, error) {
 // most likely real case. GitHub's SSH authorization failure says
 // `ERROR: Permission to owner/repo.git denied to user.` followed by
 // `fatal: Could not read from remote repository.` — which contains neither
-// "permission denied" nor "authentication", so before these matches it fell
-// through to the generic transient branch and was retried forever in silence,
-// with no counter and no notification.
+// "permission denied" nor "authentication", so before the first of those
+// matches it fell through to the generic transient branch and was retried
+// forever in silence, with no counter and no notification.
 //
-// "could not read from remote repository" also covers an unreachable host and
-// a deleted remote. Both land here as auth failures, which mislabels them but
-// surfaces them, and the notification quotes git saying what it really was.
+// The second of its lines is deliberately NOT matched. "could not read from
+// remote repository" is also what git prints when the host is simply
+// unreachable, and this daemon runs on a laptop that sleeps, travels and loses
+// wifi — matching it would turn every network blip into an auth notification
+// telling Kevin to check credentials that are fine. An unreachable remote stays
+// transient here; "unreachable for N minutes running" is a different condition
+// and wants its own count and its own honest label (KEV-230 follow-up).
 func classifyPushOutput(out string) pushResult {
 	lower := strings.ToLower(out)
 	result := pushResult{Output: out}
@@ -257,7 +261,6 @@ func classifyPushOutput(out string) pushResult {
 	case strings.Contains(lower, "authentication") || // covers "Authentication failed"
 		strings.Contains(lower, "permission denied") ||
 		(strings.Contains(lower, "permission to ") && strings.Contains(lower, " denied to ")) ||
-		strings.Contains(lower, "could not read from remote repository") ||
 		strings.Contains(lower, "invalid username or token") ||
 		(strings.Contains(lower, "could not read") && strings.Contains(lower, "username")):
 		result.AuthFailure = true
