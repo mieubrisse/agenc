@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/mieubrisse/stacktrace"
 
@@ -94,6 +95,12 @@ type Server struct {
 	// immediately at queue time if claude is already idle). Latest-wins:
 	// a second async reload for the same mission overwrites the first prompt.
 	pendingReloads sync.Map
+
+	// lastRequestAt (unix nanoseconds) and inFlightRequests are maintained by
+	// trackRequestActivity. A test-environment server reads them to decide it
+	// has gone quiet and can exit (see test_env_shutdown.go).
+	lastRequestAt    atomic.Int64
+	inFlightRequests atomic.Int64
 }
 
 // NewServer creates a new Server instance.
@@ -137,8 +144,13 @@ func (s *Server) runLoop(name string, wg *sync.WaitGroup, ctx context.Context, f
 }
 
 // Run starts the HTTP server on the unix socket and blocks until ctx is cancelled.
-// It performs graceful shutdown when the context is cancelled.
+// It performs graceful shutdown when the context is cancelled. A
+// test-environment server may also end the run itself once it has nothing left
+// to serve (see runTestEnvShutdownLoop).
 func (s *Server) Run(ctx context.Context) error {
+	ctx, shutdown := context.WithCancel(ctx)
+	defer shutdown()
+
 	// Acquire singleton lock — only one server process may run at a time.
 	lockFilepath := config.GetServerLockFilepath(s.agencDirpath)
 	lockFile, err := tryAcquireServerLock(lockFilepath)
@@ -189,8 +201,9 @@ func (s *Server) Run(ctx context.Context) error {
 	s.registerRoutes(mux)
 
 	s.httpServer = &http.Server{
-		Handler: mux,
+		Handler: s.trackRequestActivity(mux),
 	}
+	s.lastRequestAt.Store(time.Now().UnixNano())
 
 	s.logger.Printf("Server listening on %s", s.socketPath)
 
@@ -246,6 +259,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLoop("writeable-copy-reconcile", &wg, ctx, s.runWriteableCopyReconcileWorker)
 	go s.runLoop("writeable-copy-sweep", &wg, ctx, s.runWriteableCopySweepLoop)
 	go s.runLoop("cron-health", &wg, ctx, s.runCronHealthLoop)
+	s.startTestEnvShutdownLoopIfApplicable(ctx, &wg, shutdown)
 
 	// Bootstrap writeable copies: clone if missing, install watchers, and
 	// enqueue an initial reconcile per copy. Subsequent config changes are

@@ -111,7 +111,7 @@ Current endpoints:
 The server is forked by `agenc server start` (or auto-started by CLI commands via `ensureServerRunning`) and detaches from the parent terminal via `setsid`. It performs graceful shutdown on SIGTERM/SIGINT: stops accepting new connections, drains in-flight requests, stops background loops, cleans up the socket file.
 ### Background loops
 
-The server runs thirteen concurrent background goroutines:
+The server runs thirteen concurrent background goroutines, plus a fourteenth in the test environment only:
 
 **1. Repo update loop** (`internal/server/template_updater.go`)
 - Runs on a fixed interval
@@ -214,6 +214,11 @@ The server runs thirteen concurrent background goroutines:
 - Detects absence rather than catching failure: a cron whose launchd spawn aborts before `agenc` executes writes no log, creates no mission and posts no notification, so nothing else in the system observes it
 - The notification is the loop's only output — there is deliberately no command or endpoint that reports its current judgment, so a healthy fleet and a stopped loop look alike from outside. `agenc server status` shows whether the `cron-health` goroutine is running; see `docs/design/cron-quiet-monitoring.md` for why an inspection surface was removed and should not be reintroduced
 
+**14. Test-env shutdown loop** (`internal/server/test_env_shutdown.go`) — `AGENC_TEST_ENV=1` only
+- Ends the server's own run when it has nothing left to serve, so a throwaway `AGENC_DIRPATH` cannot leave a permanent daemon behind (KEV-79)
+- Checks every 15 seconds. Exits when the agenc directory has been removed or replaced by a different directory at the same path, or when no request has been served or is in flight for 10 minutes. Request activity is recorded by a middleware wrapping every route; live wrappers heartbeat every 10 seconds, so a server with any running mission is never quiet
+- Never started for the production server, whose cron syncing, config watching, writeable-copy reconciliation and pane reconciliation produce no request traffic and would silently stop
+
 The file watcher, custom-title loop, auto-summary loop, and search indexer form a multi-layer session processing pipeline. The file watcher (layer 1) tracks file sizes. Consumers (layer 2) independently query for sessions where `known_file_size > their_offset` and process new content at their own cadence. The sessions table (layer 3) coordinates via four columns: `known_file_size` (nullable, written by file watcher), `last_custom_title_scan_offset` (custom-title loop), `last_auto_summary_scan_offset` (auto-summary loop), and `last_indexed_offset` (search indexer). Each consumer's output column and its offset are advanced together in a single atomic UPDATE — on failure the offset stays put and the session is naturally re-picked on the next cycle.
 
 The FTS5 virtual table `mission_search_index` stores indexed conversation text with `mission_id` and `session_id` as unindexed columns. It uses the `porter unicode61` tokenizer for stemming and Unicode normalization. Queries use BM25 ranking with results deduplicated by mission.
@@ -263,7 +268,7 @@ The wrapper:
 5. Spawns Claude as a child process (with 1Password wrapping if `secrets.env` exists), passing `--settings <op-settings file>`, then the merged Claude args, then the call-site args (the conversation shape and the initial prompt if any)
 6. Sets `AGENC_MISSION_UUID` for the child process. Does **not** set `CLAUDE_CONFIG_DIR` (State Y — Claude reads the real `~/.claude`). Injects `CLAUDE_CODE_OAUTH_TOKEN` **only** when a token file is present (the machine-token fallback toggle); absent, Claude uses its native `~/.claude` login.
 7. Starts background goroutines:
-   - **Heartbeat writer** — updates `last_heartbeat` via the server on a fixed interval; also piggybacks `last_user_prompt_at` for crash recovery
+   - **Heartbeat writer** — updates `last_heartbeat` via the server on a fixed interval; also piggybacks `last_user_prompt_at` for crash recovery. Each tick first checks that the mission directory still exists; when it does not, the main loop SIGTERMs Claude (SIGKILL after 10 seconds) and the wrapper exits
    - **Remote refs watcher** (if mission has a git repo) — watches `.git/refs/remotes/origin/<branch>` for pushes; when detected, force-updates the repo library clone so other missions get fresh copies (debounced)
    - **HTTP server** (interactive mode only) — serves an HTTP API on `wrapper.sock` (unix socket) with endpoints for status queries, restart commands, and claude_update events
 8. Main event loop implements a three-state machine (see below)
@@ -529,6 +534,7 @@ HTTP API server that listens on a unix socket. Serves mission lifecycle endpoint
 - `notifications_handlers.go` — notifications CRUD endpoints (`POST /notifications`, `GET /notifications`, `GET /notifications/{id}`, `POST /notifications/{id}/read`, `GET /notifications/unread-count`); body-size cap. Cron-source missions auto-create a `cron.triggered` notification linked to the new mission via `MissionID`; failure to insert is logged and never fails the mission request
 - `notifications_helpers.go` — `sanitizeNotificationLine` strips ANSI sequences and control characters from single-line user-sourced values before persistence (defense-in-depth for cron names and schedule expressions sourced from user-edited config)
 - `cron_health_loop.go` — cron health loop: gathers each enabled cron's schedule and latest mission, delegates the judgment to `internal/cronhealth`, posts a single `cron.quiet` notification naming the crons that newly went quiet, and maintains the `cron_monitor_state` record that keeps one quiet spell to one mention
+- `test_env_shutdown.go` — test-environment self-shutdown: the request-activity middleware every route passes through, and the loop (started only under `AGENC_TEST_ENV=1`) that ends the server's run once its agenc directory is gone or it has served nothing for 10 minutes
 
 ### `internal/database/`
 
@@ -816,6 +822,8 @@ Failure Modes
 -------------
 
 **Server dies while missions are running.** Missions are unaffected — each wrapper is an independent process. The repo library stops syncing and cron jobs stop scheduling. Restarting the server (`agenc server start`) restores both. The cron scheduler adopts orphaned headless missions on startup.
+
+**Agenc directory removed under running missions.** Each wrapper notices its mission directory is gone within one heartbeat interval, stops its Claude child and exits. A test-environment server exits within 15 seconds (see the test-env shutdown loop); a production server does not watch for this. In normal operation the server removes a mission directory only after stopping its wrapper, so this path is reached only when a whole throwaway agenc directory is deleted (KEV-79).
 
 **Wrapper crashes or is killed.** Claude continues running as an orphaned process (it is a child process, but not monitored). The PID file becomes stale. The heartbeat stops updating, so the server drops the mission from its repo sync set once the heartbeat goes stale. A subsequent `agenc mission stop` will detect the stale PID.
 
