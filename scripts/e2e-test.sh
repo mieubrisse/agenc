@@ -1920,15 +1920,21 @@ assert_mission_claude_argv_contains \
 
 # A default model is set as config claudeArgs and reaches a mission that names
 # none. Config is read at wrapper start, so the mission is created after the
-# config change; the config is cleared again so later sections see none.
-"${agenc_test}" config set claudeArgs "--model,sonnet" >/dev/null 2>&1
+# config change; the config is cleared again so later sections see none. The
+# "--" is needed because the value starts with a dash, which Cobra would
+# otherwise read as a flag of `config set`.
+run_test "config set claudeArgs takes a default model" \
+    0 \
+    "${agenc_test}" config set claudeArgs -- "--model,sonnet"
 default_model_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
 default_model_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${default_model_short_id}';")
 assert_mission_claude_argv_contains \
     "config claudeArgs default model reaches the mission" \
     "${default_model_mission_uuid}" \
     "--model sonnet"
-"${agenc_test}" config set claudeArgs "" >/dev/null 2>&1
+run_test "config set claudeArgs clears the default model" \
+    0 \
+    "${agenc_test}" config set claudeArgs ""
 
 echo ""
 echo "--- Per-mission Claude passthrough args (KEV-88) ---"
