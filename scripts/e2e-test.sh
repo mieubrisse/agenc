@@ -3118,6 +3118,126 @@ fi
 echo ""
 
 echo ""
+echo "--- Throwaway environments do not leak processes (KEV-79) ---"
+
+# Removing an agenc directory used to strand everything running against it:
+# every mission's wrapper and its Claude child, and the server, kept running
+# with nothing left to stop them. One evening of wrapper-state verification
+# measured 190 orphans holding 7.2 GB. Each process must now notice and exit.
+
+# Polls until a PID is gone. Returns non-zero if it is still alive at the
+# deadline.
+wait_for_pid_exit() {
+    local pid="${1}"
+    local timeout_seconds="${2}"
+    local deadline=$((SECONDS + timeout_seconds))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if ! kill -0 "${pid}" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    ! kill -0 "${pid}" 2>/dev/null
+}
+
+# A wrapper checks its mission directory on every 10-second heartbeat, then
+# gives Claude up to 10 seconds to exit on SIGTERM. 40 seconds covers both with
+# margin.
+orphan_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
+orphan_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
+    | awk '/^Created mission:/{print $3; exit}')
+orphan_mission_uuid=""
+if [ -n "${orphan_mission_short_id}" ]; then
+    orphan_mission_uuid=$(sqlite3 "${orphan_db_filepath}" \
+        "SELECT id FROM missions WHERE id LIKE '${orphan_mission_short_id}%';" 2>/dev/null || echo "")
+fi
+orphan_mission_dirpath="${repo_dirpath}/_test-env/missions/${orphan_mission_uuid}"
+
+orphan_wrapper_pid=""
+orphan_claude_pid=""
+if [ -n "${orphan_mission_uuid}" ]; then
+    orphan_claude_pid="$(find_mission_claude_pid "${orphan_mission_uuid}" || true)"
+    orphan_wrapper_pid="$(cat "${orphan_mission_dirpath}/pid" 2>/dev/null || true)"
+fi
+
+# Without a live Claude there is nothing to leak, so skip loudly like the other
+# sections that need one, rather than fail on a machine with no Claude.
+if [ -z "${orphan_wrapper_pid}" ] || [ -z "${orphan_claude_pid}" ]; then
+    for orphan_uncoverable in "wrapper exits when its mission dir is removed" "its Claude child exits with it"; do
+        total=$((total + 1))
+        printf "  %-50s " "${orphan_uncoverable}..."
+        echo "SKIP (no live wrapper and Claude: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none})"
+        skipped=$((skipped + 1))
+    done
+else
+    rm -rf "${orphan_mission_dirpath}"
+
+    total=$((total + 1))
+    printf "  %-50s " "wrapper exits when its mission dir is removed..."
+    if wait_for_pid_exit "${orphan_wrapper_pid}" 40; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (wrapper PID ${orphan_wrapper_pid} still running 40s after its mission directory was removed)"
+        failed=$((failed + 1))
+    fi
+
+    # Checked separately because the Claude child is the expensive half of the
+    # leak: a wrapper that exited without stopping it would still pass above.
+    total=$((total + 1))
+    printf "  %-50s " "its Claude child exits with it..."
+    if wait_for_pid_exit "${orphan_claude_pid}" 5; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (Claude PID ${orphan_claude_pid} outlived its wrapper)"
+        failed=$((failed + 1))
+    fi
+fi
+# Drop the mission's record so later sections do not list a mission whose
+# directory no longer exists.
+if [ -n "${orphan_mission_uuid}" ]; then
+    "${agenc_test}" mission rm "${orphan_mission_uuid}" >/dev/null 2>&1 || true
+fi
+
+# A test-environment server checks its agenc directory every 15 seconds. It runs
+# in its own short-path environment, and in an empty tmux universe so it cannot
+# leave a pool session in the developer's tmux server: with no tmux server to
+# use, the server logs a warning and runs without a pool session (KEV-168).
+orphan_server_env_dirpath="$(mktemp -d /tmp/agenc-e2e-orphan.XXXXXX)"
+orphan_server_tmux_dirpath="$(mktemp -d /tmp/agenc-e2e-orphtmux.XXXXXX)"
+mkdir -p "${orphan_server_env_dirpath}/config" "${orphan_server_env_dirpath}/claude-config"
+git -C "${orphan_server_env_dirpath}/config" init --quiet
+
+# CLAUDE_CONFIG_DIR is pointed inside the throwaway too, as agenc-test does, so
+# the server's boot-time trust reconcile never reads the real ~/.claude.json.
+env -u TMUX TMUX_TMPDIR="${orphan_server_tmux_dirpath}" \
+    AGENC_DIRPATH="${orphan_server_env_dirpath}" AGENC_TEST_ENV=1 \
+    CLAUDE_CONFIG_DIR="${orphan_server_env_dirpath}/claude-config" \
+    "${repo_dirpath}/_build/agenc" server start >/dev/null 2>&1 || true
+orphan_server_pid="$(cat "${orphan_server_env_dirpath}/server/server.pid" 2>/dev/null || true)"
+
+total=$((total + 1))
+printf "  %-50s " "test-env server exits when its agenc dir is removed..."
+if [ -z "${orphan_server_pid}" ] || ! kill -0 "${orphan_server_pid}" 2>/dev/null; then
+    echo "FAIL (the throwaway server never started: pid=${orphan_server_pid:-none})"
+    failed=$((failed + 1))
+else
+    rm -rf "${orphan_server_env_dirpath}"
+    if wait_for_pid_exit "${orphan_server_pid}" 40; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (server PID ${orphan_server_pid} still running 40s after its agenc directory was removed)"
+        failed=$((failed + 1))
+        # Scoped to the PID read from this environment's own PID file, so this
+        # cannot touch any other server.
+        kill "${orphan_server_pid}" 2>/dev/null || true
+    fi
+fi
+rm -rf "${orphan_server_env_dirpath}" "${orphan_server_tmux_dirpath}"
+
+echo ""
 echo "--- AgenC refuses to create the tmux server (KEV-168) ---"
 # AgenC must never be the process that creates the tmux server: on macOS
 # whichever process does becomes the TCC "responsible process" for every pane

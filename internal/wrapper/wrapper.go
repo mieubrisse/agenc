@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -30,6 +31,12 @@ const (
 	// Heartbeat interval: 10s provides responsive activity tracking for mission
 	// sorting while keeping server request volume manageable.
 	heartbeatInterval = 10 * time.Second
+
+	// orphanedClaudeStopGracePeriod is how long a wrapper whose mission
+	// directory has vanished waits for Claude to exit on SIGTERM before
+	// SIGKILLing it. Nobody else will escalate on this path: the server that
+	// would have done so served the directory that is now gone.
+	orphanedClaudeStopGracePeriod = 10 * time.Second
 )
 
 // Wrapper manages a Claude child process for a single mission.
@@ -100,6 +107,12 @@ type Wrapper struct {
 	// commandCh receives commands from the HTTP server goroutine.
 	commandCh chan commandWithResponse
 
+	// missionDirGone is signalled by the heartbeat loop when the mission
+	// directory no longer exists — a throwaway AGENC_DIRPATH removed without
+	// stopping its missions (KEV-79). Nothing else would ever stop this
+	// wrapper or its Claude child, so the main loop shuts both down.
+	missionDirGone chan struct{}
+
 	// Window coloring configuration for tmux state feedback. Read from config.yml at startup.
 	// Empty strings mean that specific color setting is disabled.
 	windowBusyBackgroundColor      string
@@ -164,6 +177,7 @@ func NewWrapper(
 		client:                         server.NewClient(config.GetServerSocketFilepath(agencDirpath)),
 		claudeExited:                   make(chan error, 1),
 		commandCh:                      make(chan commandWithResponse, 1),
+		missionDirGone:                 make(chan struct{}, 1),
 		claudeIdle:                     true,
 		windowBusyBackgroundColor:      titleCfg.GetBusyBackgroundColor(),
 		windowBusyForegroundColor:      titleCfg.GetBusyForegroundColor(),
@@ -370,6 +384,10 @@ func (w *Wrapper) Run(isResume bool) error {
 			w.handleSignal(sig)
 			return nil
 
+		case <-w.missionDirGone:
+			w.handleMissionDirGone(orphanedClaudeStopGracePeriod)
+			return nil
+
 		case cmdResp := <-w.commandCh:
 			resp := w.handleCommand(cmdResp.cmd)
 			cmdResp.responseCh <- resp
@@ -399,6 +417,45 @@ func (w *Wrapper) handleSignal(sig os.Signal) {
 	<-w.claudeExited
 }
 
+// handleMissionDirGone stops Claude after the mission directory has been
+// removed out from under the wrapper. It returns once Claude has exited, so
+// the wrapper never leaves its Claude child behind as an orphan — the child is
+// most of the memory a leaked mission holds. Claude is SIGKILLed if it has not
+// exited on SIGTERM within gracePeriod.
+//
+// Deliberately not routed through handleClaudeExit: Claude dies of a signal
+// here, a non-zero exit, and that path would block on a press-Enter prompt
+// that no one will ever answer.
+func (w *Wrapper) handleMissionDirGone(gracePeriod time.Duration) {
+	w.logger.Info("Wrapper exiting",
+		"reason", "mission_directory_gone",
+		"mission_dirpath", w.missionDirpath,
+	)
+	if w.claudeCmd == nil || w.claudeCmd.Process == nil {
+		return
+	}
+	_ = w.claudeCmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-w.claudeExited:
+	case <-time.After(gracePeriod):
+		w.logger.Warn("Claude did not exit on SIGTERM; sending SIGKILL", "grace_period", gracePeriod.String())
+		_ = w.claudeCmd.Process.Kill()
+		<-w.claudeExited
+	}
+}
+
+// isMissionDirGone reports whether the mission directory no longer exists.
+// Only a definite not-exist answer counts: any other stat error (permissions,
+// a transient I/O failure) leaves the wrapper running, because exiting stops a
+// live Claude session and cannot be undone. The server's only removal of a
+// mission directory is `mission rm`, which stops the wrapper first (and, if it
+// cannot, is deleting the mission anyway), so a running wrapper observing its
+// directory gone means it has nothing left to serve.
+func (w *Wrapper) isMissionDirGone() bool {
+	_, err := os.Stat(w.missionDirpath)
+	return os.IsNotExist(err)
+}
+
 // handleClaudeExit processes Claude's exit. The wrapper exits when claude
 // exits — there is no in-process restart path; reload is handled externally
 // via tmux respawn-pane (see internal/server reloadMissionInTmux).
@@ -421,11 +478,32 @@ func (w *Wrapper) handleClaudeExit(exitErr error) (done bool, err error) {
 	// If Claude exited with an error, pause so the user can see
 	// any error messages Claude printed to the terminal before
 	// the tmux window closes.
-	if exitCode != 0 {
+	//
+	// No one will read the prompt once the mission directory is gone, so it
+	// is skipped then, and abandoned if the directory goes while it waits —
+	// otherwise the wrapper would wait on Enter forever (KEV-79).
+	if exitCode != 0 && !w.isMissionDirGone() {
 		fmt.Fprintf(os.Stderr, "\nClaude exited with code %d. Press Enter to close this window.\n", exitCode)
-		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n') // intentionally ignored: press-enter-to-continue prompt
+		w.waitForEnterOrMissionDirGone(os.Stdin)
 	}
 	return true, nil
+}
+
+// waitForEnterOrMissionDirGone blocks until a line is read from input or the
+// heartbeat loop reports the mission directory gone, whichever comes first. The
+// reading goroutine is left blocked in the second case; the wrapper is about to
+// exit, which ends it.
+func (w *Wrapper) waitForEnterOrMissionDirGone(input io.Reader) {
+	enterPressed := make(chan struct{})
+	go func() {
+		_, _ = bufio.NewReader(input).ReadBytes('\n') // intentionally ignored: press-enter-to-continue prompt
+		close(enterPressed)
+	}()
+	select {
+	case <-enterPressed:
+	case <-w.missionDirGone:
+		w.logger.Info("Abandoning press-Enter prompt", "reason", "mission_directory_gone")
+	}
 }
 
 // handleCommand processes a command from the HTTP server and returns a CommandResponse.
@@ -732,6 +810,11 @@ func (w *Wrapper) triggerRepoPushEvent() {
 
 // writeHeartbeat periodically updates the mission's last_heartbeat timestamp
 // via the server so the system knows the wrapper is still alive.
+//
+// Each tick first checks that the mission directory still exists, and signals
+// the main loop to shut down when it does not. That check is keyed on the
+// directory, not on heartbeat failures: a production server restart makes
+// heartbeats fail for a while, and wrappers must survive it.
 func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
@@ -741,6 +824,14 @@ func (w *Wrapper) writeHeartbeat(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if w.isMissionDirGone() {
+				select {
+				case w.missionDirGone <- struct{}{}:
+				default:
+				}
+				return
+			}
+
 			w.stateMu.RLock()
 			lastPromptAt := w.lastUserPromptAt
 			w.stateMu.RUnlock()
