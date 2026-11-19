@@ -36,9 +36,8 @@ func init() {
 	configRepoConfigSetCmd.Flags().String(repoConfigTitleFlagName, "", `friendly title for the repo (e.g., "Dotfiles")`)
 	configRepoConfigSetCmd.Flags().String(repoConfigDescriptionFlagName, "", `human/agent-readable description of what the repo is for; empty to clear`)
 	configRepoConfigSetCmd.Flags().String(repoConfigTrustedMcpServersFlagName, "", `MCP server trust: "all", comma-separated server names, or "" to clear`)
-	configRepoConfigSetCmd.Flags().String(repoConfigDefaultModelFlagName, "", `default Claude model for missions using this repo (e.g., "opus", "sonnet")`)
 	configRepoConfigSetCmd.Flags().String(repoConfigPostUpdateHookFlagName, "", `shell command to run after repo updates (e.g., "make setup"); empty to clear`)
-	configRepoConfigSetCmd.Flags().String(repoConfigClaudeArgsFlagName, "", `extra Claude CLI args: comma-separated (e.g., "--chrome,--verbose"); empty to clear`)
+	configRepoConfigSetCmd.Flags().String(repoConfigClaudeArgsFlagName, "", `Claude CLI args for missions using this repo, comma-separated (e.g., "--model,opus,--chrome"); empty to clear`)
 }
 
 // applyAlwaysSyncedFlag enforces the invariant that a repo with a configured
@@ -67,12 +66,12 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 	allFlags := []string{
 		repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName,
 		repoConfigTitleFlagName, repoConfigDescriptionFlagName,
-		repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName,
+		repoConfigTrustedMcpServersFlagName,
 		repoConfigPostUpdateHookFlagName, repoConfigClaudeArgsFlagName,
 	}
 	if !anyFlagChanged(cmd, allFlags) {
-		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, --%s, --%s, --%s, or --%s must be provided",
-			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName, repoConfigDescriptionFlagName, repoConfigTrustedMcpServersFlagName, repoConfigDefaultModelFlagName, repoConfigPostUpdateHookFlagName, repoConfigClaudeArgsFlagName)
+		return stacktrace.NewError("at least one of --%s, --%s, --%s, --%s, --%s, --%s, or --%s must be provided",
+			repoConfigAlwaysSyncedFlagName, repoConfigEmojiFlagName, repoConfigTitleFlagName, repoConfigDescriptionFlagName, repoConfigTrustedMcpServersFlagName, repoConfigPostUpdateHookFlagName, repoConfigClaudeArgsFlagName)
 	}
 
 	cfg, cm, release, err := readConfigWithComments()
@@ -101,7 +100,6 @@ func runConfigRepoConfigSet(cmd *cobra.Command, args []string) error {
 		{repoConfigEmojiFlagName, &rc.Emoji},
 		{repoConfigTitleFlagName, &rc.Title},
 		{repoConfigDescriptionFlagName, &rc.Description},
-		{repoConfigDefaultModelFlagName, &rc.DefaultModel},
 		{repoConfigPostUpdateHookFlagName, &rc.PostUpdateHook},
 	}
 	for _, f := range simpleStringFields {

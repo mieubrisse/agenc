@@ -14,9 +14,10 @@ Use --clone <mission-uuid> to create a new mission with a full copy of an
 existing mission's agent directory.
 
 Anything after a "--" separator is handed to the mission's Claude process
-verbatim, so any Claude Code flag is reachable per-mission even when AgenC
-has no flag of its own for it:
+verbatim. That is how a mission's model and effort are chosen, and how any
+other Claude Code flag is reached; AgenC has no flags of its own for them:
 
+  agenc mission new owner/repo -- --model opus --effort high
   agenc mission new owner/repo -- --append-system-prompt "Tonight is for reflection."
 
 The args are stored on the mission, so they survive reload, restart and the
@@ -26,10 +27,17 @@ that mission alone.
 
 Claude resolves a repeated scalar flag last-wins, and these are appended after
 the "claudeArgs" config chain, so a flag given here outranks the same flag from
-config. Two Claude flags will disable part of AgenC if passed this way, and
-creation warns when it sees them: "--settings" replaces AgenC's own operational
-overlay rather than adding to it, and "--bare" skips hooks altogether. Either
-one stops the mission reporting its state back to AgenC.
+config — which is how a mission overrides a default model set there.
+
+A clone inherits the source mission's Claude args when nothing follows "--".
+Anything after "--" replaces that list entirely rather than adding to it, so
+"--clone X -- --model sonnet" runs with only "--model sonnet". Creation says which
+of the two happened.
+
+Two Claude flags will disable part of AgenC if passed this way, and creation
+warns when it sees them: "--settings" replaces AgenC's own operational overlay
+rather than adding to it, and "--bare" skips hooks altogether. Either one stops
+the mission reporting its state back to AgenC.
 
 Use --env to put an environment variable in the mission's Claude process,
 repeating the flag for each one:
@@ -60,11 +68,9 @@ agenc mission new [repo] [flags] [-- claude-args...]
       --adjutant          create an Adjutant mission
       --blank             create a blank mission with no repo (skip picker)
       --clone string      mission UUID to clone agent directory from
-      --effort string     Claude reasoning effort for this mission (low, medium, high, xhigh, max)
       --env stringArray   environment variable to set in the mission's Claude process, as NAME=VALUE (repeatable)
       --headless          run in headless mode (no terminal, outputs to log)
   -h, --help              help for new
-      --model string      Claude model for this mission (e.g. "opus", "sonnet", "claude-opus-4-6"); overrides the defaultModel config
       --no-focus          don't focus the new mission's tmux window after creation
       --prompt string     initial prompt to start Claude with
 ```

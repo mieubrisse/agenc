@@ -89,39 +89,3 @@ func TestListMissionsCarriesClaudePassthroughArgs(t *testing.T) {
 		t.Fatalf("expected mission '%s' in the list", created.ID)
 	}
 }
-
-// Passthrough args and the keyed Claude args are independent channels: one
-// mission may carry either, both, or neither, and neither may leak into the
-// other's column.
-func TestCreateMissionKeepsClaudeArgChannelsIndependent(t *testing.T) {
-	db := openTestDB(t)
-
-	passthroughOnly, err := db.CreateMission("github.com/owner/repo", &CreateMissionParams{
-		ClaudePassthroughArgs: []string{"--add-dir", "/one"},
-	})
-	if err != nil {
-		t.Fatalf("failed to create the passthrough-only mission: %v", err)
-	}
-	keyedOnly, err := db.CreateMission("github.com/owner/repo", &CreateMissionParams{
-		ClaudeArgs: map[string]string{"model": "opus"},
-	})
-	if err != nil {
-		t.Fatalf("failed to create the keyed-args-only mission: %v", err)
-	}
-
-	gotPassthroughOnly, err := db.GetMission(passthroughOnly.ID)
-	if err != nil {
-		t.Fatalf("failed to get the passthrough-only mission: %v", err)
-	}
-	if len(gotPassthroughOnly.ClaudeArgs) != 0 {
-		t.Fatalf("expected the passthrough-only mission to carry no keyed args, got %v", gotPassthroughOnly.ClaudeArgs)
-	}
-
-	gotKeyedOnly, err := db.GetMission(keyedOnly.ID)
-	if err != nil {
-		t.Fatalf("failed to get the keyed-args-only mission: %v", err)
-	}
-	if len(gotKeyedOnly.ClaudePassthroughArgs) != 0 {
-		t.Fatalf("expected the keyed-args-only mission to carry no passthrough args, got %q", gotKeyedOnly.ClaudePassthroughArgs)
-	}
-}

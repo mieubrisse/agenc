@@ -183,10 +183,10 @@ func TestBuildResumeArgs(t *testing.T) {
 }
 
 // TestBuildClaudeCmdArgOrder pins the argv layout BuildClaudeCmd produces:
-// AgenC's operational overlay first, then the merged model/config/per-mission
-// args, then the call-site args that choose the conversation shape. The order
-// is behaviour, not incidental — a per-mission override that landed before the
-// resolved model would be silently outranked by Claude's last-wins parsing.
+// AgenC's operational overlay first, then the merged config/per-mission args,
+// then the call-site args that choose the conversation shape. The order is
+// behaviour, not incidental — a per-mission flag that landed before the config
+// default would be silently outranked by Claude's last-wins parsing.
 func TestBuildClaudeCmdArgOrder(t *testing.T) {
 	withFakeClaudeOnPath(t)
 
@@ -195,9 +195,8 @@ func TestBuildClaudeCmdArgOrder(t *testing.T) {
 	missionID := "test-mission-uuid"
 
 	mergedClaudeArgs := MergeClaudeArgs(ClaudeArgSources{
-		ResolvedModel:     "sonnet",
-		ConfigClaudeArgs:  []string{"--chrome"},
-		MissionClaudeArgs: map[string]string{"model": "opus"},
+		ConfigClaudeArgs:      []string{"--model", "sonnet", "--chrome"},
+		ClaudePassthroughArgs: []string{"--model", "opus"},
 	})
 	cmd, err := BuildClaudeCmd(agencDirpath, missionID, agentDirpath, mergedClaudeArgs, []string{"-c"}, nil)
 	if err != nil {
@@ -209,6 +208,7 @@ func TestBuildClaudeCmdArgOrder(t *testing.T) {
 	opSettingsFilepath := config.GetMissionOpSettingsFilepath(agencDirpath, missionID)
 	expectedArgs := []string{
 		"--settings", opSettingsFilepath,
+		"--model", "sonnet",
 		"--chrome",
 		"--model", "opus",
 		"-c",

@@ -52,8 +52,8 @@ type Wrapper struct {
 	logger         *slog.Logger
 	tmuxPaneID     string // numeric pane ID from $TMUX_PANE (%-prefix stripped); empty for headless
 
-	// claudeSpawnArgs is the model/config/per-mission/passthrough arg list
-	// handed to every Claude spawn, already merged by mission.MergeClaudeArgs
+	// claudeSpawnArgs is the config/per-mission arg list handed to every
+	// Claude spawn, already merged by mission.MergeClaudeArgs
 	// at construction time. Resolved once because the merge reads config, and
 	// config must not shift underneath a mission mid-restart.
 	claudeSpawnArgs []string
@@ -64,12 +64,6 @@ type Wrapper struct {
 	// stash-restore or a server restart rebuilds the resume command and reads
 	// the record again.
 	missionEnv map[string]string
-
-	// unknownClaudeArgKeys names per-mission Claude args this build does not
-	// recognize. Only reachable via version skew (a mission created by a newer
-	// AgenC, resumed by an older one). Dropped from the spawn but logged, so a
-	// mission silently missing a flag is diagnosable.
-	unknownClaudeArgKeys []string
 
 	// hasConversation tracks whether a Claude conversation exists that can be
 	// resumed with `claude -c`. Set to true at startup for resumes, and flipped
@@ -125,12 +119,12 @@ type Wrapper struct {
 // parameter is optional; if non-empty, it will be passed to Claude when
 // starting a new conversation (not used for resumes).
 //
-// missionClaudeArgs holds the mission's own keyed Claude CLI overrides (from
-// `agenc mission new --model` and friends) and missionClaudePassthroughArgs the
-// verbatim argv it was given after `--`. Both are read from the mission record
-// by the caller, which is what makes them outlive this wrapper: every spawn in
-// this process, including the restarts the wrapper decides on its own, reuses
-// the args resolved here, and the next wrapper reads the record again.
+// missionClaudePassthroughArgs is the verbatim argv the mission was given after
+// `--` — its only record of its own Claude flags, model and effort included.
+// It is read from the mission record by the caller, which is what makes it
+// outlive this wrapper: every spawn in this process, including the restarts the
+// wrapper decides on its own, reuses the args resolved here, and the next
+// wrapper reads the record again.
 //
 // missionEnv is the mission's own environment variables (from
 // `agenc mission new --env`), read off the record the same way and for the same
@@ -142,22 +136,19 @@ func NewWrapper(
 	missionID string,
 	gitRepoName string,
 	initialPrompt string,
-	missionClaudeArgs map[string]string,
 	missionClaudePassthroughArgs []string,
 	missionEnv map[string]string,
-) *Wrapper {
-	// Load window coloring config from config.yml
+) (*Wrapper, error) {
+	// A config that fails to load stops the wrapper rather than spawning Claude
+	// without the claudeArgs chain. That chain carries the default model, so
+	// spawning without it would quietly run the mission on Claude's own default
+	// — the silent fallback the retired-defaultModel refusal exists to prevent.
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	var titleCfg *config.TmuxWindowTitleConfig
-	var defaultModel string
-	var configClaudeArgs []string
-	if err == nil {
-		titleCfg = cfg.GetTmuxWindowTitleConfig()
-		defaultModel = cfg.GetDefaultModel(gitRepoName)
-		configClaudeArgs = cfg.GetClaudeArgs(gitRepoName)
-	} else {
-		titleCfg = &config.TmuxWindowTitleConfig{}
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read config for mission '%v'; fix config.yml, then reload the mission", missionID)
 	}
+	titleCfg := cfg.GetTmuxWindowTitleConfig()
+	configClaudeArgs := cfg.GetClaudeArgs(gitRepoName)
 
 	return &Wrapper{
 		agencDirpath:  agencDirpath,
@@ -165,13 +156,10 @@ func NewWrapper(
 		gitRepoName:   gitRepoName,
 		initialPrompt: initialPrompt,
 		claudeSpawnArgs: mission.MergeClaudeArgs(mission.ClaudeArgSources{
-			ResolvedModel:         defaultModel,
 			ConfigClaudeArgs:      configClaudeArgs,
-			MissionClaudeArgs:     missionClaudeArgs,
 			ClaudePassthroughArgs: missionClaudePassthroughArgs,
 		}),
 		missionEnv:                     missionEnv,
-		unknownClaudeArgKeys:           mission.UnknownClaudeArgKeys(missionClaudeArgs),
 		missionDirpath:                 config.GetMissionDirpath(agencDirpath, missionID),
 		agentDirpath:                   config.GetMissionAgentDirpath(agencDirpath, missionID),
 		client:                         server.NewClient(config.GetServerSocketFilepath(agencDirpath)),
@@ -183,7 +171,7 @@ func NewWrapper(
 		windowBusyForegroundColor:      titleCfg.GetBusyForegroundColor(),
 		windowAttentionBackgroundColor: titleCfg.GetAttentionBackgroundColor(),
 		windowAttentionForegroundColor: titleCfg.GetAttentionForegroundColor(),
-	}
+	}, nil
 }
 
 // runResources bundles resources created during setup that the caller must
@@ -219,12 +207,6 @@ func (w *Wrapper) setupRun(isResume bool) (*runResources, func(), error) {
 		"repo", w.gitRepoName,
 		"is_resume", isResume,
 	)
-	if len(w.unknownClaudeArgKeys) > 0 {
-		w.logger.Warn("Dropping unrecognized per-mission Claude args; this AgenC build does not support them",
-			"mission_id", database.ShortID(w.missionID),
-			"unknown_claude_arg_keys", w.unknownClaudeArgKeys,
-		)
-	}
 
 	// Write wrapper PID
 	pidFilepath := config.GetMissionPIDFilepath(w.agencDirpath, w.missionID)

@@ -26,31 +26,17 @@ agenc mission new <repo> --prompt "Your instructions here"
 agenc mission new --adjutant --prompt "Help with cron setup"
 ```
 
-### Choosing a model or effort level per mission
+### Choosing a model, effort level, or any other Claude flag per mission
 
-`agenc mission new` has two ways to set Claude CLI flags on the mission it launches, scoped to that one mission. A couple of flags are promoted to AgenC flags of their own; every other Claude flag goes after a `--` separator.
-
-The promoted ones:
+Everything a user writes after a `--` separator on `agenc mission new` is handed to that mission's Claude process verbatim. AgenC has no `--model` or `--effort` flag of its own; they are Claude flags like any other, so they go after the separator:
 
 ```bash
 # Run this mission on Opus, whatever the configured default is
-agenc mission new <repo> --model opus --prompt "..."
+agenc mission new <repo> --prompt "..." -- --model opus
 
 # Cheap model, low effort, for a mechanical task
-agenc mission new <repo> --model haiku --effort low --prompt "..."
-```
+agenc mission new <repo> --prompt "..." -- --model haiku --effort low
 
-`--model` takes a Claude alias (`opus`, `sonnet`, `haiku`) or a full model ID. `--effort` takes `low`, `medium`, `high`, `xhigh`, or `max`.
-
-These override the `defaultModel` and `claudeArgs` config for that mission only — nothing shared changes, so there is no setting to remember to change back. Use them when the user wants a one-off stronger or cheaper mission. Reach for `agenc config set defaultModel <value>` (global) or `agenc config repoConfig set <repo> --default-model <value>` (per-repo) only when they want the change to stick for future missions.
-
-Only those two are AgenC flags. Run `agenc mission new --help` for the current list rather than assuming another one exists — but a flag's absence from that list does not mean it is unreachable, because of the next part.
-
-### Any other Claude flag: the `--` separator
-
-Everything a user writes after a `--` separator is handed to that mission's Claude process verbatim:
-
-```bash
 # Give one mission a system prompt it cannot talk its way out of
 agenc mission new <repo> -- --append-system-prompt "Tonight is for reflection, not work."
 
@@ -63,6 +49,7 @@ Three things worth telling a user about this:
 - **Any Claude flag works, including ones newer than AgenC.** There is no list to be on. If `claude --help` accepts it, this passes it through.
 - **The value can be anything.** It never touches a shell, so spaces, quotes and newlines arrive exactly as written — a whole multi-line system prompt is fine.
 - **It sticks.** The args live on the mission record, so they survive reload, restart, compaction and the wrapper's own respawns, and they apply to that mission and no other.
+- **It outranks config.** The `claudeArgs` config (global, then per-repo) comes first on Claude's command line and the mission's args after it, and Claude takes the last occurrence of a repeated flag. So a mission's `--model` beats a default model, and nothing shared changes. A default model *is* a `claudeArgs` entry: `agenc config set claudeArgs -- "--model,opus"` (global; the `--` stops the dash-leading value being read as a flag) or `agenc config repoConfig set <repo> --claude-args "--model,opus"` (per-repo). Either replaces the whole list, so check the current one first (`agenc config get claudeArgs`, `agenc config repoConfig ls`) and keep what is already there. Suggest those only when the user wants the change to stick for future missions. There is no `defaultModel` setting any more.
 
 Two flags will quietly disable part of AgenC if passed this way, and `mission new` prints a warning when it sees them. Do not route around the warning; relay it:
 
@@ -85,14 +72,14 @@ What to tell a user about it:
 - **The value can be anything.** It never touches a shell, so spaces, quotes and newlines arrive as written. Split on the first `=`, so a value may contain more of them.
 - **The name has to be a shell variable name** — a letter or underscore, then letters, digits and underscores. Anything else is rejected at creation, because a hook could not read it anyway.
 - **It sticks, and it stays put.** The variables live on the mission record, so they survive reload and restart, and they reach that mission's Claude and nothing else.
-- **A clone does not inherit them.** This differs from the two arg channels deliberately: a marker says what a mission is *for*, and a marker that spread silently into clones would exempt missions nobody declared. Pass `--env` on the clone command when a clone needs it.
+- **A clone does not inherit them.** This differs from the Claude args deliberately: a marker says what a mission is *for*, and a marker that spread silently into clones would exempt missions nobody declared. Pass `--env` on the clone command when a clone needs it.
 - **The names AgenC sets itself are refused.** `--env AGENC_MISSION_SOURCE=cron` is an error at creation, not a silent no-op, and the error lists the names AgenC owns. AgenC also re-applies its own values after the mission's at every spawn, so those names are AgenC's regardless of how a value reached the mission record. Do not suggest this as a way to spoof a mission's identity or source — and note in particular that `AGENC_MISSION_SOURCE=cron` is what exempts a mission from Kevin's night-time gate, so a request to set it is a request to bypass his own shutdown window; say what it is rather than helping it along. `CLAUDE_CONFIG_DIR` is refused for a sharper version of the same reason: it selects which `settings.json` the session reads, so setting it would strip every hook on the machine from that mission.
 
 ### Seeing what a mission got
 
-`agenc mission inspect <mission>` shows a `Claude args:` line for the promoted flags, a `Passthrough:` line for everything after `--`, and an `Environment:` line for the `--env` variables. That is how to answer "why is this mission on Opus?", "where is this mission's system prompt coming from?" or "why is this session exempt from that hook?"
+`agenc mission inspect <mission>` shows a `Claude args:` line for everything the mission was given after `--`, and an `Environment:` line for the `--env` variables. That is how to answer "why is this mission on Opus?", "where is this mission's system prompt coming from?" or "why is this session exempt from that hook?" A mission with no `Claude args:` line runs on the `claudeArgs` config alone.
 
-Cloning carries the two arg channels over: `agenc mission new --clone <mission>` inherits the source mission's model, effort and passthrough args (and says so in its output). Passing an explicit flag, or anything after `--`, replaces that channel on the clone. The mission's environment is not inherited, for the reason above.
+Cloning carries the Claude args over: `agenc mission new --clone <mission>` inherits the source mission's list when nothing follows `--`. Anything after `--` on the clone replaces the whole list rather than adding to it — `--clone X -- --model sonnet` drops the source's system prompt and every other flag, keeping only `--model sonnet`. The output says which happened; when a user wants the source's flags plus a change, they have to repeat the flags they want to keep. The mission's environment is not inherited, for the reason above.
 
 Tmux Configuration Changes
 --------------------------

@@ -27,16 +27,11 @@ var sourceFlag string
 var sourceIDFlag string
 var sourceMetadataFlag string
 
-// missionClaudeArgFlagValues holds the value of every forwarded Claude flag as
-// the user set it on the command line, keyed by
-// mission.ForwardedClaudeFlag.Key. Registered from the forwarded-flag table so
-// that supporting a new Claude flag stays a single table entry.
-var missionClaudeArgFlagValues = map[string]*string{}
-
 // missionClaudePassthroughArgs holds the argv the user wrote after the `--`
-// separator, to be handed to the mission's Claude process verbatim. Resolved
-// once in runMissionNew, before the positional args are interpreted as a repo
-// reference, and read from there by every create path. Package-level because
+// separator, to be handed to the mission's Claude process verbatim. It is the
+// only way a mission gets Claude flags of its own, model and effort included.
+// Resolved once in runMissionNew, before the positional args are interpreted as
+// a repo reference, and read from there by every create path. Package-level because
 // the create paths are reached through the fzf picker and take no args, which
 // is how every other `mission new` flag is already carried.
 var missionClaudePassthroughArgs []string
@@ -68,9 +63,10 @@ Use --%s <mission-uuid> to create a new mission with a full copy of an
 existing mission's agent directory.
 
 Anything after a "--" separator is handed to the mission's Claude process
-verbatim, so any Claude Code flag is reachable per-mission even when AgenC
-has no flag of its own for it:
+verbatim. That is how a mission's model and effort are chosen, and how any
+other Claude Code flag is reached; AgenC has no flags of its own for them:
 
+  %s %s %s owner/repo -- --model opus --effort high
   %s %s %s owner/repo -- --append-system-prompt "Tonight is for reflection."
 
 The args are stored on the mission, so they survive reload, restart and the
@@ -80,10 +76,17 @@ that mission alone.
 
 Claude resolves a repeated scalar flag last-wins, and these are appended after
 the "claudeArgs" config chain, so a flag given here outranks the same flag from
-config. Two Claude flags will disable part of AgenC if passed this way, and
-creation warns when it sees them: "--settings" replaces AgenC's own operational
-overlay rather than adding to it, and "--bare" skips hooks altogether. Either
-one stops the mission reporting its state back to AgenC.
+config — which is how a mission overrides a default model set there.
+
+A clone inherits the source mission's Claude args when nothing follows "--".
+Anything after "--" replaces that list entirely rather than adding to it, so
+"--%s X -- --model sonnet" runs with only "--model sonnet". Creation says which
+of the two happened.
+
+Two Claude flags will disable part of AgenC if passed this way, and creation
+warns when it sees them: "--settings" replaces AgenC's own operational overlay
+rather than adding to it, and "--bare" skips hooks altogether. Either one stops
+the mission reporting its state back to AgenC.
 
 Use --%s to put an environment variable in the mission's Claude process,
 repeating the flag for each one:
@@ -105,6 +108,8 @@ values after the mission's at every spawn, so those names are AgenC's whatever
 reaches the mission record.`,
 		cloneFlagName,
 		agencCmdStr, missionCmdStr, newCmdStr,
+		agencCmdStr, missionCmdStr, newCmdStr,
+		cloneFlagName,
 		envFlagName,
 		agencCmdStr, missionCmdStr, newCmdStr, envFlagName,
 		envFlagName),
@@ -126,32 +131,10 @@ func init() {
 	missionNewCmd.Flags().StringVar(&sourceFlag, "source", "", "mission source type (internal use)")
 	missionNewCmd.Flags().StringVar(&sourceIDFlag, "source-id", "", "mission source identifier (internal use)")
 	missionNewCmd.Flags().StringVar(&sourceMetadataFlag, "source-metadata", "", "mission source metadata JSON (internal use)")
-	for _, forwardedFlag := range mission.ForwardedClaudeFlags {
-		missionClaudeArgFlagValues[forwardedFlag.Key] = missionNewCmd.Flags().String(forwardedFlag.Key, "", forwardedFlag.Usage)
-	}
 	missionNewCmd.Flags().MarkHidden("source")
 	missionNewCmd.Flags().MarkHidden("source-id")
 	missionNewCmd.Flags().MarkHidden("source-metadata")
 	missionCmd.AddCommand(missionNewCmd)
-}
-
-// collectMissionClaudeArgs returns the forwarded Claude flags the user actually
-// set on this command. Unset flags are omitted rather than sent as empty
-// strings, so the mission falls through to the defaultModel/claudeArgs config
-// chain for everything it did not explicitly override. Returns nil when the
-// user set none.
-func collectMissionClaudeArgs() map[string]string {
-	claudeArgs := map[string]string{}
-	for key, value := range missionClaudeArgFlagValues {
-		if value == nil || *value == "" {
-			continue
-		}
-		claudeArgs[key] = *value
-	}
-	if len(claudeArgs) == 0 {
-		return nil
-	}
-	return claudeArgs
 }
 
 // splitAtClaudePassthroughSeparator divides the positional args a caller gave
@@ -275,7 +258,6 @@ func runMissionNewWithClone() error {
 		TmuxSession: tmuxSession,
 		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
-		ClaudeArgs:  collectMissionClaudeArgs(),
 
 		ClaudePassthroughArgs: missionClaudePassthroughArgs,
 		ClaudeEnv:             missionEnv,
@@ -285,16 +267,7 @@ func runMissionNewWithClone() error {
 	}
 
 	fmt.Printf("Created mission: %s (cloned from %s)\n", missionRecord.ShortID, sourceMission.ShortID)
-	// Report Claude args only when they were inherited rather than typed —
-	// echoing back flags the user just passed is noise, but silently carrying
-	// a stronger (and more expensive) model over from the source mission is a
-	// surprise worth naming.
-	if collectMissionClaudeArgs() == nil && len(missionRecord.ClaudeArgs) > 0 {
-		fmt.Printf("Inherited Claude args: %s\n", mission.FormatMissionClaudeArgs(missionRecord.ClaudeArgs))
-	}
-	if len(missionClaudePassthroughArgs) == 0 && len(missionRecord.ClaudePassthroughArgs) > 0 {
-		fmt.Printf("Inherited Claude passthrough: %s\n", mission.FormatClaudePassthroughArgs(missionRecord.ClaudePassthroughArgs))
-	}
+	printClonedClaudeArgsOutcome(sourceMission.ClaudePassthroughArgs, missionRecord.ClaudePassthroughArgs)
 	if agencDirpath, err := config.GetAgencDirpath(); err == nil {
 		fmt.Printf("Mission directory: %s\n", config.GetMissionDirpath(agencDirpath, missionRecord.ID))
 	}
@@ -302,6 +275,24 @@ func runMissionNewWithClone() error {
 	printLaunchDestination(tmuxSession)
 
 	return nil
+}
+
+// printClonedClaudeArgsOutcome says what a clone did with the source mission's
+// Claude args. Echoing back flags the caller just typed would be noise, so the
+// two cases worth naming are the ones the caller did not type: the source's list
+// carried over (a stronger, more expensive model is a surprise to discover
+// later), or the caller's list replaced it (the source's system prompt, add-dirs
+// and the rest were dropped, by design, and must not be dropped silently).
+func printClonedClaudeArgsOutcome(sourceClaudeArgs []string, clonedClaudeArgs []string) {
+	if len(sourceClaudeArgs) == 0 {
+		return
+	}
+	if len(missionClaudePassthroughArgs) == 0 {
+		fmt.Printf("Inherited Claude args: %s\n", mission.FormatClaudePassthroughArgs(clonedClaudeArgs))
+		return
+	}
+	fmt.Printf("Replaced the source mission's Claude args: %s\n", mission.FormatClaudePassthroughArgs(sourceClaudeArgs))
+	fmt.Printf("Claude args: %s\n", mission.FormatClaudePassthroughArgs(clonedClaudeArgs))
 }
 
 // runMissionNewWithPicker shows an fzf picker over the repo library, or resolves
@@ -396,7 +387,6 @@ func createAndLaunchAdjutantMission(initialPrompt string) error {
 		TmuxSession: tmuxSession,
 		Headless:    headlessFlag,
 		NoFocus:     noFocusFlag,
-		ClaudeArgs:  collectMissionClaudeArgs(),
 
 		ClaudePassthroughArgs: missionClaudePassthroughArgs,
 		ClaudeEnv:             missionEnv,
@@ -537,7 +527,6 @@ func createAndLaunchMission(
 		SourceID:       sourceIDFlag,
 		SourceMetadata: sourceMetadataFlag,
 		NoFocus:        noFocusFlag,
-		ClaudeArgs:     collectMissionClaudeArgs(),
 
 		ClaudePassthroughArgs: missionClaudePassthroughArgs,
 		ClaudeEnv:             missionEnv,

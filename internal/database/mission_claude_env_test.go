@@ -89,11 +89,11 @@ func TestListMissionsCarriesClaudeEnv(t *testing.T) {
 	}
 }
 
-// The environment is a third independent channel: a mission may carry it, the
-// two arg channels, any combination, or none, and none may leak into another's
-// column. This is what would notice a column added to the INSERT in the wrong
-// position, which stores silently and reads back as the neighbour's value.
-func TestCreateMissionKeepsClaudeEnvIndependentOfTheArgChannels(t *testing.T) {
+// The environment is independent of the args: a mission may carry either, both,
+// or neither, and neither may leak into the other's column. This is what would
+// notice a column added to the INSERT in the wrong position, which stores
+// silently and reads back as the neighbour's value.
+func TestCreateMissionKeepsClaudeEnvIndependentOfTheArgs(t *testing.T) {
 	db := openTestDB(t)
 
 	envOnly, err := db.CreateMission("github.com/owner/repo", &CreateMissionParams{
@@ -103,8 +103,7 @@ func TestCreateMissionKeepsClaudeEnvIndependentOfTheArgChannels(t *testing.T) {
 		t.Fatalf("failed to create the env-only mission: %v", err)
 	}
 	argsOnly, err := db.CreateMission("github.com/owner/repo", &CreateMissionParams{
-		ClaudeArgs:            map[string]string{"model": "opus"},
-		ClaudePassthroughArgs: []string{"--add-dir", "/one"},
+		ClaudePassthroughArgs: []string{"--model", "opus", "--add-dir", "/one"},
 	})
 	if err != nil {
 		t.Fatalf("failed to create the args-only mission: %v", err)
@@ -113,9 +112,6 @@ func TestCreateMissionKeepsClaudeEnvIndependentOfTheArgChannels(t *testing.T) {
 	gotEnvOnly, err := db.GetMission(envOnly.ID)
 	if err != nil {
 		t.Fatalf("failed to get the env-only mission: %v", err)
-	}
-	if len(gotEnvOnly.ClaudeArgs) != 0 {
-		t.Fatalf("expected the env-only mission to carry no keyed args, got %v", gotEnvOnly.ClaudeArgs)
 	}
 	if len(gotEnvOnly.ClaudePassthroughArgs) != 0 {
 		t.Fatalf("expected the env-only mission to carry no passthrough args, got %q", gotEnvOnly.ClaudePassthroughArgs)
@@ -130,18 +126,16 @@ func TestCreateMissionKeepsClaudeEnvIndependentOfTheArgChannels(t *testing.T) {
 	}
 }
 
-// A mission that carries all three channels reads all three back, which is the
+// A mission that carries both channels reads both back, which is the
 // positional-column assertion the single-channel tests above cannot make: a
 // scanner reading the columns in the wrong order would still populate every
 // field, just with each other's values.
-func TestCreateMissionCarriesAllThreeChannelsTogether(t *testing.T) {
+func TestCreateMissionCarriesArgsAndEnvTogether(t *testing.T) {
 	db := openTestDB(t)
 
-	claudeArgs := map[string]string{"model": "opus"}
 	claudePassthroughArgs := []string{"--add-dir", "/one"}
 
 	created, err := db.CreateMission("github.com/owner/repo", &CreateMissionParams{
-		ClaudeArgs:            claudeArgs,
 		ClaudePassthroughArgs: claudePassthroughArgs,
 		ClaudeEnv:             hostileMissionEnv,
 	})
@@ -152,9 +146,6 @@ func TestCreateMissionCarriesAllThreeChannelsTogether(t *testing.T) {
 	got, err := db.GetMission(created.ID)
 	if err != nil {
 		t.Fatalf("failed to get mission: %v", err)
-	}
-	if !reflect.DeepEqual(got.ClaudeArgs, claudeArgs) {
-		t.Errorf("expected keyed args %v, got %v", claudeArgs, got.ClaudeArgs)
 	}
 	if !reflect.DeepEqual(got.ClaudePassthroughArgs, claudePassthroughArgs) {
 		t.Errorf("expected passthrough args %q, got %q", claudePassthroughArgs, got.ClaudePassthroughArgs)

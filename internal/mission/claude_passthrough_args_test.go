@@ -14,14 +14,12 @@ const hostileClaudeArgValue = "Tonight is for reflection.\nDon't open \"work\" t
 
 func TestMergeClaudeArgsAppendsPassthroughLast(t *testing.T) {
 	merged := MergeClaudeArgs(ClaudeArgSources{
-		ResolvedModel:         "sonnet",
-		ConfigClaudeArgs:      []string{"--chrome"},
-		MissionClaudeArgs:     map[string]string{"effort": "high"},
-		ClaudePassthroughArgs: []string{"--append-system-prompt", "be brief"},
+		ConfigClaudeArgs:      []string{"--model", "sonnet", "--chrome"},
+		ClaudePassthroughArgs: []string{"--effort", "high", "--append-system-prompt", "be brief"},
 	})
 	expected := []string{"--model", "sonnet", "--chrome", "--effort", "high", "--append-system-prompt", "be brief"}
 	if !reflect.DeepEqual(merged, expected) {
-		t.Fatalf("expected passthrough args appended after every other source; expected %v, got %v", expected, merged)
+		t.Fatalf("expected passthrough args appended after the config chain; expected %v, got %v", expected, merged)
 	}
 }
 

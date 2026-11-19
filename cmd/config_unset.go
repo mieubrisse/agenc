@@ -17,7 +17,6 @@ var configUnsetCmd = &cobra.Command{
 
 Supported keys:
   attachedMissionLimit                       Max missions attachable to non-pool tmux sessions concurrently (unset removes the cap)
-  defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
   tmuxWindowTitle.busyForegroundColor        Foreground color for window tab when Claude is working (default: "", empty = disable)
@@ -74,9 +73,6 @@ func unsetConfigValue(cfg *config.AgencConfig, key string) error {
 	switch key {
 	case "attachedMissionLimit":
 		cfg.AttachedMissionLimit = nil
-		return nil
-	case "defaultModel":
-		cfg.DefaultModel = ""
 		return nil
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = ""
