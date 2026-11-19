@@ -117,7 +117,7 @@ func doRunWrapperDirect(missionID string, initialPrompt string) error {
 	// Determine if this is a resume (existing conversation) or a fresh start
 	hasConversation := claudeconfig.GetLastSessionID(agencDirpath, missionID) != ""
 
-	w := wrapper.NewWrapper(
+	w, err := wrapper.NewWrapper(
 		agencDirpath,
 		missionID,
 		missionRecord.GitRepo,
@@ -125,5 +125,8 @@ func doRunWrapperDirect(missionID string, initialPrompt string) error {
 		missionRecord.ClaudePassthroughArgs,
 		missionRecord.ClaudeEnv,
 	)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to set up the wrapper for mission '%v'", missionID)
+	}
 	return w.Run(hasConversation)
 }

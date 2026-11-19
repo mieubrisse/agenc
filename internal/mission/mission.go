@@ -64,7 +64,7 @@ func CreateMissionDir(logger *log.Logger, agencDirpath string, missionID string,
 // headless mode uses pipes).
 //
 // Args reach Claude in three groups, in this order: AgenC's --settings overlay,
-// then extraClaudeArgs (the model/config/per-mission args already merged by
+// then extraClaudeArgs (the config/per-mission args already merged by
 // MergeClaudeArgs), then claudeArgs (the call-site args that choose the
 // conversation shape — -c, -r <session>, --print, the initial prompt).
 //

@@ -125,17 +125,17 @@ func NewWrapper(
 	initialPrompt string,
 	missionClaudePassthroughArgs []string,
 	missionEnv map[string]string,
-) *Wrapper {
-	// Load window coloring config from config.yml
+) (*Wrapper, error) {
+	// A config that fails to load stops the wrapper rather than spawning Claude
+	// without the claudeArgs chain. That chain carries the default model, so
+	// spawning without it would quietly run the mission on Claude's own default
+	// — the silent fallback the retired-defaultModel refusal exists to prevent.
 	cfg, _, err := config.ReadAgencConfig(agencDirpath)
-	var titleCfg *config.TmuxWindowTitleConfig
-	var configClaudeArgs []string
-	if err == nil {
-		titleCfg = cfg.GetTmuxWindowTitleConfig()
-		configClaudeArgs = cfg.GetClaudeArgs(gitRepoName)
-	} else {
-		titleCfg = &config.TmuxWindowTitleConfig{}
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read config for mission '%v'; fix config.yml, then reload the mission", missionID)
 	}
+	titleCfg := cfg.GetTmuxWindowTitleConfig()
+	configClaudeArgs := cfg.GetClaudeArgs(gitRepoName)
 
 	return &Wrapper{
 		agencDirpath:  agencDirpath,
@@ -157,7 +157,7 @@ func NewWrapper(
 		windowBusyForegroundColor:      titleCfg.GetBusyForegroundColor(),
 		windowAttentionBackgroundColor: titleCfg.GetAttentionBackgroundColor(),
 		windowAttentionForegroundColor: titleCfg.GetAttentionForegroundColor(),
-	}
+	}, nil
 }
 
 // runResources bundles resources created during setup that the caller must

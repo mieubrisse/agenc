@@ -30,9 +30,8 @@ var sourceMetadataFlag string
 // missionClaudePassthroughArgs holds the argv the user wrote after the `--`
 // separator, to be handed to the mission's Claude process verbatim. It is the
 // only way a mission gets Claude flags of its own, model and effort included.
-// Resolved
-// once in runMissionNew, before the positional args are interpreted as a repo
-// reference, and read from there by every create path. Package-level because
+// Resolved once in runMissionNew, before the positional args are interpreted as
+// a repo reference, and read from there by every create path. Package-level because
 // the create paths are reached through the fzf picker and take no args, which
 // is how every other `mission new` flag is already carried.
 var missionClaudePassthroughArgs []string
