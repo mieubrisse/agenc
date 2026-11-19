@@ -18,10 +18,10 @@ supports these optional settings:
   emoji              - emoji to display for missions using this repo
   title              - friendly title for the repo (e.g., "Dotfiles")
   description        - human/agent-readable description of what the repo is for
-  defaultModel       - default Claude model for missions using this repo
   trustedMcpServers  - pre-approve MCP servers to skip the consent prompt
   postUpdateHook     - shell command to run after the repo updates (e.g., "make setup")
-  claudeArgs         - extra Claude CLI flags for missions using this repo
+  claudeArgs         - Claude CLI flags for missions using this repo, after the
+                       global claudeArgs; a default model goes here
   writeableCopy      - absolute path to a writeable working copy the server syncs
 
 %v
@@ -32,10 +32,11 @@ supports these optional settings:
       emoji: "🔥"
       title: "AgenC"
       description: "The AgenC orchestration system"
-      defaultModel: opus
       trustedMcpServers: all
       postUpdateHook: "make setup"
       claudeArgs:
+        - "--model"
+        - "opus"
         - "--chrome"
     github.com/owner/other:
       alwaysSynced: true

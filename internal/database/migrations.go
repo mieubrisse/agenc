@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 
 	"github.com/mieubrisse/stacktrace"
 )
@@ -30,7 +31,6 @@ const (
 	addSourceColumnSQL                 = `ALTER TABLE missions ADD COLUMN source TEXT;`
 	addSourceIDColumnSQL               = `ALTER TABLE missions ADD COLUMN source_id TEXT;`
 	addSourceMetadataColumnSQL         = `ALTER TABLE missions ADD COLUMN source_metadata TEXT;`
-	addClaudeArgsColumnSQL             = `ALTER TABLE missions ADD COLUMN claude_args TEXT;`
 	addClaudePassthroughArgsColumnSQL  = `ALTER TABLE missions ADD COLUMN claude_passthrough_args TEXT;`
 	addClaudeEnvColumnSQL              = `ALTER TABLE missions ADD COLUMN claude_env TEXT;`
 
@@ -699,24 +699,6 @@ func migrateCreateCronMonitorStateTable(conn *sql.DB) error {
 	return nil
 }
 
-// migrateAddClaudeArgs idempotently adds the claude_args column, which holds a
-// JSON object of per-mission Claude CLI overrides (e.g. {"model":"opus"}) set
-// at `agenc mission new` time. A JSON object rather than a column per flag so
-// that supporting a new Claude flag stays a code-only change.
-func migrateAddClaudeArgs(conn *sql.DB) error {
-	columns, err := getColumnNames(conn)
-	if err != nil {
-		return err
-	}
-
-	if columns["claude_args"] {
-		return nil
-	}
-
-	_, err = conn.Exec(addClaudeArgsColumnSQL)
-	return err
-}
-
 // migrateAddClaudePassthroughArgs idempotently adds the
 // claude_passthrough_args column, which holds a JSON array of the verbatim
 // Claude CLI argv a caller passed to `agenc mission new` after the `--`
@@ -735,6 +717,140 @@ func migrateAddClaudePassthroughArgs(conn *sql.DB) error {
 
 	_, err = conn.Exec(addClaudePassthroughArgsColumnSQL)
 	return err
+}
+
+// legacyKeyedClaudeArgFlag maps one key of the retired claude_args JSON object
+// to the Claude CLI flag it stood for.
+type legacyKeyedClaudeArgFlag struct {
+	key  string
+	flag string
+}
+
+// legacyKeyedClaudeArgFlags is the retired claude_args allowlist, frozen here
+// because the fold migration must reproduce exactly what the old spawn path
+// emitted. Order is load-bearing: it is the order the old code put the flags
+// on Claude's command line (model, then effort), ahead of the passthrough
+// args. Nothing outside this migration may use it — AgenC no longer knows what
+// a model or an effort is.
+var legacyKeyedClaudeArgFlags = []legacyKeyedClaudeArgFlag{
+	{key: "model", flag: "--model"},
+	{key: "effort", flag: "--effort"},
+}
+
+// migrateFoldClaudeArgsIntoPassthroughArgs retires the claude_args column. A
+// mission used to carry its Claude flags in two places: claude_args, a JSON
+// object allowing only {"model", "effort"}, and claude_passthrough_args, an
+// ordered argv array. Each row's claude_args object is rendered as argv and
+// prepended to its claude_passthrough_args array, which reproduces the order
+// the old spawn path emitted them in, and then the column is dropped.
+//
+// Idempotent: it does nothing once claude_args is gone. It runs in one
+// transaction, so a failure part-way leaves both columns as they were.
+//
+// Keys outside the allowlist, and empty values, are dropped: the old spawn path
+// dropped them too, so dropping them here keeps every mission's flags the same.
+func migrateFoldClaudeArgsIntoPassthroughArgs(conn *sql.DB) error {
+	columns, err := getColumnNames(conn)
+	if err != nil {
+		return err
+	}
+	if !columns["claude_args"] {
+		return nil
+	}
+
+	tx, err := conn.Begin()
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to begin the claude_args fold transaction")
+	}
+	shouldRollback := true
+	defer func() {
+		if shouldRollback {
+			_ = tx.Rollback()
+		}
+	}()
+
+	foldedArgsByMissionID, err := computeFoldedClaudeArgs(tx)
+	if err != nil {
+		return err
+	}
+	for missionID, foldedArgs := range foldedArgsByMissionID {
+		if err := storeFoldedClaudeArgs(tx, missionID, foldedArgs); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec("ALTER TABLE missions DROP COLUMN claude_args"); err != nil {
+		return stacktrace.Propagate(err, "failed to drop the claude_args column")
+	}
+	if err := tx.Commit(); err != nil {
+		return stacktrace.Propagate(err, "failed to commit the claude_args fold")
+	}
+	shouldRollback = false
+	return nil
+}
+
+// computeFoldedClaudeArgs reads every mission that still has claude_args and
+// returns, by mission ID, the single ordered argv it should carry from now on.
+// Rows are fully read before any is written, so no update runs under an open
+// cursor.
+func computeFoldedClaudeArgs(tx *sql.Tx) (map[string][]string, error) {
+	rows, err := tx.Query("SELECT id, claude_args, claude_passthrough_args FROM missions WHERE claude_args IS NOT NULL AND claude_args != ''")
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed to read missions with claude_args")
+	}
+	defer rows.Close()
+
+	foldedArgsByMissionID := map[string][]string{}
+	for rows.Next() {
+		var missionID, storedKeyedArgs string
+		var storedPassthroughArgs sql.NullString
+		if err := rows.Scan(&missionID, &storedKeyedArgs, &storedPassthroughArgs); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to scan a mission with claude_args")
+		}
+
+		var keyedArgs map[string]string
+		if err := json.Unmarshal([]byte(storedKeyedArgs), &keyedArgs); err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse claude_args '%v' of mission '%v'", storedKeyedArgs, missionID)
+		}
+		passthroughArgs, err := unmarshalClaudePassthroughArgs(storedPassthroughArgs)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to parse claude_passthrough_args of mission '%v'", missionID)
+		}
+
+		foldedArgsByMissionID[missionID] = append(renderLegacyKeyedClaudeArgs(keyedArgs), passthroughArgs...)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, stacktrace.Propagate(err, "failed iterating missions with claude_args")
+	}
+	return foldedArgsByMissionID, nil
+}
+
+// renderLegacyKeyedClaudeArgs renders a claude_args object as argv in
+// legacyKeyedClaudeArgFlags order.
+func renderLegacyKeyedClaudeArgs(keyedArgs map[string]string) []string {
+	var argv []string
+	for _, legacyFlag := range legacyKeyedClaudeArgFlags {
+		value, found := keyedArgs[legacyFlag.key]
+		if !found || value == "" {
+			continue
+		}
+		argv = append(argv, legacyFlag.flag, value)
+	}
+	return argv
+}
+
+// storeFoldedClaudeArgs writes one mission's folded argv. An empty result (a
+// claude_args object holding nothing the old spawn path would emit) stores
+// NULL, the same "no args" representation CreateMission uses.
+func storeFoldedClaudeArgs(tx *sql.Tx, missionID string, foldedArgs []string) error {
+	foldedArgsJSON, err := marshalClaudePassthroughArgs(foldedArgs)
+	if err != nil {
+		return stacktrace.Propagate(err, "failed to serialize folded Claude args '%v' of mission '%v'", foldedArgs, missionID)
+	}
+	if _, err := tx.Exec("UPDATE missions SET claude_passthrough_args = ? WHERE id = ?", foldedArgsJSON, missionID); err != nil {
+		return stacktrace.Propagate(err, "failed to store folded Claude args of mission '%v'", missionID)
+	}
+	return nil
 }
 
 // migrateAddClaudeEnv idempotently adds the claude_env column, which holds a

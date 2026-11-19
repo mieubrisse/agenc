@@ -122,7 +122,6 @@ func doRunWrapperDirect(missionID string, initialPrompt string) error {
 		missionID,
 		missionRecord.GitRepo,
 		initialPrompt,
-		missionRecord.ClaudeArgs,
 		missionRecord.ClaudePassthroughArgs,
 		missionRecord.ClaudeEnv,
 	)

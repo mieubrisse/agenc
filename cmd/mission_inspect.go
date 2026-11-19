@@ -148,11 +148,8 @@ func inspectMission(agencDirpath string, missionID string) error {
 	if prompt == "" {
 		prompt = "--"
 	}
-	if formattedClaudeArgs := mission.FormatMissionClaudeArgs(missionRecord.ClaudeArgs); formattedClaudeArgs != "" {
+	if formattedClaudeArgs := mission.FormatClaudePassthroughArgs(missionRecord.ClaudePassthroughArgs); formattedClaudeArgs != "" {
 		fmt.Printf("Claude args: %s\n", formattedClaudeArgs)
-	}
-	if formattedPassthrough := mission.FormatClaudePassthroughArgs(missionRecord.ClaudePassthroughArgs); formattedPassthrough != "" {
-		fmt.Printf("Passthrough: %s\n", formattedPassthrough)
 	}
 	if formattedEnv := mission.FormatMissionEnv(missionRecord.ClaudeEnv); formattedEnv != "" {
 		fmt.Printf("Environment: %s\n", formattedEnv)

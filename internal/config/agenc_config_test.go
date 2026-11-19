@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1446,81 +1447,6 @@ func TestTrustedMcpServers_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestGetDefaultModel(t *testing.T) {
-	cfg := &AgencConfig{
-		DefaultModel: "sonnet",
-		RepoConfigs: map[string]RepoConfig{
-			"github.com/owner/repo1": {DefaultModel: "opus"},
-			"github.com/owner/repo2": {},
-		},
-	}
-
-	// Repo with override returns repo model
-	if got := cfg.GetDefaultModel("github.com/owner/repo1"); got != "opus" {
-		t.Errorf("expected 'opus' for repo1, got '%s'", got)
-	}
-
-	// Repo without override falls back to global
-	if got := cfg.GetDefaultModel("github.com/owner/repo2"); got != "sonnet" {
-		t.Errorf("expected 'sonnet' for repo2, got '%s'", got)
-	}
-
-	// Unknown repo falls back to global
-	if got := cfg.GetDefaultModel("github.com/owner/unknown"); got != "sonnet" {
-		t.Errorf("expected 'sonnet' for unknown repo, got '%s'", got)
-	}
-
-	// Empty repo name falls back to global
-	if got := cfg.GetDefaultModel(""); got != "sonnet" {
-		t.Errorf("expected 'sonnet' for empty repo, got '%s'", got)
-	}
-
-	// No global, no repo override returns empty
-	cfgEmpty := &AgencConfig{}
-	if got := cfgEmpty.GetDefaultModel("github.com/owner/repo1"); got != "" {
-		t.Errorf("expected '' for unset config, got '%s'", got)
-	}
-}
-
-func TestDefaultModel_RoundTrip(t *testing.T) {
-	tmpDir := t.TempDir()
-	configDirpath := filepath.Join(tmpDir, ConfigDirname)
-	if err := os.MkdirAll(configDirpath, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := &AgencConfig{
-		DefaultModel: "sonnet",
-		RepoConfigs: map[string]RepoConfig{
-			"github.com/owner/repo1": {DefaultModel: "opus"},
-			"github.com/owner/repo2": {},
-		},
-	}
-
-	if err := WriteAgencConfig(tmpDir, cfg, nil); err != nil {
-		t.Fatalf("WriteAgencConfig failed: %v", err)
-	}
-
-	got, _, err := ReadAgencConfig(tmpDir)
-	if err != nil {
-		t.Fatalf("ReadAgencConfig failed: %v", err)
-	}
-
-	if got.DefaultModel != "sonnet" {
-		t.Errorf("expected global defaultModel 'sonnet', got '%s'", got.DefaultModel)
-	}
-
-	rc1 := got.RepoConfigs["github.com/owner/repo1"]
-	if rc1.DefaultModel != "opus" {
-		t.Errorf("expected repo1 defaultModel 'opus', got '%s'", rc1.DefaultModel)
-	}
-
-	rc2 := got.RepoConfigs["github.com/owner/repo2"]
-	if rc2.DefaultModel != "" {
-		t.Errorf("expected empty defaultModel for repo2, got '%s'", rc2.DefaultModel)
-	}
-}
-
 func TestGetClaudeArgs(t *testing.T) {
 	cfg := &AgencConfig{
 		ClaudeArgs: []string{"--verbose", "--no-color"},
@@ -1684,7 +1610,10 @@ repoConfig:
 	}
 }
 
-func TestDefaultModel_FromYAML(t *testing.T) {
+// A leftover defaultModel must fail loading loudly, naming the replacement,
+// rather than being dropped by the decoder: dropped, every mission that names no
+// model would quietly fall back to Claude's own default.
+func TestRetiredDefaultModelKeysAreRejectedWithTheReplacement(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeConfigYAML(t, tmpDir, `
 defaultModel: haiku
@@ -1695,19 +1624,47 @@ repoConfig:
     alwaysSynced: true
 `)
 
+	_, _, err := ReadAgencConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected a config that still sets defaultModel to fail loading")
+	}
+	for _, expected := range []string{
+		"top-level 'defaultModel: haiku'",
+		"repoConfig 'github.com/owner/repo1' 'defaultModel: opus'",
+		"claudeArgs",
+		"--model",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("expected the error to mention %q, got: %v", expected, err)
+		}
+	}
+	if strings.Contains(err.Error(), "repo2") {
+		t.Errorf("expected repo2, which sets no defaultModel, to go unmentioned, got: %v", err)
+	}
+}
+
+// The replacement the error asks for must itself load, and carry the model to
+// a mission through the claudeArgs chain.
+func TestDefaultModelAsClaudeArgsLoads(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeConfigYAML(t, tmpDir, `
+claudeArgs:
+  - --model
+  - haiku
+repoConfig:
+  github.com/owner/repo1:
+    claudeArgs:
+      - --model
+      - opus
+`)
+
 	cfg, _, err := ReadAgencConfig(tmpDir)
 	if err != nil {
 		t.Fatalf("ReadAgencConfig failed: %v", err)
 	}
-
-	if cfg.DefaultModel != "haiku" {
-		t.Errorf("expected global defaultModel 'haiku', got '%s'", cfg.DefaultModel)
-	}
-	if cfg.GetDefaultModel("github.com/owner/repo1") != "opus" {
-		t.Errorf("expected repo1 resolved model 'opus', got '%s'", cfg.GetDefaultModel("github.com/owner/repo1"))
-	}
-	if cfg.GetDefaultModel("github.com/owner/repo2") != "haiku" {
-		t.Errorf("expected repo2 to fall back to 'haiku', got '%s'", cfg.GetDefaultModel("github.com/owner/repo2"))
+	expected := []string{"--model", "haiku", "--model", "opus"}
+	if got := cfg.GetClaudeArgs("github.com/owner/repo1"); !reflect.DeepEqual(got, expected) {
+		t.Errorf("expected %v, got %v", expected, got)
 	}
 }
 

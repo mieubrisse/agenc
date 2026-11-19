@@ -231,7 +231,7 @@ run_test "config --help succeeds" \
 
 run_test_output_contains "config get returns a value or unset" \
     "(unset|.+)" \
-    "${agenc_test}" config get defaultModel
+    "${agenc_test}" config get claudeArgs
 
 run_test "config sleep --help succeeds" \
     0 \
@@ -1755,12 +1755,12 @@ else
 fi
 
 echo ""
-echo "--- Per-mission Claude args (--model / --effort) ---"
+echo "--- Per-mission Claude args (one ordered list, KEV-97) ---"
 
-# `agenc mission new` forwards an allowlisted set of Claude CLI flags to the
-# Claude process a mission spawns, stored per-mission as a JSON object in the
-# missions.claude_args column so they survive wrapper restarts, stash-restore
-# and reload without travelling through the tmux resume command string.
+# A mission's Claude flags -- model and effort included -- are whatever follows
+# a "--" separator on `mission new`, stored in order in
+# missions.claude_passthrough_args so they survive wrapper restarts,
+# stash-restore and reload. AgenC has no --model or --effort flag of its own.
 #
 # Every mission below is identified by the short ID its own create output
 # printed. Selecting "the newest row" instead would be unreliable: created_at
@@ -1773,10 +1773,10 @@ create_mission_and_echo_short_id() {
     "${agenc_test}" mission new "$@" 2>&1 | awk '/^Created mission:/{print $3; exit}'
 }
 
-model_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus --model=haiku)
+model_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus -- --model haiku)
 
 total=$((total + 1))
-printf "  %-50s " "mission new --model created a mission..."
+printf "  %-50s " "mission new -- --model created a mission..."
 if [ -n "${model_short_id}" ]; then
     echo "PASS"
     passed=$((passed + 1))
@@ -1785,39 +1785,46 @@ else
     failed=$((failed + 1))
 fi
 
-# The stored shape is a JSON object keyed by flag name, not a positional argv
-# array — that is what keeps adding a new forwarded flag migration-free.
 run_test_output_contains \
-    "mission new --model persists claude_args as keyed JSON" \
-    '"model":"haiku"' \
-    sqlite3 "${claude_args_db_filepath}" "SELECT claude_args FROM missions WHERE short_id='${model_short_id}';"
+    "the model persists in the single ordered list" \
+    '^\["--model","haiku"\]$' \
+    sqlite3 "${claude_args_db_filepath}" "SELECT claude_passthrough_args FROM missions WHERE short_id='${model_short_id}';"
+
+# The second channel is gone from the schema, not merely unused.
+run_test_output_contains \
+    "the missions table has no claude_args column" \
+    "^0$" \
+    sqlite3 "${claude_args_db_filepath}" "SELECT COUNT(*) FROM pragma_table_info('missions') WHERE name='claude_args';"
 
 run_test_output_contains \
     "mission inspect surfaces the per-mission Claude args" \
     "Claude args: --model haiku" \
     "${agenc_test}" mission inspect "${model_short_id}"
 
-# Multiple forwarded flags are emitted in the order ForwardedClaudeFlags
-# declares them, so spawn commands stay stable across runs.
-multi_flag_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus --model=haiku --effort=low)
+multi_flag_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus -- --model haiku --effort low)
 run_test_output_contains \
-    "multiple forwarded flags render in table order" \
+    "multiple Claude flags render in the order given" \
     "Claude args: --model haiku --effort low" \
     "${agenc_test}" mission inspect "${multi_flag_short_id}"
 
-# A mission with no overrides stores NULL and falls through to the
-# defaultModel / claudeArgs config chain.
+# A mission with no args stores NULL and runs on the claudeArgs config chain.
 no_args_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
 run_test_output_contains \
-    "mission without Claude args stores no claude_args" \
+    "mission without Claude args stores none" \
     "^$" \
-    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_args, '') FROM missions WHERE short_id='${no_args_short_id}';"
+    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_passthrough_args, '') FROM missions WHERE short_id='${no_args_short_id}';"
 
-# A Claude flag is not an AgenC flag: only the promoted ones (--model,
-# --effort) are, so anything else written where an AgenC flag goes is a parse
-# error. That is a usage guardrail, not a restriction -- the same flag reaches
-# the mission fine after a "--" separator, which the passthrough section below
-# exercises.
+# --model and --effort are Claude flags now, so writing them where an AgenC flag
+# goes is a parse error like any other Claude flag. The same flags reach the
+# mission fine after "--", which the tests above exercise.
+run_test "mission new rejects --model written as an AgenC flag" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --model=haiku
+
+run_test "mission new rejects --effort written as an AgenC flag" \
+    1 \
+    "${agenc_test}" mission new --blank --headless --no-focus --effort=low
+
 run_test "mission new rejects a Claude flag written as an AgenC flag" \
     1 \
     "${agenc_test}" mission new --blank --headless --no-focus --bare
@@ -1827,8 +1834,8 @@ run_test "mission new rejects an unknown flag" \
     "${agenc_test}" mission new --blank --headless --no-focus --bogus=value
 
 # A clone means "another one of these", so the source mission's Claude args
-# carry over — and the CLI says so, since silently inheriting a more expensive
-# model would be a surprise.
+# carry over when nothing follows "--" -- and the CLI says so, since silently
+# inheriting a more expensive model would be a surprise.
 run_test_output_contains \
     "mission new --clone reports inherited Claude args" \
     "Inherited Claude args: --model haiku" \
@@ -1840,39 +1847,88 @@ run_test_output_contains \
     "Claude args: --model haiku" \
     "${agenc_test}" mission inspect "${cloned_short_id}"
 
-# An explicit flag on the clone command outranks what the source carried.
-clone_override_short_id=$(create_mission_and_echo_short_id --clone "${model_short_id}" --headless --no-focus --effort=high)
-run_test_output_contains \
-    "explicit Claude args on a clone replace the source's" \
-    "Claude args: --effort high" \
-    "${agenc_test}" mission inspect "${clone_override_short_id}"
-
-# The assertion the rest of this section cannot make: that the flag reaches the
-# real Claude command line. Poll for the mission's own Claude child, matched on
-# its --settings path, which embeds the mission UUID.
-model_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${model_short_id}';")
+# Args after "--" on a clone replace the source's list wholesale -- no merge --
+# and the CLI names what was dropped, so the loss is visible when it happens.
+clone_replace_output=$("${agenc_test}" mission new --clone "${multi_flag_short_id}" --headless --no-focus -- --effort high 2>&1)
 total=$((total + 1))
-printf "  %-50s " "spawned Claude process carries --model..."
-claude_argv=""
-for _ in $(seq 1 20); do
-    claude_argv=$(ps -eo args 2>/dev/null | grep -- "${model_mission_uuid}" | grep "bin/claude" | grep -v grep || true)
-    if [ -n "${claude_argv}" ]; then
-        break
-    fi
-    sleep 1
-done
-if [ -z "${claude_argv}" ]; then
-    # Not a pass and not a failure: this environment never brought a Claude
-    # process up (no credentials, no binary). Say so rather than counting it.
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
-elif echo "${claude_argv}" | grep -q -- "--model haiku"; then
+printf "  %-50s " "mission new --clone reports replaced Claude args..."
+if echo "${clone_replace_output}" | grep -q -- "Replaced the source mission's Claude args: --model haiku --effort low"; then
     echo "PASS"
     passed=$((passed + 1))
 else
-    echo "FAIL (Claude argv lacked '--model haiku': ${claude_argv})"
+    echo "FAIL (output: ${clone_replace_output})"
     failed=$((failed + 1))
 fi
+
+clone_override_short_id=$(echo "${clone_replace_output}" | awk '/^Created mission:/{print $3; exit}')
+run_test_output_contains \
+    "Claude args on a clone replace the source's, not merge" \
+    '^\["--effort","high"\]$' \
+    sqlite3 "${claude_args_db_filepath}" "SELECT claude_passthrough_args FROM missions WHERE short_id='${clone_override_short_id}';"
+
+# The retired defaultModel key is no longer settable; a default model is an
+# ordinary claudeArgs entry.
+run_test "config set defaultModel is refused" \
+    1 \
+    "${agenc_test}" config set defaultModel opus
+
+# Polls for a mission's own Claude child, matched on its --settings path, which
+# embeds the mission UUID, and echoes its argv (empty if none appeared).
+find_mission_claude_argv() {
+    local mission_uuid="${1}"
+    local argv=""
+    for _ in $(seq 1 20); do
+        argv=$(ps -eo args 2>/dev/null | grep -- "${mission_uuid}" | grep "bin/claude" | grep -v grep || true)
+        if [ -n "${argv}" ]; then
+            break
+        fi
+        sleep 1
+    done
+    echo "${argv}"
+}
+
+# Asserts that a mission's spawned Claude argv contains an expected fragment.
+assert_mission_claude_argv_contains() {
+    local test_name="${1}"
+    local mission_uuid="${2}"
+    local expected_fragment="${3}"
+    total=$((total + 1))
+    printf "  %-50s " "${test_name}..."
+    local argv
+    argv=$(find_mission_claude_argv "${mission_uuid}")
+    if [ -z "${argv}" ]; then
+        # Not a pass and not a failure: this environment never brought a Claude
+        # process up (no credentials, no binary). Say so rather than counting it.
+        echo "SKIP (no Claude process observed for the mission)"
+        skipped=$((skipped + 1))
+    elif echo "${argv}" | grep -q -- "${expected_fragment}"; then
+        echo "PASS"
+        passed=$((passed + 1))
+    else
+        echo "FAIL (Claude argv lacked '${expected_fragment}': ${argv})"
+        failed=$((failed + 1))
+    fi
+}
+
+# The assertion the rest of this section cannot make: that the flag reaches the
+# real Claude command line.
+model_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${model_short_id}';")
+assert_mission_claude_argv_contains \
+    "spawned Claude process carries --model" \
+    "${model_mission_uuid}" \
+    "--model haiku"
+
+# A default model is set as config claudeArgs and reaches a mission that names
+# none. Config is read at wrapper start, so the mission is created after the
+# config change; the config is cleared again so later sections see none.
+"${agenc_test}" config set claudeArgs "--model,sonnet" >/dev/null 2>&1
+default_model_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
+default_model_mission_uuid=$(sqlite3 "${claude_args_db_filepath}" "SELECT id FROM missions WHERE short_id='${default_model_short_id}';")
+assert_mission_claude_argv_contains \
+    "config claudeArgs default model reaches the mission" \
+    "${default_model_mission_uuid}" \
+    "--model sonnet"
+"${agenc_test}" config set claudeArgs "" >/dev/null 2>&1
 
 echo ""
 echo "--- Per-mission Claude passthrough args (KEV-88) ---"
@@ -1886,8 +1942,7 @@ echo "--- Per-mission Claude passthrough args (KEV-88) ---"
 # --append-system-prompt value actually looks like, and it is what would break
 # if these args ever travelled through a shell instead of through the mission
 # record. "--add-dir" is passed alongside it as a flag AgenC knows nothing
-# about at all, and twice over, since a repeated flag is something the keyed
-# claude_args channel cannot express.
+# about at all, and twice over, since a repeated flag must survive verbatim.
 passthrough_marker="KEV88MARKER"
 passthrough_tail="TAILAFTERNEWLINE"
 passthrough_prompt="${passthrough_marker} don't open \"work\" topics."$'\n'"${passthrough_tail}"
@@ -1907,7 +1962,7 @@ else
 fi
 
 # Stored as a JSON array, not an object: order is meaningful and --add-dir
-# repeats, neither of which the keyed claude_args column can represent.
+# repeats.
 run_test_output_contains \
     "passthrough args persist as a JSON array" \
     '\["--append-system-prompt"' \
@@ -1920,7 +1975,7 @@ run_test_output_contains \
 
 run_test_output_contains \
     "mission inspect surfaces the passthrough args" \
-    "Passthrough: --append-system-prompt" \
+    "Claude args: --append-system-prompt" \
     "${agenc_test}" mission inspect "${passthrough_short_id}"
 
 # The inspect rendering has to stay on one line whatever the value contains:
@@ -1928,32 +1983,26 @@ run_test_output_contains \
 total=$((total + 1))
 printf "  %-50s " "inspect renders a multi-line value on one line..."
 passthrough_inspect_line_count=$("${agenc_test}" mission inspect "${passthrough_short_id}" 2>&1 \
-    | grep -c "^Passthrough: " || true)
+    | grep -c "^Claude args: " || true)
 if [[ "${passthrough_inspect_line_count}" -eq 1 ]]; then
     echo "PASS"
     passed=$((passed + 1))
 else
-    echo "FAIL (expected exactly 1 'Passthrough:' line, got ${passthrough_inspect_line_count})"
+    echo "FAIL (expected exactly 1 'Claude args:' line, got ${passthrough_inspect_line_count})"
     failed=$((failed + 1))
 fi
 
-# A flag set on one mission must not appear on another. The keyed channel and
-# the passthrough channel are also independent of each other.
-no_passthrough_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus --model=haiku)
+# A flag set on one mission must not appear on another.
+no_passthrough_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
 run_test_output_contains \
     "a mission created without passthrough args has none" \
     "^$" \
     sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_passthrough_args, '') FROM missions WHERE short_id='${no_passthrough_short_id}';"
 
-run_test_output_contains \
-    "a passthrough mission carries no keyed Claude args" \
-    "^$" \
-    sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_args, '') FROM missions WHERE short_id='${passthrough_short_id}';"
-
 # Cloning carries the passthrough list over, and says so.
 run_test_output_contains \
     "mission new --clone reports inherited passthrough args" \
-    "Inherited Claude passthrough: --append-system-prompt" \
+    "Inherited Claude args: --append-system-prompt" \
     "${agenc_test}" mission new --clone "${passthrough_short_id}" --headless --no-focus
 
 # A flag that switches off part of AgenC is passed through anyway -- the caller
@@ -2640,12 +2689,12 @@ else
 fi
 
 # Inspecting a mission that has no passthrough args never renders the
-# Passthrough line, so the check above proves nothing about it. Pin it against
+# Claude args line, so the check above proves nothing about it. Pin it against
 # a mission that does, and require the line in the output so the assertion
 # cannot pass by inspecting an empty state.
 if [ -n "${passthrough_short_id}" ]; then
     run_test_output_has_no_ansi "mission inspect with passthrough args emits no ANSI" \
-        "Passthrough: " \
+        "Claude args: " \
         "${agenc_test}" mission inspect "${passthrough_short_id}"
 else
     total=$((total + 1))

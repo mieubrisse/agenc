@@ -139,7 +139,6 @@ const (
 	repoConfigTitleFlagName             = "title"
 	repoConfigDescriptionFlagName       = "description"
 	repoConfigTrustedMcpServersFlagName = "trusted-mcp-servers"
-	repoConfigDefaultModelFlagName      = "default-model"
 	repoConfigPostUpdateHookFlagName    = "post-update-hook"
 	repoConfigClaudeArgsFlagName        = "claude-args"
 

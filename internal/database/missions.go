@@ -29,16 +29,11 @@ type Mission struct {
 	SourceMetadata       *string
 	ConfigCommit         *string
 
-	// ClaudeArgs holds the per-mission Claude CLI overrides set at
-	// `agenc mission new` time, keyed by mission.ForwardedClaudeFlag.Key
-	// (e.g. {"model": "opus"}). Nil when the mission set none, in which
-	// case the mission falls back to the defaultModel/claudeArgs config
-	// chain at spawn time. Stored as a JSON object in the claude_args column.
-	ClaudeArgs map[string]string
-
 	// ClaudePassthroughArgs holds the verbatim Claude CLI argv a caller handed
-	// to `agenc mission new` after the `--` separator, in order. Nil when the
-	// mission was given none. Stored as a JSON array in the
+	// to `agenc mission new` after the `--` separator, in order. It is the
+	// mission's only record of its own Claude flags, model and effort
+	// included. Nil when the mission was given none, in which case it runs
+	// with the claudeArgs config chain alone. Stored as a JSON array in the
 	// claude_passthrough_args column — an array rather than an object because
 	// order is meaningful and the same flag may legitimately repeat.
 	ClaudePassthroughArgs []string
@@ -93,7 +88,6 @@ type CreateMissionParams struct {
 	SourceID       *string
 	SourceMetadata *string
 	ConfigCommit   *string
-	ClaudeArgs     map[string]string
 
 	ClaudePassthroughArgs []string
 
@@ -116,7 +110,6 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	var configCommit, source, sourceID, sourceMetadata *string
-	var claudeArgs map[string]string
 	var claudePassthroughArgs []string
 	var claudeEnv map[string]string
 	if params != nil {
@@ -124,14 +117,8 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		source = params.Source
 		sourceID = params.SourceID
 		sourceMetadata = params.SourceMetadata
-		claudeArgs = params.ClaudeArgs
 		claudePassthroughArgs = params.ClaudePassthroughArgs
 		claudeEnv = params.ClaudeEnv
-	}
-
-	claudeArgsJSON, err := marshalClaudeArgs(claudeArgs)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to serialize Claude args '%v' for mission '%s'", claudeArgs, id)
 	}
 
 	claudePassthroughArgsJSON, err := marshalClaudePassthroughArgs(claudePassthroughArgs)
@@ -145,8 +132,8 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 	}
 
 	_, err = db.conn.Exec(
-		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, claude_args, claude_passthrough_args, claude_env, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, claudeArgsJSON, claudePassthroughArgsJSON, claudeEnvJSON, now, now,
+		"INSERT INTO missions (id, short_id, git_repo, status, config_commit, source, source_id, source_metadata, claude_passthrough_args, claude_env, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
+		id, shortID, gitRepo, configCommit, source, sourceID, sourceMetadata, claudePassthroughArgsJSON, claudeEnvJSON, now, now,
 	)
 	if err != nil {
 		return nil, stacktrace.Propagate(err, "failed to insert mission")
@@ -161,7 +148,6 @@ func (db *DB) CreateMission(gitRepo string, params *CreateMissionParams) (*Missi
 		SourceID:       sourceID,
 		SourceMetadata: sourceMetadata,
 		ConfigCommit:   configCommit,
-		ClaudeArgs:     claudeArgs,
 
 		ClaudePassthroughArgs: claudePassthroughArgs,
 		ClaudeEnv:             claudeEnv,
@@ -483,21 +469,6 @@ func (db *DB) ResolveMissionID(userInput string) (string, error) {
 	}
 }
 
-// marshalClaudeArgs renders per-mission Claude args for storage in the
-// claude_args column. An empty map yields nil so the column stays NULL rather
-// than holding a meaningless "{}".
-func marshalClaudeArgs(claudeArgs map[string]string) (*string, error) {
-	if len(claudeArgs) == 0 {
-		return nil, nil
-	}
-	serialized, err := json.Marshal(claudeArgs)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed to marshal Claude args '%v'", claudeArgs)
-	}
-	asString := string(serialized)
-	return &asString, nil
-}
-
 // marshalClaudePassthroughArgs renders passthrough args for storage in the
 // claude_passthrough_args column. An empty list stores NULL rather than "[]",
 // so "this mission has no passthrough args" has exactly one representation.
@@ -552,17 +523,4 @@ func unmarshalClaudePassthroughArgs(stored sql.NullString) ([]string, error) {
 		return nil, stacktrace.Propagate(err, "failed to parse stored Claude passthrough args '%v'", stored.String)
 	}
 	return claudePassthroughArgs, nil
-}
-
-// unmarshalClaudeArgs parses a stored claude_args column. A NULL or empty
-// column yields a nil map, meaning the mission set no per-mission overrides.
-func unmarshalClaudeArgs(stored sql.NullString) (map[string]string, error) {
-	if !stored.Valid || stored.String == "" {
-		return nil, nil
-	}
-	var claudeArgs map[string]string
-	if err := json.Unmarshal([]byte(stored.String), &claudeArgs); err != nil {
-		return nil, stacktrace.Propagate(err, "failed to unmarshal stored Claude args '%v'", stored.String)
-	}
-	return claudeArgs, nil
 }

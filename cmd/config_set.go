@@ -19,9 +19,8 @@ var configSetCmd = &cobra.Command{
 
 Supported keys:
   attachedMissionLimit                       Max missions attachable to non-pool tmux sessions concurrently (positive integer; unset = no cap)
-  claudeArgs                                   Extra CLI flags passed to Claude Code (comma-separated, e.g., "--chrome,--verbose"; empty to clear)
+  claudeArgs                                   Claude Code flags every mission starts with, ahead of its own (comma-separated, e.g., "--model,opus,--chrome"; empty to clear); a default model goes here
   claudeCodeOAuthToken                       Claude Code OAuth token (stored in secure token file, not config.yml); prefer 'agenc token set/clear'
-  defaultModel                                 Default Claude model for missions (e.g., "opus", "sonnet", "claude-opus-4-6")
   paletteTmuxKeybinding                      Raw bind-key args for the command palette (default: "-T agenc k")
   sessionTitleMaxWords                       Max words in auto-generated session titles (default: 15; range: 3-50)
   tmuxWindowTitle.busyBackgroundColor        Background color for window tab when Claude is working (default: "colour018", empty = disable)
@@ -149,9 +148,6 @@ func setConfigValue(cfg *config.AgencConfig, key, value string) error {
 			}
 			cfg.ClaudeArgs = args
 		}
-		return nil
-	case "defaultModel":
-		cfg.DefaultModel = value
 		return nil
 	case "paletteTmuxKeybinding":
 		cfg.PaletteTmuxKeybinding = value

@@ -42,14 +42,9 @@ type MissionResponse struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 
-	// ClaudeArgs holds the mission's own Claude CLI overrides (e.g.
-	// {"model": "opus"}), set at creation time and outranking the
-	// defaultModel/claudeArgs config chains for this mission only.
-	ClaudeArgs map[string]string `json:"claude_args"`
-
 	// ClaudePassthroughArgs is the verbatim Claude CLI argv the mission was
-	// created with after the `--` separator, appended after everything the
-	// config chains contribute.
+	// created with after the `--` separator — model and effort included —
+	// appended after everything the claudeArgs config chain contributes.
 	ClaudePassthroughArgs []string `json:"claude_passthrough_args"`
 
 	// ClaudeEnv holds the environment variables the mission was created with,
@@ -102,7 +97,6 @@ func (mr *MissionResponse) ToMission() *database.Mission {
 		PromptCount:           mr.PromptCount,
 		CreatedAt:             mr.CreatedAt,
 		UpdatedAt:             mr.UpdatedAt,
-		ClaudeArgs:            mr.ClaudeArgs,
 		ClaudePassthroughArgs: mr.ClaudePassthroughArgs,
 		ClaudeEnv:             mr.ClaudeEnv,
 		ResolvedSessionTitle:  mr.ResolvedSessionTitle,
@@ -133,7 +127,6 @@ func toMissionResponse(m *database.Mission) MissionResponse {
 		PromptCount:           m.PromptCount,
 		CreatedAt:             m.CreatedAt,
 		UpdatedAt:             m.UpdatedAt,
-		ClaudeArgs:            m.ClaudeArgs,
 		ClaudePassthroughArgs: m.ClaudePassthroughArgs,
 		ClaudeEnv:             m.ClaudeEnv,
 		ResolvedSessionTitle:  m.ResolvedSessionTitle,
@@ -416,17 +409,10 @@ type CreateMissionRequest struct {
 	CloneFrom      string `json:"clone_from"`
 	NoFocus        bool   `json:"no_focus"`
 
-	// ClaudeArgs holds per-mission Claude CLI overrides keyed by
-	// mission.ForwardedClaudeFlag.Key (e.g. {"model": "opus"}). Validated
-	// against the forwarded-flag allowlist before anything is persisted:
-	// Claude exposes flags that would break AgenC's own invariants, and the
-	// HTTP API is reachable by clients that never went through the CLI's
-	// flag parsing.
-	ClaudeArgs map[string]string `json:"claude_args"`
-
 	// ClaudePassthroughArgs is Claude CLI argv to hand to this mission's Claude
-	// process verbatim, appended after everything the config chains and
-	// ClaudeArgs contribute. Not validated against anything: `agenc mission new`
+	// process verbatim, appended after everything the claudeArgs config chain
+	// contributes. It is the only per-mission channel for Claude flags, model and
+	// effort included. Not validated against anything: `agenc mission new`
 	// is a trusted-caller surface (the caller can run `claude` with any flag
 	// directly), and screening the list would defeat the point of a channel that
 	// supports a new Claude flag without an AgenC change.
@@ -473,9 +459,6 @@ func (s *Server) seedMissionTrustBestEffort(agentDirpath, gitRepoName, shortID s
 // malformed one, so this is the guard for the HTTP API, which any client can
 // reach. Returns an HTTP 400 error, ready to return from a handler.
 func validateCreateMissionClaudeInputs(req CreateMissionRequest) error {
-	if err := mission.ValidateMissionClaudeArgs(req.ClaudeArgs); err != nil {
-		return newHTTPError(http.StatusBadRequest, err.Error())
-	}
 	if err := mission.ValidateMissionEnv(req.ClaudeEnv); err != nil {
 		return newHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -487,7 +470,6 @@ func validateCreateMissionClaudeInputs(req CreateMissionRequest) error {
 // unset one must stay nil rather than become an empty string.
 func buildCreateMissionParams(req CreateMissionRequest) *database.CreateMissionParams {
 	createParams := &database.CreateMissionParams{
-		ClaudeArgs:            req.ClaudeArgs,
 		ClaudePassthroughArgs: req.ClaudePassthroughArgs,
 		ClaudeEnv:             req.ClaudeEnv,
 	}
@@ -720,26 +702,18 @@ func (s *Server) handleCreateClonedMission(w http.ResponseWriter, req CreateMiss
 
 	// A clone means "another one of these", so the source mission's Claude args
 	// carry over — otherwise a mission deliberately put on a stronger model
-	// would silently drop back to the config default when cloned. An explicit
-	// --model (or any other forwarded flag) on the clone command still wins,
-	// and the CLI reports what was inherited so it is never a silent choice.
-	if len(createParams.ClaudeArgs) == 0 {
-		createParams.ClaudeArgs = sourceMission.ClaudeArgs
-	}
-
-	// The passthrough args carry over on the same reasoning, and independently:
-	// a clone that inherits the source's system prompt but not its model (or the
-	// reverse) is neither "another one of these" nor anything the caller asked
-	// for. Passing anything after `--` on the clone command replaces the
-	// inherited list wholesale, since the two lists cannot be merged without
-	// knowing which of their flags are scalar.
+	// would silently drop back to the config default when cloned. Passing
+	// anything after `--` on the clone command replaces the inherited list
+	// wholesale rather than merging into it: two argv lists cannot be merged
+	// without knowing which of their flags are scalar, and "pass flags, get
+	// exactly those flags" is the predictable rule (Kevin, KEV-97). The CLI
+	// reports which of the two happened, so neither is a silent choice.
 	if len(createParams.ClaudePassthroughArgs) == 0 {
 		createParams.ClaudePassthroughArgs = sourceMission.ClaudePassthroughArgs
 	}
 
 	// The mission's environment deliberately does NOT carry over, which is the
-	// one asymmetry in this function. The two arg channels describe how a
-	// mission runs, so "another one of these" means another one run the same
+	// one asymmetry in this function. The args describe how a mission runs, so "another one of these" means another one run the same
 	// way. An environment variable is a marker of what a mission is FOR, and
 	// the first thing it marks is a session a Claude Code hook will treat
 	// differently — exempting it from a gate, say. A marker that rode silently

@@ -369,7 +369,6 @@ type RepoConfig struct {
 	Title             string             `yaml:"title,omitempty"`
 	Description       string             `yaml:"description,omitempty"`
 	TrustedMcpServers *TrustedMcpServers `yaml:"trustedMcpServers,omitempty"`
-	DefaultModel      string             `yaml:"defaultModel,omitempty"`
 	PostUpdateHook    string             `yaml:"postUpdateHook,omitempty"`
 	ClaudeArgs        []string           `yaml:"claudeArgs,omitempty"`
 	WriteableCopy     string             `yaml:"writeableCopy,omitempty"`
@@ -428,7 +427,6 @@ type AgencConfig struct {
 	PaletteCommands       map[string]PaletteCommandConfig `yaml:"paletteCommands,omitempty"`
 	PaletteTmuxKeybinding string                          `yaml:"paletteTmuxKeybinding,omitempty"`
 	TmuxWindowTitle       *TmuxWindowTitleConfig          `yaml:"tmuxWindowTitle,omitempty"`
-	DefaultModel          string                          `yaml:"defaultModel,omitempty"`
 	ClaudeArgs            []string                        `yaml:"claudeArgs,omitempty"`
 	SleepMode             *SleepModeConfig                `yaml:"sleepMode,omitempty"`
 	SessionTitleMaxWords  int                             `yaml:"sessionTitleMaxWords,omitempty"`
@@ -579,19 +577,11 @@ func (c *AgencConfig) SetAlwaysSynced(repoName string, synced bool) {
 	c.RepoConfigs[repoName] = rc
 }
 
-// GetDefaultModel returns the resolved model for a given repo.
-// Precedence: repoConfig.defaultModel > config.defaultModel > "" (Claude decides).
-func (c *AgencConfig) GetDefaultModel(repoName string) string {
-	if repoName != "" {
-		if rc, ok := c.RepoConfigs[repoName]; ok && rc.DefaultModel != "" {
-			return rc.DefaultModel
-		}
-	}
-	return c.DefaultModel
-}
-
-// GetClaudeArgs returns the merged Claude CLI args for a given repo.
-// Precedence: global claudeArgs first, then per-repo claudeArgs appended.
+// GetClaudeArgs returns the merged Claude CLI args for a given repo: global
+// claudeArgs first, then per-repo claudeArgs appended. Claude resolves a
+// repeated scalar flag last-wins, so a repo's flag outranks the same global
+// one, and a mission's own args (appended after these at spawn) outrank both.
+// This is also how a default model is configured: `claudeArgs: [--model, opus]`.
 func (c *AgencConfig) GetClaudeArgs(repoName string) []string {
 	var result []string
 	result = append(result, c.ClaudeArgs...)
@@ -655,6 +645,10 @@ func ReadAgencConfig(agencDirpath string) (*AgencConfig, yaml.CommentMap, error)
 		return nil, nil, stacktrace.Propagate(err, "failed to parse config file '%s'", configFilepath)
 	}
 
+	if err := rejectRetiredDefaultModelKeys(data, configFilepath); err != nil {
+		return nil, nil, err
+	}
+
 	if err := validateRepoConfigs(&cfg, configFilepath); err != nil {
 		return nil, nil, err
 	}
@@ -701,6 +695,61 @@ func validateRepoConfigs(cfg *AgencConfig, configFilepath string) error {
 		}
 	}
 	return nil
+}
+
+// retiredDefaultModelKeys reads only the retired defaultModel keys out of
+// config.yml. It is a separate decode target because AgencConfig no longer has
+// those fields, and the YAML decoder ignores keys a struct does not declare.
+type retiredDefaultModelKeys struct {
+	DefaultModel string `yaml:"defaultModel"`
+	RepoConfigs  map[string]struct {
+		DefaultModel string `yaml:"defaultModel"`
+	} `yaml:"repoConfig"`
+}
+
+// rejectRetiredDefaultModelKeys fails config loading when config.yml still sets
+// defaultModel, globally or for a repo. AgenC no longer knows what a model is: a
+// default model is an ordinary claudeArgs entry. The decoder would otherwise
+// drop the key without a sound, and every mission that names no model would
+// quietly fall back to Claude's own default — so the error names the exact
+// replacement instead. The replacement goes at the front of claudeArgs because
+// that is where the old code put the model flag.
+func rejectRetiredDefaultModelKeys(data []byte, configFilepath string) error {
+	var retired retiredDefaultModelKeys
+	if err := yaml.Unmarshal(data, &retired); err != nil {
+		return stacktrace.Propagate(err, "failed to check config file '%s' for retired keys", configFilepath)
+	}
+
+	var problems []string
+	if retired.DefaultModel != "" {
+		problems = append(problems, fmt.Sprintf(
+			"top-level 'defaultModel: %s' → put '--model' and '%s' at the front of the top-level claudeArgs list",
+			retired.DefaultModel, retired.DefaultModel,
+		))
+	}
+	repoNames := make([]string, 0, len(retired.RepoConfigs))
+	for repoName := range retired.RepoConfigs {
+		repoNames = append(repoNames, repoName)
+	}
+	sort.Strings(repoNames)
+	for _, repoName := range repoNames {
+		model := retired.RepoConfigs[repoName].DefaultModel
+		if model == "" {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf(
+			"repoConfig '%s' 'defaultModel: %s' → put '--model' and '%s' at the front of that repo's claudeArgs list",
+			repoName, model, model,
+		))
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return stacktrace.NewError(
+		"%s sets defaultModel, which AgenC no longer reads; a default model is now an ordinary claudeArgs entry. Replace each one:\n  %s",
+		configFilepath,
+		strings.Join(problems, "\n  "),
+	)
 }
 
 // validateCronConfigs initializes the Crons map if nil and validates each cron

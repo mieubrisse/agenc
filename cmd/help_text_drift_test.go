@@ -35,6 +35,11 @@ var externalToolFlagNames = map[string]bool{
 	"add-dir":                      true,
 	"settings":                     true,
 	"dangerously-skip-permissions": true,
+	// --model and --effort were AgenC flags until KEV-97 made them ordinary
+	// Claude flags passed after "--"; help text and docs name them as the
+	// passthrough's main use.
+	"model":  true,
+	"effort": true,
 
 	// Homebrew's, from the "$(brew --prefix)" install path in the completion
 	// help text Cobra generates for us.
