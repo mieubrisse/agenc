@@ -13,9 +13,9 @@ import (
 )
 
 // newShutdownTestServer returns a Server serving a fresh agenc directory, with
-// the startup identity of that directory, and its last request stamped at
-// lastRequestAt.
-func newShutdownTestServer(t *testing.T, lastRequestAt time.Time) (*Server, os.FileInfo) {
+// the startup identity of that directory recorded as Run would, and its last
+// request stamped at lastRequestAt.
+func newShutdownTestServer(t *testing.T, lastRequestAt time.Time) *Server {
 	t.Helper()
 	agencDirpath := filepath.Join(t.TempDir(), "agenc")
 	if err := os.MkdirAll(agencDirpath, 0755); err != nil {
@@ -25,9 +25,33 @@ func newShutdownTestServer(t *testing.T, lastRequestAt time.Time) (*Server, os.F
 	if err != nil {
 		t.Fatalf("failed to stat agenc directory: %v", err)
 	}
-	srv := &Server{agencDirpath: agencDirpath, logger: log.New(os.Stderr, "", 0)}
+	srv := &Server{agencDirpath: agencDirpath, agencDirInfo: info, logger: log.New(os.Stderr, "", 0)}
 	srv.lastRequestAt.Store(lastRequestAt.UnixNano())
-	return srv, info
+	return srv
+}
+
+// A server whose directory was replaced must not remove the socket and PID
+// file at those paths on exit: they belong to the new environment's server.
+func TestOwnsAgencDir(t *testing.T) {
+	srv := newShutdownTestServer(t, time.Now())
+	if !srv.OwnsAgencDir() {
+		t.Fatal("expected the server to own the directory it started in")
+	}
+
+	if err := os.RemoveAll(srv.agencDirpath); err != nil {
+		t.Fatalf("failed to remove agenc directory: %v", err)
+	}
+	if err := os.MkdirAll(srv.agencDirpath, 0755); err != nil {
+		t.Fatalf("failed to recreate agenc directory: %v", err)
+	}
+	if srv.OwnsAgencDir() {
+		t.Fatal("expected the server not to own a directory recreated at the same path")
+	}
+
+	unknown := &Server{agencDirpath: srv.agencDirpath}
+	if !unknown.OwnsAgencDir() {
+		t.Fatal("expected ownership to default to true when the startup identity is unknown")
+	}
 }
 
 func TestTestEnvShutdownReason(t *testing.T) {
@@ -35,34 +59,34 @@ func TestTestEnvShutdownReason(t *testing.T) {
 	quietPeriod := 10 * time.Minute
 
 	t.Run("recent request keeps the server running", func(t *testing.T) {
-		srv, info := newShutdownTestServer(t, now.Add(-quietPeriod/2))
-		if reason := srv.testEnvShutdownReason(info, now, quietPeriod); reason != "" {
+		srv := newShutdownTestServer(t, now.Add(-quietPeriod/2))
+		if reason := srv.testEnvShutdownReason(now, quietPeriod); reason != "" {
 			t.Fatalf("expected no shutdown, got %q", reason)
 		}
 	})
 
 	t.Run("quiet past the threshold shuts down", func(t *testing.T) {
-		srv, info := newShutdownTestServer(t, now.Add(-quietPeriod-time.Second))
-		reason := srv.testEnvShutdownReason(info, now, quietPeriod)
+		srv := newShutdownTestServer(t, now.Add(-quietPeriod-time.Second))
+		reason := srv.testEnvShutdownReason(now, quietPeriod)
 		if !strings.Contains(reason, "no requests") {
 			t.Fatalf("expected a quiet shutdown reason, got %q", reason)
 		}
 	})
 
 	t.Run("an in-flight request keeps a quiet server running", func(t *testing.T) {
-		srv, info := newShutdownTestServer(t, now.Add(-2*quietPeriod))
+		srv := newShutdownTestServer(t, now.Add(-2*quietPeriod))
 		srv.inFlightRequests.Add(1)
-		if reason := srv.testEnvShutdownReason(info, now, quietPeriod); reason != "" {
+		if reason := srv.testEnvShutdownReason(now, quietPeriod); reason != "" {
 			t.Fatalf("expected no shutdown while a request is in flight, got %q", reason)
 		}
 	})
 
 	t.Run("removed agenc directory shuts down despite recent requests", func(t *testing.T) {
-		srv, info := newShutdownTestServer(t, now)
+		srv := newShutdownTestServer(t, now)
 		if err := os.RemoveAll(srv.agencDirpath); err != nil {
 			t.Fatalf("failed to remove agenc directory: %v", err)
 		}
-		reason := srv.testEnvShutdownReason(info, now, quietPeriod)
+		reason := srv.testEnvShutdownReason(now, quietPeriod)
 		if !strings.Contains(reason, "was removed") {
 			t.Fatalf("expected a removed-directory reason, got %q", reason)
 		}
@@ -71,14 +95,14 @@ func TestTestEnvShutdownReason(t *testing.T) {
 	// `make test-env-clean && make test-env` recreates the same path; the old
 	// server must not adopt the new directory as its own.
 	t.Run("agenc directory recreated at the same path shuts down", func(t *testing.T) {
-		srv, info := newShutdownTestServer(t, now)
+		srv := newShutdownTestServer(t, now)
 		if err := os.RemoveAll(srv.agencDirpath); err != nil {
 			t.Fatalf("failed to remove agenc directory: %v", err)
 		}
 		if err := os.MkdirAll(srv.agencDirpath, 0755); err != nil {
 			t.Fatalf("failed to recreate agenc directory: %v", err)
 		}
-		reason := srv.testEnvShutdownReason(info, now, quietPeriod)
+		reason := srv.testEnvShutdownReason(now, quietPeriod)
 		if !strings.Contains(reason, "replaced") {
 			t.Fatalf("expected a replaced-directory reason, got %q", reason)
 		}
@@ -86,7 +110,7 @@ func TestTestEnvShutdownReason(t *testing.T) {
 }
 
 func TestTrackRequestActivity(t *testing.T) {
-	srv, _ := newShutdownTestServer(t, time.Time{})
+	srv := newShutdownTestServer(t, time.Time{})
 
 	var inFlightDuringRequest int64
 	handler := srv.trackRequestActivity(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +132,7 @@ func TestTrackRequestActivity(t *testing.T) {
 }
 
 func TestRunTestEnvShutdownLoopShutsDownWhenDirectoryRemoved(t *testing.T) {
-	srv, _ := newShutdownTestServer(t, time.Now())
+	srv := newShutdownTestServer(t, time.Now())
 	ctx, shutdown := context.WithCancel(t.Context())
 	defer shutdown()
 
@@ -117,10 +141,6 @@ func TestRunTestEnvShutdownLoopShutsDownWhenDirectoryRemoved(t *testing.T) {
 		srv.runTestEnvShutdownLoop(ctx, shutdown)
 		close(loopDone)
 	}()
-	// The loop records the directory's identity on entry; removing it first
-	// would test the "cannot stat at startup" path instead.
-	time.Sleep(200 * time.Millisecond)
-
 	if err := os.RemoveAll(srv.agencDirpath); err != nil {
 		t.Fatalf("failed to remove agenc directory: %v", err)
 	}

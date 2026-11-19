@@ -3156,23 +3156,19 @@ orphan_mission_dirpath="${repo_dirpath}/_test-env/missions/${orphan_mission_uuid
 orphan_wrapper_pid=""
 orphan_claude_pid=""
 if [ -n "${orphan_mission_uuid}" ]; then
-    for _ in $(seq 1 20); do
-        orphan_wrapper_pid="$(cat "${orphan_mission_dirpath}/pid" 2>/dev/null || true)"
-        if [ -n "${orphan_wrapper_pid}" ]; then
-            orphan_claude_pid="$(pgrep -P "${orphan_wrapper_pid}" 2>/dev/null | head -1 || true)"
-        fi
-        if [ -n "${orphan_claude_pid}" ]; then
-            break
-        fi
-        sleep 1
-    done
+    orphan_claude_pid="$(find_mission_claude_pid "${orphan_mission_uuid}" || true)"
+    orphan_wrapper_pid="$(cat "${orphan_mission_dirpath}/pid" 2>/dev/null || true)"
 fi
 
+# Without a live Claude there is nothing to leak, so skip loudly like the other
+# sections that need one, rather than fail on a machine with no Claude.
 if [ -z "${orphan_wrapper_pid}" ] || [ -z "${orphan_claude_pid}" ]; then
-    total=$((total + 1))
-    failed=$((failed + 1))
-    printf "  %-50s " "wrapper exits when its mission dir is removed..."
-    echo "FAIL (no running wrapper and Claude child: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none})"
+    for orphan_uncoverable in "wrapper exits when its mission dir is removed" "its Claude child exits with it"; do
+        total=$((total + 1))
+        printf "  %-50s " "${orphan_uncoverable}..."
+        echo "SKIP (no live wrapper and Claude: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none})"
+        skipped=$((skipped + 1))
+    done
 else
     rm -rf "${orphan_mission_dirpath}"
 
@@ -3198,6 +3194,11 @@ else
         failed=$((failed + 1))
     fi
 fi
+# Drop the mission's record so later sections do not list a mission whose
+# directory no longer exists.
+if [ -n "${orphan_mission_uuid}" ]; then
+    "${agenc_test}" mission rm "${orphan_mission_uuid}" >/dev/null 2>&1 || true
+fi
 
 # A test-environment server checks its agenc directory every 15 seconds. It runs
 # in its own short-path environment, and in an empty tmux universe so it cannot
@@ -3205,11 +3206,14 @@ fi
 # use, the server logs a warning and runs without a pool session (KEV-168).
 orphan_server_env_dirpath="$(mktemp -d /tmp/agenc-e2e-orphan.XXXXXX)"
 orphan_server_tmux_dirpath="$(mktemp -d /tmp/agenc-e2e-orphtmux.XXXXXX)"
-mkdir -p "${orphan_server_env_dirpath}/config"
+mkdir -p "${orphan_server_env_dirpath}/config" "${orphan_server_env_dirpath}/claude-config"
 git -C "${orphan_server_env_dirpath}/config" init --quiet
 
+# CLAUDE_CONFIG_DIR is pointed inside the throwaway too, as agenc-test does, so
+# the server's boot-time trust reconcile never reads the real ~/.claude.json.
 env -u TMUX TMUX_TMPDIR="${orphan_server_tmux_dirpath}" \
     AGENC_DIRPATH="${orphan_server_env_dirpath}" AGENC_TEST_ENV=1 \
+    CLAUDE_CONFIG_DIR="${orphan_server_env_dirpath}/claude-config" \
     "${repo_dirpath}/_build/agenc" server start >/dev/null 2>&1 || true
 orphan_server_pid="$(cat "${orphan_server_env_dirpath}/server/server.pid" 2>/dev/null || true)"
 

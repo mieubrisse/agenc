@@ -17,13 +17,15 @@ const (
 	// heartbeats every 10 seconds, so a server with any running mission is
 	// never quiet by this measure; quiet means nothing is left to serve.
 	//
-	// Sized against `make e2e`: the longest deliberate gap in the suite is a
-	// 90-second sleep in the cron-monitoring section, and that section asserts
-	// on the server's in-memory state across the sleep, so a server that exited
-	// mid-gap would fail the suite rather than merely restart. Ten minutes is
-	// more than six times that gap. Exiting early is otherwise cheap — the next
-	// CLI call auto-starts a fresh server — so the period only has to be long
-	// enough not to drop in-memory state a caller is relying on.
+	// Sized against `make e2e`. Measured across a full run (KEV-79, 2026-11-19:
+	// 1,465 requests over 322 seconds), the longest gap between two requests
+	// was 3.4 seconds — wrappers heartbeat through the suite's own sleeps, the
+	// longest of which is 90 seconds. Ten minutes leaves more than six times
+	// that sleep even if no wrapper were running. Exiting mid-suite would not
+	// lose data — the next CLI call auto-starts a fresh server, and cron monitor
+	// state lives in the database — but it would drop in-memory state such as
+	// queued async reloads, and the fresh server inherits the environment of
+	// whichever command forked it, which some sections control deliberately.
 	testEnvQuietShutdownPeriod = 10 * time.Minute
 
 	// testEnvShutdownCheckInterval is how often a test-environment server checks
@@ -58,12 +60,6 @@ func (s *Server) trackRequestActivity(next http.Handler) http.Handler {
 // of which shows up as request traffic; exiting it on quiet would silently
 // stop all of them.
 func (s *Server) runTestEnvShutdownLoop(ctx context.Context, shutdown context.CancelFunc) {
-	agencDirInfo, err := os.Stat(s.agencDirpath)
-	if err != nil {
-		s.logger.Printf("Test-env shutdown: cannot stat agenc directory '%s', self-shutdown disabled: %v", s.agencDirpath, err)
-		return
-	}
-
 	ticker := time.NewTicker(testEnvShutdownCheckInterval)
 	defer ticker.Stop()
 
@@ -72,7 +68,7 @@ func (s *Server) runTestEnvShutdownLoop(ctx context.Context, shutdown context.Ca
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			reason := s.testEnvShutdownReason(agencDirInfo, time.Now(), testEnvQuietShutdownPeriod)
+			reason := s.testEnvShutdownReason(time.Now(), testEnvQuietShutdownPeriod)
 			if reason != "" {
 				s.logger.Printf("Test-env server shutting itself down: %s", reason)
 				shutdown()
@@ -83,18 +79,16 @@ func (s *Server) runTestEnvShutdownLoop(ctx context.Context, shutdown context.Ca
 }
 
 // testEnvShutdownReason returns why a test-environment server should exit now,
-// or the empty string if it should keep running. agencDirInfo is the agenc
-// directory as it was when the server started.
+// or the empty string if it should keep running.
 //
 // The directory is compared by identity, not only by existence: `make
 // test-env-clean && make test-env` recreates the same path, and a server still
 // serving the deleted directory must not mistake the new one for its own.
-func (s *Server) testEnvShutdownReason(agencDirInfo os.FileInfo, now time.Time, quietPeriod time.Duration) string {
-	currentInfo, err := os.Stat(s.agencDirpath)
-	if os.IsNotExist(err) {
+func (s *Server) testEnvShutdownReason(now time.Time, quietPeriod time.Duration) string {
+	if _, err := os.Stat(s.agencDirpath); os.IsNotExist(err) {
 		return fmt.Sprintf("agenc directory '%s' was removed", s.agencDirpath)
 	}
-	if err == nil && !os.SameFile(agencDirInfo, currentInfo) {
+	if !s.OwnsAgencDir() {
 		return fmt.Sprintf("agenc directory '%s' was replaced by a different directory", s.agencDirpath)
 	}
 

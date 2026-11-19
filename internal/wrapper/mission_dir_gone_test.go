@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -127,5 +128,43 @@ func TestWriteHeartbeatSignalsWhenMissionDirGone(t *testing.T) {
 	case <-loopDone:
 	case <-time.After(time.Second):
 		t.Fatal("heartbeat loop kept running after signalling the mission directory is gone")
+	}
+}
+
+// A Claude that exits non-zero leaves the wrapper on a press-Enter prompt. If
+// the mission directory goes while it waits, no one will ever press Enter, so
+// the prompt must give way rather than keep the wrapper alive forever.
+func TestPressEnterPromptGivesWayWhenMissionDirGone(t *testing.T) {
+	w := newMissionDirGoneTestWrapper(t)
+	neverWritten, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+
+	returned := make(chan struct{})
+	go func() {
+		w.waitForEnterOrMissionDirGone(neverWritten)
+		close(returned)
+	}()
+
+	w.missionDirGone <- struct{}{}
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("press-Enter prompt kept waiting after the mission directory was reported gone")
+	}
+}
+
+func TestPressEnterPromptReturnsOnEnter(t *testing.T) {
+	w := newMissionDirGoneTestWrapper(t)
+
+	returned := make(chan struct{})
+	go func() {
+		w.waitForEnterOrMissionDirGone(strings.NewReader("\n"))
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("press-Enter prompt did not return after Enter was pressed")
 	}
 }

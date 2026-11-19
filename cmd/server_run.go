@@ -74,7 +74,10 @@ func runServerRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	_ = os.Remove(pidFilepath)
+	// A replaced agenc directory's PID file belongs to the server now serving it.
+	if srv.OwnsAgencDir() {
+		_ = os.Remove(pidFilepath)
+	}
 	logger.Println("Server exited")
 
 	return nil

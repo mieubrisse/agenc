@@ -101,6 +101,10 @@ type Server struct {
 	// has gone quiet and can exit (see test_env_shutdown.go).
 	lastRequestAt    atomic.Int64
 	inFlightRequests atomic.Int64
+
+	// agencDirInfo is the agenc directory as it was when Run started. Nil if
+	// it could not be read. Written once before any goroutine starts.
+	agencDirInfo os.FileInfo
 }
 
 // NewServer creates a new Server instance.
@@ -150,6 +154,13 @@ func (s *Server) runLoop(name string, wg *sync.WaitGroup, ctx context.Context, f
 func (s *Server) Run(ctx context.Context) error {
 	ctx, shutdown := context.WithCancel(ctx)
 	defer shutdown()
+
+	// Record which directory this server serves before anything else touches
+	// it, so a later replacement at the same path is recognizable (see
+	// OwnsAgencDir). If the stat fails, the lock acquisition below fails too.
+	if info, err := os.Stat(s.agencDirpath); err == nil {
+		s.agencDirInfo = info
+	}
 
 	// Acquire singleton lock — only one server process may run at a time.
 	lockFilepath := config.GetServerLockFilepath(s.agencDirpath)
@@ -275,12 +286,32 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	wg.Wait()
-	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+	if !s.OwnsAgencDir() {
+		s.logger.Println("Agenc directory was replaced; leaving the socket at its path to the server that now owns it")
+	} else if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
 		s.logger.Printf("Warning: failed to remove socket file on shutdown: %v", err)
 	}
 	s.logger.Println("Server stopped")
 
 	return nil
+}
+
+// OwnsAgencDir reports whether the agenc directory path still refers to the
+// directory this server started serving. It is false once that directory has
+// been removed and something else created at the same path — typically a new
+// test environment whose own server now keeps its socket and PID file there.
+// A server exiting in that state must not remove files by path, or it deletes
+// the new server's. True when the startup identity is unknown or the current
+// one cannot be read, which keeps the removal behavior from before KEV-79.
+func (s *Server) OwnsAgencDir() bool {
+	if s.agencDirInfo == nil {
+		return true
+	}
+	currentInfo, err := os.Stat(s.agencDirpath)
+	if err != nil {
+		return true
+	}
+	return os.SameFile(s.agencDirInfo, currentInfo)
 }
 
 // loadConfigOnStartup reads the config, caches it, and performs initial cron sync.

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -446,10 +447,10 @@ func (w *Wrapper) handleMissionDirGone(gracePeriod time.Duration) {
 // isMissionDirGone reports whether the mission directory no longer exists.
 // Only a definite not-exist answer counts: any other stat error (permissions,
 // a transient I/O failure) leaves the wrapper running, because exiting stops a
-// live Claude session and cannot be undone. In normal operation the server
-// removes a mission directory only after stopping its wrapper, so a running
-// wrapper observing its directory gone means the whole agenc directory was
-// deleted around it.
+// live Claude session and cannot be undone. The server's only removal of a
+// mission directory is `mission rm`, which stops the wrapper first (and, if it
+// cannot, is deleting the mission anyway), so a running wrapper observing its
+// directory gone means it has nothing left to serve.
 func (w *Wrapper) isMissionDirGone() bool {
 	_, err := os.Stat(w.missionDirpath)
 	return os.IsNotExist(err)
@@ -477,11 +478,32 @@ func (w *Wrapper) handleClaudeExit(exitErr error) (done bool, err error) {
 	// If Claude exited with an error, pause so the user can see
 	// any error messages Claude printed to the terminal before
 	// the tmux window closes.
-	if exitCode != 0 {
+	//
+	// No one will read the prompt once the mission directory is gone, so it
+	// is skipped then, and abandoned if the directory goes while it waits —
+	// otherwise the wrapper would wait on Enter forever (KEV-79).
+	if exitCode != 0 && !w.isMissionDirGone() {
 		fmt.Fprintf(os.Stderr, "\nClaude exited with code %d. Press Enter to close this window.\n", exitCode)
-		_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n') // intentionally ignored: press-enter-to-continue prompt
+		w.waitForEnterOrMissionDirGone(os.Stdin)
 	}
 	return true, nil
+}
+
+// waitForEnterOrMissionDirGone blocks until a line is read from input or the
+// heartbeat loop reports the mission directory gone, whichever comes first. The
+// reading goroutine is left blocked in the second case; the wrapper is about to
+// exit, which ends it.
+func (w *Wrapper) waitForEnterOrMissionDirGone(input io.Reader) {
+	enterPressed := make(chan struct{})
+	go func() {
+		_, _ = bufio.NewReader(input).ReadBytes('\n') // intentionally ignored: press-enter-to-continue prompt
+		close(enterPressed)
+	}()
+	select {
+	case <-enterPressed:
+	case <-w.missionDirGone:
+		w.logger.Info("Abandoning press-Enter prompt", "reason", "mission_directory_gone")
+	}
 }
 
 // handleCommand processes a command from the HTTP server and returns a CommandResponse.
