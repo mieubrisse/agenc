@@ -42,7 +42,7 @@ COVERAGE_EXCLUDE_PATTERNS := \
 	/cmd/genprime$$ \
 	/internal/version$$
 
-.PHONY: bin build check clean compile docs e2e genprime setup test test-env test-env-clean
+.PHONY: bin build check clean compile docs e2e e2e-palette genprime setup test test-env test-env-clean
 
 setup:
 	@if git rev-parse --git-dir >/dev/null 2>&1; then \
@@ -159,7 +159,12 @@ test: genprime
 	@echo "✓ Tests passed"
 
 e2e: bin test-env
-	@scripts/e2e-test.sh; rc=$$?; $(MAKE) test-env-clean; exit $$rc
+	@scripts/e2e-test.sh; rc=$$?; scripts/e2e-palette-test.sh || rc=1; $(MAKE) test-env-clean; exit $$rc
+
+# Drives the tmux palette on a private tmux server; needs tmux >= 3.2 and fzf.
+# Self-contained: it builds and tears down its own AgenC environment.
+e2e-palette: bin
+	@scripts/e2e-palette-test.sh
 
 test-env:
 	@echo "Creating test environment at $(TEST_ENV_DIR)/..."
