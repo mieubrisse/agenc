@@ -96,10 +96,16 @@ const ClaudeConfigDirEnvVar = "CLAUDE_CONFIG_DIR"
 //     not by a test.
 //   - A name assembled at run time rather than written whole: "AGENC_" + suffix,
 //     or fmt.Sprintf("AGENC_%s", ...). Nothing in the codebase is written that way.
-//   - A name written only in a file that is neither non-test Go nor .sh: the
-//     Makefile (whose agenc-test wrapper exports AGENC_DIRPATH and
-//     AGENC_TEST_ENV), the extensionless shell scripts under .githooks/ and
-//     scripts/hooks/, and Markdown, YAML or JSON.
+//   - A name written only in a file that is neither non-test Go nor .sh — any
+//     other file at all. Today that includes the Makefile (whose agenc-test
+//     wrapper exports AGENC_DIRPATH and AGENC_TEST_ENV), the extensionless
+//     shell scripts under .githooks/ and scripts/hooks/, and the embedded
+//     mission prompts in internal/claudeconfig (prime_content.md,
+//     prime_preamble.md, adjutant_claude.md), which tell a mission's agent to
+//     read $AGENC_DIRPATH and $AGENC_MISSION_UUID.
+//   - A name written only inside a Go string literal as prose shorthand, such
+//     as "the AGENC_CALLING_* names", is the opposite case: the scan reads it
+//     as the name AGENC_CALLING_ and fails. That fails safe; reword the string.
 //   - A name written only in a _test.go file, which is excluded because a test
 //     may name a variable to probe it.
 //   - A name written only in a Go comment, or on a .sh line whose first

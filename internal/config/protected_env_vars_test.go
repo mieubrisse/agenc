@@ -103,7 +103,7 @@ func TestProtectedEnvVarsCoversEveryAgencEnvVar(t *testing.T) {
 		t.Fatal("found no AGENC_-prefixed environment variable names in any Go file; the scan is broken, not the code")
 	}
 	if shellNameCount == 0 {
-		t.Fatal("found no AGENC_-prefixed environment variable names in any .sh file, though repo_library_guard.sh reads AGENC_DIRPATH; the scan is broken, not the code")
+		t.Fatal("found no AGENC_-prefixed environment variable names in any .sh file; the scan is broken, not the code")
 	}
 
 	var missing []string

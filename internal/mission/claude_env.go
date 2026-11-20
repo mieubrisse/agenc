@@ -82,7 +82,7 @@ func ValidateMissionEnv(missionEnv map[string]string) error {
 		// still never reaches the process.
 		if config.IsProtectedEnvVar(name) {
 			return stacktrace.NewError(
-				"environment variable '%v' is one AgenC owns, so a value given here would be dropped at spawn time and cannot take effect (AgenC sets its own value where it has one, and otherwise leaves it unset); "+
+				"environment variable '%v' is one AgenC owns, so a value given here would be dropped at spawn time and cannot take effect (the variable carries AgenC's own value where AgenC has one, and is otherwise absent); "+
 					"the names AgenC owns are %v",
 				name,
 				strings.Join(config.ProtectedEnvVars, ", "),
