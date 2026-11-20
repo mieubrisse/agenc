@@ -2,7 +2,9 @@ name: E2E
 
 # Runs `make e2e` on pull requests, without Claude credentials (KEV-121).
 #
-# What runs here: everything in scripts/e2e-test.sh. The `claude` binary is
+# What runs here: everything in scripts/e2e-test.sh, then
+# scripts/e2e-palette-test.sh, which drives the tmux palette on private tmux
+# servers it creates and tears down itself. The `claude` binary is
 # installed but never logged in, and that is enough for every check that needs
 # a Claude *process* rather than a Claude *conversation*: a mission's Claude
 # still spawns (it parks at the login screen), so its argv and environment can
@@ -51,9 +53,10 @@ jobs:
 
       # tmux hosts every mission. claude-code is installed but deliberately not
       # authenticated: see the header comment for what that does and does not
-      # cover.
-      - name: Install tmux and Claude Code
-        run: brew install tmux && brew install --cask claude-code
+      # cover. fzf is the palette's picker, which scripts/e2e-palette-test.sh
+      # drives (KEV-123); that script fails rather than skips without it.
+      - name: Install tmux, fzf and Claude Code
+        run: brew install tmux fzf && brew install --cask claude-code
 
       # The suite bounds some commands with `timeout`, which macOS lacks.
       # Homebrew's coreutils ships it as gtimeout; link only that name, because
@@ -76,7 +79,7 @@ jobs:
       - name: Report environment
         run: |
           echo "workspace: $(pwd -P) ($(pwd -P | wc -c | tr -d ' ') bytes)"
-          command -v claude tmux timeout sqlite3
+          command -v claude tmux fzf timeout sqlite3
           claude --version
           tmux -V
           tmux list-sessions

@@ -160,7 +160,7 @@ E2E tests live in `scripts/e2e-test.sh` and run via `make e2e`. The `make e2e` t
 
 `make build` passing is necessary but not sufficient — it only checks compilation and unit tests. E2E tests verify that the system actually works as a whole. Pushing behavioral changes without E2E verification risks breaking production in ways that unit tests cannot catch.
 
-Only flag manual testing to the user when the behavior **genuinely cannot be automated** (e.g., tmux palette interactions that require human input via fzf). For everything that can be tested by running CLI commands and checking output, write an E2E test.
+Only flag manual testing to the user when the behavior **genuinely cannot be automated** (e.g., a palette action that must produce a live mission with Claude running in a pool window — see "Tmux integration" below). For everything that can be tested by running CLI commands and checking output, write an E2E test.
 
 The test script provides these helpers for writing tests:
 
@@ -190,20 +190,11 @@ run_test_output_contains "config sleep ls shows the window" \
 
 Add new E2E tests by appending to the appropriate section in `scripts/e2e-test.sh`. Group related tests under an `echo "--- Section Name ---"` header.
 
-### Tmux integration changes require manual testing
+### Tmux integration: what is automated and what still needs a human
 
-Changes to tmux pane/session resolution, palette command dispatch, keybinding generation, or pool window linking cannot be fully verified by unit tests or E2E tests — they require a live tmux session with real user interaction.
+`scripts/e2e-palette-test.sh` (`make e2e-palette`, also run by `make e2e`) drives the palette the way a person does — presses the real keybinding from the generated keybindings file, types into fzf inside the popup, presses Enter — and asserts what the dispatched command received: `AGENC_CALLING_PANE_ID` and `AGENC_CALLING_SESSION_NAME` through both `run-shell` and `display-popup` dispatch (the palette injects only those two into a popup, via `-e`), `AGENC_CALLING_MISSION_UUID` through `run-shell` dispatch only, plus the hiding of mission-scoped commands from a pane with no mission. It uses its own probe commands, so it tests the dispatch contract, not what any builtin's command does. It runs on a private tmux server, driven by `send-keys` and `capture-pane` from a pane on a second private server, so no session a human is attached to is touched; the script header explains why a separate server, not a separate session, is what isolates. The harness is reusable: extend it for new tmux behaviour before concluding a change needs a human.
 
-When your change touches any of the following, tell the user that manual testing is needed before the change is considered complete:
-
-- `cmd/tmux_palette.go` (palette dispatch, env var forwarding)
-- `internal/tmux/keybindings.go` (keybinding generation)
-- `internal/server/pool.go` (pane/session resolution, window linking)
-- `internal/server/missions.go` (attach/detach/create handlers that resolve tmux sessions)
-- `cmd/mission_new.go`, `cmd/mission_attach.go`, `cmd/mission_detach.go` (tmux context detection)
-- Any code that reads `$TMUX_PANE`, `$TMUX`, or calls `tmux` commands
-
-The minimum manual verification: open the command palette, create a mission via "Quick Claude" or "Open <repo>", and verify it appears in the foreground. Then use "Attach Mission" to attach to an existing mission. `make build` passing does not mean tmux integration works.
+Everything else that reads `$TMUX_PANE` or `$TMUX` or calls `tmux` is still exercised by nothing live — the builtin palette commands' own bodies (Side Shell, Side Draft and Shell split or create windows), `cmd/tmux_*.go` other than `cmd/tmux_palette.go` and `cmd/tmux_resolve_mission.go` (the two the harness drives), `cmd/mission_draft.go`, `internal/server/tmux.go`, `internal/server/pane_reconcile.go`, `internal/wrapper/tmux.go`, and anything that needs a real mission with Claude running in a pool window: a palette action actually producing a mission in the foreground (Quick Claude, New Mission, Open <repo>), pool window linking in `internal/server/pool.go`, and the attach/detach/create session resolution in `internal/server/missions.go`, `cmd/mission_new.go`, `cmd/mission_attach.go`, `cmd/mission_detach.go`. Two more gaps: the direct (non-palette) keybindings such as `-n C-n` are unit-tested only as generated text in `internal/tmux/keybindings_test.go`, and nothing presses one live; and the tmux-resurrect case (a restored pane whose wrapper is gone) is likewise pinned only at the generated-text level, with no live pane restoration exercised. When your change touches one of these, tell the user manual testing is needed and name the check: open the palette, create a mission via "Quick Claude" or "Open <repo>" and confirm it appears in the foreground, then "Attach Mission" to an existing one. `make build` passing does not mean tmux integration works.
 
 Accessing $AGENC_DIRPATH
 ------------------------
