@@ -1,0 +1,63 @@
+[quickClaude]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc mission new --blank >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[talkToAgenc]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc mission new --adjutant >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[showNotifications]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 95% -h 90% "agenc notification manage" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[newMission]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 68% -h 63% "agenc mission new" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[switchMission]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 85% -h 80% "agenc mission attach" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[detachMission]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc mission detach $AGENC_CALLING_MISSION_UUID >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[sideShell]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux split-window -h -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[draft]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux split-window -h -d "agenc mission draft $AGENC_CALLING_MISSION_UUID" ; sleep 0.5 ; tmux copy-mode -t "$AGENC_CALLING_PANE_ID" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[shell]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux new-window -a -c "${AGENC_DIRPATH:-$HOME/.agenc}/missions/$AGENC_CALLING_MISSION_UUID/agent" $SHELL >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[copyMissionUuid]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; printf '%s' $AGENC_CALLING_MISSION_UUID | pbcopy >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[renameSession]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 68% -h 63% "agenc mission rename $AGENC_CALLING_MISSION_UUID" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[stopMission]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc mission stop $AGENC_CALLING_MISSION_UUID >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[reloadMission]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc mission reload $AGENC_CALLING_MISSION_UUID >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[removeMission]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 68% -h 63% "agenc mission rm" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[nukeMissions]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 68% -h 63% "agenc mission nuke" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[stashWorkspace]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 68% -h 63% "agenc stash push" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[restoreWorkspace]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux display-popup -e AGENC_CALLING_PANE_ID=%42 -e AGENC_CALLING_SESSION_NAME=work -E -w 68% -h 63% "agenc stash pop" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[exitTmux]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; tmux detach >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[sendFeedback]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc mission new --adjutant --prompt "I'd like to send feedback about AgenC" >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[joinDiscord]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc discord >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
+[starAgenc]
+export AGENC_DIRPATH=<AGENC_DIRPATH>; export AGENC_CALLING_PANE_ID=%42; export AGENC_CALLING_SESSION_NAME=work; agenc star >> <AGENC_DIRPATH>/logs/palette.log 2>&1
+
