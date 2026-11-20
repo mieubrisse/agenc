@@ -161,7 +161,7 @@ test: genprime
 e2e: bin test-env
 	@scripts/e2e-test.sh; rc=$$?; scripts/e2e-palette-test.sh || rc=1; $(MAKE) test-env-clean; exit $$rc
 
-# Drives the tmux palette on a private tmux server; needs tmux >= 3.2 and fzf.
+# Drives the tmux palette on a private tmux server; needs tmux >= 3.3, fzf and sqlite3.
 # Self-contained: it builds and tears down its own AgenC environment.
 e2e-palette: bin
 	@scripts/e2e-palette-test.sh

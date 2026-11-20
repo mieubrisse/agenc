@@ -22,7 +22,7 @@ script_dirpath="$(cd "$(dirname "${0}")" && pwd)"
 # live in a fresh TMUX_TMPDIR under unique -L names, and the run aborts before
 # any popup unless the palette server's only client is the host pane.
 #
-# Needs tmux >= 3.2 (display-popup) and fzf. Run via `make e2e-palette`, which
+# Needs tmux >= 3.3 (display-popup -e), fzf and sqlite3. Run via `make e2e-palette`, which
 # builds _build/agenc first; `make e2e` runs it too.
 
 repo_dirpath="$(cd "${script_dirpath}/.." && pwd)"
@@ -74,10 +74,17 @@ if ! command -v sqlite3 >/dev/null 2>&1; then
     echo "FAIL: sqlite3 is required (to register a stand-in mission) but is not on PATH" >&2
     exit 1
 fi
-tmux_version="$(tmux -V 2>/dev/null | sed -E 's/^tmux ([0-9]+)\.([0-9]+).*/\1 \2/' || true)"
-read -r tmux_major tmux_minor <<< "${tmux_version:-0 0}"
-if [ "${tmux_major}" -lt 3 ] || { [ "${tmux_major}" -eq 3 ] && [ "${tmux_minor}" -lt 2 ]; }; then
-    echo "FAIL: tmux >= 3.2 is required for display-popup (found '$(tmux -V 2>&1 || true)')" >&2
+# 3.3, not 3.2: the palette passes the calling pane and session into popups
+# with `display-popup -e`, which tmux added in 3.3.
+tmux_version_line="$(tmux -V 2>/dev/null || true)"
+if [[ ! "${tmux_version_line}" =~ ^tmux\ ([0-9]+)\.([0-9]+) ]]; then
+    echo "FAIL: cannot read a tmux version from '${tmux_version_line}'; tmux >= 3.3 is required" >&2
+    exit 1
+fi
+tmux_major="${BASH_REMATCH[1]}"
+tmux_minor="${BASH_REMATCH[2]}"
+if [ "${tmux_major}" -lt 3 ] || { [ "${tmux_major}" -eq 3 ] && [ "${tmux_minor}" -lt 3 ]; }; then
+    echo "FAIL: tmux >= 3.3 is required for display-popup -e (found '${tmux_version_line}')" >&2
     exit 1
 fi
 
@@ -158,17 +165,20 @@ paletteCommands:
       tmux display-popup -E 'printf "%s|%s\n" "\$AGENC_CALLING_PANE_ID" "\$AGENC_CALLING_SESSION_NAME" > ${popup_probe_filepath}'
 EOF
 
-# /bin/sh everywhere, so the developer's shell rc files cannot reorder PATH or
-# print anything into the panes being screenshotted.
-palette_tmux_conf_filepath="${universe_dirpath}/palette.tmux.conf"
-echo "set -g default-shell /bin/sh" > "${palette_tmux_conf_filepath}"
+# /bin/sh on both servers, so the developer's shell startup files cannot
+# reorder PATH, change TMUX_TMPDIR, or print into the panes being screenshotted.
+harness_tmux_conf_filepath="${universe_dirpath}/harness.tmux.conf"
+echo "set -g default-shell /bin/sh" > "${harness_tmux_conf_filepath}"
 
-palette_tmux -f "${palette_tmux_conf_filepath}" new-session -d -s "${PALETTE_SESSION_NAME}" -x 160 -y 45 /bin/sh
-host_tmux -f /dev/null new-session -d -s "${HOST_SESSION_NAME}" -x 170 -y 50 \
+palette_tmux -f "${harness_tmux_conf_filepath}" new-session -d -s "${PALETTE_SESSION_NAME}" -x 160 -y 45 /bin/sh
+host_tmux -f "${harness_tmux_conf_filepath}" new-session -d -s "${HOST_SESSION_NAME}" -x 170 -y 50 \
     "env -u TMUX tmux -L ${PALETTE_SOCKET_NAME} attach-session -t =${PALETTE_SESSION_NAME}"
 
-# AgenC refuses to create a tmux server (KEV-168), so it starts only now that
-# the palette server exists. It writes the keybindings file on startup.
+# The AgenC server's own tmux calls name no -L socket, so they look for the
+# default socket inside TMUX_TMPDIR, where no server exists; AgenC refuses to
+# create one (KEV-168) and runs without a pool session, unable to reach either
+# harness server. It is needed for the keybindings file it writes on startup
+# and for `agenc tmux resolve-mission`.
 "${agenc_binary_filepath}" server start >/dev/null
 
 keybindings_filepath="${AGENC_DIRPATH}/tmux-keybindings.conf"
@@ -211,11 +221,15 @@ screen() {
     host_tmux capture-pane -p -t "=${HOST_SESSION_NAME}:"
 }
 
+# The screen is captured into a variable before matching, never piped: under
+# pipefail a capture that fails after grep matched would read as "not shown",
+# and a failed capture must never count as a popup having closed.
 wait_for_screen_to_show() {
     local pattern="${1}"
     local deadline=$((SECONDS + SCREEN_WAIT_SECONDS))
+    local screen_text
     while [ "${SECONDS}" -lt "${deadline}" ]; do
-        if screen | grep -qE "${pattern}"; then
+        if screen_text="$(screen)" && grep -qE "${pattern}" <<< "${screen_text}"; then
             return 0
         fi
         sleep 0.2
@@ -226,8 +240,9 @@ wait_for_screen_to_show() {
 wait_for_screen_to_drop() {
     local pattern="${1}"
     local deadline=$((SECONDS + SCREEN_WAIT_SECONDS))
+    local screen_text
     while [ "${SECONDS}" -lt "${deadline}" ]; do
-        if ! screen | grep -qE "${pattern}"; then
+        if screen_text="$(screen)" && ! grep -qE "${pattern}" <<< "${screen_text}"; then
             return 0
         fi
         sleep 0.2
@@ -314,7 +329,8 @@ fi
 #    The keybinding's `agenc tmux resolve-mission` then finds it, exactly as it
 #    would for a live mission.
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-sqlite3 "${AGENC_DIRPATH}/database.sqlite" \
+# The busy timeout rides out a write the running server may hold at this moment.
+sqlite3 -cmd ".timeout 5000" "${AGENC_DIRPATH}/database.sqlite" \
     "INSERT INTO missions (id, short_id, status, created_at, updated_at, tmux_pane) VALUES ('${FAKE_MISSION_UUID}', '${FAKE_MISSION_UUID:0:8}', 'active', '${now}', '${now}', '${palette_pane_id#%}');"
 test_name="mission command receives the resolved mission UUID"
 expected_mission_values="${FAKE_MISSION_UUID}|${expected_calling_values}"
