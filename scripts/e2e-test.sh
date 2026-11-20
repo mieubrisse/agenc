@@ -3655,6 +3655,7 @@ if [ -n "${stale_known_skips}" ]; then
     echo ""
     echo "E2E_KNOWN_SKIPS lists checks that did not skip. Delete them from the list (.github/workflows/e2e.yml):"
     printf '%s' "${stale_known_skips}"
+    echo "Only once the defect the workflow cites for each is fixed: a defect that is a race (KEV-77's SIGPIPE) can let one run through, and that is not a fix."
     exit 1
 fi
 
