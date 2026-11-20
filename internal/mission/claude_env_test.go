@@ -3,6 +3,7 @@ package mission
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/odyssey/agenc/internal/config"
@@ -226,6 +227,23 @@ func TestValidateMissionEnvRefusesEveryProtectedName(t *testing.T) {
 				t.Fatalf("ValidateMissionEnv accepted '%s', which AgenC sets itself", name)
 			}
 		})
+	}
+}
+
+// The refusal says the value is DROPPED, not overridden. For the names AgenC
+// has no value for on a default install there is nothing to override with, so
+// "overridden" would tell the caller something false about what happens.
+func TestValidateMissionEnvRefusalSaysDroppedNotOverridden(t *testing.T) {
+	err := ValidateMissionEnv(map[string]string{config.AgencDirpathEnvVarName(): "/tmp/elsewhere"})
+	if err == nil {
+		t.Fatal("ValidateMissionEnv accepted AgenC's own dirpath variable")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "dropped") {
+		t.Errorf("refusal %q does not say the value is dropped", message)
+	}
+	if strings.Contains(message, "overridden") {
+		t.Errorf("refusal %q says the value is overridden, which is false for a name AgenC has no value for", message)
 	}
 }
 

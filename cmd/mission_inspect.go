@@ -158,7 +158,7 @@ func inspectMission(agencDirpath string, missionID string) error {
 	// came from an older client or a hand edit, and saying so beats either
 	// hiding it or printing it as though it applies.
 	if ignoredEnv := mission.IgnoredMissionEnvNames(missionRecord.ClaudeEnv); len(ignoredEnv) > 0 {
-		fmt.Printf("Ignored env: %s (AgenC sets these itself; the stored values do not take effect)\n", strings.Join(ignoredEnv, ", "))
+		fmt.Printf("Ignored env: %s (AgenC owns these; the stored values are dropped at spawn and do not take effect)\n", strings.Join(ignoredEnv, ", "))
 	}
 	fmt.Printf("Prompt:      %s\n", prompt)
 	fmt.Printf("Directory:   %s\n", missionDirpath)

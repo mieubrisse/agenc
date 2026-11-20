@@ -72,15 +72,17 @@ func ValidateMissionEnv(missionEnv map[string]string) error {
 				name,
 			)
 		}
-		// A name AgenC sets itself would be overridden at spawn time, because
-		// the spawn path re-applies AgenC's own values on top of the mission's.
-		// Refusing it here is the courtesy half of that: the caller is told
-		// now, rather than finding out from a value that silently did not take
-		// effect. The guarantee is the ordering, not this check — a client that
-		// somehow stored one anyway still loses to AgenC at spawn.
+		// A name AgenC owns is dropped from the mission's variables at spawn,
+		// and AgenC applies its own value in its place only when it has one —
+		// for several names on a default install it has none, so the variable
+		// ends up unset rather than overridden. Refusing it here is the
+		// courtesy half of that: the caller is told now, rather than finding
+		// out from a value that silently did not take effect. The guarantee is
+		// the drop, not this check — a client that somehow stored one anyway
+		// still never reaches the process.
 		if config.IsProtectedEnvVar(name) {
 			return stacktrace.NewError(
-				"environment variable '%v' is one AgenC sets itself, so a value given here would be overridden at spawn time and cannot take effect; "+
+				"environment variable '%v' is one AgenC owns, so a value given here would be dropped at spawn time and cannot take effect (the variable carries AgenC's own value where AgenC has one, and is otherwise absent); "+
 					"the names AgenC owns are %v",
 				name,
 				strings.Join(config.ProtectedEnvVars, ", "),

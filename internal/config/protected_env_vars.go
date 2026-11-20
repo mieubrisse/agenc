@@ -77,11 +77,42 @@ const ClaudeConfigDirEnvVar = "CLAUDE_CONFIG_DIR"
 // context, add it here too. `TestProtectedEnvVarsCoversEveryAgencEnvVar` scans
 // the whole repository for AGENC_-prefixed names — which catches read-sites as
 // well as set-sites, since reading one requires naming it — and fails naming any
-// that is missing. That is the whole reason this is a list in one place rather
-// than a check scattered across call sites. A non-AGENC_ name is NOT caught by
-// that scan: OAuthTokenEnvVar and ClaudeConfigDirEnvVar are both outside the
-// AGENC_ prefix and are held only by the entries above, so a third such name
-// would need the scan taught about it.
+// that is missing, with the file it was found in. That is the whole reason this
+// is a list in one place rather than a check scattered across call sites.
+//
+// WHAT THE SCAN SEES: an AGENC_ name anywhere inside a string literal in a
+// non-test Go file — on its own ("AGENC_MISSION_UUID") or embedded in a larger
+// string ("agenc mission send claude-update $AGENC_MISSION_UUID Stop", the
+// spelling every state-tracking hook command uses) — and an AGENC_ name anywhere
+// on a non-comment line of a .sh file ("${AGENC_DIRPATH:-}").
+//
+// WHAT THE SCAN DOES NOT SEE. A name that reaches the code only in one of these
+// shapes is NOT held to this list by any test, and has to be added by hand:
+//
+//   - A name outside the AGENC_ prefix. OAuthTokenEnvVar and
+//     ClaudeConfigDirEnvVar are both outside it and are held only by the
+//     entries above, so a third such name would need the scan taught about it.
+//     CLAUDE_CONFIG_DIR, the most serious entry here, was caught by human review,
+//     not by a test.
+//   - A name assembled at run time rather than written whole: "AGENC_" + suffix,
+//     or fmt.Sprintf("AGENC_%s", ...). Nothing in the codebase is written that way.
+//   - A name written only in a file that is neither non-test Go nor .sh — any
+//     other file at all. Today that includes the Makefile (whose agenc-test
+//     wrapper exports AGENC_DIRPATH and AGENC_TEST_ENV), the extensionless
+//     shell scripts under .githooks/ and scripts/hooks/, and the embedded
+//     mission prompts in internal/claudeconfig (prime_content.md,
+//     prime_preamble.md, adjutant_claude.md), which tell a mission's agent to
+//     read $AGENC_DIRPATH and $AGENC_MISSION_UUID.
+//   - A name written only inside a Go string literal as prose shorthand, such
+//     as "the AGENC_CALLING_* names", is the opposite case: the scan reads it
+//     as the name AGENC_CALLING_ and fails. That fails safe; reword the string.
+//   - A name written only in a _test.go file, which is excluded because a test
+//     may name a variable to probe it.
+//   - A name written only in a Go comment, or on a .sh line whose first
+//     non-blank character is `#` — including a heredoc line that starts with `#`.
+//
+// TestAgencEnvVarNameScanCoverage pins which of these shapes the scan sees, so
+// this list and the scan cannot quietly disagree.
 //
 // DELIBERATELY NOT INCLUDED. Each of these can be set through `--env`, and the
 // line is "AgenC sets it" rather than "AgenC depends on it" — the former is a
@@ -147,8 +178,8 @@ func AgencDirpathEnvVarName() string {
 	return agencDirpathEnvVar
 }
 
-// IsProtectedEnvVar reports whether AgenC sets this environment variable
-// itself, and therefore whether a caller naming it would be overridden.
+// IsProtectedEnvVar reports whether AgenC owns this environment variable, and
+// therefore whether a value a caller gives it is dropped at spawn.
 func IsProtectedEnvVar(name string) bool {
 	return protectedEnvVarSet[name]
 }

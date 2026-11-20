@@ -101,11 +101,11 @@ mission and survive reload and restart, and they apply to that mission alone --
 a clone does not inherit them, so a marker cannot spread to missions nobody
 declared.
 
-The names AgenC sets itself are refused rather than silently overridden, so
+The names AgenC owns are refused rather than silently dropped, so
 "--%s AGENC_MISSION_SOURCE=cron" is an error at creation instead of a mission
-that quietly does not get what it asked for. AgenC also re-applies its own
-values after the mission's at every spawn, so those names are AgenC's whatever
-reaches the mission record.`,
+that quietly does not get what it asked for. AgenC also drops those names from
+the mission's variables at every spawn, so whatever reaches the mission record
+never takes effect: the variable carries AgenC's own value, or nothing.`,
 		cloneFlagName,
 		agencCmdStr, missionCmdStr, newCmdStr,
 		agencCmdStr, missionCmdStr, newCmdStr,
