@@ -41,16 +41,43 @@ const (
 
 // TestPaletteGolden_DispatchCommands pins buildPaletteDispatchCommand for every
 // builtin palette command, under each calling context the palette meets: opened
-// from a mission pane, opened from a plain pane, and opened in a test env.
+// from a mission pane, opened from a plain pane, opened in a test env, and
+// opened from a default install, whose AGENC_DIRPATH is never exported.
 func TestPaletteGolden_DispatchCommands(t *testing.T) {
 	scenarios := []struct {
 		name               string
 		goldenFilename     string
+		isDefaultDirpath   bool
 		isTestEnv          bool
 		callingPaneID      string
 		callingSessionName string
 		callingMissionUUID string
 	}{
+		{
+			name:               "from a default install",
+			goldenFilename:     "palette_dispatch_default_install.txt",
+			isDefaultDirpath:   true,
+			callingPaneID:      paletteGoldenCallingPaneID,
+			callingSessionName: paletteGoldenCallingSessionName,
+			callingMissionUUID: paletteGoldenCallingMissionUUID,
+		},
+		{
+			// A test-env flag on a default install must not export anything:
+			// the AGENC_TEST_ENV export sits inside the namespace gate.
+			name:               "from a default install with the test-env flag set",
+			goldenFilename:     "palette_dispatch_default_install_test_env.txt",
+			isDefaultDirpath:   true,
+			isTestEnv:          true,
+			callingPaneID:      paletteGoldenCallingPaneID,
+			callingSessionName: paletteGoldenCallingSessionName,
+		},
+		{
+			// Pane and session are exported independently; set only one so a
+			// change coupling them shows up.
+			name:           "with a calling pane but no session",
+			goldenFilename: "palette_dispatch_pane_without_session.txt",
+			callingPaneID:  paletteGoldenCallingPaneID,
+		},
 		{
 			name:               "from a mission pane",
 			goldenFilename:     "palette_dispatch_mission_pane.txt",
@@ -82,6 +109,13 @@ func TestPaletteGolden_DispatchCommands(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			agencDirpath := t.TempDir()
+			if scenario.isDefaultDirpath {
+				// A default install is $HOME/.agenc, so point HOME at a temp
+				// dir rather than touching the real one.
+				homeDirpath := t.TempDir()
+				t.Setenv("HOME", homeDirpath)
+				agencDirpath = filepath.Join(homeDirpath, ".agenc")
+			}
 			t.Setenv(config.AgencDirpathEnvVarName(), agencDirpath)
 			t.Setenv(config.CallingPaneIDEnvVar, scenario.callingPaneID)
 			t.Setenv(config.CallingSessionNameEnvVar, scenario.callingSessionName)
