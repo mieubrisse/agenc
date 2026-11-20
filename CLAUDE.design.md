@@ -31,8 +31,18 @@ The document exists because of the gap that bead names. While shipping `agenc-hx
 
 - **2026-09-06** — Added the "Help Text and Docs Name Only Real Flags and Keys" section, alongside the drift verifiers in `cmd/help_text_drift_test.go` and `internal/config/docs_yaml_roundtrip_test.go`. Mission `7e071462-4819-4684-b12d-0183477cdb61`, bead `agenc-qz2l`. Originating incident recorded in that bead: mission `c992afb7-8c18-4760-9534-94e0a37cb6ab`, session `6a7de280`.
 
+- **2026-11-20** — Extended the E2E helper list in "Building and Checking" with `run_test_output_lacks`, `text_matches`, `command_output_matches`, and the rule against piping into `grep -q`. Linear issue [KEV-77](https://linear.app/todayendeavors/issue/KEV-77/e2e-checks-silently-fail-when-grep-q-sigpipes-the-producer-under); T3 thread `11a8a5f0-c735-492d-a6ca-855577989fa8` (Kevin's nightly issue burn-down, KEV-317). The mechanism was found by AgenC mission `92d4f324` and confirmed by mission `75369bde`; their reproduction is on the issue.
+
 Design Decisions
 ----------------
+
+### No pipe into `grep -q` in the E2E script (2026-11-20)
+
+**The failure being prevented.** The PR #52 idle-timeout assertions skipped on every machine from the day they landed, because the guard piped `mission inspect` into `grep -q` under `set -o pipefail`. Two missions spent their investigations on socket paths and OAuth before anyone looked at the pipeline, because a skip reads like an environment limitation rather than a broken check.
+
+**Why the rule sits in CLAUDE.md as well as in the script.** The helper list in CLAUDE.md is what an author reads before writing a check, so it carries the rule and a one-sentence reason, enough to make the rule legible without opening the script. The full mechanism, including the three conditions and the pipe-buffer threshold, lives only in the helper comment in `scripts/e2e-test.sh`. A preflight scan in the script also refuses to run when it finds a pipe into `grep -q`, on one line or split across lines, which catches anyone who skipped both. It is a text scan, not a parser: a pipe hidden behind a variable or an alias gets past it.
+
+**`echo "$var" | grep -q` is not exempt.** The issue's original audit assumed it was, because the builtin writes once. Measured on 2026-11-20 it fails 5/5 at 70 KB and above, once the text outgrows the macOS pipe buffer. That is why the fix is a here-string matcher for every site rather than a list of exempt shapes.
 
 ### Help text and docs name only real flags and keys (2026-09-06)
 

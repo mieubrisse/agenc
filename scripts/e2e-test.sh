@@ -17,6 +17,155 @@ failed=0
 skipped=0
 total=0
 
+# Every skip names one of these classes, so the summary can report what kind of
+# coverage a run lacked rather than a bare number (KEV-121). Only the first is
+# expected anywhere: no environment this suite runs in has an authenticated
+# Claude conversation, so those checks skip on a laptop and in CI alike. Every
+# other class means a precondition the suite expected did not appear, and CI
+# sets E2E_FAIL_ON_ENVIRONMENT_SKIP=1 to fail on them, because a green run that
+# quietly skipped them would report coverage it does not have.
+#
+# The checks that cannot run in CI, or anywhere else this suite runs, are the
+# needs-claude-conversation ones, each pinned by unit tests instead:
+#   - "search-fzf orders results newest-first": needs indexed session content
+#     and a session title, both written only by a live conversation.
+#   - "mission peers emits no ANSI": a peer row needs a live Claude session.
+#   - "mission search emits no ANSI": a hit needs indexed session content.
+# .github/workflows/e2e.yml names the same list. Keep the two in step.
+SKIP_CLASS_NEEDS_CONVERSATION="needs-claude-conversation"
+SKIP_CLASS_NO_CLAUDE="no-claude-process"
+SKIP_CLASS_NO_WRAPPER_STATE="no-wrapper-state"
+SKIP_CLASS_FIXTURE_MISSING="fixture-missing"
+SKIP_CLASSES="${SKIP_CLASS_NEEDS_CONVERSATION} ${SKIP_CLASS_NO_CLAUDE} ${SKIP_CLASS_NO_WRAPPER_STATE} ${SKIP_CLASS_FIXTURE_MISSING}"
+
+describe_skip_class() {
+    case "${1}" in
+        "${SKIP_CLASS_NEEDS_CONVERSATION}") echo "needs an authenticated Claude conversation to populate its rows; no environment this suite runs in has one, with or without credentials" ;;
+        "${SKIP_CLASS_NO_CLAUDE}") echo "no Claude process appeared for the mission: the claude binary is missing, or the spawn failed" ;;
+        "${SKIP_CLASS_NO_WRAPPER_STATE}") echo "the wrapper reported no state over its socket: the socket path exceeds the macOS 104-byte limit (KEV-72)" ;;
+        "${SKIP_CLASS_FIXTURE_MISSING}") echo "an earlier step that builds this check's fixture (a mission, its tmux pane, the server PID file, a process environment) failed" ;;
+        *) echo "unknown skip class '${1}'" ;;
+    esac
+}
+
+# One line per skip, "<class>", so the summary can count them per class.
+skip_classes_seen=""
+
+# E2E_KNOWN_SKIPS is a newline-separated list of check names that the caller
+# knows will skip for a defect tracked elsewhere. A listed check that skips does
+# not trip E2E_FAIL_ON_ENVIRONMENT_SKIP. A listed check that runs fails the
+# suite, so the entry is deleted by the change that fixed it rather than left
+# to excuse a future regression.
+known_skips_taken=""
+
+# Records a skip of the check whose name the caller has already printed. Pass
+# the check's name as the third argument for it to be matchable against
+# E2E_KNOWN_SKIPS.
+record_skip() {
+    local skip_class="${1}"
+    local detail="${2}"
+    local check_name="${3:-}"
+    skipped=$((skipped + 1))
+    if [ -n "${check_name}" ] && printf '%s\n' "${E2E_KNOWN_SKIPS:-}" | grep -xF -- "${check_name}" >/dev/null; then
+        echo "SKIP [${skip_class}] (${detail}) [known: listed in E2E_KNOWN_SKIPS]"
+        known_skips_taken="${known_skips_taken}${check_name}"$'\n'
+        return 0
+    fi
+    echo "SKIP [${skip_class}] (${detail})"
+    skip_classes_seen="${skip_classes_seen}${skip_class}"$'\n'
+}
+
+# Every check in this script that asks "does this output contain X" goes through
+# text_matches (for text already captured) or command_output_matches (for a
+# command's output). Never pipe a command into `grep -q`: the preflight check
+# below refuses to run the suite if one appears.
+#
+# The reason is invisible at a glance. Under this script's `set -o pipefail`,
+# `producer | grep -q PATTERN` reports FAILURE when the pattern IS found, any
+# time the producer still has output to write after the matching line: grep -q
+# exits on its first match, the producer's next write hits a closed pipe, the
+# producer dies of SIGPIPE (exit 141), and pipefail makes 141 the pipeline's
+# status. It needs all three -- an early match, a producer still writing, and
+# pipefail -- so the same line typed into an interactive shell succeeds, and a
+# single trial can lose the race and "disprove" it. `echo "${var}" | grep -q` is
+# not exempt either: once the text outgrows the pipe buffer (64 KiB on macOS),
+# echo is still writing when grep exits.
+#
+# It fails silently in every direction, which is how it survived. In a "must
+# contain" check a match reads as a failed test. In a "must not contain" check
+# a regression reads as a pass. In a guard it reads as a SKIP that looks like an
+# environment limitation: the idle-timeout assertions below skipped on every
+# machine for this reason while two investigations looked at socket paths and
+# auth (KEV-77).
+#
+# Matching a here-string removes the producer from the pipeline: the shell has
+# written the whole text before grep starts, so there is nothing left to kill.
+
+# text_matches <text> <grep-args...>
+# grep -q with the given arguments, run over the text. Returns 0 on a match and
+# 1 on none. A grep error (a malformed pattern) stops the suite, because read as
+# "no match" it would pass every "must not contain" check that used it.
+text_matches() {
+    local text="${1}"
+    shift
+    local grep_status=0
+    grep -q "${@}" <<< "${text}" || grep_status=$?
+    if [ "${grep_status}" -gt 1 ]; then
+        echo "ERROR: grep failed (exit ${grep_status}) with arguments '${*}'" >&2
+        exit 1
+    fi
+    return "${grep_status}"
+}
+
+# command_output_matches <extended-regex> <command...>
+# Runs the command to completion, then matches its stdout and stderr against the
+# regex line by line. Returns 0 on a match, 1 when the command succeeded and
+# nothing matched, and 2 when the command itself exited non-zero, leaving that
+# exit status in last_command_exit (0 otherwise). A check that skips or passes
+# on "no match" must treat 2 differently: a probe whose command died is a broken
+# check, not an environment that cannot cover the behaviour.
+last_command_exit=0
+command_output_matches() {
+    local pattern="${1}"
+    shift
+    local output
+    last_command_exit=0
+    output="$("${@}" 2>&1)" || last_command_exit=$?
+    if [ "${last_command_exit}" -ne 0 ]; then
+        return 2
+    fi
+    text_matches "${output}" -E -- "${pattern}"
+}
+
+# Poll `mission inspect` until it reports the wanted status, or give up after 20
+# seconds. Returns 0 on match; on failure, last_command_exit tells a dead
+# `mission inspect` apart from a status that never arrived.
+#
+# Polling, because the server asks the wrapper for its state over a socket with
+# a 500ms budget (wrapperQueryTimeout), tuned for `mission ls` being
+# interactive; under the load this suite generates that query can time out,
+# claude_state comes back nil and `mission inspect` falls back to RUNNING. A
+# single sample can therefore report a failure that says nothing about the
+# state machine.
+#
+# Polling makes an assertion meaningful only when the status is CHANGING to the
+# wanted value, or when the alternative cannot change back. Asserting a status
+# the mission already holds proves nothing on its own -- the first sample
+# returns immediately whether or not the event under test did anything.
+await_mission_status() {
+    local uuid="${1}"
+    local wanted="${2}"
+    local deadline=$((SECONDS + 20))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if command_output_matches "^Status:[[:space:]]+${wanted}([[:space:]]|$)" \
+            "${agenc_test}" mission inspect "${uuid}"; then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
 run_test() {
     local test_name="${1}"
     shift
@@ -65,8 +214,44 @@ run_test_output_contains() {
         return
     fi
 
-    if ! echo "${output}" | grep -qE "${expected_pattern}"; then
+    if ! text_matches "${output}" -E -- "${expected_pattern}"; then
         echo "FAIL (output missing pattern: ${expected_pattern})"
+        echo "    Output: ${output}" | head -5
+        failed=$((failed + 1))
+        return
+    fi
+
+    echo "PASS"
+    passed=$((passed + 1))
+}
+
+# The negative of run_test_output_contains: the command must exit 0 and its
+# output must NOT match the regex. The exit check matters as much as the match:
+# a command that died printed nothing, and nothing never matches.
+run_test_output_lacks() {
+    local test_name="${1}"
+    shift
+    local unexpected_pattern="${1}"
+    shift
+
+    total=$((total + 1))
+    printf "  %-50s " "${test_name}..."
+
+    local output
+    local actual_exit=0
+    output=$("$@" 2>&1) || actual_exit=$?
+
+    if [ "${actual_exit}" -ne 0 ]; then
+        echo "FAIL (exit ${actual_exit}, expected 0)"
+        if [ -n "${output}" ]; then
+            echo "    Output: ${output}" | head -5
+        fi
+        failed=$((failed + 1))
+        return
+    fi
+
+    if text_matches "${output}" -E -- "${unexpected_pattern}"; then
+        echo "FAIL (output contains pattern: ${unexpected_pattern})"
         echo "    Output: ${output}" | head -5
         failed=$((failed + 1))
         return
@@ -95,7 +280,7 @@ run_test_eventually_output_contains() {
     local output=""
     while [ "${SECONDS}" -lt "${deadline}" ]; do
         output=$("$@" 2>&1) || true
-        if echo "${output}" | grep -qE "${expected_pattern}"; then
+        if text_matches "${output}" -E -- "${expected_pattern}"; then
             echo "PASS"
             passed=$((passed + 1))
             return
@@ -193,6 +378,32 @@ fi
 if [ ! -d "${repo_dirpath}/_test-env" ]; then
     echo "ERROR: _test-env/ directory not found."
     echo "Run 'make test-env' first."
+    exit 1
+fi
+
+# A pipe into `grep -q` reads as correct and reports a match as a failure; see
+# text_matches above. Refuse to run rather than let one back in. awk first joins
+# a line ending in `|` to the next, so a pipe split across lines is still seen;
+# a pipe that starts a continuation line already sits on one line.
+pipe_into_quiet_grep_scan_exit=0
+pipe_into_quiet_grep_lines="$(awk '{
+        if (pending != "") { line = pending " " $0; line_number = pending_line_number } else { line = $0; line_number = NR }
+        if (line ~ /\|[[:space:]]*$/) { pending = line; pending_line_number = line_number; next }
+        pending = ""
+        print line_number ":" line
+    }' "${BASH_SOURCE[0]}" \
+    | grep -E '\|&?[[:space:]]*(command[[:space:]]+)?[ef]?grep[[:space:]]([^|;&]*[[:space:]])?(-[A-Za-z]*q[A-Za-z]*|--quiet|--silent)([[:space:]]|$)')" \
+    || pipe_into_quiet_grep_scan_exit=$?
+if [ "${pipe_into_quiet_grep_scan_exit}" -gt 1 ]; then
+    echo "ERROR: could not scan ${BASH_SOURCE[0]} for pipes into 'grep -q' (grep exit ${pipe_into_quiet_grep_scan_exit})."
+    exit 1
+fi
+# Comment lines may name the form; only code counts.
+pipe_into_quiet_grep_lines="$(grep -vE '^[0-9]+:[[:space:]]*#' <<< "${pipe_into_quiet_grep_lines}" || true)"
+if [ -n "${pipe_into_quiet_grep_lines}" ]; then
+    echo "ERROR: ${BASH_SOURCE[0]} pipes a command into 'grep -q', which under pipefail reports a match as a failure."
+    echo "Use text_matches or command_output_matches instead. Offending lines:"
+    echo "${pipe_into_quiet_grep_lines}"
     exit 1
 fi
 
@@ -437,15 +648,9 @@ run_test "a cron that will never fire is configured" \
 # first-seen guard from a missing one -- do not read it as covering that. The
 # real discriminating check is "a cron planted mid-spell earns no note" at the end
 # of this script, backed by the unit tests in cron_health_loop_test.go.
-total=$((total + 1))
-printf "  %-50s " "nothing is reported the instant a cron is added..."
-if "${agenc_test}" notification ls --all 2>/dev/null | grep -q 'cron\.quiet'; then
-    echo "FAIL (a cron was reported quiet the moment it was created)"
-    failed=$((failed + 1))
-else
-    echo "PASS"
-    passed=$((passed + 1))
-fi
+run_test_output_lacks "nothing is reported the instant a cron is added" \
+    'cron\.quiet' \
+    "${agenc_test}" notification ls --all
 
 echo ""
 echo "--- Prime ---"
@@ -523,7 +728,7 @@ run_test "config repoConfig set --description= clears the value" \
 total=$((total + 1))
 printf "  %-50s " "repo ls no longer shows cleared description..."
 ls_output=$("${agenc_test}" repo ls 2>&1) || true
-if echo "${ls_output}" | grep -q "Updated test description"; then
+if text_matches "${ls_output}" "Updated test description"; then
     echo "FAIL (cleared description still present in output)"
     echo "    Output: ${ls_output}" | head -5
     failed=$((failed + 1))
@@ -600,7 +805,7 @@ run_test_no_crash "mission reload --async with bad ID does not crash" \
 total=$((total + 1))
 printf "  %-50s " "mission detach error message mentions sandbox..."
 detach_output=$(env -u TMUX -u AGENC_CALLING_SESSION_NAME "${agenc_test}" mission detach deadbeef 2>&1 || true)
-if echo "${detach_output}" | grep -qE "sandbox"; then
+if text_matches "${detach_output}" -E "sandbox"; then
     echo "PASS"
     passed=$((passed + 1))
 else
@@ -670,8 +875,7 @@ if [ -n "${mission_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "search-fzf finds mission by short ID..."
-    echo "SKIP (could not create test mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not create test mission"
 fi
 
 # Regression: the attach picker reload command (search-fzf) still renders rows
@@ -689,8 +893,7 @@ run_test_no_crash "mission search-fzf empty query renders" \
 # stays visible — see agenc-t3fb.
 total=$((total + 1))
 printf "  %-50s " "search-fzf orders results newest-first..."
-echo "SKIP (cannot populate discriminating rows in the test environment)"
-skipped=$((skipped + 1))
+record_skip "${SKIP_CLASS_NEEDS_CONVERSATION}" "cannot populate discriminating rows in the test environment"
 
 echo ""
 echo "--- LAST PROMPT column (requires server) ---"
@@ -701,17 +904,9 @@ run_test_output_contains "mission ls header shows LAST PROMPT" \
     "${agenc_test}" mission ls
 
 # mission ls does NOT render the old column header
-if "${agenc_test}" mission ls 2>&1 | grep -q "LAST ACTIVE"; then
-    total=$((total + 1))
-    printf "  %-50s " "mission ls header no longer LAST ACTIVE..."
-    echo "FAIL (still contains LAST ACTIVE)"
-    failed=$((failed + 1))
-else
-    total=$((total + 1))
-    printf "  %-50s " "mission ls header no longer LAST ACTIVE..."
-    echo "PASS"
-    passed=$((passed + 1))
-fi
+run_test_output_lacks "mission ls header no longer LAST ACTIVE" \
+    "LAST ACTIVE" \
+    "${agenc_test}" mission ls
 
 echo ""
 echo "--- Auto-Summary Pipeline (requires server) ---"
@@ -799,9 +994,9 @@ if [ -n "${notif_short_id}" ]; then
     # After read, the entry shouldn't appear in unread filter — but other
     # unread notifications may exist from earlier tests, so filter to ours
     # by short ID.
-    run_test "notification ls --kind=e2e.test no longer includes our entry" \
-        1 \
-        bash -c "'${agenc_test}' notification ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
+    run_test_output_lacks "notification ls --kind=e2e.test no longer includes our entry" \
+        "${notif_short_id}" \
+        "${agenc_test}" notification ls --kind=e2e.test
 
     run_test_output_contains "notification ls --all still shows it" \
         "E2E Hello" \
@@ -826,9 +1021,9 @@ if [ -n "${notif_short_id}" ]; then
         "as unread" \
         "${agenc_test}" notification toggle-read "${notif_short_id}"
 
-    run_test "notification toggle-read leaves it unread (visible in unread filter)" \
-        0 \
-        bash -c "'${agenc_test}' notification ls --kind=e2e.test 2>&1 | grep -q '${notif_short_id}'"
+    run_test_output_contains "notification toggle-read leaves it unread (visible in unread filter)" \
+        "${notif_short_id}" \
+        "${agenc_test}" notification ls --kind=e2e.test
 
     run_test_output_contains "notification toggle-read flips unread -> read" \
         "as read" \
@@ -855,9 +1050,11 @@ if [ -n "${mission_short_id}" ]; then
     env_mission_notif_id=$(echo "${env_mission_notif_output}" | grep -oE "'[0-9a-f]{8}'" | head -1 | tr -d "'")
 
     if [ -n "${env_mission_notif_id}" ]; then
-        run_test "notification new picks up AGENC_MISSION_UUID when --mission-id omitted" \
-            0 \
-            bash -c "'${agenc_test}' notification manage-fzf-input | grep '${env_mission_notif_id}' | grep -q '${mission_short_id}'"
+        # Each row opens with the notification's short ID; the mission column
+        # follows it on the same row.
+        run_test_output_contains "notification new picks up AGENC_MISSION_UUID when --mission-id omitted" \
+            "^${env_mission_notif_id}.*${mission_short_id}" \
+            "${agenc_test}" notification manage-fzf-input
     else
         total=$((total + 1))
         printf "  %-50s " "notification new picks up AGENC_MISSION_UUID..."
@@ -1109,9 +1306,15 @@ PY
     #     this harness. The direct `claude --print` invocation is the faithful,
     #     firing-provable exercise of the same `--settings` mechanism.
     #
-    #     Robustness: if Claude cannot launch here (no binary / no token / the
-    #     run fails), we print a VISIBLE NAMED SKIP rather than a can't-fail grep,
-    #     so the gap is never a silent green.
+    #     No credentials are needed, and the check no longer asks for them: run
+    #     without any, `claude --print` fires both SessionStart hooks and only
+    #     then exits 1 with "Not logged in" (measured against Claude Code
+    #     2.1.311, KEV-121). So Claude's exit status says nothing about the
+    #     hooks and is ignored; the sentinels are the assertion. The token is
+    #     still passed when the test env has one, to mirror BuildClaudeCmd.
+    #
+    #     Robustness: if the claude binary is absent we print a VISIBLE NAMED
+    #     SKIP rather than a can't-fail grep, so the gap is never a silent green.
     statey_claude_bin="$(command -v claude 2>/dev/null || true)"
     statey_token_file="${statey_test_env_dir}/cache/oauth-token"
     statey_union_user_sentinel="${statey_config_dir}/statey-union-user-fired"
@@ -1153,13 +1356,20 @@ PY
       '}' > "${statey_union_settings_file}"
 
     statey_union_ran=0
-    if [ -n "${statey_claude_bin}" ] && [ -f "${statey_token_file}" ]; then
+    if [ -n "${statey_claude_bin}" ]; then
         # Mirror BuildClaudeCmd's env: CLAUDE_CONFIG_DIR at the isolated config
-        # dir, the machine token, and --settings <file>. --print keeps it one-shot.
-        CLAUDE_CONFIG_DIR="${statey_config_dir}" \
-        CLAUDE_CODE_OAUTH_TOKEN="$(cat "${statey_token_file}")" \
+        # dir, the machine token when there is one, and --settings <file>.
+        # --print keeps it one-shot.
+        (
+            export CLAUDE_CONFIG_DIR="${statey_config_dir}"
+            if [ -f "${statey_token_file}" ]; then
+                CLAUDE_CODE_OAUTH_TOKEN="$(cat "${statey_token_file}")"
+                export CLAUDE_CODE_OAUTH_TOKEN
+            fi
             timeout 60 "${statey_claude_bin}" --settings "${statey_union_settings_file}" \
-            --print -p "Say only the word: pong" >/dev/null 2>&1 && statey_union_ran=1 || statey_union_ran=0
+                --print -p "Say only the word: pong" >/dev/null 2>&1
+        ) || true
+        statey_union_ran=1
     fi
 
     total=$((total + 1))
@@ -1168,10 +1378,8 @@ PY
         echo "PASS"
         passed=$((passed + 1))
     elif [ "${statey_union_ran}" -eq 0 ]; then
-        # Environment could not launch Claude (no binary/token, or run failed).
-        # Visible named skip — never a silent green.
-        echo "SKIP: --settings union firing check — Claude did not launch in this env"
-        skipped=$((skipped + 1))
+        # No claude binary on PATH. Visible named skip — never a silent green.
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "claude binary not on PATH"
     else
         echo "FAIL (union did not fire: user_sentinel=$([ -f "${statey_union_user_sentinel}" ] && echo yes || echo no), settings_sentinel=$([ -f "${statey_union_settings_sentinel}" ] && echo yes || echo no))"
         failed=$((failed + 1))
@@ -1241,7 +1449,7 @@ run_guard_assert_blocks() {
     printf "  %-50s " "${test_name}..."
     local out
     out=$(run_guard "${payload}")
-    if echo "${out}" | grep -qE 'permissionDecision.*deny'; then
+    if text_matches "${out}" -E 'permissionDecision.*deny'; then
         echo "PASS"
         passed=$((passed + 1))
     else
@@ -1355,7 +1563,7 @@ AGENC_MISSION_UUID="${fake_parent_uuid}" run_test_output_contains \
 headless_from_mission_output=$(AGENC_MISSION_UUID="${fake_parent_uuid}" "${agenc_test}" mission new --blank --headless --no-focus 2>&1) || true
 total=$((total + 1))
 printf "  %-50s " "headless from mission not reported as attached..."
-if echo "${headless_from_mission_output}" | grep -q "Launched in tmux pool"; then
+if text_matches "${headless_from_mission_output}" "Launched in tmux pool"; then
     echo "FAIL (headless spawn printed 'Launched in tmux pool')"
     failed=$((failed + 1))
 else
@@ -1390,7 +1598,7 @@ peer_test_mission_id=$(sqlite3 "${db_filepath}" "SELECT id FROM missions ORDER B
 peer_inspect_output=""
 for _ in $(seq 1 15); do
     peer_inspect_output=$("${agenc_test}" mission inspect "${peer_test_mission_id}" 2>&1 || true)
-    if echo "${peer_inspect_output}" | grep -q "no live Claude session"; then
+    if text_matches "${peer_inspect_output}" "no live Claude session"; then
         break
     fi
     sleep 1
@@ -1398,7 +1606,7 @@ done
 
 total=$((total + 1))
 printf "  %-50s " "mission inspect names the missing-peer reason..."
-if echo "${peer_inspect_output}" | grep -q "^Peer:.*no live Claude session"; then
+if text_matches "${peer_inspect_output}" "^Peer:.*no live Claude session"; then
     echo "PASS"
     passed=$((passed + 1))
 else
@@ -1459,15 +1667,9 @@ run_test_output_contains \
 # Regression guard against reintroducing the old Layer 1 CLAUDE.md prepend
 # title. If this string ever shows up in 'agenc prime' output, someone re-added
 # the old agent_instructions.md content under a new name.
-if "${agenc_test}" prime 2>&1 | grep -q "AgenC Agent Operating Instructions"; then
-    echo "FAIL: agenc prime output contains old 'AgenC Agent Operating Instructions' header — Layer 1 prepend content has been reintroduced"
-    failed=$((failed + 1))
-    total=$((total + 1))
-else
-    echo "PASS: agenc prime output does not contain old Layer 1 header"
-    passed=$((passed + 1))
-    total=$((total + 1))
-fi
+run_test_output_lacks "prime omits the old Layer 1 prepend header" \
+    "AgenC Agent Operating Instructions" \
+    "${agenc_test}" prime
 
 echo ""
 echo "--- Watcher FD-Leak Regression (agenc-ku7h) ---"
@@ -1508,7 +1710,7 @@ sleep 5
 total=$((total + 1))
 printf "  %-50s " "writeable-copy registered for FD test..."
 wc_ls_output=$("${agenc_test}" repo writeable-copy ls 2>&1) || true
-if echo "${wc_ls_output}" | grep -q "fd-leak-guard"; then
+if text_matches "${wc_ls_output}" "fd-leak-guard"; then
     echo "PASS"
     passed=$((passed + 1))
 else
@@ -1535,8 +1737,7 @@ if [ -f "${server_pid_file}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "FD count stays under 1000 (agenc-ku7h)"
-    echo "SKIP (server PID file not found at ${server_pid_file})"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "server PID file not found at ${server_pid_file}"
 fi
 
 # Clean up the writeable-copy config entry and the synthetic dir.
@@ -1572,8 +1773,7 @@ fi
 if [ -z "${detach_mission_pane}" ]; then
     total=$((total + 1))
     printf "  %-50s " "detach unlinks a window in another session..."
-    echo "SKIP (could not create a mission with a tmux pane)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not create a mission with a tmux pane"
 else
     detach_pool_session="agenc-${detach_namespace}-pool"
     detach_host_session="agenc-${detach_namespace}-e2e-host"
@@ -1584,10 +1784,11 @@ else
     tmux new-session -d -s "${detach_caller_session}" -x 80 -y 24
 
     # is_pane_in_session <session-name> — exit 0 when the mission's pane is
-    # visible in that tmux session.
+    # visible in that tmux session, 1 when it is not, and 2 when the session
+    # could not be listed at all (see command_output_matches).
     is_pane_in_session() {
-        tmux list-panes -s -t "=${1}" -F "#{pane_id}" 2>/dev/null \
-            | grep -qx "%${detach_mission_pane}"
+        command_output_matches "^%${detach_mission_pane}$" \
+            tmux list-panes -s -t "=${1}" -F "#{pane_id}"
     }
 
     # The mission's window lives in a session the caller is not sitting in.
@@ -1610,8 +1811,13 @@ else
 
     total=$((total + 1))
     printf "  %-50s " "detach unlinked the window from the host session"
-    if is_pane_in_session "${detach_host_session}"; then
+    pane_lookup_status=0
+    is_pane_in_session "${detach_host_session}" || pane_lookup_status=$?
+    if [ "${pane_lookup_status}" -eq 0 ]; then
         echo "FAIL (pane %${detach_mission_pane} still in ${detach_host_session})"
+        failed=$((failed + 1))
+    elif [ "${pane_lookup_status}" -eq 2 ]; then
+        echo "FAIL (could not list ${detach_host_session}: tmux exit ${last_command_exit})"
         failed=$((failed + 1))
     else
         echo "PASS"
@@ -1645,8 +1851,13 @@ else
 
     total=$((total + 1))
     printf "  %-50s " "detach unlinked the window from the caller session"
-    if is_pane_in_session "${detach_caller_session}"; then
+    pane_lookup_status=0
+    is_pane_in_session "${detach_caller_session}" || pane_lookup_status=$?
+    if [ "${pane_lookup_status}" -eq 0 ]; then
         echo "FAIL (pane %${detach_mission_pane} still in ${detach_caller_session})"
+        failed=$((failed + 1))
+    elif [ "${pane_lookup_status}" -eq 2 ]; then
+        echo "FAIL (could not list ${detach_caller_session}: tmux exit ${last_command_exit})"
         failed=$((failed + 1))
     else
         echo "PASS"
@@ -1677,8 +1888,7 @@ fi
 if [ -z "${draft_mission_pane}" ]; then
     total=$((total + 1))
     printf "  %-50s " "mission draft leaves the draft file on disk..."
-    echo "SKIP (could not create a mission with a tmux pane)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not create a mission with a tmux pane"
 else
     # A private TMPDIR is what makes the draft file findable, since the command
     # names the file itself. $EDITOR becomes a `cp` of a prefilled file:
@@ -1852,7 +2062,7 @@ run_test_output_contains \
 clone_replace_output=$("${agenc_test}" mission new --clone "${multi_flag_short_id}" --headless --no-focus -- --effort high 2>&1)
 total=$((total + 1))
 printf "  %-50s " "mission new --clone reports replaced Claude args..."
-if echo "${clone_replace_output}" | grep -q -- "Replaced the source mission's Claude args: --model haiku --effort low"; then
+if text_matches "${clone_replace_output}" -- "Replaced the source mission's Claude args: --model haiku --effort low"; then
     echo "PASS"
     passed=$((passed + 1))
 else
@@ -1899,9 +2109,8 @@ assert_mission_claude_argv_contains() {
     if [ -z "${argv}" ]; then
         # Not a pass and not a failure: this environment never brought a Claude
         # process up (no credentials, no binary). Say so rather than counting it.
-        echo "SKIP (no Claude process observed for the mission)"
-        skipped=$((skipped + 1))
-    elif echo "${argv}" | grep -q -- "${expected_fragment}"; then
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
+    elif text_matches "${argv}" -- "${expected_fragment}"; then
         echo "PASS"
         passed=$((passed + 1))
     else
@@ -2018,8 +2227,8 @@ total=$((total + 1))
 printf "  %-50s " "passthrough --settings warns without refusing..."
 settings_warning_output=$("${agenc_test}" mission new --blank --headless --no-focus \
     -- --settings '{"env":{"KEV88":"1"}}' 2>&1) || true
-if echo "${settings_warning_output}" | grep -q "Warning: --settings" \
-    && echo "${settings_warning_output}" | grep -q "^Created mission:"; then
+if text_matches "${settings_warning_output}" "Warning: --settings" \
+    && text_matches "${settings_warning_output}" "^Created mission:"; then
     echo "PASS"
     passed=$((passed + 1))
 else
@@ -2089,30 +2298,29 @@ assert_claude_argv_carries_passthrough() {
     if [[ -z "${claude_pid}" ]]; then
         # Not a pass and not a failure: this environment never brought a Claude
         # process up (no credentials, no binary). Say so rather than counting it.
-        echo "SKIP (no Claude process observed for the mission)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
         return 0
     fi
 
     claude_argv=$(ps -ww -o args= -p "${claude_pid}" 2>/dev/null || true)
-    if ! echo "${claude_argv}" | grep -q -- "--append-system-prompt"; then
+    if ! text_matches "${claude_argv}" -- "--append-system-prompt"; then
         echo "FAIL (Claude argv lacked --append-system-prompt: ${claude_argv})"
         failed=$((failed + 1))
         return 0
     fi
-    if ! echo "${claude_argv}" | grep -q -- "${passthrough_marker}"; then
+    if ! text_matches "${claude_argv}" -- "${passthrough_marker}"; then
         echo "FAIL (Claude argv lacked the value marker: ${claude_argv})"
         failed=$((failed + 1))
         return 0
     fi
     # The fragment that sits after the newline: absent if the value were
     # truncated at the newline on its way to the command line.
-    if ! echo "${claude_argv}" | grep -q -- "${passthrough_tail}"; then
+    if ! text_matches "${claude_argv}" -- "${passthrough_tail}"; then
         echo "FAIL (Claude argv lost the value past its newline: ${claude_argv})"
         failed=$((failed + 1))
         return 0
     fi
-    if ! echo "${claude_argv}" | grep -q -- "--add-dir"; then
+    if ! text_matches "${claude_argv}" -- "--add-dir"; then
         echo "FAIL (Claude argv lacked the flag AgenC has no flag of its own for: ${claude_argv})"
         failed=$((failed + 1))
         return 0
@@ -2140,11 +2348,10 @@ total=$((total + 1))
 printf "  %-50s " "a sibling mission's Claude never sees it..."
 sibling_claude_pid=$(find_mission_claude_pid "${no_passthrough_mission_uuid}")
 if [[ -z "${sibling_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the sibling mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the sibling mission"
 else
     sibling_claude_argv=$(ps -ww -o args= -p "${sibling_claude_pid}" 2>/dev/null || true)
-    if echo "${sibling_claude_argv}" | grep -q -- "${passthrough_marker}"; then
+    if text_matches "${sibling_claude_argv}" -- "${passthrough_marker}"; then
         echo "FAIL (sibling Claude argv carried another mission's value: ${sibling_claude_argv})"
         failed=$((failed + 1))
     else
@@ -2176,11 +2383,10 @@ total=$((total + 1))
 printf "  %-50s " "a trailing variadic flag cannot eat the prompt..."
 eaten_prompt_claude_pid=$(find_mission_claude_pid "${eaten_prompt_mission_uuid}")
 if [[ -z "${eaten_prompt_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     eaten_prompt_argv=$(ps -ww -o args= -p "${eaten_prompt_claude_pid}" 2>/dev/null || true)
-    if echo "${eaten_prompt_argv}" | grep -q -- "-- ${prompt_marker}"; then
+    if text_matches "${eaten_prompt_argv}" -- "-- ${prompt_marker}"; then
         echo "PASS"
         passed=$((passed + 1))
     else
@@ -2288,15 +2494,9 @@ run_test_output_contains \
     "^$" \
     sqlite3 "${claude_args_db_filepath}" "SELECT COALESCE(claude_env, '') FROM missions WHERE short_id='${env_clone_short_id}';"
 
-total=$((total + 1))
-printf "  %-50s " "a clone shows no Environment line at all..."
-if "${agenc_test}" mission inspect "${env_clone_short_id}" 2>&1 | grep -q "^Environment: "; then
-    echo "FAIL (the clone inherited an environment it was not given)"
-    failed=$((failed + 1))
-else
-    echo "PASS"
-    passed=$((passed + 1))
-fi
+run_test_output_lacks "a clone shows no Environment line at all" \
+    "^Environment: " \
+    "${agenc_test}" mission inspect "${env_clone_short_id}"
 
 # ...but a clone given one explicitly does get it: not inheriting is about what
 # travels silently, not about the flag working differently on a clone.
@@ -2325,8 +2525,7 @@ if [[ ! -f "${env_op_settings_filepath}" || ! -f "${no_env_op_settings_filepath}
     # The wrapper writes this file on every spawn, so an absent one means no
     # spawn happened in this environment (no credentials, no binary). Say so
     # rather than counting it.
-    echo "SKIP (no operational settings file written for one of the missions)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no operational settings file written for one of the missions"
 else
     env_op_settings_normalized=$(sed "s|${env_mission_uuid}|MISSION_UUID|g" "${env_op_settings_filepath}")
     no_env_op_settings_normalized=$(sed "s|${no_env_mission_uuid}|MISSION_UUID|g" "${no_env_op_settings_filepath}")
@@ -2347,8 +2546,7 @@ fi
 total=$((total + 1))
 printf "  %-50s " "the marker never reaches the overlay file..."
 if [[ ! -f "${env_op_settings_filepath}" ]]; then
-    echo "SKIP (no operational settings file written for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no operational settings file written for the mission"
 elif grep -q "${env_marker}" "${env_op_settings_filepath}"; then
     echo "FAIL (the mission environment leaked into AgenC's operational settings)"
     failed=$((failed + 1))
@@ -2381,18 +2579,16 @@ assert_claude_env_carries_marker() {
 
     claude_pid=$(find_mission_claude_pid "${mission_uuid}")
     if [[ -z "${claude_pid}" ]]; then
-        echo "SKIP (no Claude process observed for the mission)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
         return 0
     fi
 
     claude_env=$(ps -Eww -o command= -p "${claude_pid}" 2>/dev/null || true)
     if [[ -z "${claude_env}" ]]; then
-        echo "SKIP (could not read the Claude process environment)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the Claude process environment"
         return 0
     fi
-    if echo "${claude_env}" | grep -q -- "REFLECTION_SESSION=${env_marker}"; then
+    if text_matches "${claude_env}" -- "REFLECTION_SESSION=${env_marker}"; then
         echo "PASS"
         passed=$((passed + 1))
     else
@@ -2419,14 +2615,12 @@ total=$((total + 1))
 printf "  %-50s " "a sibling mission's Claude never sees it..."
 env_sibling_claude_pid=$(find_mission_claude_pid "${no_env_mission_uuid}")
 if [[ -z "${env_sibling_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the sibling mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the sibling mission"
 else
     env_sibling_claude_env=$(ps -Eww -o command= -p "${env_sibling_claude_pid}" 2>/dev/null || true)
     if [[ -z "${env_sibling_claude_env}" ]]; then
-        echo "SKIP (could not read the sibling Claude process environment)"
-        skipped=$((skipped + 1))
-    elif echo "${env_sibling_claude_env}" | grep -q -- "${env_marker}"; then
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the sibling Claude process environment"
+    elif text_matches "${env_sibling_claude_env}" -- "${env_marker}"; then
         echo "FAIL (sibling Claude carried another mission's marker: ${env_sibling_claude_env})"
         failed=$((failed + 1))
     else
@@ -2496,13 +2690,11 @@ total=$((total + 1))
 printf "  %-50s " "the environment's own CLAUDE_CONFIG_DIR survives..."
 configdir_claude_pid=$(find_mission_claude_pid "${env_mission_uuid}")
 if [[ -z "${configdir_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     configdir_claude_env=$(ps -Eww -o command= -p "${configdir_claude_pid}" 2>/dev/null || true)
     if [[ -z "${configdir_claude_env}" ]]; then
-        echo "SKIP (could not read the Claude process environment)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the Claude process environment"
     else
         configdir_resolved=$(echo "${configdir_claude_env}" \
             | tr ' ' '\n' \
@@ -2571,13 +2763,11 @@ total=$((total + 1))
 printf "  %-50s " "a hand-edited protected value never reaches Claude..."
 handedited_claude_pid=$(find_mission_claude_pid "${handedited_mission_uuid}")
 if [[ -z "${handedited_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     handedited_claude_env=$(ps -Eww -o command= -p "${handedited_claude_pid}" 2>/dev/null || true)
     if [[ -z "${handedited_claude_env}" ]]; then
-        echo "SKIP (could not read the Claude process environment)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the Claude process environment"
     else
         # "|| true" because absent is a legitimate PASS here: after the drop,
         # AgenC re-applies this variable only if it has one of its own, and on
@@ -2618,11 +2808,10 @@ total=$((total + 1))
 printf "  %-50s " "the overlay is still delivered to an --env Claude..."
 env_overlay_claude_pid=$(find_mission_claude_pid "${env_mission_uuid}")
 if [[ -z "${env_overlay_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     env_overlay_argv=$(ps -ww -o args= -p "${env_overlay_claude_pid}" 2>/dev/null || true)
-    if echo "${env_overlay_argv}" | grep -q -- "--settings ${env_op_settings_filepath}"; then
+    if text_matches "${env_overlay_argv}" -- "--settings ${env_op_settings_filepath}"; then
         echo "PASS"
         passed=$((passed + 1))
     else
@@ -2690,8 +2879,7 @@ if [ -n "${model_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "mission inspect emits no ANSI..."
-    echo "SKIP (no mission short ID available)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "no mission short ID available"
 fi
 
 # Inspecting a mission that has no passthrough args never renders the
@@ -2705,8 +2893,7 @@ if [ -n "${passthrough_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "mission inspect with passthrough args emits no ANSI..."
-    echo "SKIP (no passthrough mission short ID available)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "no passthrough mission short ID available"
 fi
 
 # Same reasoning for the Environment line: a mission with no environment never
@@ -2720,8 +2907,7 @@ if [ -n "${env_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "mission inspect with a mission environment emits no ANSI..."
-    echo "SKIP (no --env mission short ID available)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "no --env mission short ID available"
 fi
 
 echo ""
@@ -2811,14 +2997,23 @@ printf "  %-50s " "a cron planted mid-spell earns no note..."
 quiet_notification_ids="$("${agenc_test}" notification ls --all 2>/dev/null | grep 'cron\.quiet' | awk '{print $1}' || true)"
 mid_spell_mentions=0
 inspected_notifications=0
+unreadable_notifications=""
 for notification_id in ${quiet_notification_ids}; do
     inspected_notifications=$((inspected_notifications + 1))
-    if "${agenc_test}" notification show "${notification_id}" 2>/dev/null | grep -q 'fresh-fixture'; then
+    mid_spell_match_status=0
+    command_output_matches 'fresh-fixture' \
+        "${agenc_test}" notification show "${notification_id}" || mid_spell_match_status=$?
+    if [ "${mid_spell_match_status}" -eq 0 ]; then
         mid_spell_mentions=$((mid_spell_mentions + 1))
+    elif [ "${mid_spell_match_status}" -eq 2 ]; then
+        unreadable_notifications="${unreadable_notifications} ${notification_id}(exit ${last_command_exit})"
     fi
 done
 if [ "${inspected_notifications}" = "0" ]; then
     echo "FAIL (no cron.quiet notification exists, so this check inspected nothing)"
+    failed=$((failed + 1))
+elif [ -n "${unreadable_notifications}" ]; then
+    echo "FAIL (notification show failed for:${unreadable_notifications}, so their bodies went unread)"
     failed=$((failed + 1))
 elif [ "${mid_spell_mentions}" = "0" ]; then
     echo "PASS"
@@ -2845,8 +3040,7 @@ run_test "config cron rm removes the mid-spell fixture" \
 for uncoverable in "mission peers" "mission search"; do
     total=$((total + 1))
     printf "  %-50s " "${uncoverable} emits no ANSI..."
-    echo "SKIP (cannot populate rows in the test environment)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NEEDS_CONVERSATION}" "cannot populate rows in the test environment"
 done
 
 echo "--- StopFailure ends a turn, but only the main agent's (requires server + wrapper socket) ---"
@@ -2880,8 +3074,9 @@ fi
 # The skip carries the observed status, because "no wrapper state" has more
 # than one cause and the message is the only clue the next reader gets. A
 # socket path over the macOS 104-byte limit leaves the wrapper alive but
-# unbindable (KEV-72) — but that is not the only way to land here, and a run
-# from a short path can still skip, so do not assume the path is the problem.
+# unbindable (KEV-72). The other cause that once produced this skip on short
+# paths was the check itself, not the environment: a pipe into `grep -q`
+# (KEV-77, see text_matches).
 stopfailure_state_observable="no"
 stopfailure_observed_status=""
 if [ -n "${stopfailure_mission_uuid}" ]; then
@@ -2905,58 +3100,15 @@ if [ "${stopfailure_state_observable}" != "yes" ]; then
         "StopFailure from the main agent ends the turn"; do
         total=$((total + 1))
         printf "  %-50s " "${stopfailure_uncoverable}..."
-        echo "SKIP (no wrapper state: mission=${stopfailure_mission_short_id:-none}, saw '${stopfailure_observed_status:-<no status line>}', wanted BUSY)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state: mission=${stopfailure_mission_short_id:-none}, saw '${stopfailure_observed_status:-<no status line>}', wanted BUSY" "${stopfailure_uncoverable}"
     done
 else
-    # Every state read below polls instead of sampling once. The server asks
-    # the wrapper for its state over a socket with a 500ms budget
-    # (wrapperQueryTimeout), tuned for `mission ls` being interactive; under
-    # the load this suite generates that query times out, claude_state comes
-    # back nil and `mission inspect` falls back to RUNNING. A single sample
-    # therefore reports a failure that says nothing about the state machine.
+    # Every state read below polls through await_mission_status rather than
+    # sampling once; its comment says why. The subagent case is the shape
+    # polling cannot prove on its own -- the mission is already BUSY -- which
+    # is why it leans on the wrapper's own decision record in the log and
+    # treats the status check as corroboration rather than as the test.
     stopfailure_wrapper_log_filepath="${repo_dirpath}/_test-env/missions/${stopfailure_mission_uuid}/wrapper.log"
-
-    # Poll `mission inspect` until it reports the wanted status, or give up.
-    # Returns 0 on match.
-    #
-    # Polling makes an assertion meaningful only when the status is CHANGING
-    # to the wanted value. Asserting a status the mission already holds proves
-    # nothing — the first sample returns immediately whether or not the event
-    # under test did anything. The subagent case below is exactly that shape,
-    # which is why it leans on the wrapper's own decision record in the log
-    # and treats the status check as corroboration rather than as the test.
-    #
-    # `grep -E ... >/dev/null`, never `grep -q`, and the reason is specific
-    # enough to be worth stating because it is invisible at a glance.
-    #
-    # `mission inspect` prints 10 lines with Status on line 3. `grep -q` exits
-    # the instant it matches line 3, while the Go producer is still writing
-    # the remaining 7 — those writes hit a closed pipe, and a Go program
-    # killed by SIGPIPE on stdout exits 141. This script runs under
-    # `set -o pipefail`, so that 141 becomes the pipeline's status and a
-    # successful match is reported as a failed test. Measured here as
-    # deterministic, 10 runs out of 10, with `PIPESTATUS=141 0` naming the
-    # producer as the one that died and grep as having matched.
-    #
-    # It needs all three: an early match, a producer still writing after it,
-    # and pipefail. Drop any one and it returns 0 — which is why the same
-    # line typed into an interactive shell (no pipefail) succeeds, and why
-    # this is easy to "disprove" by testing it the wrong way. Without -q,
-    # grep drains the input, the producer finishes, and the status is grep's.
-    await_mission_status() {
-        local uuid="${1}"
-        local wanted="${2}"
-        local deadline=$((SECONDS + 20))
-        while [ "${SECONDS}" -lt "${deadline}" ]; do
-            if "${agenc_test}" mission inspect "${uuid}" 2>&1 \
-                | grep -E "^Status:[[:space:]]+${wanted}([[:space:]]|$)" >/dev/null; then
-                return 0
-            fi
-            sleep 2
-        done
-        return 1
-    }
 
     # A subagent died. The main agent is still working, so the mission must
     # stay busy — marking it idle here is the bug KEV-70 fixed, re-introduced.
@@ -3122,23 +3274,39 @@ fi
 # Can this environment report a Claude state at all? The wrapper serves its
 # state over a unix socket inside the mission directory, and macOS caps socket
 # paths at 104 bytes — which a deep checkout (an AgenC mission clone, for one)
-# overruns, leaving the wrapper alive but socket-less and every state nil. In
-# that case there is no veto to observe, so skip loudly rather than fail.
+# overruns, leaving the wrapper alive but socket-less and every state nil
+# (KEV-72). In that case there is no veto to observe, so skip loudly rather than
+# fail. A probe whose own `mission inspect` died is not that case: it is a
+# broken check, and it fails rather than skips.
+#
+# Until KEV-77 this probe piped `mission inspect` into `grep -q`, which made it
+# false in every environment (see text_matches), so both assertions below
+# skipped everywhere and the reaper's busy veto had no end-to-end coverage.
 idle_state_observable="no"
+idle_probe_died="no"
 if [ -n "${idle_mission_uuid}" ] && [ "${idle_backdated}" = "yes" ]; then
     "${agenc_test}" mission send claude-update "${idle_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
-    sleep 2
-    if "${agenc_test}" mission inspect "${idle_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
+    if await_mission_status "${idle_mission_uuid}" "BUSY"; then
         idle_state_observable="yes"
+    elif [ "${last_command_exit}" -ne 0 ]; then
+        idle_probe_died="yes"
     fi
 fi
 
-if [ "${idle_state_observable}" != "yes" ]; then
+if [ "${idle_probe_died}" = "yes" ]; then
+    for idle_unprobed in "idle timeout spares a busy mission" "idle timeout still reaps an idle mission"; do
+        total=$((total + 1))
+        printf "  %-50s " "${idle_unprobed}..."
+        echo "FAIL (the state probe itself died: mission inspect exited ${last_command_exit}, mission=${idle_mission_short_id})"
+        failed=$((failed + 1))
+    done
+elif [ "${idle_state_observable}" != "yes" ]; then
+    idle_observed_status="$("${agenc_test}" mission inspect "${idle_mission_uuid:-none}" 2>&1 \
+        | grep -E "^Status:" | head -1 | tr -s ' ' || true)"
     for idle_uncoverable in "idle timeout spares a busy mission" "idle timeout still reaps an idle mission"; do
         total=$((total + 1))
         printf "  %-50s " "${idle_uncoverable}..."
-        echo "SKIP (no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none})"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none}, saw '${idle_observed_status:-<no status line>}', wanted BUSY" "${idle_uncoverable}"
     done
 else
     # One fixed wait, not a poll. A poll that finds BUSY immediately proves
@@ -3148,9 +3316,11 @@ else
     # two scans with margin.
     sleep 25
 
+    # Polling cannot fake a pass here: a reaped mission reads STOPPED and never
+    # returns to BUSY on its own.
     total=$((total + 1))
     printf "  %-50s " "idle timeout spares a busy mission..."
-    if "${agenc_test}" mission inspect "${idle_mission_uuid}" 2>&1 | grep -qE "^Status:[[:space:]]+BUSY"; then
+    if await_mission_status "${idle_mission_uuid}" "BUSY"; then
         echo "PASS"
         passed=$((passed + 1))
     else
@@ -3221,8 +3391,7 @@ if [ -z "${orphan_wrapper_pid}" ] || [ -z "${orphan_claude_pid}" ]; then
     for orphan_uncoverable in "wrapper exits when its mission dir is removed" "its Claude child exits with it"; do
         total=$((total + 1))
         printf "  %-50s " "${orphan_uncoverable}..."
-        echo "SKIP (no live wrapper and Claude: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none})"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no live wrapper and Claude: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none}" "${orphan_uncoverable}"
     done
 else
     rm -rf "${orphan_mission_dirpath}"
@@ -3330,13 +3499,8 @@ tmux_in_guard_universe() {
     env -u TMUX TMUX_TMPDIR="${tmux_guard_socket_dirpath}" tmux "$@"
 }
 
-# Substring checks here use bash pattern matching rather than a pipe into
-# `grep -q`, which is unsafe under this script's `set -o pipefail`: grep exits
-# the moment it matches, the upstream command dies of SIGPIPE, and pipefail
-# reports the pipeline as failed even though the pattern was found. The bug
-# only appears once the output is long enough that the writer has not finished
-# first, so it reads as a flaky test rather than a broken assertion -- measured
-# at 141 for a long input matching on its first line.
+# Substring checks here use bash pattern matching on captured output, which is
+# as safe as text_matches; never a pipe into `grep -q` (see text_matches).
 #
 # Both halves of the assertion matter and they fail independently: the command
 # has to refuse WITH AN EXPLANATION (a bare non-zero exit teaches the user
@@ -3544,6 +3708,40 @@ else
 fi
 echo "=========================================="
 
+# Skips by class, so a green run states what it did not exercise. Mirrored to
+# the GitHub Actions job summary when running there.
+environment_skip_count=0
+if [ "${skipped}" -gt 0 ]; then
+    skip_report="Skipped checks by class (${skipped} total):"$'\n'
+    if [ -n "${known_skips_taken}" ]; then
+        skip_report="${skip_report}  known, listed in E2E_KNOWN_SKIPS:"$'\n'
+        while IFS= read -r known_skip_name; do
+            skip_report="${skip_report}    - ${known_skip_name}"$'\n'
+        done <<< "${known_skips_taken%$'\n'}"
+    fi
+    for skip_class in ${SKIP_CLASSES}; do
+        class_count=$(printf '%s' "${skip_classes_seen}" | grep -cxF -- "${skip_class}" || true)
+        if [ "${class_count}" -eq 0 ]; then
+            continue
+        fi
+        skip_report="${skip_report}  ${class_count} x ${skip_class}: $(describe_skip_class "${skip_class}")"$'\n'
+        if [ "${skip_class}" != "${SKIP_CLASS_NEEDS_CONVERSATION}" ]; then
+            environment_skip_count=$((environment_skip_count + class_count))
+        fi
+    done
+    echo ""
+    printf '%s' "${skip_report}"
+    echo "  (grep this log for 'SKIP \[' to see which checks.)"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        {
+            echo "### E2E: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped"
+            echo '```'
+            printf '%s' "${skip_report}"
+            echo '```'
+        } >> "${GITHUB_STEP_SUMMARY}"
+    fi
+fi
+
 # Counter coherence: every test that incremented 'total' must land in exactly
 # one outcome bucket. A SKIP (or any outcome) path that forgets its counter
 # silently inflates the denominator — the exact bug behind bead agenc-uhie —
@@ -3557,5 +3755,31 @@ if [ "${accounted}" -ne "${total}" ]; then
 fi
 
 if [ "${failed}" -gt 0 ]; then
+    exit 1
+fi
+
+# A known skip that no longer skips is stale: its defect is fixed, and leaving
+# the entry would excuse a future regression of the same check.
+stale_known_skips=""
+while IFS= read -r known_skip_name; do
+    if [ -z "${known_skip_name}" ]; then
+        continue
+    fi
+    if ! printf '%s' "${known_skips_taken}" | grep -xF -- "${known_skip_name}" >/dev/null; then
+        stale_known_skips="${stale_known_skips}    - ${known_skip_name}"$'\n'
+    fi
+done <<< "${E2E_KNOWN_SKIPS:-}"
+if [ -n "${stale_known_skips}" ]; then
+    echo ""
+    echo "E2E_KNOWN_SKIPS lists checks that did not skip. Delete them from the list (.github/workflows/e2e.yml):"
+    printf '%s' "${stale_known_skips}"
+    echo "Only once the defect the workflow cites for each is fixed: a defect that is a race (KEV-77's SIGPIPE) can let one run through, and that is not a fix."
+    exit 1
+fi
+
+if [ "${E2E_FAIL_ON_ENVIRONMENT_SKIP:-0}" = "1" ] && [ "${environment_skip_count}" -gt 0 ]; then
+    echo ""
+    echo "E2E_FAIL_ON_ENVIRONMENT_SKIP is set and ${environment_skip_count} check(s) skipped for a reason other than ${SKIP_CLASS_NEEDS_CONVERSATION}."
+    echo "This environment was expected to run them; see the classes above."
     exit 1
 fi

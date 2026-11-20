@@ -162,11 +162,14 @@ E2E tests live in `scripts/e2e-test.sh` and run via `make e2e`. The `make e2e` t
 
 Only flag manual testing to the user when the behavior **genuinely cannot be automated** (e.g., a palette action that must produce a live mission with Claude running in a pool window — see "Tmux integration" below). For everything that can be tested by running CLI commands and checking output, write an E2E test.
 
-The test script provides three helpers for writing tests:
+The test script provides these helpers for writing tests:
 
 - **`run_test "name" <expected_exit> <command...>`** — runs a command and checks its exit code
 - **`run_test_output_contains "name" "<regex>" <command...>`** — runs a command, checks exit 0, and verifies stdout matches a regex pattern
+- **`run_test_output_lacks "name" "<regex>" <command...>`** — runs a command, checks exit 0, and verifies its output (stdout and stderr) does NOT match a regex pattern
 - **`run_test_no_crash "name" <command...>`** — runs a command and accepts any exit code ≤ 1 (useful for server-dependent commands that may fail gracefully when no server is running)
+
+Any other check on output goes through `text_matches` (captured text) or `command_output_matches` (a command's output). **Never pipe a command into `grep -q`** — a preflight scan in the script refuses to run the suite if it finds one. Under the script's `set -o pipefail`, `grep -q` exits on its first match and the producer dies of SIGPIPE writing the rest, so a match reports as a failure; it made the idle-timeout assertions skip on every machine from the day they were added (KEV-77). The helper's comment in `scripts/e2e-test.sh` has the full mechanism.
 
 Because the server auto-starts on demand, E2E tests can perform real operations — modifying config, creating resources, verifying behavior — not just checking that commands print help text. Use this to write behavioral tests:
 
