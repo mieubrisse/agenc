@@ -1,0 +1,92 @@
+name: E2E
+
+# Runs `make e2e` on pull requests, without Claude credentials (KEV-121).
+#
+# What runs here: everything in scripts/e2e-test.sh. The `claude` binary is
+# installed but never logged in, and that is enough for every check that needs
+# a Claude *process* rather than a Claude *conversation*: a mission's Claude
+# still spawns (it parks at the login screen), so its argv and environment can
+# be inspected, and SessionStart hooks fire before Claude asks for auth, so the
+# --settings hook-union check runs too.
+#
+# What cannot run here, and why: the checks that need an authenticated Claude
+# conversation to populate their rows. They skip everywhere, not only in CI,
+# and scripts/e2e-test.sh names them under "Checks no environment here can
+# run" in its summary:
+#   - search-fzf orders results newest-first (needs indexed session content)
+#   - mission peers emits no ANSI (needs a live peer session)
+#   - mission search emits no ANSI (needs indexed session content)
+#
+# E2E_FAIL_ON_ENVIRONMENT_SKIP makes any other skip fail the job, except the
+# checks named in E2E_KNOWN_SKIPS on the run step, each with its tracked defect.
+# A skip in this environment means a precondition the suite expected (a Claude
+# process, a wrapper socket, a tmux pane) did not appear, and a green run that
+# quietly skipped those would be reporting coverage it does not have. The skip
+# count and the reason per class land in the job summary.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: make e2e
+    # macOS for the same reason as ci.yml: the suite uses BSD `date -v` and the
+    # launchd/plutil paths, and macOS is AgenC's real target. The repo is public,
+    # so GitHub-hosted macOS minutes are free.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # tmux hosts every mission. claude-code is installed but deliberately not
+      # authenticated: see the header comment for what that does and does not
+      # cover.
+      - name: Install tmux and Claude Code
+        run: brew install tmux && brew install --cask claude-code
+
+      # The suite bounds some commands with `timeout`, which macOS lacks.
+      # Homebrew's coreutils ships it as gtimeout; link only that name, because
+      # putting coreutils' gnubin on PATH would shadow BSD `date`.
+      - name: Provide timeout
+        run: |
+          if ! command -v timeout >/dev/null 2>&1; then
+            brew install coreutils
+            mkdir -p "${RUNNER_TEMP}/bin"
+            ln -s "$(brew --prefix coreutils)/bin/gtimeout" "${RUNNER_TEMP}/bin/timeout"
+            echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          fi
+
+      # AgenC refuses to start the tmux server itself (KEV-168): on a laptop the
+      # developer's terminal owns it. A runner has no terminal, so stand one in.
+      # Without it every mission create fails and the suite dies early.
+      - name: Start a tmux server
+        run: tmux new-session -d -s ci-terminal-stand-in -x 200 -y 50
+
+      - name: Report environment
+        run: |
+          echo "workspace: $(pwd -P) ($(pwd -P | wc -c | tr -d ' ') bytes)"
+          command -v claude tmux timeout sqlite3
+          claude --version
+          tmux -V
+          tmux list-sessions
+
+      - name: Run E2E suite
+        env:
+          E2E_FAIL_ON_ENVIRONMENT_SKIP: "1"
+          # Checks that skip here for a defect tracked elsewhere, one name per
+          # line. The suite fails if a listed check stops skipping, so delete
+          # an entry in the change that fixes its defect. Empty since KEV-77
+          # fixed the probe behind the two idle-timeout entries.
+          E2E_KNOWN_SKIPS: ""
+        run: make e2e

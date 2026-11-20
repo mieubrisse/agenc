@@ -17,6 +17,64 @@ failed=0
 skipped=0
 total=0
 
+# Every skip names one of these classes, so the summary can report what kind of
+# coverage a run lacked rather than a bare number (KEV-121). Only the first is
+# expected anywhere: no environment this suite runs in has an authenticated
+# Claude conversation, so those checks skip on a laptop and in CI alike. Every
+# other class means a precondition the suite expected did not appear, and CI
+# sets E2E_FAIL_ON_ENVIRONMENT_SKIP=1 to fail on them, because a green run that
+# quietly skipped them would report coverage it does not have.
+#
+# The checks that cannot run in CI, or anywhere else this suite runs, are the
+# needs-claude-conversation ones, each pinned by unit tests instead:
+#   - "search-fzf orders results newest-first": needs indexed session content
+#     and a session title, both written only by a live conversation.
+#   - "mission peers emits no ANSI": a peer row needs a live Claude session.
+#   - "mission search emits no ANSI": a hit needs indexed session content.
+# .github/workflows/e2e.yml names the same list. Keep the two in step.
+SKIP_CLASS_NEEDS_CONVERSATION="needs-claude-conversation"
+SKIP_CLASS_NO_CLAUDE="no-claude-process"
+SKIP_CLASS_NO_WRAPPER_STATE="no-wrapper-state"
+SKIP_CLASS_FIXTURE_MISSING="fixture-missing"
+SKIP_CLASSES="${SKIP_CLASS_NEEDS_CONVERSATION} ${SKIP_CLASS_NO_CLAUDE} ${SKIP_CLASS_NO_WRAPPER_STATE} ${SKIP_CLASS_FIXTURE_MISSING}"
+
+describe_skip_class() {
+    case "${1}" in
+        "${SKIP_CLASS_NEEDS_CONVERSATION}") echo "needs an authenticated Claude conversation to populate its rows; no environment this suite runs in has one, with or without credentials" ;;
+        "${SKIP_CLASS_NO_CLAUDE}") echo "no Claude process appeared for the mission: the claude binary is missing, or the spawn failed" ;;
+        "${SKIP_CLASS_NO_WRAPPER_STATE}") echo "the wrapper reported no state over its socket: the socket path exceeds the macOS 104-byte limit (KEV-72)" ;;
+        "${SKIP_CLASS_FIXTURE_MISSING}") echo "an earlier step that builds this check's fixture (a mission, its tmux pane, the server PID file, a process environment) failed" ;;
+        *) echo "unknown skip class '${1}'" ;;
+    esac
+}
+
+# One line per skip, "<class>", so the summary can count them per class.
+skip_classes_seen=""
+
+# E2E_KNOWN_SKIPS is a newline-separated list of check names that the caller
+# knows will skip for a defect tracked elsewhere. A listed check that skips does
+# not trip E2E_FAIL_ON_ENVIRONMENT_SKIP. A listed check that runs fails the
+# suite, so the entry is deleted by the change that fixed it rather than left
+# to excuse a future regression.
+known_skips_taken=""
+
+# Records a skip of the check whose name the caller has already printed. Pass
+# the check's name as the third argument for it to be matchable against
+# E2E_KNOWN_SKIPS.
+record_skip() {
+    local skip_class="${1}"
+    local detail="${2}"
+    local check_name="${3:-}"
+    skipped=$((skipped + 1))
+    if [ -n "${check_name}" ] && printf '%s\n' "${E2E_KNOWN_SKIPS:-}" | grep -xF -- "${check_name}" >/dev/null; then
+        echo "SKIP [${skip_class}] (${detail}) [known: listed in E2E_KNOWN_SKIPS]"
+        known_skips_taken="${known_skips_taken}${check_name}"$'\n'
+        return 0
+    fi
+    echo "SKIP [${skip_class}] (${detail})"
+    skip_classes_seen="${skip_classes_seen}${skip_class}"$'\n'
+}
+
 # Every check in this script that asks "does this output contain X" goes through
 # text_matches (for text already captured) or command_output_matches (for a
 # command's output). Never pipe a command into `grep -q`: the preflight check
@@ -63,9 +121,9 @@ text_matches() {
 # Runs the command to completion, then matches its stdout and stderr against the
 # regex line by line. Returns 0 on a match, 1 when the command succeeded and
 # nothing matched, and 2 when the command itself exited non-zero, leaving that
-# exit status in last_command_exit (0 otherwise). A check that skips or passes on "no match"
-# must treat 2 differently: a probe whose command died is a broken check, not an
-# environment that cannot cover the behaviour.
+# exit status in last_command_exit (0 otherwise). A check that skips or passes
+# on "no match" must treat 2 differently: a probe whose command died is a broken
+# check, not an environment that cannot cover the behaviour.
 last_command_exit=0
 command_output_matches() {
     local pattern="${1}"
@@ -817,8 +875,7 @@ if [ -n "${mission_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "search-fzf finds mission by short ID..."
-    echo "SKIP (could not create test mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not create test mission"
 fi
 
 # Regression: the attach picker reload command (search-fzf) still renders rows
@@ -836,8 +893,7 @@ run_test_no_crash "mission search-fzf empty query renders" \
 # stays visible — see agenc-t3fb.
 total=$((total + 1))
 printf "  %-50s " "search-fzf orders results newest-first..."
-echo "SKIP (cannot populate discriminating rows in the test environment)"
-skipped=$((skipped + 1))
+record_skip "${SKIP_CLASS_NEEDS_CONVERSATION}" "cannot populate discriminating rows in the test environment"
 
 echo ""
 echo "--- LAST PROMPT column (requires server) ---"
@@ -1250,9 +1306,15 @@ PY
     #     this harness. The direct `claude --print` invocation is the faithful,
     #     firing-provable exercise of the same `--settings` mechanism.
     #
-    #     Robustness: if Claude cannot launch here (no binary / no token / the
-    #     run fails), we print a VISIBLE NAMED SKIP rather than a can't-fail grep,
-    #     so the gap is never a silent green.
+    #     No credentials are needed, and the check no longer asks for them: run
+    #     without any, `claude --print` fires both SessionStart hooks and only
+    #     then exits 1 with "Not logged in" (measured against Claude Code
+    #     2.1.311, KEV-121). So Claude's exit status says nothing about the
+    #     hooks and is ignored; the sentinels are the assertion. The token is
+    #     still passed when the test env has one, to mirror BuildClaudeCmd.
+    #
+    #     Robustness: if the claude binary is absent we print a VISIBLE NAMED
+    #     SKIP rather than a can't-fail grep, so the gap is never a silent green.
     statey_claude_bin="$(command -v claude 2>/dev/null || true)"
     statey_token_file="${statey_test_env_dir}/cache/oauth-token"
     statey_union_user_sentinel="${statey_config_dir}/statey-union-user-fired"
@@ -1294,13 +1356,20 @@ PY
       '}' > "${statey_union_settings_file}"
 
     statey_union_ran=0
-    if [ -n "${statey_claude_bin}" ] && [ -f "${statey_token_file}" ]; then
+    if [ -n "${statey_claude_bin}" ]; then
         # Mirror BuildClaudeCmd's env: CLAUDE_CONFIG_DIR at the isolated config
-        # dir, the machine token, and --settings <file>. --print keeps it one-shot.
-        CLAUDE_CONFIG_DIR="${statey_config_dir}" \
-        CLAUDE_CODE_OAUTH_TOKEN="$(cat "${statey_token_file}")" \
+        # dir, the machine token when there is one, and --settings <file>.
+        # --print keeps it one-shot.
+        (
+            export CLAUDE_CONFIG_DIR="${statey_config_dir}"
+            if [ -f "${statey_token_file}" ]; then
+                CLAUDE_CODE_OAUTH_TOKEN="$(cat "${statey_token_file}")"
+                export CLAUDE_CODE_OAUTH_TOKEN
+            fi
             timeout 60 "${statey_claude_bin}" --settings "${statey_union_settings_file}" \
-            --print -p "Say only the word: pong" >/dev/null 2>&1 && statey_union_ran=1 || statey_union_ran=0
+                --print -p "Say only the word: pong" >/dev/null 2>&1
+        ) || true
+        statey_union_ran=1
     fi
 
     total=$((total + 1))
@@ -1309,10 +1378,8 @@ PY
         echo "PASS"
         passed=$((passed + 1))
     elif [ "${statey_union_ran}" -eq 0 ]; then
-        # Environment could not launch Claude (no binary/token, or run failed).
-        # Visible named skip — never a silent green.
-        echo "SKIP: --settings union firing check — Claude did not launch in this env"
-        skipped=$((skipped + 1))
+        # No claude binary on PATH. Visible named skip — never a silent green.
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "claude binary not on PATH"
     else
         echo "FAIL (union did not fire: user_sentinel=$([ -f "${statey_union_user_sentinel}" ] && echo yes || echo no), settings_sentinel=$([ -f "${statey_union_settings_sentinel}" ] && echo yes || echo no))"
         failed=$((failed + 1))
@@ -1670,8 +1737,7 @@ if [ -f "${server_pid_file}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "FD count stays under 1000 (agenc-ku7h)"
-    echo "SKIP (server PID file not found at ${server_pid_file})"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "server PID file not found at ${server_pid_file}"
 fi
 
 # Clean up the writeable-copy config entry and the synthetic dir.
@@ -1707,8 +1773,7 @@ fi
 if [ -z "${detach_mission_pane}" ]; then
     total=$((total + 1))
     printf "  %-50s " "detach unlinks a window in another session..."
-    echo "SKIP (could not create a mission with a tmux pane)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not create a mission with a tmux pane"
 else
     detach_pool_session="agenc-${detach_namespace}-pool"
     detach_host_session="agenc-${detach_namespace}-e2e-host"
@@ -1823,8 +1888,7 @@ fi
 if [ -z "${draft_mission_pane}" ]; then
     total=$((total + 1))
     printf "  %-50s " "mission draft leaves the draft file on disk..."
-    echo "SKIP (could not create a mission with a tmux pane)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not create a mission with a tmux pane"
 else
     # A private TMPDIR is what makes the draft file findable, since the command
     # names the file itself. $EDITOR becomes a `cp` of a prefilled file:
@@ -2045,8 +2109,7 @@ assert_mission_claude_argv_contains() {
     if [ -z "${argv}" ]; then
         # Not a pass and not a failure: this environment never brought a Claude
         # process up (no credentials, no binary). Say so rather than counting it.
-        echo "SKIP (no Claude process observed for the mission)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
     elif text_matches "${argv}" -- "${expected_fragment}"; then
         echo "PASS"
         passed=$((passed + 1))
@@ -2235,8 +2298,7 @@ assert_claude_argv_carries_passthrough() {
     if [[ -z "${claude_pid}" ]]; then
         # Not a pass and not a failure: this environment never brought a Claude
         # process up (no credentials, no binary). Say so rather than counting it.
-        echo "SKIP (no Claude process observed for the mission)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
         return 0
     fi
 
@@ -2286,8 +2348,7 @@ total=$((total + 1))
 printf "  %-50s " "a sibling mission's Claude never sees it..."
 sibling_claude_pid=$(find_mission_claude_pid "${no_passthrough_mission_uuid}")
 if [[ -z "${sibling_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the sibling mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the sibling mission"
 else
     sibling_claude_argv=$(ps -ww -o args= -p "${sibling_claude_pid}" 2>/dev/null || true)
     if text_matches "${sibling_claude_argv}" -- "${passthrough_marker}"; then
@@ -2322,8 +2383,7 @@ total=$((total + 1))
 printf "  %-50s " "a trailing variadic flag cannot eat the prompt..."
 eaten_prompt_claude_pid=$(find_mission_claude_pid "${eaten_prompt_mission_uuid}")
 if [[ -z "${eaten_prompt_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     eaten_prompt_argv=$(ps -ww -o args= -p "${eaten_prompt_claude_pid}" 2>/dev/null || true)
     if text_matches "${eaten_prompt_argv}" -- "-- ${prompt_marker}"; then
@@ -2465,8 +2525,7 @@ if [[ ! -f "${env_op_settings_filepath}" || ! -f "${no_env_op_settings_filepath}
     # The wrapper writes this file on every spawn, so an absent one means no
     # spawn happened in this environment (no credentials, no binary). Say so
     # rather than counting it.
-    echo "SKIP (no operational settings file written for one of the missions)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no operational settings file written for one of the missions"
 else
     env_op_settings_normalized=$(sed "s|${env_mission_uuid}|MISSION_UUID|g" "${env_op_settings_filepath}")
     no_env_op_settings_normalized=$(sed "s|${no_env_mission_uuid}|MISSION_UUID|g" "${no_env_op_settings_filepath}")
@@ -2487,8 +2546,7 @@ fi
 total=$((total + 1))
 printf "  %-50s " "the marker never reaches the overlay file..."
 if [[ ! -f "${env_op_settings_filepath}" ]]; then
-    echo "SKIP (no operational settings file written for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no operational settings file written for the mission"
 elif grep -q "${env_marker}" "${env_op_settings_filepath}"; then
     echo "FAIL (the mission environment leaked into AgenC's operational settings)"
     failed=$((failed + 1))
@@ -2521,15 +2579,13 @@ assert_claude_env_carries_marker() {
 
     claude_pid=$(find_mission_claude_pid "${mission_uuid}")
     if [[ -z "${claude_pid}" ]]; then
-        echo "SKIP (no Claude process observed for the mission)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
         return 0
     fi
 
     claude_env=$(ps -Eww -o command= -p "${claude_pid}" 2>/dev/null || true)
     if [[ -z "${claude_env}" ]]; then
-        echo "SKIP (could not read the Claude process environment)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the Claude process environment"
         return 0
     fi
     if text_matches "${claude_env}" -- "REFLECTION_SESSION=${env_marker}"; then
@@ -2559,13 +2615,11 @@ total=$((total + 1))
 printf "  %-50s " "a sibling mission's Claude never sees it..."
 env_sibling_claude_pid=$(find_mission_claude_pid "${no_env_mission_uuid}")
 if [[ -z "${env_sibling_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the sibling mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the sibling mission"
 else
     env_sibling_claude_env=$(ps -Eww -o command= -p "${env_sibling_claude_pid}" 2>/dev/null || true)
     if [[ -z "${env_sibling_claude_env}" ]]; then
-        echo "SKIP (could not read the sibling Claude process environment)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the sibling Claude process environment"
     elif text_matches "${env_sibling_claude_env}" -- "${env_marker}"; then
         echo "FAIL (sibling Claude carried another mission's marker: ${env_sibling_claude_env})"
         failed=$((failed + 1))
@@ -2636,13 +2690,11 @@ total=$((total + 1))
 printf "  %-50s " "the environment's own CLAUDE_CONFIG_DIR survives..."
 configdir_claude_pid=$(find_mission_claude_pid "${env_mission_uuid}")
 if [[ -z "${configdir_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     configdir_claude_env=$(ps -Eww -o command= -p "${configdir_claude_pid}" 2>/dev/null || true)
     if [[ -z "${configdir_claude_env}" ]]; then
-        echo "SKIP (could not read the Claude process environment)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the Claude process environment"
     else
         configdir_resolved=$(echo "${configdir_claude_env}" \
             | tr ' ' '\n' \
@@ -2711,13 +2763,11 @@ total=$((total + 1))
 printf "  %-50s " "a hand-edited protected value never reaches Claude..."
 handedited_claude_pid=$(find_mission_claude_pid "${handedited_mission_uuid}")
 if [[ -z "${handedited_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     handedited_claude_env=$(ps -Eww -o command= -p "${handedited_claude_pid}" 2>/dev/null || true)
     if [[ -z "${handedited_claude_env}" ]]; then
-        echo "SKIP (could not read the Claude process environment)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "could not read the Claude process environment"
     else
         # "|| true" because absent is a legitimate PASS here: after the drop,
         # AgenC re-applies this variable only if it has one of its own, and on
@@ -2758,8 +2808,7 @@ total=$((total + 1))
 printf "  %-50s " "the overlay is still delivered to an --env Claude..."
 env_overlay_claude_pid=$(find_mission_claude_pid "${env_mission_uuid}")
 if [[ -z "${env_overlay_claude_pid}" ]]; then
-    echo "SKIP (no Claude process observed for the mission)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NO_CLAUDE}" "no Claude process observed for the mission"
 else
     env_overlay_argv=$(ps -ww -o args= -p "${env_overlay_claude_pid}" 2>/dev/null || true)
     if text_matches "${env_overlay_argv}" -- "--settings ${env_op_settings_filepath}"; then
@@ -2830,8 +2879,7 @@ if [ -n "${model_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "mission inspect emits no ANSI..."
-    echo "SKIP (no mission short ID available)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "no mission short ID available"
 fi
 
 # Inspecting a mission that has no passthrough args never renders the
@@ -2845,8 +2893,7 @@ if [ -n "${passthrough_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "mission inspect with passthrough args emits no ANSI..."
-    echo "SKIP (no passthrough mission short ID available)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "no passthrough mission short ID available"
 fi
 
 # Same reasoning for the Environment line: a mission with no environment never
@@ -2860,8 +2907,7 @@ if [ -n "${env_short_id}" ]; then
 else
     total=$((total + 1))
     printf "  %-50s " "mission inspect with a mission environment emits no ANSI..."
-    echo "SKIP (no --env mission short ID available)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_FIXTURE_MISSING}" "no --env mission short ID available"
 fi
 
 echo ""
@@ -2994,8 +3040,7 @@ run_test "config cron rm removes the mid-spell fixture" \
 for uncoverable in "mission peers" "mission search"; do
     total=$((total + 1))
     printf "  %-50s " "${uncoverable} emits no ANSI..."
-    echo "SKIP (cannot populate rows in the test environment)"
-    skipped=$((skipped + 1))
+    record_skip "${SKIP_CLASS_NEEDS_CONVERSATION}" "cannot populate rows in the test environment"
 done
 
 echo "--- StopFailure ends a turn, but only the main agent's (requires server + wrapper socket) ---"
@@ -3055,8 +3100,7 @@ if [ "${stopfailure_state_observable}" != "yes" ]; then
         "StopFailure from the main agent ends the turn"; do
         total=$((total + 1))
         printf "  %-50s " "${stopfailure_uncoverable}..."
-        echo "SKIP (no wrapper state: mission=${stopfailure_mission_short_id:-none}, saw '${stopfailure_observed_status:-<no status line>}', wanted BUSY)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state: mission=${stopfailure_mission_short_id:-none}, saw '${stopfailure_observed_status:-<no status line>}', wanted BUSY" "${stopfailure_uncoverable}"
     done
 else
     # Every state read below polls through await_mission_status rather than
@@ -3262,8 +3306,7 @@ elif [ "${idle_state_observable}" != "yes" ]; then
     for idle_uncoverable in "idle timeout spares a busy mission" "idle timeout still reaps an idle mission"; do
         total=$((total + 1))
         printf "  %-50s " "${idle_uncoverable}..."
-        echo "SKIP (no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none}, saw '${idle_observed_status:-<no status line>}', wanted BUSY)"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none}, saw '${idle_observed_status:-<no status line>}', wanted BUSY" "${idle_uncoverable}"
     done
 else
     # One fixed wait, not a poll. A poll that finds BUSY immediately proves
@@ -3348,8 +3391,7 @@ if [ -z "${orphan_wrapper_pid}" ] || [ -z "${orphan_claude_pid}" ]; then
     for orphan_uncoverable in "wrapper exits when its mission dir is removed" "its Claude child exits with it"; do
         total=$((total + 1))
         printf "  %-50s " "${orphan_uncoverable}..."
-        echo "SKIP (no live wrapper and Claude: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none})"
-        skipped=$((skipped + 1))
+        record_skip "${SKIP_CLASS_NO_CLAUDE}" "no live wrapper and Claude: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none}" "${orphan_uncoverable}"
     done
 else
     rm -rf "${orphan_mission_dirpath}"
@@ -3666,6 +3708,40 @@ else
 fi
 echo "=========================================="
 
+# Skips by class, so a green run states what it did not exercise. Mirrored to
+# the GitHub Actions job summary when running there.
+environment_skip_count=0
+if [ "${skipped}" -gt 0 ]; then
+    skip_report="Skipped checks by class (${skipped} total):"$'\n'
+    if [ -n "${known_skips_taken}" ]; then
+        skip_report="${skip_report}  known, listed in E2E_KNOWN_SKIPS:"$'\n'
+        while IFS= read -r known_skip_name; do
+            skip_report="${skip_report}    - ${known_skip_name}"$'\n'
+        done <<< "${known_skips_taken%$'\n'}"
+    fi
+    for skip_class in ${SKIP_CLASSES}; do
+        class_count=$(printf '%s' "${skip_classes_seen}" | grep -cxF -- "${skip_class}" || true)
+        if [ "${class_count}" -eq 0 ]; then
+            continue
+        fi
+        skip_report="${skip_report}  ${class_count} x ${skip_class}: $(describe_skip_class "${skip_class}")"$'\n'
+        if [ "${skip_class}" != "${SKIP_CLASS_NEEDS_CONVERSATION}" ]; then
+            environment_skip_count=$((environment_skip_count + class_count))
+        fi
+    done
+    echo ""
+    printf '%s' "${skip_report}"
+    echo "  (grep this log for 'SKIP \[' to see which checks.)"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        {
+            echo "### E2E: ${passed}/${total} passed, ${failed} failed, ${skipped} skipped"
+            echo '```'
+            printf '%s' "${skip_report}"
+            echo '```'
+        } >> "${GITHUB_STEP_SUMMARY}"
+    fi
+fi
+
 # Counter coherence: every test that incremented 'total' must land in exactly
 # one outcome bucket. A SKIP (or any outcome) path that forgets its counter
 # silently inflates the denominator — the exact bug behind bead agenc-uhie —
@@ -3679,5 +3755,31 @@ if [ "${accounted}" -ne "${total}" ]; then
 fi
 
 if [ "${failed}" -gt 0 ]; then
+    exit 1
+fi
+
+# A known skip that no longer skips is stale: its defect is fixed, and leaving
+# the entry would excuse a future regression of the same check.
+stale_known_skips=""
+while IFS= read -r known_skip_name; do
+    if [ -z "${known_skip_name}" ]; then
+        continue
+    fi
+    if ! printf '%s' "${known_skips_taken}" | grep -xF -- "${known_skip_name}" >/dev/null; then
+        stale_known_skips="${stale_known_skips}    - ${known_skip_name}"$'\n'
+    fi
+done <<< "${E2E_KNOWN_SKIPS:-}"
+if [ -n "${stale_known_skips}" ]; then
+    echo ""
+    echo "E2E_KNOWN_SKIPS lists checks that did not skip. Delete them from the list (.github/workflows/e2e.yml):"
+    printf '%s' "${stale_known_skips}"
+    echo "Only once the defect the workflow cites for each is fixed: a defect that is a race (KEV-77's SIGPIPE) can let one run through, and that is not a fix."
+    exit 1
+fi
+
+if [ "${E2E_FAIL_ON_ENVIRONMENT_SKIP:-0}" = "1" ] && [ "${environment_skip_count}" -gt 0 ]; then
+    echo ""
+    echo "E2E_FAIL_ON_ENVIRONMENT_SKIP is set and ${environment_skip_count} check(s) skipped for a reason other than ${SKIP_CLASS_NEEDS_CONVERSATION}."
+    echo "This environment was expected to run them; see the classes above."
     exit 1
 fi
