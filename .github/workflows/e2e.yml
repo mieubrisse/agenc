@@ -65,12 +65,19 @@ jobs:
             echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
           fi
 
+      # AgenC refuses to start the tmux server itself (KEV-168): on a laptop the
+      # developer's terminal owns it. A runner has no terminal, so stand one in.
+      # Without it every mission create fails and the suite dies early.
+      - name: Start a tmux server
+        run: tmux new-session -d -s ci-terminal-stand-in -x 200 -y 50
+
       - name: Report environment
         run: |
           echo "workspace: $(pwd -P) ($(pwd -P | wc -c | tr -d ' ') bytes)"
           command -v claude tmux timeout sqlite3
           claude --version
           tmux -V
+          tmux list-sessions
 
       - name: Run E2E suite
         env:
