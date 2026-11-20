@@ -17,10 +17,12 @@ name: E2E
 #   - mission peers emits no ANSI (needs a live peer session)
 #   - mission search emits no ANSI (needs indexed session content)
 #
-# E2E_FAIL_ON_ENVIRONMENT_SKIP makes any other skip fail the job. A skip in
-# this environment means a precondition the suite expected (a Claude process,
-# a wrapper socket, a tmux pane) did not appear, and a green run that quietly
-# skipped those would be reporting coverage it does not have.
+# E2E_FAIL_ON_ENVIRONMENT_SKIP makes any other skip fail the job, except the
+# checks named in E2E_KNOWN_SKIPS on the run step, each with its tracked defect.
+# A skip in this environment means a precondition the suite expected (a Claude
+# process, a wrapper socket, a tmux pane) did not appear, and a green run that
+# quietly skipped those would be reporting coverage it does not have. The skip
+# count and the reason per class land in the job summary.
 on:
   pull_request:
   push:
@@ -82,4 +84,15 @@ jobs:
       - name: Run E2E suite
         env:
           E2E_FAIL_ON_ENVIRONMENT_SKIP: "1"
+          # Checks that skip here for a defect tracked elsewhere, one name per
+          # line. The suite fails if a listed check stops skipping, so delete
+          # an entry in the change that fixes its defect.
+          #
+          # The two idle-timeout checks: their guard probes wrapper state with
+          # `mission inspect | grep -qE` under pipefail, which kills the
+          # producer with SIGPIPE and reads as "no state" even when there is
+          # one (KEV-77). The StopFailure checks use a different probe and run.
+          E2E_KNOWN_SKIPS: |
+            idle timeout spares a busy mission
+            idle timeout still reaps an idle mission
         run: make e2e
