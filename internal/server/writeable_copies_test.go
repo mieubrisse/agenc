@@ -45,6 +45,11 @@ type fakeGit struct {
 	// "origin/main was X when we pushed and Y once we fetched".
 	onFetch func(f *fakeGit)
 
+	// pendingChanges is what PendingChanges reports for a dirty tree. Left
+	// empty, a dirty tree reads as well within the auto-commit limits.
+	pendingChanges    []pendingChange
+	pendingChangesErr error
+
 	addAllErr error
 
 	commitErr error
@@ -139,6 +144,10 @@ func (f *fakeGit) Fetch(string) error {
 		f.onFetch(f)
 	}
 	return f.fetchErr
+}
+
+func (f *fakeGit) PendingChanges(string) ([]pendingChange, error) {
+	return f.pendingChanges, f.pendingChangesErr
 }
 
 func (f *fakeGit) AddAll(string) error {
@@ -323,11 +332,11 @@ func TestSanityCheck_HappyPath(t *testing.T) {
 
 func TestCommitIfDirty_CleanTreeNoOp(t *testing.T) {
 	gc := &fakeGit{statusClean: true}
-	committed, err := commitIfDirty(gc, "/tmp/foo")
+	result, err := commitIfDirty(gc, "/tmp/foo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if committed {
+	if result.committed {
 		t.Error("expected no commit when tree is clean")
 	}
 	if gc.addAllCalls != 0 || gc.commitCalls != 0 {
@@ -337,11 +346,11 @@ func TestCommitIfDirty_CleanTreeNoOp(t *testing.T) {
 
 func TestCommitIfDirty_DirtyTreeCommits(t *testing.T) {
 	gc := &fakeGit{statusClean: false}
-	committed, err := commitIfDirty(gc, "/tmp/foo")
+	result, err := commitIfDirty(gc, "/tmp/foo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !committed {
+	if !result.committed {
 		t.Error("expected commit when tree is dirty")
 	}
 	if gc.addAllCalls != 1 || gc.commitCalls != 1 {

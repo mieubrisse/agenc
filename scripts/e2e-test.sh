@@ -1746,6 +1746,173 @@ sleep 1
 rm -rf "${fd_test_dir}"
 
 echo ""
+echo "--- Writeable-copy bulk-change guard (requires server) ---"
+
+# KEV-223: the sync loop once committed 149.5 MB of a drill's program output
+# into a repo's permanent history, and nothing said so for a month. A pass over
+# the auto-commit limits (autoCommitMaxFiles, autoCommitMaxBytes) must be held
+# back with a notification naming the repo and the volume, while ordinary edits
+# keep syncing with nothing new to do.
+#
+# The fixture is a throwaway bare repo as origin and a clone of it as the
+# writeable copy, both under one mktemp dir that is removed at the end, so the
+# real sync loop commits and pushes against nothing anyone else syncs. With no
+# library clone for the repo, expectedOriginURLForRepo is empty and the origin
+# check is skipped.
+#
+# The path is resolved with `pwd -P` because macOS's temp dir sits behind the
+# /var -> /private/var symlink, and the watcher compares event paths lexically:
+# under the symlinked spelling it fails to recognise events inside `.git/` and
+# re-ticks every few seconds on the tick's own index writes.
+bulk_scratch_dirpath="$(cd "$(mktemp -d -t agenc-e2e-bulk-XXXXXX)" && pwd -P)"
+bulk_remote_dirpath="${bulk_scratch_dirpath}/remote.git"
+bulk_copy_dirpath="${bulk_scratch_dirpath}/copy"
+bulk_repo="github.com/e2e-bulk-guard/bulk-guard"
+bulk_file_count=2000 # an order of magnitude over autoCommitMaxFiles (200)
+git init -q --bare "${bulk_remote_dirpath}"
+git -C "${bulk_remote_dirpath}" symbolic-ref HEAD refs/heads/main
+git init -q -b main "${bulk_copy_dirpath}"
+git -C "${bulk_copy_dirpath}" config user.email "e2e@example.com"
+git -C "${bulk_copy_dirpath}" config user.name "e2e"
+git -C "${bulk_copy_dirpath}" remote add origin "${bulk_remote_dirpath}"
+printf "seed\n" > "${bulk_copy_dirpath}/README.md"
+git -C "${bulk_copy_dirpath}" add -A
+git -C "${bulk_copy_dirpath}" commit -q -m "seed"
+git -C "${bulk_copy_dirpath}" push -q -u origin main
+git -C "${bulk_copy_dirpath}" fetch -q origin
+git -C "${bulk_copy_dirpath}" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+
+bulk_remote_commit_count() {
+    git -C "${bulk_remote_dirpath}" rev-list --count main
+}
+
+# Polls for up to 30 seconds — the working-tree debounce is 3 seconds and a tick
+# is a handful of git calls — until the remote holds the wanted commit count.
+await_bulk_remote_commit_count() {
+    local wanted="${1}"
+    local deadline=$((SECONDS + 30))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if [ "$(bulk_remote_commit_count)" = "${wanted}" ]; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# `writeable-copy set` only writes config. Without a running server the copy is
+# not watched until some later command starts one, by which time both writes
+# below would have landed and been measured as a single pass.
+"${agenc_test}" server start >/dev/null 2>&1 || true
+"${agenc_test}" repo writeable-copy set "${bulk_repo}" "${bulk_copy_dirpath}" >/dev/null 2>&1 || true
+sleep 5 # config-watcher debounce plus watcher startup, as in the FD test above
+
+# Ordinary work: one edit is committed and pushed with nothing else to do.
+printf "an ordinary edit\n" > "${bulk_copy_dirpath}/notes.md"
+total=$((total + 1))
+printf "  %-50s " "an ordinary edit auto-commits and pushes..."
+if await_bulk_remote_commit_count 2; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (remote has $(bulk_remote_commit_count) commits, expected 2)"
+    failed=$((failed + 1))
+fi
+
+# The bulk write lands as one rename, so no tick can see it half-written: this
+# tests the per-pass guard, not how fast the loop races a writer.
+bulk_staging_dirpath="${bulk_scratch_dirpath}/staging-OUTPUT"
+mkdir -p "${bulk_staging_dirpath}"
+for i in $(seq 1 "${bulk_file_count}"); do
+    printf "generated %s\n" "${i}" > "${bulk_staging_dirpath}/img_${i}.png"
+done
+mv "${bulk_staging_dirpath}" "${bulk_copy_dirpath}/OUTPUT"
+
+bulk_kind="writeable_copy.bulk_change"
+bulk_title_pattern="Auto-commit held back on ${bulk_repo}: ${bulk_file_count} new or changed files"
+total=$((total + 1))
+printf "  %-50s " "a bulk write posts a notification naming repo+volume..."
+bulk_deadline=$((SECONDS + 30))
+bulk_notified=1
+while [ "${SECONDS}" -lt "${bulk_deadline}" ]; do
+    if command_output_matches "${bulk_title_pattern}" \
+        "${agenc_test}" notification ls --repo "${bulk_repo}" --kind "${bulk_kind}"; then
+        bulk_notified=0
+        break
+    fi
+    sleep 1
+done
+if [ "${bulk_notified}" -eq 0 ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (no '${bulk_kind}' notification matching '${bulk_title_pattern}' within 30s)"
+    failed=$((failed + 1))
+fi
+
+total=$((total + 1))
+printf "  %-50s " "the bulk write never reaches the remote's history..."
+if [ "$(bulk_remote_commit_count)" = "2" ] && [ -z "$(git -C "${bulk_remote_dirpath}" ls-tree -r --name-only main -- OUTPUT)" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (remote has $(bulk_remote_commit_count) commits; OUTPUT/ in its tree: $(git -C "${bulk_remote_dirpath}" ls-tree -r --name-only main -- OUTPUT | wc -l | tr -d ' ') files)"
+    failed=$((failed + 1))
+fi
+
+total=$((total + 1))
+printf "  %-50s " "the held files are all still on disk..."
+bulk_files_on_disk=$(find "${bulk_copy_dirpath}/OUTPUT" -type f | wc -l | tr -d ' ')
+if [ "${bulk_files_on_disk}" = "${bulk_file_count}" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (${bulk_files_on_disk} files on disk, expected ${bulk_file_count})"
+    failed=$((failed + 1))
+fi
+
+run_test_output_contains "writeable-copy ls shows the copy held as bulk_change" \
+    "bulk_change" \
+    "${agenc_test}" repo writeable-copy ls
+
+# Another edit while held triggers another tick: still held, still one
+# notification for the episode rather than one per tick.
+printf "an edit made while held\n" > "${bulk_copy_dirpath}/notes2.md"
+sleep 8
+total=$((total + 1))
+printf "  %-50s " "a held episode notifies exactly once..."
+bulk_notifications=$("${agenc_test}" notification ls --all --repo "${bulk_repo}" --kind "${bulk_kind}" 2>&1) || true
+bulk_notification_count=$(grep -c -- "${bulk_kind}" <<< "${bulk_notifications}" || true)
+if [ "${bulk_notification_count}" = "1" ] && [ "$(bulk_remote_commit_count)" = "2" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (${bulk_notification_count} notifications, remote at $(bulk_remote_commit_count) commits; expected 1 and 2)"
+    failed=$((failed + 1))
+fi
+
+# Release by the route the notification gives for generated output: ignore it.
+# The held edit and the .gitignore then sync as one ordinary pass.
+printf "OUTPUT/\n" > "${bulk_copy_dirpath}/.gitignore"
+total=$((total + 1))
+printf "  %-50s " "ignoring the output releases the held edit..."
+if await_bulk_remote_commit_count 3 && [ -n "$(git -C "${bulk_remote_dirpath}" ls-tree -r --name-only main -- notes2.md)" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (remote has $(bulk_remote_commit_count) commits, expected 3 including notes2.md)"
+    failed=$((failed + 1))
+fi
+
+run_test_output_lacks "writeable-copy ls no longer shows bulk_change" \
+    "bulk_change" \
+    "${agenc_test}" repo writeable-copy ls
+
+"${agenc_test}" repo writeable-copy unset "${bulk_repo}" >/dev/null 2>&1 || true
+sleep 1
+rm -rf "${bulk_scratch_dirpath}"
+
+echo ""
 echo "--- Mission detach across tmux sessions (requires server + tmux) ---"
 
 # Regression (agenc-vurk): detach must find the mission's window wherever it is

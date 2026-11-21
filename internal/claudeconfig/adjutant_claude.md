@@ -366,8 +366,8 @@ checkout. The notification body explains what to do.
 **It does not mean the loop has stopped.** A pause row records that this
 repo's last failure is unresolved and has already been reported; the loop goes
 on running the full cycle about once a minute, and for every kind except the
-sanity four below it goes on committing local changes too. The row is deleted
-the moment a tick gets all the way through.
+five below that stop before the commit it goes on committing local changes
+too. The row is deleted the moment a tick gets all the way through.
 
 The kinds:
 
@@ -378,6 +378,7 @@ The kinds:
 - `writeable_copy.origin_drift` — origin URL doesn't match expected
 - `writeable_copy.path_missing` — the writeable-copy path no longer exists
 - `writeable_copy.git_corrupt` — git operations are failing in the copy
+- `writeable_copy.bulk_change` — the working tree holds more new or changed content than one auto-commit may take (over 200 files or 20 MB), so the loop held it back rather than put it into permanent history. Almost always generated output: program output, build artifacts, a dataset or model cache. Nothing was staged or deleted. The title names the repo and the volume; the body lists the directories it landed in. The user resolves it either by gitignoring or deleting the output, or, if it belongs in the repo, by committing it by hand — that manual commit is the review the guard asks for. Either way the next tick syncs normally and clears the record
 
 A single rejected push is **not** one of these. The loop re-fetches after any
 refused push and pushes again when `origin/<branch>` turns out to be an
@@ -416,6 +417,9 @@ all of them, and the difference is what the user needs to hear.**
   user's uncommitted work is sitting on disk with nothing capturing it, and
   these should be treated as the more urgent kind. Their notification bodies
   deliberately omit the keeps-committing reassurance; do not add it.
+- `bulk_change` also stops before the commit, and holds back everything in
+  the working tree — ordinary edits made alongside the bulk included, because
+  the loop commits the tree as one unit. Same urgency as the four above.
 
 A repo whose rebase could not be aborted is a third case: the rebase stays in
 progress, so every later tick skips the repo silently and nothing is committed
@@ -451,7 +455,11 @@ continuously synced with the same git remote as the repo library:
   that keeps refusing the push, an auth failure, a broken checkout) it posts
   one notification and records the failure against the repo. It does not stop:
   it keeps retrying about once a minute, and keeps committing local changes
-  for everything except the four sanity failures below
+  for everything except the five failures that stop before the commit
+- A single pass over 200 new or changed files or 20 MB is not auto-committed:
+  it is held back with a `writeable_copy.bulk_change` notification, because a
+  pass that size is almost always generated output and history keeps whatever
+  is pushed forever
 
 The classic use case is **dotfiles**: the user has a dotfiles repo in the
 library, but symlinks like `~/.claude/CLAUDE.md` need to point at a writable
@@ -473,10 +481,12 @@ Status legend:
   yet. The name is misleading: the loop has **not** stopped. It still runs the
   full cycle about once a minute, and still commits local changes for every
   kind except the four sanity ones (`wrong_branch`, `path_missing`,
-  `origin_drift`, `git_corrupt`), where it deliberately stops before the
-  commit. The row clears by itself on the first tick that reconciles fully —
-  so an auth failure or a refused push clears when the remote accepts a push,
-  and a sanity failure clears when its condition is fixed
+  `origin_drift`, `git_corrupt`) and `bulk_change`, where it deliberately
+  stops before the commit. The row clears by itself on the first tick that
+  reconciles fully — so an auth failure or a refused push clears when the
+  remote accepts a push, a sanity failure clears when its condition is fixed,
+  and a bulk change clears once the output is ignored, deleted or committed by
+  hand
 - `❌ missing` — the configured path doesn't exist on disk (deleted manually)
 
 ### Configuring a writeable copy (the set workflow)

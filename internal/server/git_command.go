@@ -38,6 +38,11 @@ type GitCommander interface {
 	OriginURL(repoDirpath string) (string, error)
 	// Fetch fetches from origin.
 	Fetch(repoDirpath string) error
+	// PendingChanges lists the working-tree paths whose content `git add -A`
+	// would write into the repo — new and modified files, honouring
+	// .gitignore — each with its size on disk. Deletions are left out: they
+	// add nothing to history.
+	PendingChanges(repoDirpath string) ([]pendingChange, error)
 	// AddAll stages every change in the working tree.
 	AddAll(repoDirpath string) error
 	// Commit creates a commit with the given message. Returns nil if there is
@@ -88,6 +93,13 @@ type pushResult struct {
 	// a pause or a retry records only a guess at what went wrong, which is
 	// what made the three KEV-230 incidents unattributable after the fact.
 	Output string
+}
+
+// pendingChange is one path an auto-commit would add to history.
+type pendingChange struct {
+	// relPath is relative to the repo root, as git prints it.
+	relPath string
+	bytes   int64
 }
 
 // realGit is the production GitCommander implementation backed by the git CLI.
@@ -168,6 +180,45 @@ func (g realGit) OriginURL(repoDirpath string) (string, error) {
 func (g realGit) Fetch(repoDirpath string) error {
 	_, err := g.runGit(repoDirpath, "fetch", "origin")
 	return err
+}
+
+// PendingChanges reads `git status` with every untracked file listed
+// individually rather than collapsed into its directory, which is what makes a
+// directory of ten thousand generated files count as ten thousand. Renames are
+// split into a deletion and an addition so that every entry carries one path.
+// Sizes come from the filesystem: a path git lists that is no longer on disk is
+// a deletion, or a file removed since git looked, and adds nothing.
+//
+// Stdout only, unlike runGit: a warning git writes to stderr (an unreadable
+// directory, say) would otherwise land in the middle of the NUL-separated list.
+func (realGit) PendingChanges(repoDirpath string) ([]pendingChange, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitOperationTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames")
+	cmd.Dir = repoDirpath
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "git status failed while measuring pending changes in '%v': %s", repoDirpath, strings.TrimSpace(stderr.String()))
+	}
+	var changes []pendingChange
+	for _, entry := range strings.Split(string(out), "\x00") {
+		// Each entry is "XY <path>".
+		if len(entry) < 4 {
+			continue
+		}
+		relPath := entry[3:]
+		info, err := os.Lstat(filepath.Join(repoDirpath, relPath))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed to read the size of pending change '%v' in '%v'", relPath, repoDirpath)
+		}
+		changes = append(changes, pendingChange{relPath: relPath, bytes: info.Size()})
+	}
+	return changes, nil
 }
 
 func (g realGit) AddAll(repoDirpath string) error {
