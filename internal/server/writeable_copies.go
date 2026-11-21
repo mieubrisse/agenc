@@ -35,6 +35,9 @@ const (
 	pauseReasonOriginDrift = "origin_drift"
 	pauseReasonPathMissing = "path_missing"
 	pauseReasonGitCorrupt  = "git_corrupt"
+	// pauseReasonBulkChange is posted when the working tree holds more new
+	// content than one auto-commit may take; see autoCommitMaxFiles.
+	pauseReasonBulkChange = "bulk_change"
 )
 
 // maxGitOutputLinesInPauseDetail bounds how much of git's output a pause
@@ -159,24 +162,45 @@ func normalizeOriginURL(url string) string {
 	return u
 }
 
-// commitIfDirty stages and commits any working-tree changes. Returns whether
-// a commit was made.
-func commitIfDirty(gc GitCommander, repoDirpath string) (bool, error) {
+// autoCommitResult says what commitIfDirty did.
+type autoCommitResult struct {
+	committed bool
+	// heldVolume is set when the pending changes were over the auto-commit
+	// limits, in which case nothing was staged or committed.
+	heldVolume *changeVolume
+}
+
+// commitIfDirty stages and commits any working-tree changes, unless there is
+// more of them than one auto-commit may take.
+//
+// The volume is measured before anything is staged, because staging is itself
+// the cost being avoided: `git add` writes every blob into the object store,
+// and would rewrite hundreds of megabytes once a minute for as long as a held
+// pass sat there.
+func commitIfDirty(gc GitCommander, repoDirpath string) (autoCommitResult, error) {
 	clean, _, err := gc.Status(repoDirpath)
 	if err != nil {
-		return false, stacktrace.Propagate(err, "failed to read status before auto-commit in '%v'", repoDirpath)
+		return autoCommitResult{}, stacktrace.Propagate(err, "failed to read status before auto-commit in '%v'", repoDirpath)
 	}
 	if clean {
-		return false, nil
+		return autoCommitResult{}, nil
+	}
+	changes, err := gc.PendingChanges(repoDirpath)
+	if err != nil {
+		return autoCommitResult{}, stacktrace.Propagate(err, "failed to measure pending changes before auto-commit in '%v'", repoDirpath)
+	}
+	volume := summarizePendingChanges(changes)
+	if volume.exceedsAutoCommitLimits() {
+		return autoCommitResult{heldVolume: volume}, nil
 	}
 	if err := gc.AddAll(repoDirpath); err != nil {
-		return false, stacktrace.Propagate(err, "failed to git-add in '%v'", repoDirpath)
+		return autoCommitResult{}, stacktrace.Propagate(err, "failed to git-add in '%v'", repoDirpath)
 	}
 	msg := fmt.Sprintf("auto-sync: %s", time.Now().UTC().Format(time.RFC3339))
 	if err := gc.Commit(repoDirpath, msg); err != nil {
-		return false, stacktrace.Propagate(err, "failed to commit in '%v'", repoDirpath)
+		return autoCommitResult{}, stacktrace.Propagate(err, "failed to commit in '%v'", repoDirpath)
 	}
-	return true, nil
+	return autoCommitResult{committed: true}, nil
 }
 
 // Actions a reconcile can take. The first four mean the writeable copy ended
@@ -532,6 +556,13 @@ func pauseResolutionNote(reason string) string {
 			"as above, and once the branches are no longer diverged the next tick reconciles normally and clears this.\n\n" +
 			oneNotificationPerEpisode
 
+	case pauseReasonBulkChange:
+		return "**Nothing is being committed or pushed for this repo while this holds** — including ordinary edits made alongside the " +
+			"files above, because the loop commits the working tree as one unit and cannot tell which change is which. Those edits are " +
+			"safe on disk but not yet in git, so treat this as the urgent kind. The loop re-checks about once a minute, so resolving it " +
+			"as above clears this within a minute, with nothing else to do.\n\n" +
+			oneNotificationPerEpisode
+
 	default:
 		// The sanity-stage failures: wrong branch, missing path, origin drift,
 		// git corruption. The tick stops before the commit for these.
@@ -643,7 +674,7 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return nil
 	}
 	if sanity.PauseReason != "" {
-		return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, sanity.PauseReason, sanity.PauseDetail)
+		return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, sanity.PauseReason, titleForPauseReason(sanity.PauseReason, repoName), sanity.PauseDetail)
 	}
 
 	// Committing runs whether or not there is an unresolved failure. A pause
@@ -652,9 +683,9 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 	// a checkout that missions are writing to, this commit is the only thing
 	// that ever makes the tree clean. Gating it behind the pause is what made
 	// the KEV-230 deadlock permanent.
-	if _, err := commitIfDirty(gc, repoDirpath); err != nil {
-		s.logger.Printf("Writeable-copy auto-commit failed for '%s': %v", repoName, err)
-		return nil // transient; retry next trigger
+	pause, shouldContinue, err := s.runAutoCommitStep(gc, repoName, repoDirpath, pause)
+	if !shouldContinue {
+		return err
 	}
 
 	defaultBranch, err := gc.DefaultBranch(repoDirpath)
@@ -669,7 +700,7 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 			// Standing refusal, not a flapping one. Forget the count so that a
 			// repo that clears this starts over.
 			s.forgetPushRefusals(repoName)
-			return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, pauseReasonPushRefused,
+			return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, pauseReasonPushRefused, titleForPauseReason(pauseReasonPushRefused, repoName),
 				buildPushRefusedDetail(repoDirpath, defaultBranch, refusals, result.RefusedPushOutput))
 		}
 	}
@@ -678,7 +709,7 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		return nil // transient; retry
 	}
 	if result.PauseReason != "" {
-		return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, result.PauseReason, result.PauseDetail)
+		return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, result.PauseReason, titleForPauseReason(result.PauseReason, repoName), result.PauseDetail)
 	}
 	if !isFullyReconciled(result) {
 		return nil // nothing failed, but nothing was settled either
@@ -698,6 +729,38 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		s.logger.Printf("Writeable-copy '%s': %s (%s)", repoName, result.Action, result.Outcome)
 	}
 	return nil
+}
+
+// runAutoCommitStep is the tick's commit step. It returns the repo's failure
+// record as it stands afterwards, and whether the tick should go on to
+// reconcile; when it should not, the error is the tick's result.
+func (s *Server) runAutoCommitStep(gc GitCommander, repoName, repoDirpath string, pause *database.WriteableCopyPause) (*database.WriteableCopyPause, bool, error) {
+	autoCommit, err := commitIfDirty(gc, repoDirpath)
+	if err != nil {
+		s.logger.Printf("Writeable-copy auto-commit failed for '%s': %v", repoName, err)
+		return pause, false, nil // transient; retry next trigger
+	}
+	if autoCommit.heldVolume != nil {
+		// Stop here, as the sanity-stage failures do. Going on to reconcile
+		// would end the tick fully reconciled whenever there was nothing to
+		// push, and that clears the record — so the next tick would find the
+		// same bulk and notify again, once a minute.
+		s.logger.Printf("Writeable-copy '%s': auto-commit held back — %d files, %s pending", repoName, autoCommit.heldVolume.files, formatMB(autoCommit.heldVolume.bytes))
+		return pause, false, s.recordWriteableCopyFailure(gc, repoName, repoDirpath, pauseReasonBulkChange,
+			titleForBulkChange(repoName, autoCommit.heldVolume), buildBulkChangeDetail(repoDirpath, autoCommit.heldVolume))
+	}
+	if pause != nil && pause.PausedReason == pauseReasonBulkChange {
+		// The bulk is resolved the moment the tree is back within the limits,
+		// whatever the remote does next. Left standing until a full reconcile,
+		// a failed or deferred push would keep the copy reading as held, and a
+		// second bulk in that window would match the row and go unreported.
+		if err := s.db.DeletePause(repoName); err != nil {
+			return pause, false, stacktrace.Propagate(err, "failed to clear the bulk-change record for '%v'", repoName)
+		}
+		s.logger.Printf("Writeable-copy '%s': resumed — the working tree is back within the auto-commit limits", repoName)
+		return nil, true, nil
+	}
+	return pause, true, nil
 }
 
 // isFullyReconciled reports whether a tick got the writeable copy all the way
@@ -727,7 +790,7 @@ func isFullyReconciled(result reconcileResult) bool {
 //
 // local_head_at_pause is still written, as a record of where the repo stood
 // when the episode opened. Nothing reads it to make a decision any more.
-func (s *Server) recordWriteableCopyFailure(gc GitCommander, repoName, repoDirpath, reason, detail string) error {
+func (s *Server) recordWriteableCopyFailure(gc GitCommander, repoName, repoDirpath, reason, title, detail string) error {
 	existing, err := s.db.GetPause(repoName)
 	if err != nil {
 		return stacktrace.Propagate(err, "failed to read the recorded failure for '%v'", repoName)
@@ -746,7 +809,7 @@ func (s *Server) recordWriteableCopyFailure(gc GitCommander, repoName, repoDirpa
 		ID:           uuid.New().String(),
 		Kind:         notificationKindForPauseReason(reason),
 		SourceRepo:   repoName,
-		Title:        titleForPauseReason(reason, repoName),
+		Title:        title,
 		BodyMarkdown: detail,
 	}
 	pause := &database.WriteableCopyPause{
@@ -798,6 +861,10 @@ func titleForPauseReason(reason, repoName string) string {
 		return "Writeable copy missing for " + repoName
 	case pauseReasonGitCorrupt:
 		return "Git error in writeable copy of " + repoName
+	case pauseReasonBulkChange:
+		// Posted with titleForBulkChange, which names the volume; this is the
+		// fallback for anything that has only the reason to go on.
+		return "Auto-commit held back on " + repoName
 	default:
 		return "Writeable-copy issue on " + repoName
 	}
