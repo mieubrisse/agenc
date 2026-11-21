@@ -137,6 +137,33 @@ command_output_matches() {
     text_matches "${output}" -E -- "${pattern}"
 }
 
+# short_id_from_create_output <text>
+# Echoes the short ID from a `mission new` output's "Created mission:" line.
+# awk reads to the end of the text rather than exiting on the match, so it can
+# never be the early-exiting reader text_matches warns about.
+short_id_from_create_output() {
+    awk '!found && /^Created mission:/ { print $3; found = 1 }' <<< "${1}"
+}
+
+# create_mission_and_echo_short_id <mission-new-args...>
+# Runs `mission new` to completion and echoes the short ID it created. A failed
+# `mission new` stops the suite, with its output, since some callers would read
+# a missing ID as a skip. Never pipe `mission new` into an early-exiting reader:
+# it writes "Running headless" after the "Created mission:" line, so a reader
+# that exits on that line kills it with SIGPIPE whenever it wins the race, and
+# the suite ends there with exit 141 and no message (KEV-223, CI run
+# 44958563319).
+create_mission_and_echo_short_id() {
+    local output
+    local exit_status=0
+    output="$("${agenc_test}" mission new "${@}" 2>&1)" || exit_status=$?
+    if [ "${exit_status}" -ne 0 ]; then
+        echo "ERROR: mission new ${*} exited ${exit_status}: ${output}" >&2
+        exit 1
+    fi
+    short_id_from_create_output "${output}"
+}
+
 # Poll `mission inspect` until it reports the wanted status, or give up after 20
 # seconds. Returns 0 on match; on failure, last_command_exit tells a dead
 # `mission inspect` apart from a status that never arrived.
@@ -381,29 +408,32 @@ if [ ! -d "${repo_dirpath}/_test-env" ]; then
     exit 1
 fi
 
-# A pipe into `grep -q` reads as correct and reports a match as a failure; see
-# text_matches above. Refuse to run rather than let one back in. awk first joins
-# a line ending in `|` to the next, so a pipe split across lines is still seen;
-# a pipe that starts a continuation line already sits on one line.
-pipe_into_quiet_grep_scan_exit=0
-pipe_into_quiet_grep_lines="$(awk '{
+# A pipe into `grep -q`, or into an awk program that can `exit`, reads as
+# correct and dies of SIGPIPE whenever the reader stops before the writer; see
+# text_matches and create_mission_and_echo_short_id above. Refuse to run rather
+# than let one back in. awk first joins a line ending in `|` to the next, so a
+# pipe split across lines is still seen; a pipe that starts a continuation line
+# already sits on one line.
+early_exit_pipe_scan_exit=0
+early_exit_pipe_lines="$(awk '{
         if (pending != "") { line = pending " " $0; line_number = pending_line_number } else { line = $0; line_number = NR }
         if (line ~ /\|[[:space:]]*$/) { pending = line; pending_line_number = line_number; next }
         pending = ""
         print line_number ":" line
     }' "${BASH_SOURCE[0]}" \
-    | grep -E '\|&?[[:space:]]*(command[[:space:]]+)?[ef]?grep[[:space:]]([^|;&]*[[:space:]])?(-[A-Za-z]*q[A-Za-z]*|--quiet|--silent)([[:space:]]|$)')" \
-    || pipe_into_quiet_grep_scan_exit=$?
-if [ "${pipe_into_quiet_grep_scan_exit}" -gt 1 ]; then
-    echo "ERROR: could not scan ${BASH_SOURCE[0]} for pipes into 'grep -q' (grep exit ${pipe_into_quiet_grep_scan_exit})."
+    | grep -E -e '\|&?[[:space:]]*(command[[:space:]]+)?[ef]?grep[[:space:]]([^|;&]*[[:space:]])?(-[A-Za-z]*q[A-Za-z]*|--quiet|--silent)([[:space:]]|$)' \
+        -e '\|&?[[:space:]]*(command[[:space:]]+)?awk[[:space:]][^|]*[^A-Za-z_]exit([^A-Za-z_]|$)')" \
+    || early_exit_pipe_scan_exit=$?
+if [ "${early_exit_pipe_scan_exit}" -gt 1 ]; then
+    echo "ERROR: could not scan ${BASH_SOURCE[0]} for pipes into early-exiting readers (grep exit ${early_exit_pipe_scan_exit})."
     exit 1
 fi
 # Comment lines may name the form; only code counts.
-pipe_into_quiet_grep_lines="$(grep -vE '^[0-9]+:[[:space:]]*#' <<< "${pipe_into_quiet_grep_lines}" || true)"
-if [ -n "${pipe_into_quiet_grep_lines}" ]; then
-    echo "ERROR: ${BASH_SOURCE[0]} pipes a command into 'grep -q', which under pipefail reports a match as a failure."
-    echo "Use text_matches or command_output_matches instead. Offending lines:"
-    echo "${pipe_into_quiet_grep_lines}"
+early_exit_pipe_lines="$(grep -vE '^[0-9]+:[[:space:]]*#' <<< "${early_exit_pipe_lines}" || true)"
+if [ -n "${early_exit_pipe_lines}" ]; then
+    echo "ERROR: ${BASH_SOURCE[0]} pipes a command into 'grep -q' or an exiting awk, which under pipefail can fail with SIGPIPE (exit 141)."
+    echo "Use text_matches, command_output_matches or create_mission_and_echo_short_id instead. Offending lines:"
+    echo "${early_exit_pipe_lines}"
     exit 1
 fi
 
@@ -2045,8 +2075,7 @@ echo "--- Side Draft keeps its draft file (requires server + tmux) ---"
 # the user had typed. The file must outlive the command; the OS reaps it.
 
 draft_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
-draft_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
-    | awk '/^Created mission:/{print $3; exit}')
+draft_mission_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
 draft_mission_pane=""
 if [ -n "${draft_mission_short_id}" ]; then
     draft_mission_pane=$(sqlite3 "${draft_db_filepath}" \
@@ -2146,11 +2175,6 @@ echo "--- Per-mission Claude args (one ordered list, KEV-97) ---"
 
 claude_args_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
 
-# Runs `mission new` with the given args and echoes the short ID it created.
-create_mission_and_echo_short_id() {
-    "${agenc_test}" mission new "$@" 2>&1 | awk '/^Created mission:/{print $3; exit}'
-}
-
 model_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus -- --model haiku)
 
 total=$((total + 1))
@@ -2238,7 +2262,7 @@ else
     failed=$((failed + 1))
 fi
 
-clone_override_short_id=$(echo "${clone_replace_output}" | awk '/^Created mission:/{print $3; exit}')
+clone_override_short_id=$(short_id_from_create_output "${clone_replace_output}")
 run_test_output_contains \
     "Claude args on a clone replace the source's, not merge" \
     '^\["--effort","high"\]$' \
@@ -3227,8 +3251,7 @@ echo "--- StopFailure ends a turn, but only the main agent's (requires server + 
 # No backdating and no reaping in this section: it is about what the wrapper
 # reports, not about what the server does with it.
 
-stopfailure_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
-    | awk '/^Created mission:/{print $3; exit}')
+stopfailure_mission_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
 stopfailure_mission_uuid=""
 if [ -n "${stopfailure_mission_short_id}" ]; then
     stopfailure_mission_uuid=$(sqlite3 "${repo_dirpath}/_test-env/database.sqlite" \
@@ -3419,8 +3442,7 @@ echo "--- Idle timeout spares a working mission (requires server + wrapper socke
 # later section depends on.
 
 idle_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
-idle_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
-    | awk '/^Created mission:/{print $3; exit}')
+idle_mission_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
 idle_mission_uuid=""
 if [ -n "${idle_mission_short_id}" ]; then
     idle_mission_uuid=$(sqlite3 "${idle_db_filepath}" \
@@ -3537,8 +3559,7 @@ wait_for_pid_exit() {
 # gives Claude up to 10 seconds to exit on SIGTERM. 40 seconds covers both with
 # margin.
 orphan_db_filepath="${repo_dirpath}/_test-env/database.sqlite"
-orphan_mission_short_id=$("${agenc_test}" mission new --blank --headless --no-focus 2>&1 \
-    | awk '/^Created mission:/{print $3; exit}')
+orphan_mission_short_id=$(create_mission_and_echo_short_id --blank --headless --no-focus)
 orphan_mission_uuid=""
 if [ -n "${orphan_mission_short_id}" ]; then
     orphan_mission_uuid=$(sqlite3 "${orphan_db_filepath}" \
