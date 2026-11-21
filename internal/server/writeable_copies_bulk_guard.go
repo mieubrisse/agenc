@@ -31,9 +31,16 @@ import (
 // kind of pass someone should look at before it becomes permanent, and
 // committing it by hand releases it.
 //
-// The limits are per pass, so output written slowly enough to stay under them
-// on every tick would still be committed. Nothing observed so far has had that
-// shape.
+// Three known edges, accepted:
+//   - The limits are per pass. Output written slowly enough to stay under them
+//     on every tick is still committed, and so is the part of a fast write
+//     that a sweep tick catches mid-stream under the limit; the next tick then
+//     holds the rest. Nothing observed has had the slow shape.
+//   - What is measured is not re-checked after `git add -A`, so files that land
+//     in the milliseconds between the two are committed unmeasured.
+//   - A path is counted whether or not its content is already in history, so
+//     moving more than autoCommitMaxFiles tracked files is held too. The
+//     calibration above counted moves the same way, and found none that large.
 const (
 	autoCommitMaxFiles = 200
 	autoCommitMaxBytes = 20 * bytesPerMB
@@ -121,7 +128,7 @@ func buildBulkChangeDetail(repoDirpath string, volume *changeVolume) string {
 	sb.WriteString("# Auto-commit held back: too much new content in one pass\n\n")
 	sb.WriteString(fmt.Sprintf("**Path:** %s\n\n", repoDirpath))
 	sb.WriteString(fmt.Sprintf(
-		"**Pending:** %d new or changed files, %s — over the auto-commit limit of %d files or %s in one pass.\n\n",
+		"**Pending when this was posted:** %d new or changed files, %s — over the auto-commit limit of %d files or %s in one pass.\n\n",
 		volume.files, formatMB(volume.bytes), autoCommitMaxFiles, formatMB(autoCommitMaxBytes),
 	))
 	sb.WriteString("Nothing has been staged, committed or deleted: every file is still on disk exactly as it was written. " +

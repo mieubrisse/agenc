@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mieubrisse/stacktrace"
@@ -187,7 +189,8 @@ func (g realGit) Fetch(repoDirpath string) error {
 // directory of ten thousand generated files count as ten thousand. Renames are
 // split into a deletion and an addition so that every entry carries one path.
 // Sizes come from the filesystem: a path git lists that is no longer on disk is
-// a deletion, or a file removed since git looked, and adds nothing.
+// a deletion, or a file removed since git looked, and adds nothing. A path that
+// cannot be sized for any other reason still counts as a file.
 //
 // Stdout only, unlike runGit: a warning git writes to stderr (an unreadable
 // directory, say) would otherwise land in the middle of the NUL-separated list.
@@ -210,11 +213,16 @@ func (realGit) PendingChanges(repoDirpath string) ([]pendingChange, error) {
 		}
 		relPath := entry[3:]
 		info, err := os.Lstat(filepath.Join(repoDirpath, relPath))
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
+			// ENOTDIR: a tracked dir/file whose directory has since been
+			// replaced by a file. Also a deletion.
 			continue
 		}
 		if err != nil {
-			return nil, stacktrace.Propagate(err, "failed to read the size of pending change '%v' in '%v'", relPath, repoDirpath)
+			// Counted, unsized. Failing the measurement instead would stop
+			// every later tick at the same entry, with nothing saying so.
+			changes = append(changes, pendingChange{relPath: relPath})
+			continue
 		}
 		changes = append(changes, pendingChange{relPath: relPath, bytes: info.Size()})
 	}

@@ -214,6 +214,46 @@ func TestSweep_ABulkPassIsHeldNotifiedOnceAndReleasedByResolvingIt(t *testing.T)
 	}
 }
 
+// Releasing a bulk clears its record at once, even when the push that follows
+// fails. Otherwise the copy keeps reading as held, and a second bulk in that
+// window would match the standing row and go unreported.
+func TestSweep_ASecondBulkAfterAReleaseWhosePushFailedIsStillReported(t *testing.T) {
+	const repoName = "github.com/o/r"
+	repoDirpath := t.TempDir()
+	gc := &fakeGit{
+		statusClean:    false,
+		pendingChanges: nFiles("OUTPUT", autoCommitMaxFiles+1, 10),
+		headValue:      "local",
+		defaultBranch:  "main",
+		currentBranch:  "main",
+		revParseValues: map[string]string{"origin/main": "remote"},
+		mergeBaseValue: "remote",
+		pushErr:        fmt.Errorf("network unreachable"), // transient: no pause of its own
+	}
+	srv := newWriteableCopyTestServer(t, repoName, repoDirpath, gc)
+
+	runSweepAndTick(t, srv, repoName)
+	if pause := currentPause(t, srv, repoName); pause == nil || pause.PausedReason != pauseReasonBulkChange {
+		t.Fatalf("expected the first bulk to be held, got %+v", pause)
+	}
+
+	gc.pendingChanges = nFiles("notes", 1, 10)
+	runSweepAndTick(t, srv, repoName)
+	if gc.commitCalls != 1 || gc.pushCalls == 0 {
+		t.Fatalf("expected the release to commit and attempt a push; commit=%d push=%d", gc.commitCalls, gc.pushCalls)
+	}
+	if pause := currentPause(t, srv, repoName); pause != nil {
+		t.Errorf("expected the bulk record cleared despite the failed push, still '%s'", pause.PausedReason)
+	}
+
+	gc.statusClean = false
+	gc.pendingChanges = nFiles("OUTPUT2", autoCommitMaxFiles+1, 10)
+	runSweepAndTick(t, srv, repoName)
+	if n := countNotifications(t, srv, repoName); n != 2 {
+		t.Errorf("expected the second bulk to be reported too, got %d notifications", n)
+	}
+}
+
 // ----- realGit.PendingChanges against a real repository -----
 
 func runGitForTest(t *testing.T, repoDirpath string, args ...string) {
@@ -279,6 +319,29 @@ func TestRealGitPendingChanges_CountsWhatAnAutoCommitWouldAdd(t *testing.T) {
 		if got[relPath] != bytes {
 			t.Errorf("expected '%s' at %d bytes, got %v", relPath, bytes, got)
 		}
+	}
+}
+
+// A tracked directory replaced by a file of the same name makes git list the
+// old path inside it, which Lstat answers with ENOTDIR. That is a deletion, and
+// must not fail the measurement: a failure there would stop every later tick at
+// the same entry.
+func TestRealGitPendingChanges_ADirectoryReplacedByAFileIsADeletion(t *testing.T) {
+	repoDirpath := newRepoForTest(t)
+	writeFileForTest(t, filepath.Join(repoDirpath, "config", "settings.json"), "{}")
+	runGitForTest(t, repoDirpath, "add", "-A")
+	runGitForTest(t, repoDirpath, "commit", "-q", "-m", "add config dir")
+	if err := os.RemoveAll(filepath.Join(repoDirpath, "config")); err != nil {
+		t.Fatal(err)
+	}
+	writeFileForTest(t, filepath.Join(repoDirpath, "config"), "now a file")
+
+	changes, err := (&realGit{}).PendingChanges(repoDirpath)
+	if err != nil {
+		t.Fatalf("expected the measurement to succeed, got %v", err)
+	}
+	if len(changes) != 1 || changes[0].relPath != "config" || changes[0].bytes != 10 {
+		t.Errorf("expected only the new file 'config' (10 bytes), got %+v", changes)
 	}
 }
 

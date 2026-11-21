@@ -683,19 +683,9 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 	// a checkout that missions are writing to, this commit is the only thing
 	// that ever makes the tree clean. Gating it behind the pause is what made
 	// the KEV-230 deadlock permanent.
-	autoCommit, err := commitIfDirty(gc, repoDirpath)
-	if err != nil {
-		s.logger.Printf("Writeable-copy auto-commit failed for '%s': %v", repoName, err)
-		return nil // transient; retry next trigger
-	}
-	if autoCommit.heldVolume != nil {
-		// Stop here, as the sanity-stage failures do. Going on to reconcile
-		// would end the tick fully reconciled whenever there was nothing to
-		// push, and that clears the record — so the next tick would find the
-		// same bulk and notify again, once a minute.
-		s.logger.Printf("Writeable-copy '%s': auto-commit held back — %d files, %s pending", repoName, autoCommit.heldVolume.files, formatMB(autoCommit.heldVolume.bytes))
-		return s.recordWriteableCopyFailure(gc, repoName, repoDirpath, pauseReasonBulkChange,
-			titleForBulkChange(repoName, autoCommit.heldVolume), buildBulkChangeDetail(repoDirpath, autoCommit.heldVolume))
+	pause, shouldContinue, err := s.runAutoCommitStep(gc, repoName, repoDirpath, pause)
+	if !shouldContinue {
+		return err
 	}
 
 	defaultBranch, err := gc.DefaultBranch(repoDirpath)
@@ -739,6 +729,38 @@ func (s *Server) runWriteableCopyTick(ctx context.Context, repoName string) erro
 		s.logger.Printf("Writeable-copy '%s': %s (%s)", repoName, result.Action, result.Outcome)
 	}
 	return nil
+}
+
+// runAutoCommitStep is the tick's commit step. It returns the repo's failure
+// record as it stands afterwards, and whether the tick should go on to
+// reconcile; when it should not, the error is the tick's result.
+func (s *Server) runAutoCommitStep(gc GitCommander, repoName, repoDirpath string, pause *database.WriteableCopyPause) (*database.WriteableCopyPause, bool, error) {
+	autoCommit, err := commitIfDirty(gc, repoDirpath)
+	if err != nil {
+		s.logger.Printf("Writeable-copy auto-commit failed for '%s': %v", repoName, err)
+		return pause, false, nil // transient; retry next trigger
+	}
+	if autoCommit.heldVolume != nil {
+		// Stop here, as the sanity-stage failures do. Going on to reconcile
+		// would end the tick fully reconciled whenever there was nothing to
+		// push, and that clears the record — so the next tick would find the
+		// same bulk and notify again, once a minute.
+		s.logger.Printf("Writeable-copy '%s': auto-commit held back — %d files, %s pending", repoName, autoCommit.heldVolume.files, formatMB(autoCommit.heldVolume.bytes))
+		return pause, false, s.recordWriteableCopyFailure(gc, repoName, repoDirpath, pauseReasonBulkChange,
+			titleForBulkChange(repoName, autoCommit.heldVolume), buildBulkChangeDetail(repoDirpath, autoCommit.heldVolume))
+	}
+	if pause != nil && pause.PausedReason == pauseReasonBulkChange {
+		// The bulk is resolved the moment the tree is back within the limits,
+		// whatever the remote does next. Left standing until a full reconcile,
+		// a failed or deferred push would keep the copy reading as held, and a
+		// second bulk in that window would match the row and go unreported.
+		if err := s.db.DeletePause(repoName); err != nil {
+			return pause, false, stacktrace.Propagate(err, "failed to clear the bulk-change record for '%v'", repoName)
+		}
+		s.logger.Printf("Writeable-copy '%s': resumed — the working tree is back within the auto-commit limits", repoName)
+		return nil, true, nil
+	}
+	return pause, true, nil
 }
 
 // isFullyReconciled reports whether a tick got the writeable copy all the way

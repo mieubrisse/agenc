@@ -1786,11 +1786,12 @@ bulk_remote_commit_count() {
     git -C "${bulk_remote_dirpath}" rev-list --count main
 }
 
-# Polls for up to 30 seconds — the working-tree debounce is 3 seconds and a tick
-# is a handful of git calls — until the remote holds the wanted commit count.
+# Polls until the remote holds the wanted commit count. The watcher normally
+# ticks within a few seconds (3-second debounce); 90 seconds also covers a
+# missed filesystem event, which the one-minute sweep catches.
 await_bulk_remote_commit_count() {
     local wanted="${1}"
-    local deadline=$((SECONDS + 30))
+    local deadline=$((SECONDS + 90))
     while [ "${SECONDS}" -lt "${deadline}" ]; do
         if [ "$(bulk_remote_commit_count)" = "${wanted}" ]; then
             return 0
@@ -1832,7 +1833,7 @@ bulk_kind="writeable_copy.bulk_change"
 bulk_title_pattern="Auto-commit held back on ${bulk_repo}: ${bulk_file_count} new or changed files"
 total=$((total + 1))
 printf "  %-50s " "a bulk write posts a notification naming repo+volume..."
-bulk_deadline=$((SECONDS + 30))
+bulk_deadline=$((SECONDS + 90))
 bulk_notified=1
 while [ "${SECONDS}" -lt "${bulk_deadline}" ]; do
     if command_output_matches "${bulk_title_pattern}" \
@@ -1846,7 +1847,7 @@ if [ "${bulk_notified}" -eq 0 ]; then
     echo "PASS"
     passed=$((passed + 1))
 else
-    echo "FAIL (no '${bulk_kind}' notification matching '${bulk_title_pattern}' within 30s)"
+    echo "FAIL (no '${bulk_kind}' notification matching '${bulk_title_pattern}' within 90s)"
     failed=$((failed + 1))
 fi
 
