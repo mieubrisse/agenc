@@ -10,6 +10,7 @@ import (
 
 	"github.com/mieubrisse/stacktrace"
 	"github.com/odyssey/agenc/internal/config"
+	agentmux "github.com/odyssey/agenc/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -238,7 +239,9 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("unknown palette selection: %q", selectedTitle)
 	}
 
-	fullCommand := buildPaletteDispatchCommand(*selectedEntry, callingMissionUUID)
+	tmuxMajor, tmuxMinor, versionErr := agentmux.DetectVersion()
+	isPopupEnvFlagSupported := agentmux.IsPopupEnvFlagUsable(tmuxMajor, tmuxMinor, versionErr)
+	fullCommand := resolvePaletteDispatchCommand(*selectedEntry, callingMissionUUID, isPopupEnvFlagSupported)
 
 	runShellCmd := exec.Command("tmux", "run-shell", "-b", fullCommand)
 	runShellCmd.Stdout = os.Stdout
@@ -248,6 +251,17 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// resolvePaletteDispatchCommand returns what the palette hands to run-shell for
+// the selected entry. A popup command on a tmux without `display-popup -e`
+// (tmux < 3.3) is replaced by a status-line message saying so, because the
+// injected -e would make it fail with only "returned 1" on screen.
+func resolvePaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMissionUUID string, isPopupEnvFlagSupported bool) string {
+	if agentmux.IsPopupCommand(entry.Command) && !isPopupEnvFlagSupported {
+		return "tmux " + agentmux.PopupUnsupportedMessageCommand
+	}
+	return buildPaletteDispatchCommand(entry, callingMissionUUID)
 }
 
 // buildPaletteDispatchCommand assembles the full shell command for a palette
@@ -287,7 +301,7 @@ func buildPaletteDispatchCommand(entry config.ResolvedPaletteCommand, callingMis
 	// For display-popup commands, pass the calling pane ID and session name
 	// into the popup's environment via -e. Without this, the env vars from
 	// the run-shell env don't propagate into the popup.
-	if strings.Contains(fullCommand, "display-popup") {
+	if agentmux.IsPopupCommand(fullCommand) {
 		var popupEnv string
 		if callingPane != "" {
 			popupEnv += fmt.Sprintf(" -e %s=%s", config.CallingPaneIDEnvVar, callingPane)
