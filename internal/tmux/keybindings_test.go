@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -273,23 +274,42 @@ func TestGenerateKeybindingsContent_SingleQuotesInMissionScopedCommand(t *testin
 }
 
 // display-popup -e arrived in tmux 3.3, so 3.2 (which ParseVersion also reports
-// for 3.2a) must get the explanatory message and 3.3 the real popup (KEV-341).
-func TestSupportsPopupEnvFlag(t *testing.T) {
+// for 3.2a) must get the explanatory message and 3.3 the real popup. An
+// unknown version must not tell a current-tmux user to upgrade (KEV-341).
+func TestIsPopupEnvFlagUsable(t *testing.T) {
 	cases := []struct {
+		name         string
 		major, minor int
+		versionErr   error
 		want         bool
 	}{
-		{2, 9, false},
-		{3, 1, false},
-		{3, 2, false},
-		{3, 3, true},
-		{3, 6, true},
-		{4, 0, true},
+		{"2.9", 2, 9, nil, false},
+		{"3.1", 3, 1, nil, false},
+		{"3.2", 3, 2, nil, false},
+		{"3.3", 3, 3, nil, true},
+		{"3.6", 3, 6, nil, true},
+		{"4.0", 4, 0, nil, true},
+		{"unknown as 0.0", 0, 0, nil, true},
+		{"detection error", 0, 0, errors.New("tmux -V failed"), true},
 	}
 	for _, c := range cases {
-		if got := SupportsPopupEnvFlag(c.major, c.minor); got != c.want {
-			t.Errorf("SupportsPopupEnvFlag(%d, %d) = %v, want %v", c.major, c.minor, got, c.want)
+		if got := IsPopupEnvFlagUsable(c.major, c.minor, c.versionErr); got != c.want {
+			t.Errorf("%s: IsPopupEnvFlagUsable(%d, %d, %v) = %v, want %v", c.name, c.major, c.minor, c.versionErr, got, c.want)
 		}
+	}
+}
+
+func TestGenerateKeybindingsContent_PopupKeybindingKeptOnUnknownVersion(t *testing.T) {
+	keybindings := []CustomKeybinding{
+		{
+			Key:     "-n C-n",
+			Command: `tmux display-popup -E -w 95% -h 90% "agenc notification manage"`,
+			Comment: "showNotifications (-n C-n)",
+		},
+	}
+	content := GenerateKeybindingsContent(0, 0, "-n C-y", keybindings, "")
+	if strings.Contains(content, PopupUnsupportedMessageCommand) {
+		t.Errorf("unknown tmux version: expected the real popup binding, got the upgrade message\ncontent:\n%s", content)
 	}
 }
 

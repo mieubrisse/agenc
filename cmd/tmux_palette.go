@@ -239,10 +239,8 @@ func runTmuxPalette(cmd *cobra.Command, args []string) error {
 		return stacktrace.NewError("unknown palette selection: %q", selectedTitle)
 	}
 
-	// A version read failure is treated as supported: tmux is evidently
-	// running this popup, and a wrong refusal would block every popup command.
 	tmuxMajor, tmuxMinor, versionErr := agentmux.DetectVersion()
-	isPopupEnvFlagSupported := versionErr != nil || agentmux.SupportsPopupEnvFlag(tmuxMajor, tmuxMinor)
+	isPopupEnvFlagSupported := agentmux.IsPopupEnvFlagUsable(tmuxMajor, tmuxMinor, versionErr)
 	fullCommand := resolvePaletteDispatchCommand(*selectedEntry, callingMissionUUID, isPopupEnvFlagSupported)
 
 	runShellCmd := exec.Command("tmux", "run-shell", "-b", fullCommand)

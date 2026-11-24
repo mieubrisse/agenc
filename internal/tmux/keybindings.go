@@ -69,9 +69,18 @@ var PopupUnsupportedMessageCommand = fmt.Sprintf(
 	`display-message -d %d "AgenC: this command opens a popup, which needs tmux %d.%d or newer. Upgrade tmux."`,
 	popupUnsupportedDisplayMilliseconds, popupEnvFlagMajorVersion, popupEnvFlagMinorVersion)
 
-// SupportsPopupEnvFlag reports whether tmux major.minor understands
-// `display-popup -e`.
-func SupportsPopupEnvFlag(tmuxMajor, tmuxMinor int) bool {
+// IsPopupEnvFlagUsable is the one gate both popup paths apply: the keybinding
+// generator and the palette dispatch. It reports whether to emit
+// `display-popup -e` for tmux major.minor.
+//
+// An unknown version counts as usable. That is a failed `tmux -V`, which
+// callers that discard DetectVersion's error see as 0.0. Telling a user on a
+// current tmux to upgrade would send them after a remedy that cannot work,
+// whereas tmux below 3.3 is rare.
+func IsPopupEnvFlagUsable(tmuxMajor, tmuxMinor int, versionErr error) bool {
+	if versionErr != nil || (tmuxMajor == 0 && tmuxMinor == 0) {
+		return true
+	}
 	return tmuxMajor > popupEnvFlagMajorVersion ||
 		(tmuxMajor == popupEnvFlagMajorVersion && tmuxMinor >= popupEnvFlagMinorVersion)
 }
@@ -167,7 +176,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		// with only "returned 1" on screen. Bind the key to a message saying
 		// why instead; there is no working fallback, since without -e the
 		// popup cannot learn the calling pane and session.
-		if IsPopupCommand(kb.Command) && !SupportsPopupEnvFlag(tmuxMajor, tmuxMinor) {
+		if IsPopupCommand(kb.Command) && !IsPopupEnvFlagUsable(tmuxMajor, tmuxMinor, nil) {
 			fmt.Fprintf(&sb, "bind-key %s %s\n", bindKeyArgs, PopupUnsupportedMessageCommand)
 			continue
 		}
