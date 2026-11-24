@@ -27,6 +27,15 @@ SHELL := /bin/bash
 TEST_ENV_DIR := _test-env
 BUILD_DIR    := _build
 
+# golangci-lint's cache is shared per user by default, and its entries carry the
+# absolute paths of the checkout that wrote them. Another worktree at the same
+# commit gets those entries back, cannot open the (possibly deleted) files to
+# apply //nolint filtering, and fails on findings this checkout never had
+# (KEV-340). So each checkout gets its own cache, keyed by its path so a moved
+# checkout does not reuse its old entries either. Assigned with := rather than
+# ?= so a shared GOLANGCI_LINT_CACHE in the environment cannot reopen the hole.
+GOLANGCI_LINT_CACHE_DIR := $(CURDIR)/$(BUILD_DIR)/golangci-lint-cache/$(shell printf '%s' '$(CURDIR)' | shasum -a 256 | cut -c1-8)
+
 # Minimum per-package test coverage percentage. Packages below this threshold
 # cause `make check` to fail. Ratchet up over time as coverage improves.
 # Target: 60%. Current codebase has packages as low as ~7%, so starting at 5%
@@ -82,7 +91,8 @@ check: setup genprime
 	@go vet ./...
 	@echo "✓ Vet OK"
 	@echo "Running golangci-lint..."
-	@golangci-lint run ./...
+	@mkdir -p "$(GOLANGCI_LINT_CACHE_DIR)"
+	@GOLANGCI_LINT_CACHE="$(GOLANGCI_LINT_CACHE_DIR)" golangci-lint run ./...
 	@echo "✓ Lint OK"
 	@echo "Running deadcode analysis..."
 	@output=$$(deadcode ./... 2>&1); \
