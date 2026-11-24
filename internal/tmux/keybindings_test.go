@@ -272,17 +272,73 @@ func TestGenerateKeybindingsContent_SingleQuotesInMissionScopedCommand(t *testin
 	}
 }
 
-func TestGenerateKeybindingsContent_DisplayPopupSkippedOnOldTmux(t *testing.T) {
+// display-popup -e arrived in tmux 3.3, so 3.2 (which ParseVersion also reports
+// for 3.2a) must get the explanatory message and 3.3 the real popup (KEV-341).
+func TestSupportsPopupEnvFlag(t *testing.T) {
+	cases := []struct {
+		major, minor int
+		want         bool
+	}{
+		{2, 9, false},
+		{3, 1, false},
+		{3, 2, false},
+		{3, 3, true},
+		{3, 6, true},
+		{4, 0, true},
+	}
+	for _, c := range cases {
+		if got := SupportsPopupEnvFlag(c.major, c.minor); got != c.want {
+			t.Errorf("SupportsPopupEnvFlag(%d, %d) = %v, want %v", c.major, c.minor, got, c.want)
+		}
+	}
+}
+
+func TestGenerateKeybindingsContent_PopupKeybindingGatedAtTmux33(t *testing.T) {
 	keybindings := []CustomKeybinding{
 		{
-			Key:     "n",
-			Command: `tmux display-popup -E -w 68% -h 63% "agenc mission new"`,
-			Comment: "newMission (prefix + a, n)",
+			Key:     "-n C-n",
+			Command: `tmux display-popup -E -w 95% -h 90% "agenc notification manage"`,
+			Comment: "showNotifications (-n C-n)",
+		},
+		{
+			Key:             "r",
+			Command:         `tmux display-popup -E -w 68% -h 63% "agenc mission rename $AGENC_CALLING_MISSION_UUID"`,
+			Comment:         "renameSession (prefix + a, r)",
+			IsMissionScoped: true,
 		},
 	}
-	content := GenerateKeybindingsContent(3, 1, "-T agenc k", keybindings, "")
-	if strings.Contains(content, "display-popup") {
-		t.Error("expected display-popup command to be skipped on tmux < 3.2")
+	wantMessageBindings := []string{
+		`bind-key -n "C-n" ` + PopupUnsupportedMessageCommand + "\n",
+		`bind-key -T agenc "r" ` + PopupUnsupportedMessageCommand + "\n",
+	}
+
+	for _, minor := range []int{1, 2} {
+		content := GenerateKeybindingsContent(3, minor, "-T agenc k", keybindings, "")
+		if strings.Contains(content, "-e AGENC_CALLING") {
+			t.Errorf("tmux 3.%d: expected no display-popup -e, which tmux < 3.3 rejects\ncontent:\n%s", minor, content)
+		}
+		for _, want := range wantMessageBindings {
+			if !strings.Contains(content, want) {
+				t.Errorf("tmux 3.%d: expected popup key bound to the tmux 3.3 message\nwant substring: %s\ncontent:\n%s", minor, want, content)
+			}
+		}
+	}
+
+	content := GenerateKeybindingsContent(3, 3, "-T agenc k", keybindings, "")
+	if strings.Contains(content, PopupUnsupportedMessageCommand) {
+		t.Errorf("tmux 3.3: expected real popup bindings, got the unsupported message\ncontent:\n%s", content)
+	}
+	if strings.Count(content, "display-popup -e AGENC_CALLING_PANE_ID=#{pane_id} -e AGENC_CALLING_SESSION_NAME=#{session_name}") != 2 {
+		t.Errorf("tmux 3.3: expected both popup bindings to inject -e\ncontent:\n%s", content)
+	}
+}
+
+// The palette's own popup takes no -e and was observed working on tmux 3.2a,
+// so it stays available on 3.2 while popup commands are gated at 3.3.
+func TestGenerateKeybindingsContent_PaletteKeptOnTmux32(t *testing.T) {
+	content := GenerateKeybindingsContent(3, 2, "-n C-y", nil, "")
+	if !strings.Contains(content, "bind-key -n C-y run-shell") {
+		t.Errorf("expected the palette binding on tmux 3.2\ncontent:\n%s", content)
 	}
 }
 

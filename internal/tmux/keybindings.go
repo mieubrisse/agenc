@@ -47,6 +47,42 @@ const agencBinary = "agenc"
 // from surfacing a spurious "returned 1" error overlay.
 const noMissionInPaneMessage = "No AgenC mission in this pane"
 
+// AgenC passes the calling pane and session into a popup with
+// `display-popup -e`, which tmux added in 3.3 ("CHANGES FROM 3.2a TO 3.3" in
+// tmux's CHANGES file). display-popup itself dates from 3.2, which is why the
+// palette's own popup, which takes no -e, is gated at 3.2 and works there.
+// On tmux 3.2a every `display-popup -e` fails with "unknown option -- e",
+// observed on an isolated tmux 3.2a server (KEV-341).
+const (
+	popupEnvFlagMajorVersion = 3
+	popupEnvFlagMinorVersion = 3
+)
+
+// popupUnsupportedDisplayMilliseconds keeps the message on the status line
+// long enough to read; tmux's default display-time is 750ms.
+const popupUnsupportedDisplayMilliseconds = 5000
+
+// PopupUnsupportedMessageCommand is the tmux command run in place of a popup
+// command when the installed tmux is too old for `display-popup -e`, so the
+// user sees why instead of a bare "returned 1".
+var PopupUnsupportedMessageCommand = fmt.Sprintf(
+	`display-message -d %d "AgenC: this command opens a popup, which needs tmux %d.%d or newer. Upgrade tmux."`,
+	popupUnsupportedDisplayMilliseconds, popupEnvFlagMajorVersion, popupEnvFlagMinorVersion)
+
+// SupportsPopupEnvFlag reports whether tmux major.minor understands
+// `display-popup -e`.
+func SupportsPopupEnvFlag(tmuxMajor, tmuxMinor int) bool {
+	return tmuxMajor > popupEnvFlagMajorVersion ||
+		(tmuxMajor == popupEnvFlagMajorVersion && tmuxMinor >= popupEnvFlagMinorVersion)
+}
+
+// IsPopupCommand reports whether a palette command opens a tmux popup, and so
+// gets `display-popup -e` injected by both the keybinding generator and the
+// palette dispatch.
+func IsPopupCommand(command string) bool {
+	return strings.Contains(command, "display-popup")
+}
+
 // CustomKeybinding represents a user/builtin keybinding to emit in the
 // generated tmux keybindings file.
 type CustomKeybinding struct {
@@ -58,7 +94,8 @@ type CustomKeybinding struct {
 
 // GenerateKeybindingsContent returns the full content of the agenc-managed
 // tmux keybindings configuration file. The tmuxMajor/tmuxMinor parameters
-// control version-gated features (e.g. display-popup requires tmux >= 3.2).
+// control version-gated features: the palette needs tmux >= 3.2 for
+// display-popup, and popup commands need tmux >= 3.3 for display-popup -e.
 // The paletteKey parameter is the tmux key for the command palette
 // (e.g. "k"). The customKeybindings slice contains all keybindings from
 // resolved palette commands (both builtin and user-defined).
@@ -120,17 +157,20 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 			fmt.Fprintf(&sb, "# %s\n", kb.Comment)
 		}
 
-		// Skip popup commands on old tmux (no useful fallback)
-		if strings.Contains(kb.Command, "display-popup") &&
-			!(tmuxMajor > 3 || (tmuxMajor == 3 && tmuxMinor >= 2)) {
-			continue
-		}
-
 		bindKeyArgs := fmt.Sprintf("-T %s %s", agencKeyTable, kb.Key)
 		if strings.HasPrefix(kb.Key, "-") {
 			bindKeyArgs = kb.Key
 		}
 		bindKeyArgs = quoteBindKeyArg(bindKeyArgs)
+
+		// A popup command on tmux too old for display-popup -e would fail
+		// with only "returned 1" on screen. Bind the key to a message saying
+		// why instead; there is no working fallback, since without -e the
+		// popup cannot learn the calling pane and session.
+		if IsPopupCommand(kb.Command) && !SupportsPopupEnvFlag(tmuxMajor, tmuxMinor) {
+			fmt.Fprintf(&sb, "bind-key %s %s\n", bindKeyArgs, PopupUnsupportedMessageCommand)
+			continue
+		}
 
 		escapedCommand := escapeSingleQuotes(kb.Command)
 
@@ -139,7 +179,7 @@ func GenerateKeybindingsContent(tmuxMajor, tmuxMinor int, paletteKey string, cus
 		// the popup can resolve the correct tmux session (TMUX_PANE inside a
 		// popup refers to the temporary popup pane).
 		popupEscapedCommand := escapedCommand
-		if strings.Contains(escapedCommand, "display-popup") {
+		if IsPopupCommand(escapedCommand) {
 			popupEscapedCommand = strings.Replace(escapedCommand, "display-popup",
 				"display-popup -e AGENC_CALLING_PANE_ID=#{pane_id} -e AGENC_CALLING_SESSION_NAME=#{session_name}", 1)
 		}
