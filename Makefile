@@ -137,7 +137,7 @@ compile:
 	@mkdir -p $(BUILD_DIR)
 	@go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/agenc .
 	@# Create wrapper script that sets test-env variables
-	@printf '#!/usr/bin/env bash\nset -euo pipefail\nscript_dirpath="$$(cd "$$(dirname "$${0}")" && pwd)"\nexport AGENC_DIRPATH="$$(cd "$${script_dirpath}/../$(TEST_ENV_DIR)" 2>/dev/null && pwd || echo "$${script_dirpath}/../$(TEST_ENV_DIR)")"\nexport AGENC_TEST_ENV=1\nexport CLAUDE_CONFIG_DIR="$${AGENC_DIRPATH}/claude-config"\nexec "$${script_dirpath}/agenc" "$$@"\n' > $(BUILD_DIR)/agenc-test
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nscript_dirpath="$$(cd "$$(dirname "$${0}")" && pwd -P)"\nexport AGENC_DIRPATH="$$(cd "$${script_dirpath}/../$(TEST_ENV_DIR)" 2>/dev/null && pwd -P || echo "$${script_dirpath}/../$(TEST_ENV_DIR)")"\nexport AGENC_TEST_ENV=1\nexport CLAUDE_CONFIG_DIR="$${AGENC_DIRPATH}/claude-config"\nexec "$${script_dirpath}/agenc" "$$@"\n' > $(BUILD_DIR)/agenc-test
 	@chmod +x $(BUILD_DIR)/agenc-test
 	@echo "✓ Build complete ($(BUILD_DIR)/agenc, $(BUILD_DIR)/agenc-test)"
 

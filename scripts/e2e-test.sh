@@ -9,7 +9,11 @@ script_dirpath="$(cd "$(dirname "${0}")" && pwd)"
 # don't try to resolve a UUID that only exists in the parent's universe.
 unset AGENC_MISSION_UUID
 
-repo_dirpath="$(cd "${script_dirpath}/.." && pwd)"
+# Physical path (pwd -P), matching the agenc-test wrapper and `make test-env`:
+# on macOS /tmp is a symlink to /private/tmp, and the pool session name is a
+# hash of the AGENC_DIRPATH string, so every path this script compares against
+# AgenC must use the same spelling the wrapper hands the server (KEV-328).
+repo_dirpath="$(cd "${script_dirpath}/.." && pwd -P)"
 agenc_test="${repo_dirpath}/_build/agenc-test"
 
 passed=0
