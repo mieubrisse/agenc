@@ -264,20 +264,10 @@ Key File Locations
 - The AgenC SQLite database lives at `~/.agenc/database.sqlite`.
 - Claude's JSONL files live at `~/.claude/projects/`, **not** any `claude-config` directory.
 
-Beads (bd)
-----------
+Issue Tracking
+--------------
 
-Use `bd` (Dolt backend), not `br`. The project is configured for shared Dolt server mode via `.beads/config.yaml`. No special flags are needed — `bd` reads the config automatically and auto-starts the shared server at `~/.beads/shared-server/` if it isn't running.
-
-```
-# Correct
-bd list
-bd create --title "My issue"
-bd search "some query"
-
-# Wrong — do not use br
-br --no-db list
-```
+Work on this repo is tracked in Linear, each issue carrying this repo's label from the `repo` group. Invoke `/linear-system` before reading or writing there; it covers the labels, including a repo that has none yet. Beads is archival: existing beads can still be read and closed per `/beads-system`, but new work is filed in Linear.
 
 Banned Skills
 -------------
@@ -301,17 +291,3 @@ Brainstorming
 - Reverting to a known-good prior state
 
 Everything else — including changes that "feel small" (a one-function refactor, a "quick" bug fix, adding a flag, renaming an exported symbol, touching tests) — invokes `/brainstorm`. If you find yourself reasoning "this is probably trivial enough to skip," that reasoning itself is the signal that it isn't trivial. Invoke `/brainstorm`.
-
-
-## Issue Tracking
-
-This project uses **bd (beads)** for issue tracking.
-Run `bd prime` for workflow context, or install hooks (`bd hooks install`) for auto-injection.
-
-**Quick reference:**
-- `bd ready` - Find unblocked work
-- `bd create "Title" --type task --priority 2` - Create issue
-- `bd close <id>` - Complete work
-- `bd dolt push` - Push beads data to remote
-
-For full workflow details: `bd prime`

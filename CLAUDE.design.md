@@ -33,6 +33,8 @@ The document exists because of the gap that bead names. While shipping `agenc-hx
 
 - **2026-11-20** — Extended the E2E helper list in "Building and Checking" with `run_test_output_lacks`, `text_matches`, `command_output_matches`, and the rule against piping into `grep -q`. Linear issue [KEV-77](https://linear.app/todayendeavors/issue/KEV-77/e2e-checks-silently-fail-when-grep-q-sigpipes-the-producer-under); T3 thread `11a8a5f0-c735-492d-a6ca-855577989fa8` (Kevin's nightly issue burn-down, KEV-317). The mechanism was found by AgenC mission `92d4f324` and confirmed by mission `75369bde`; their reproduction is on the issue.
 
+- **2026-11-25** — Replaced the "Beads (bd)" section and the trailing "Issue Tracking" section with one "Issue Tracking" section that routes to `/linear-system` and `/beads-system`. Linear issue KEV-369, "Replace the 'use bd for all task tracking' blocks in repo-level agent instructions with Linear routing"; T3 thread `thread:delegated-task:command%3Amcp%3Afbd65d98-1e82-48df-ad71-a4669d5639f0%3Adelegate-task%3A79604070-44c6-44ba-8730-068cd0876e6f`. Both went because both told an agent to file new work with `bd create`, which contradicts Kevin's configuration: beads has been archival since 2026-10-23 and new work is filed in Linear. They were also two homes for one topic. Nothing from the first section was kept: its facts (use `bd`, the shared Dolt server) matter only to an agent reading existing beads, and `/beads-system` already carries them.
+
 Design Decisions
 ----------------
 
