@@ -1794,13 +1794,15 @@ echo "--- Writeable-copy bulk-change guard (requires server) ---"
 # library clone for the repo, expectedOriginURLForRepo is empty and the origin
 # check is skipped.
 #
-# The path is resolved with `pwd -P` because macOS's temp dir sits behind the
-# /var -> /private/var symlink, and the watcher compares event paths lexically:
-# under the symlinked spelling it fails to recognise events inside `.git/` and
-# re-ticks every few seconds on the tick's own index writes.
-bulk_scratch_dirpath="$(cd "$(mktemp -d -t agenc-e2e-bulk-XXXXXX)" && pwd -P)"
+# The copy is registered through a symlinked ancestor directory, because the
+# watcher once re-ticked forever on such a path (KEV-366); the idle check below
+# fails if it does so again. The link is an ancestor and not the copy itself
+# because `writeable-copy set` resolves a symlink in the last path element.
+bulk_scratch_dirpath="$(mktemp -d -t agenc-e2e-bulk-XXXXXX)"
 bulk_remote_dirpath="${bulk_scratch_dirpath}/remote.git"
-bulk_copy_dirpath="${bulk_scratch_dirpath}/copy"
+mkdir "${bulk_scratch_dirpath}/real"
+ln -s real "${bulk_scratch_dirpath}/link"
+bulk_copy_dirpath="${bulk_scratch_dirpath}/link/copy"
 bulk_repo="github.com/e2e-bulk-guard/bulk-guard"
 bulk_file_count=2000 # an order of magnitude over autoCommitMaxFiles (200)
 git init -q --bare "${bulk_remote_dirpath}"
@@ -1923,6 +1925,30 @@ if [ "${bulk_notification_count}" = "1" ] && [ "$(bulk_remote_commit_count)" = "
     passed=$((passed + 1))
 else
     echo "FAIL (${bulk_notification_count} notifications, remote at $(bulk_remote_commit_count) commits; expected 1 and 2)"
+    failed=$((failed + 1))
+fi
+
+# KEV-366: every tick on a held copy logs one line, so an idle held copy shows
+# whether the watcher re-ticks on its own ticks' index writes. The unconditional
+# sweep runs once a minute, so it lands at most once in the window, and one more
+# tick is allowed for a late event from the edit above. The bug ticks about
+# every three seconds: 7 in this window with the fix reverted.
+bulk_idle_window_seconds=20
+bulk_idle_max_ticks=2
+bulk_server_log_filepath="${repo_dirpath}/_test-env/server/server.log"
+bulk_held_tick_count() {
+    grep -c -- "Writeable-copy '${bulk_repo}': auto-commit held back" "${bulk_server_log_filepath}" || true
+}
+total=$((total + 1))
+printf "  %-50s " "an idle copy under a symlinked path does not re-tick..."
+bulk_ticks_before=$(bulk_held_tick_count)
+sleep "${bulk_idle_window_seconds}"
+bulk_idle_ticks=$(($(bulk_held_tick_count) - bulk_ticks_before))
+if [ "${bulk_ticks_before}" -ge 1 ] && [ "${bulk_idle_ticks}" -le "${bulk_idle_max_ticks}" ]; then
+    echo "PASS"
+    passed=$((passed + 1))
+else
+    echo "FAIL (${bulk_idle_ticks} ticks in ${bulk_idle_window_seconds}s idle, expected at most ${bulk_idle_max_ticks}; ${bulk_ticks_before} logged before, expected at least 1)"
     failed=$((failed + 1))
 fi
 
