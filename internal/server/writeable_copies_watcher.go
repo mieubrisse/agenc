@@ -78,16 +78,26 @@ func (w *writeableCopyWatchers) activeRepos() []string {
 // event. On macOS this opens a single FSEvents stream per repo, avoiding the
 // per-directory FD explosion of the old fsnotify walk.
 func (s *Server) runWriteableCopyWorkingTreeWatcher(ctx context.Context, repoName, repoDirpath string) {
+	// notify reports events with the watch root's symlinks resolved, however
+	// the copy was registered, and the .git/ and gitignore filters below compare
+	// paths lexically. Under the registered spelling neither would match, and
+	// each tick's own index write would trigger the next one (KEV-366).
+	resolvedRepoDirpath, err := filepath.EvalSymlinks(repoDirpath)
+	if err != nil {
+		s.logger.Printf("Writeable-copy watcher: failed to resolve '%s' for '%s': %v", repoDirpath, repoName, err)
+		return
+	}
+
 	// Load the gitignore matcher BEFORE starting the watcher to avoid the
 	// load-order race surfaced in edge-case discovery (4.1).
-	filter, err := newGitignoreFilter(repoDirpath)
+	filter, err := newGitignoreFilter(resolvedRepoDirpath)
 	if err != nil {
 		s.logger.Printf("Writeable-copy watcher: failed to load gitignore for '%s': %v", repoName, err)
 		return
 	}
 
 	eventCh := make(chan notify.EventInfo, 256)
-	if err := notify.Watch(repoDirpath+"/...", eventCh, notify.All); err != nil {
+	if err := notify.Watch(resolvedRepoDirpath+"/...", eventCh, notify.All); err != nil {
 		s.logger.Printf("Writeable-copy watcher: notify.Watch failed for '%s': %v", repoName, err)
 		return
 	}
@@ -109,7 +119,7 @@ func (s *Server) runWriteableCopyWorkingTreeWatcher(ctx context.Context, repoNam
 		case event := <-eventCh:
 			eventPath := event.Path()
 			// Skip events inside .git/.
-			if isInsideRepoGitDir(eventPath, repoDirpath) {
+			if isInsideRepoGitDir(eventPath, resolvedRepoDirpath) {
 				continue
 			}
 			// Skip events matching the repo's gitignore.
