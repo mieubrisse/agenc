@@ -1226,19 +1226,30 @@ mkdir -p "${statey_config_dir}/skills" "${statey_config_dir}/hooks"
 # that appears during the run can only have come from this run.
 #
 # Prints each distinct JSON string in the file that starts with the test env dir,
-# one per line, sorted. A missing file prints nothing. A regex scan rather than a
-# JSON parse, so a read that races another session's write cannot error out.
+# one per line, in code-point order (which `LC_ALL=C comm` expects). A missing
+# file prints nothing. Each string literal is decoded before the prefix test,
+# because Go's encoder writes & < > in a key as &-style escapes. A scan of
+# string literals rather than a whole-file parse, so a read that races another
+# session's write cannot error out.
 test_env_paths_in_claude_json() {
     local claude_json_filepath="${1}"
     python3 - "${claude_json_filepath}" "${statey_test_env_dir}/" <<'PY'
-import os, re, sys
+import json, os, re, sys
 path, prefix = sys.argv[1], sys.argv[2]
 if not os.path.exists(path):
     sys.exit(0)
 with open(path, encoding="utf-8", errors="replace") as f:
     text = f.read()
-for found in sorted(set(re.findall('"(' + re.escape(prefix) + '[^"]*)"', text))):
-    print(found)
+found = set()
+for literal in re.findall(r'"(?:[^"\\]|\\.)*"', text):
+    try:
+        value = json.loads(literal)
+    except ValueError:
+        continue
+    if value.startswith(prefix):
+        found.add(value)
+for value in sorted(found):
+    print(value)
 PY
 }
 
@@ -1467,7 +1478,7 @@ real_claude_json_test_paths_after=""
 if ! real_claude_json_test_paths_after=$(test_env_paths_in_claude_json "${real_claude_json}"); then
     real_claude_json_scan_ok=false
 fi
-real_claude_json_new_test_paths=$(comm -13 \
+real_claude_json_new_test_paths=$(LC_ALL=C comm -13 \
     <(printf '%s\n' "${real_claude_json_test_paths_before}") \
     <(printf '%s\n' "${real_claude_json_test_paths_after}") | sed '/^$/d')
 if [ "${real_claude_json_scan_ok}" != "true" ]; then
