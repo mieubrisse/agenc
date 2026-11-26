@@ -1217,11 +1217,35 @@ real_claude_json="${HOME}/.claude.json"
 
 mkdir -p "${statey_config_dir}/skills" "${statey_config_dir}/hooks"
 
-# (e/prep) Snapshot the real ~/.claude.json mtime BEFORE the run (guard: AgenC
-# must write only into the isolated config dir, never the developer's real file).
-real_claude_json_mtime_before=""
-if [ -f "${real_claude_json}" ]; then
-    real_claude_json_mtime_before=$(stat -f %m "${real_claude_json}" 2>/dev/null || echo "")
+# (e/prep) Snapshot which test-env paths the real ~/.claude.json mentions BEFORE
+# the run (guard: AgenC must write only into the isolated config dir, never the
+# developer's real file). The guard reads content, not mtime: every other Claude
+# Code session on the machine rewrites ~/.claude.json, so its mtime moves during
+# any long run (KEV-422). A leaked trust entry is keyed by a mission agent dir
+# under the test env, and mission UUIDs are fresh per run, so a test-env path
+# that appears during the run can only have come from this run.
+#
+# Prints each distinct JSON string in the file that starts with the test env dir,
+# one per line, sorted. A missing file prints nothing. A regex scan rather than a
+# JSON parse, so a read that races another session's write cannot error out.
+test_env_paths_in_claude_json() {
+    local claude_json_filepath="${1}"
+    python3 - "${claude_json_filepath}" "${statey_test_env_dir}/" <<'PY'
+import os, re, sys
+path, prefix = sys.argv[1], sys.argv[2]
+if not os.path.exists(path):
+    sys.exit(0)
+with open(path, encoding="utf-8", errors="replace") as f:
+    text = f.read()
+for found in sorted(set(re.findall('"(' + re.escape(prefix) + '[^"]*)"', text))):
+    print(found)
+PY
+}
+
+real_claude_json_test_paths_before=""
+real_claude_json_scan_ok=true
+if ! real_claude_json_test_paths_before=$(test_env_paths_in_claude_json "${real_claude_json}"); then
+    real_claude_json_scan_ok=false
 fi
 
 # Create a real headless mission that triggers a tool use. The op-settings file
@@ -1432,19 +1456,28 @@ PY
     fi
 fi
 
-# (e) GUARD: the developer's real ~/.claude.json mtime is unchanged across the
-#     run — proves AgenC's trust write hit ONLY the isolated config dir.
+# (e) GUARD: no test-env path appeared in the developer's real ~/.claude.json
+#     across the run — proves AgenC's trust write hit ONLY the isolated config
+#     dir. Runs before the `mission rm` below, which would prune a leaked entry.
+#     A scan that cannot run is a FAIL, never a SKIP: a guard that inspects
+#     nothing must not read as green.
 total=$((total + 1))
 printf "  %-50s " "State Y: real ~/.claude.json untouched (guard)..."
-real_claude_json_mtime_after=""
-if [ -f "${real_claude_json}" ]; then
-    real_claude_json_mtime_after=$(stat -f %m "${real_claude_json}" 2>/dev/null || echo "")
+real_claude_json_test_paths_after=""
+if ! real_claude_json_test_paths_after=$(test_env_paths_in_claude_json "${real_claude_json}"); then
+    real_claude_json_scan_ok=false
 fi
-if [ "${real_claude_json_mtime_before}" = "${real_claude_json_mtime_after}" ]; then
+real_claude_json_new_test_paths=$(comm -13 \
+    <(printf '%s\n' "${real_claude_json_test_paths_before}") \
+    <(printf '%s\n' "${real_claude_json_test_paths_after}") | sed '/^$/d')
+if [ "${real_claude_json_scan_ok}" != "true" ]; then
+    echo "FAIL (could not scan ${real_claude_json}; needs python3)"
+    failed=$((failed + 1))
+elif [ -z "${real_claude_json_new_test_paths}" ]; then
     echo "PASS"
     passed=$((passed + 1))
 else
-    echo "FAIL (real ~/.claude.json mtime changed: ${real_claude_json_mtime_before} -> ${real_claude_json_mtime_after})"
+    echo "FAIL (test-env paths written to real ${real_claude_json}: $(echo "${real_claude_json_new_test_paths}" | tr '\n' ' '))"
     failed=$((failed + 1))
 fi
 
