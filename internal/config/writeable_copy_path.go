@@ -15,7 +15,8 @@ import (
 //   - paths under agencDirpath (would create a recursive sync)
 //   - paths overlapping with another configured writeable copy
 //   - paths whose parent directory does not exist
-//   - paths that resolve through a symlink into agencDirpath
+//   - paths that resolve through a symlink, at any depth, into agencDirpath
+//     or onto another configured writeable copy
 //
 // otherWriteableCopies is a map of repo name → writeable-copy path for repos
 // other than the one being validated. Callers must filter out the repo
@@ -65,28 +66,80 @@ func ValidateWriteableCopyPath(input, agencDirpath string, otherWriteableCopies 
 		)
 	}
 
-	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		resolved, err := filepath.EvalSymlinks(abs)
-		if err != nil {
-			return "", stacktrace.Propagate(err, "failed to resolve symlink at '%v'", abs)
-		}
-		resolved = filepath.Clean(resolved)
-		// On macOS, /var resolves to /private/var via a system symlink; resolve
-		// the agenc dir too so the prefix comparison is apples-to-apples.
-		resolvedAgencDir := cleanedAgencDir
-		if r, err := filepath.EvalSymlinks(cleanedAgencDir); err == nil {
-			resolvedAgencDir = filepath.Clean(r)
-		}
-		if isSubpath(resolved, resolvedAgencDir) {
+	// The checks above compare spellings. A symlink anywhere along either path
+	// lets two different spellings name one directory, so repeat both checks on
+	// the paths as the filesystem resolves them (KEV-435).
+	resolved, err := resolveExistingPrefix(abs)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to resolve symlinks in '%v'", abs)
+	}
+	resolvedAgencDir := resolveExistingPrefixOrSelf(cleanedAgencDir)
+	if isSubpath(resolved, resolvedAgencDir) {
+		return "", stacktrace.NewError(
+			"path '%v' resolves through a symlink to '%v', inside the AgenC directory '%v'; pick a path outside ~/.agenc/",
+			abs, resolved, cleanedAgencDir,
+		)
+	}
+
+	for otherRepo, otherPath := range otherWriteableCopies {
+		cleaned := filepath.Clean(otherPath)
+		resolvedOther := resolveExistingPrefixOrSelf(cleaned)
+		if isSubpath(resolved, resolvedOther) || isSubpath(resolvedOther, resolved) {
 			return "", stacktrace.NewError(
-				"path '%v' is a symlink resolving into the AgenC directory '%v'; pick a non-symlinked path",
-				abs, cleanedAgencDir,
+				"path '%v' resolves through a symlink to '%v', which overlaps with the writeable copy for '%v' at '%v'",
+				abs, resolved, otherRepo, cleaned,
 			)
 		}
+	}
+
+	// A path that is itself a symlink is stored as its target, so the sync loop
+	// operates on the real directory rather than through the link.
+	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		abs = resolved
 	}
 
 	return abs, nil
+}
+
+// resolveExistingPrefix returns path with every symlink resolved. path need
+// not exist: its deepest existing ancestor is resolved and the missing
+// elements are appended unchanged, since a writeable copy may name a directory
+// that will be cloned later. path must be a cleaned absolute path.
+func resolveExistingPrefix(path string) (string, error) {
+	existing := path
+	var missing []string
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return "", stacktrace.Propagate(err, "failed to stat '%v'", existing)
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			break
+		}
+		missing = append([]string{filepath.Base(existing)}, missing...)
+		existing = parent
+	}
+
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", stacktrace.Propagate(err, "failed to resolve '%v'", existing)
+	}
+	return filepath.Join(append([]string{resolved}, missing...)...), nil
+}
+
+// resolveExistingPrefixOrSelf is resolveExistingPrefix for paths the caller did
+// not supply — the AgenC directory and copies already registered. When one
+// cannot be resolved (a dangling link, a permission error) its spelling is
+// used, which the lexical checks have already compared, so one broken entry
+// does not block configuring an unrelated repo.
+func resolveExistingPrefixOrSelf(path string) string {
+	resolved, err := resolveExistingPrefix(path)
+	if err != nil {
+		return path
+	}
+	return resolved
 }
 
 // expandTilde expands a leading ~ in the path to the user's home directory.
