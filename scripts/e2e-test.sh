@@ -3650,7 +3650,9 @@ remove_dirpath_under_live_writer() {
         sleep 0.2
     done
     echo "  (warning: ${dirpath} still exists after ${attempt} removal attempts; what remains:)"
-    find "${dirpath}" 2>/dev/null | head -20 | sed 's/^/    /'
+    # Under pipefail, find exiting non-zero (the path vanished, or SIGPIPE
+    # once head has its 20 lines) would otherwise end the suite here.
+    find "${dirpath}" 2>/dev/null | head -20 | sed 's/^/    /' || true
     return 0
 }
 
