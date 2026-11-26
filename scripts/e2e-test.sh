@@ -3629,6 +3629,31 @@ wait_for_pid_exit() {
     ! kill -0 "${pid}" 2>/dev/null
 }
 
+# Removes a directory that a live process may still be writing into, which is
+# exactly what these fixtures do on purpose. rm -rf lists a directory, deletes
+# what it listed, then removes the directory; a file the process creates in
+# between makes that last step fail with "Directory not empty", and under
+# `set -e` that alone used to end the whole suite (KEV-438). Repeating the
+# removal clears whatever arrived since. It never fails the suite: whether the
+# process notices the removal and exits is what the checks after it judge, so a
+# process that should have been reaped and was not still fails them.
+remove_dirpath_under_live_writer() {
+    local dirpath="${1}"
+    local attempt
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        if rm -rf "${dirpath}" 2>/dev/null && [ ! -e "${dirpath}" ]; then
+            if [ "${attempt}" -gt 1 ]; then
+                echo "  (note: removing ${dirpath} took ${attempt} attempts; something was still writing into it)"
+            fi
+            return 0
+        fi
+        sleep 0.2
+    done
+    echo "  (warning: ${dirpath} still exists after ${attempt} removal attempts; what remains:)"
+    find "${dirpath}" 2>/dev/null | head -20 | sed 's/^/    /'
+    return 0
+}
+
 # A wrapper checks its mission directory on every 10-second heartbeat, then
 # gives Claude up to 10 seconds to exit on SIGTERM. 40 seconds covers both with
 # margin.
@@ -3657,7 +3682,7 @@ if [ -z "${orphan_wrapper_pid}" ] || [ -z "${orphan_claude_pid}" ]; then
         record_skip "${SKIP_CLASS_NO_CLAUDE}" "no live wrapper and Claude: mission=${orphan_mission_short_id:-none} wrapper=${orphan_wrapper_pid:-none} claude=${orphan_claude_pid:-none}" "${orphan_uncoverable}"
     done
 else
-    rm -rf "${orphan_mission_dirpath}"
+    remove_dirpath_under_live_writer "${orphan_mission_dirpath}"
 
     total=$((total + 1))
     printf "  %-50s " "wrapper exits when its mission dir is removed..."
@@ -3705,12 +3730,17 @@ env -u TMUX TMUX_TMPDIR="${orphan_server_tmux_dirpath}" \
 orphan_server_pid="$(cat "${orphan_server_env_dirpath}/server/server.pid" 2>/dev/null || true)"
 
 total=$((total + 1))
-printf "  %-50s " "test-env server exits when its agenc dir is removed..."
 if [ -z "${orphan_server_pid}" ] || ! kill -0 "${orphan_server_pid}" 2>/dev/null; then
+    printf "  %-50s " "test-env server exits when its agenc dir is removed..."
     echo "FAIL (the throwaway server never started: pid=${orphan_server_pid:-none})"
     failed=$((failed + 1))
 else
-    rm -rf "${orphan_server_env_dirpath}"
+    # `server start` returns once the server answers /health, and the server's
+    # keybindings writer creates tmux-keybindings.conf at this directory's root
+    # just after: 0.1-20 ms later in every traced run on a macOS runner
+    # (KEV-438). This removal can race that write.
+    remove_dirpath_under_live_writer "${orphan_server_env_dirpath}"
+    printf "  %-50s " "test-env server exits when its agenc dir is removed..."
     if wait_for_pid_exit "${orphan_server_pid}" 40; then
         echo "PASS"
         passed=$((passed + 1))
@@ -3720,9 +3750,11 @@ else
         # Scoped to the PID read from this environment's own PID file, so this
         # cannot touch any other server.
         kill "${orphan_server_pid}" 2>/dev/null || true
+        wait_for_pid_exit "${orphan_server_pid}" 10 || true
     fi
 fi
-rm -rf "${orphan_server_env_dirpath}" "${orphan_server_tmux_dirpath}"
+remove_dirpath_under_live_writer "${orphan_server_env_dirpath}"
+remove_dirpath_under_live_writer "${orphan_server_tmux_dirpath}"
 
 echo ""
 echo "--- AgenC refuses to create the tmux server (KEV-168) ---"
