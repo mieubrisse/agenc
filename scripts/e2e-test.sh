@@ -3567,13 +3567,13 @@ fi
 # JSONL log yet, so missionIdleDuration falls back to created_at — that is the
 # clock to move. The busy timeout matters: the server holds this database open
 # and it is not in WAL mode, so a bare write can lose a race to SQLITE_BUSY.
-idle_backdated="no"
+# A failed write is a broken check, not a missing wrapper socket, so it fails
+# rather than skipping under the no-wrapper-state class.
+idle_backdate_died="no"
 if [ "${idle_state_observable}" = "yes" ]; then
-    if sqlite3 -cmd ".timeout 5000" "${idle_db_filepath}" \
+    if ! sqlite3 -cmd ".timeout 5000" "${idle_db_filepath}" \
         "UPDATE missions SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-40 minutes') WHERE id = '${idle_mission_uuid}';" 2>/dev/null; then
-        idle_backdated="yes"
-    else
-        idle_state_observable="no"
+        idle_backdate_died="yes"
     fi
 fi
 
@@ -3597,13 +3597,21 @@ if [ "${idle_probe_died}" = "yes" ]; then
         echo "FAIL (the state probe itself died: mission inspect exited ${last_command_exit}, mission=${idle_mission_short_id})"
         failed=$((failed + 1))
     done
+    print_idle_mission_logs
+elif [ "${idle_backdate_died}" = "yes" ]; then
+    for idle_unbackdated in "idle timeout spares a busy mission" "idle timeout still reaps an idle mission"; do
+        total=$((total + 1))
+        printf "  %-50s " "${idle_unbackdated}..."
+        echo "FAIL (could not backdate the mission in ${idle_db_filepath}, mission=${idle_mission_short_id})"
+        failed=$((failed + 1))
+    done
 elif [ "${idle_state_observable}" != "yes" ]; then
     idle_observed_status="$("${agenc_test}" mission inspect "${idle_mission_uuid:-none}" 2>&1 \
         | grep -E "^Status:" | head -1 | tr -s ' ' || true)"
     for idle_uncoverable in "idle timeout spares a busy mission" "idle timeout still reaps an idle mission"; do
         total=$((total + 1))
         printf "  %-50s " "${idle_uncoverable}..."
-        record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none}, saw '${idle_observed_status:-<no status line>}', wanted BUSY" "${idle_uncoverable}"
+        record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state in this environment: mission=${idle_mission_short_id:-none}, saw '${idle_observed_status:-<no status line>}', wanted BUSY" "${idle_uncoverable}"
     done
     print_idle_mission_logs
 else
@@ -3633,10 +3641,14 @@ else
     # actually took effect.
     "${agenc_test}" mission send claude-update "${idle_mission_uuid}" Stop >/dev/null 2>&1 || true
 
+    idle_failed_before_reap="${failed}"
     run_test_eventually_output_contains "idle timeout still reaps an idle mission" \
         "^Status:[[:space:]]+STOPPED" \
         60 \
         "${agenc_test}" mission inspect "${idle_mission_uuid}"
+    if [ "${failed}" -ne "${idle_failed_before_reap}" ]; then
+        print_idle_mission_logs
+    fi
 fi
 
 echo ""
