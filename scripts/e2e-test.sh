@@ -3549,6 +3549,10 @@ fi
 idle_state_observable="no"
 idle_probe_died="no"
 if [ -n "${idle_mission_uuid}" ] && [ "${idle_backdated}" = "yes" ]; then
+    # KEV-949 EXPERIMENT, do not merge: widen the gap between the backdate and
+    # the UserPromptSubmit past one 10s idle scan, to show what a scan landing
+    # in that gap does to the probe.
+    sleep 12
     "${agenc_test}" mission send claude-update "${idle_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
     if await_mission_status "${idle_mission_uuid}" "BUSY"; then
         idle_state_observable="yes"
@@ -3572,6 +3576,8 @@ elif [ "${idle_state_observable}" != "yes" ]; then
         printf "  %-50s " "${idle_uncoverable}..."
         record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none}, saw '${idle_observed_status:-<no status line>}', wanted BUSY" "${idle_uncoverable}"
     done
+    echo "    KEV-949 experiment, server log for ${idle_mission_short_id:-none}:"
+    grep -F "${idle_mission_short_id:-none}" "${repo_dirpath}/_test-env/server/server.log" 2>/dev/null | tail -5 | sed 's/^/      /' || true
 else
     # One fixed wait, not a poll. A poll that finds BUSY immediately proves
     # nothing about what the loop would have done; the mission has to survive a
