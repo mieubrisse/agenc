@@ -3523,18 +3523,6 @@ if [ -n "${idle_mission_short_id}" ]; then
         "SELECT id FROM missions WHERE id LIKE '${idle_mission_short_id}%';" 2>/dev/null || echo "")
 fi
 
-# Backdate the mission past the 30-minute threshold. A blank mission has no
-# JSONL log yet, so missionIdleDuration falls back to created_at — that is the
-# clock to move. The busy timeout matters: the server holds this database open
-# and it is not in WAL mode, so a bare write can lose a race to SQLITE_BUSY.
-idle_backdated="no"
-if [ -n "${idle_mission_uuid}" ]; then
-    if sqlite3 -cmd ".timeout 5000" "${idle_db_filepath}" \
-        "UPDATE missions SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-40 minutes') WHERE id = '${idle_mission_uuid}';" 2>/dev/null; then
-        idle_backdated="yes"
-    fi
-fi
-
 # Can this environment report a Claude state at all? The wrapper serves its
 # state over a unix socket inside the mission directory, and macOS caps socket
 # paths at 104 bytes — which a deep checkout (an AgenC mission clone, for one)
@@ -3546,16 +3534,61 @@ fi
 # Until KEV-77 this probe piped `mission inspect` into `grep -q`, which made it
 # false in every environment (see text_matches), so both assertions below
 # skipped everywhere and the reaper's busy veto had no end-to-end coverage.
+#
+# The mission must be BUSY before it is backdated, never after (KEV-949). Once
+# backdated it is eligible for reaping, and the test environment scans every 10
+# seconds; a scan that lands before the wrapper reports busy reaps it legitimately
+# — the wrapper says idle, or nothing at all — and the probe then sees STOPPED
+# and skips as if this environment had no wrapper state. Two things open that
+# window: `mission new` returns before the wrapper's socket is listening, and
+# `mission send claude-update` exits 0 even when it reached no wrapper (it is a
+# hook, and a hook must never fail Claude), so a prompt sent too early is lost
+# without a trace. Hence the resend on every poll, and the backdate only after
+# BUSY is seen: until then the mission is minutes old and no scan can touch it.
 idle_state_observable="no"
 idle_probe_died="no"
-if [ -n "${idle_mission_uuid}" ] && [ "${idle_backdated}" = "yes" ]; then
-    "${agenc_test}" mission send claude-update "${idle_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
-    if await_mission_status "${idle_mission_uuid}" "BUSY"; then
-        idle_state_observable="yes"
-    elif [ "${last_command_exit}" -ne 0 ]; then
+if [ -n "${idle_mission_uuid}" ]; then
+    idle_probe_deadline=$((SECONDS + 20))
+    while [ "${SECONDS}" -lt "${idle_probe_deadline}" ]; do
+        "${agenc_test}" mission send claude-update "${idle_mission_uuid}" UserPromptSubmit >/dev/null 2>&1 || true
+        if command_output_matches "^Status:[[:space:]]+BUSY([[:space:]]|$)" \
+            "${agenc_test}" mission inspect "${idle_mission_uuid}"; then
+            idle_state_observable="yes"
+            break
+        fi
+        sleep 2
+    done
+    if [ "${idle_state_observable}" != "yes" ] && [ "${last_command_exit:-0}" -ne 0 ]; then
         idle_probe_died="yes"
     fi
 fi
+
+# Backdate the mission past the 30-minute threshold. A blank mission has no
+# JSONL log yet, so missionIdleDuration falls back to created_at — that is the
+# clock to move. The busy timeout matters: the server holds this database open
+# and it is not in WAL mode, so a bare write can lose a race to SQLITE_BUSY.
+idle_backdated="no"
+if [ "${idle_state_observable}" = "yes" ]; then
+    if sqlite3 -cmd ".timeout 5000" "${idle_db_filepath}" \
+        "UPDATE missions SET created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-40 minutes') WHERE id = '${idle_mission_uuid}';" 2>/dev/null; then
+        idle_backdated="yes"
+    else
+        idle_state_observable="no"
+    fi
+fi
+
+# What the server and the wrapper recorded about this mission. Printed under any
+# outcome other than a pass, so a failure or skip here diagnoses itself rather
+# than needing a re-run to reproduce: the server logs every reap with its
+# verdict, and the wrapper logs every claude_update it received.
+print_idle_mission_logs() {
+    local server_log_filepath="${repo_dirpath}/_test-env/server/server.log"
+    local wrapper_log_filepath="${repo_dirpath}/_test-env/missions/${idle_mission_uuid}/wrapper.log"
+    echo "    Server log for ${idle_mission_short_id:-none}:"
+    grep -F "${idle_mission_short_id:-none}" "${server_log_filepath}" 2>/dev/null | tail -5 | sed 's/^/      /' || true
+    echo "    Wrapper claude_update log:"
+    grep -F "claude_update" "${wrapper_log_filepath}" 2>/dev/null | tail -5 | sed 's/^/      /' || true
+}
 
 if [ "${idle_probe_died}" = "yes" ]; then
     for idle_unprobed in "idle timeout spares a busy mission" "idle timeout still reaps an idle mission"; do
@@ -3572,6 +3605,7 @@ elif [ "${idle_state_observable}" != "yes" ]; then
         printf "  %-50s " "${idle_uncoverable}..."
         record_skip "${SKIP_CLASS_NO_WRAPPER_STATE}" "no wrapper state in this environment: backdated=${idle_backdated}, mission=${idle_mission_short_id:-none}, saw '${idle_observed_status:-<no status line>}', wanted BUSY" "${idle_uncoverable}"
     done
+    print_idle_mission_logs
 else
     # One fixed wait, not a poll. A poll that finds BUSY immediately proves
     # nothing about what the loop would have done; the mission has to survive a
@@ -3590,6 +3624,7 @@ else
     else
         echo "FAIL (a mission reporting busy was stopped despite being past the idle threshold)"
         echo "    Last output: $("${agenc_test}" mission inspect "${idle_mission_uuid}" 2>&1 | grep -E "^Status:")"
+        print_idle_mission_logs
         failed=$((failed + 1))
     fi
 
